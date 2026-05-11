@@ -1,10 +1,10 @@
-:root{--font:"Manrope",sans-serif;--font-mono:"JetBrains Mono",monospace;--radius:14px;--radius-sm:8px;--radius-lg:20px;--shadow:0 2px 12px rgba(0,0,0,.08);--shadow-md:0 4px 24px rgba(0,0,0,.12);--transition:.18s cubic-bezier(.4,0,.2,1);--c-green:#1D9E75;--c-green-soft:#E1F5EE;--c-red:#D85A30;--c-red-soft:#FAECE7;--c-blue:#185FA5;--c-blue-soft:#E6F1FB;--c-purple:#7F77DD;--c-purple-soft:#EEEDFE;--c-amber:#EF9F27;--c-amber-soft:#FAEEDA;--c-pink:#D4537E;--c-pink-soft:#FBEAF0;}
+:root{--font:Manrope,sans-serif;--font-mono:"JetBrains Mono",monospace;--radius:14px;--radius-sm:8px;--radius-lg:20px;--shadow:0 2px 12px rgba(0,0,0,.08);--shadow-md:0 4px 24px rgba(0,0,0,.12);--transition:.18s cubic-bezier(.4,0,.2,1);--c-green:#1D9E75;--c-green-soft:#E1F5EE;--c-red:#D85A30;--c-red-soft:#FAECE7;--c-blue:#185FA5;--c-blue-soft:#E6F1FB;--c-purple:#7F77DD;--c-purple-soft:#EEEDFE;--c-amber:#EF9F27;--c-amber-soft:#FAEEDA;--c-pink:#D4537E;--c-pink-soft:#FBEAF0;}
 [data-theme=light]{--c-bg:#F5F7FA;--c-bg-2:#FFF;--c-bg-3:#EDEEF1;--c-sidebar:#FFF;--c-sidebar-active:#EEF4FF;--c-sidebar-border:#185FA5;--c-topbar:#FFF;--c-text:#1A1A2E;--c-text-2:#4B5563;--c-text-3:#9CA3AF;--c-border:#E5E7EB;--c-card:#FFF;--c-nav:#FFF;--c-accent:#185FA5;}
 [data-theme=dark]{--c-bg:#0F0F14;--c-bg-2:#1A1A24;--c-bg-3:#252530;--c-sidebar:#13131C;--c-sidebar-active:#1E2A40;--c-sidebar-border:#378ADD;--c-topbar:#13131C;--c-text:#F0F0F8;--c-text-2:#9CA3AF;--c-text-3:#4B5563;--c-border:#252530;--c-card:#1A1A24;--c-nav:#13131C;--c-accent:#378ADD;--c-green:#2EC68E;--c-green-soft:#0D3828;--c-red-soft:#3A1A10;--c-blue-soft:#1A2A40;--c-purple-soft:#1A1840;}
 [data-theme=sand]{--c-bg:#F7F3EC;--c-bg-2:#FDFAF5;--c-bg-3:#EDE7DB;--c-sidebar:#FDFAF5;--c-sidebar-active:#FEF3E2;--c-sidebar-border:#BA7517;--c-topbar:#FDFAF5;--c-text:#2C2416;--c-text-2:#7A6A50;--c-text-3:#B8A88A;--c-border:#E8DFD0;--c-card:#FDFAF5;--c-nav:#FDFAF5;--c-accent:#BA7517;--c-blue:#8B5E0A;--c-blue-soft:#FEF3E2;}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 html{font-size:16px;}
-body{font-family:var(--font);background:var(--c-bg);color:var(--c-text);min-height:100dvh;overflow:hidden;-webkit-font-smoothing:antialiased;}
+body{font-family:Manrope,sans-serif;background:var(--c-bg);color:var(--c-text);min-height:100dvh;overflow:hidden;-webkit-font-smoothing:antialiased;}
 a,button{cursor:pointer;text-decoration:none;color:inherit;border:none;background:none;}
 input,select{font-family:var(--font);color:var(--c-text);}input:focus,select:focus{outline:none;}
 .hidden{display:none!important;}
@@ -159,3 +159,22 @@ input,select{font-family:var(--font);color:var(--c-text);}input:focus,select:foc
 @keyframes fadeInUp{from{opacity:0;transform:translate(-50%,10px);}to{opacity:1;transform:translate(-50%,0);}}
 @media(max-width:768px){#sidebar{position:fixed;top:0;left:0;bottom:0;transform:translateX(-100%);}#sidebar.open{transform:translateX(0);box-shadow:var(--shadow-md);}#main-wrap{width:100%;}#bottom-nav{display:flex;}#fab{display:flex;}#menu-btn{display:flex;}.kpi-grid{grid-template-columns:1fr 1fr;}.kpi-grid .kpi-card:last-child{grid-column:1/-1;}.dash-grid,.analytics-grid{grid-template-columns:1fr;}.budget-row{flex-wrap:wrap;}.budget-chip{min-width:calc(50% - 5px);}.page-inner{padding:14px;}#topbar{padding:0 14px;}.goals-grid{grid-template-columns:1fr;}}
 @media(min-width:769px){#menu-btn{display:none;}.kpi-grid{grid-template-columns:repeat(3,1fr);}}
+/* Category tabs in settings */
+.cat-tabs{display:flex;gap:8px;margin-bottom:12px;}
+.cat-tab{flex:1;padding:9px;border-radius:var(--radius-sm);font-size:13px;font-weight:700;text-align:center;background:var(--c-bg-3);color:var(--c-text-2);border:1.5px solid var(--c-border);transition:var(--transition);cursor:pointer;}
+.cat-tab.active{background:var(--c-accent);color:#fff;border-color:var(--c-accent);}
+.cat-panel{display:none;}.cat-panel.active{display:block;}
+
+/* Calendar period bar */
+.cal-kpi-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;}
+.cal-kpi{background:var(--c-card);border:.5px solid var(--c-border);border-radius:var(--radius);padding:12px 14px;}
+.cal-kpi-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--c-text-2);margin-bottom:4px;}
+.cal-kpi-val{font-size:16px;font-weight:800;}
+.cal-kpi.inc .cal-kpi-val{color:var(--c-green);}
+.cal-kpi.exp .cal-kpi-val{color:var(--c-red);}
+.cal-kpi.bal .cal-kpi-val{color:var(--c-blue);}
+
+/* Calendar period picker */
+.cal-period-row{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;}
+.cal-period-btn{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;background:var(--c-bg-3);color:var(--c-text-2);border:.5px solid var(--c-border);transition:var(--transition);cursor:pointer;}
+.cal-period-btn.active{background:var(--c-accent);color:#fff;border-color:var(--c-accent);}
