@@ -203,6 +203,24 @@ function renderOperations(){
 }
 
 // ── RENDER CALENDAR ───────────────────────────────────────────────
+function getCalPeriodOps(){
+  const period=state.calPeriod||'month';
+  const now=state.calMonth;
+  let from,to;
+  if(period==='month'){from=new Date(now.getFullYear(),now.getMonth(),1);to=new Date(now.getFullYear(),now.getMonth()+1,0);}
+  else if(period==='3m'){from=new Date(now.getFullYear(),now.getMonth()-2,1);to=new Date(now.getFullYear(),now.getMonth()+1,0);}
+  else if(period==='6m'){from=new Date(now.getFullYear(),now.getMonth()-5,1);to=new Date(now.getFullYear(),now.getMonth()+1,0);}
+  else{from=new Date(now.getFullYear(),0,1);to=new Date(now.getFullYear(),11,31);}
+  return{ops:state.operations.filter(o=>{const d=new Date(o.date);return d>=from&&d<=to;}),from,to};
+}
+function updateCalKPI(){
+  const{ops}=getCalPeriodOps();
+  const inc=ops.filter(o=>o.type==="Дохід").reduce((s,o)=>s+(o.amountUah||o.amount),0);
+  const exp=ops.filter(o=>o.type==="Витрата").reduce((s,o)=>s+(o.amountUah||o.amount),0);
+  setText('cal-income',fmtMoney(inc,'UAH'));
+  setText('cal-expense',fmtMoney(exp,'UAH'));
+  setText('cal-balance',fmtMoney(inc-exp,'UAH'));
+}
 function renderCalendar(){
   const d=state.calMonth;
   const y=d.getFullYear(),m=d.getMonth();
@@ -224,6 +242,7 @@ function renderCalendar(){
     html+='<div class="cal-day'+(isToday?' today':'')+'" data-day="'+day+'"><div class="cal-day-num">'+day+'</div>'+(amt>0?'<div class="cal-day-amt">'+fmtMoney(amt,"UAH")+'</div>':'')+'</div>';
   }
   document.getElementById('cal-grid').innerHTML=html;
+  updateCalKPI();
   document.querySelectorAll('.cal-day[data-day]').forEach(el=>{
     el.addEventListener('click',()=>{
       document.querySelectorAll('.cal-day').forEach(x=>x.classList.remove('selected'));
