@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"><link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"><link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"><link href="https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"><link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.10.0/dist/tabler-icons.min.css">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -61,6 +61,7 @@
 <section id="page-settings" class="page"><div class="page-inner"><h2 class="page-title">Налаштування</h2>
 <div class="settings-section"><div class="settings-label">Тема</div><div class="theme-picker"><button class="theme-btn active" data-theme="light"><div class="tp tp-light"></div>Світла</button><button class="theme-btn" data-theme="dark"><div class="tp tp-dark"></div>Темна</button><button class="theme-btn" data-theme="sand"><div class="tp tp-sand"></div>Пісок</button></div></div>
 <div class="settings-section"><div class="settings-label">Масштаб</div><div class="scale-picker"><button class="scale-btn" data-scale="0.9">Маленький</button><button class="scale-btn active" data-scale="1.0">Середній</button><button class="scale-btn" data-scale="1.1">Великий</button></div></div>
+<div class="settings-section"><div class="settings-label">Шрифт</div><div class="font-picker"><button class="font-btn active" data-font="Manrope" style="font-family:Manrope,sans-serif">Manrope</button><button class="font-btn" data-font="Inter" style="font-family:Inter,sans-serif">Inter</button><button class="font-btn" data-font="Nunito" style="font-family:Nunito,sans-serif">Nunito</button><button class="font-btn" data-font="Roboto" style="font-family:Roboto,sans-serif">Roboto</button></div></div>
 <div class="settings-section"><div class="settings-label">Профіль</div><div class="settings-card"><div class="settings-row-item"><div class="profile-avatar-upload" id="profile-av-upload"><img id="profile-av-img" src="" style="display:none" class="profile-av-photo"><div class="profile-av-placeholder" id="profile-av-placeholder">ЄК</div><div class="profile-av-overlay"><i class="ti ti-camera"></i></div><input type="file" id="avatar-file-input" accept="image/*" style="display:none"></div><div class="sri-info" style="flex:1"><input class="settings-name-input" id="settings-name-input" value="Євген" placeholder="Ваше ім'я"><div class="sri-sub" id="settings-email">—</div></div><button class="btn-ghost-sm red" id="logout-btn">Вийти</button></div></div></div>
 <div class="settings-section"><div class="settings-label">Назва родини</div><div class="settings-card"><div class="settings-row-item"><div class="sri-icon"><i class="ti ti-home-heart"></i></div><input class="settings-name-input flex1" id="family-name-input" value="Родина Коваль" placeholder="Назва родини"><button class="btn-ghost-sm" id="save-family-btn">Зберегти</button></div></div></div>
 <div class="settings-section"><div class="settings-label">Google Sheets</div><div class="settings-card"><div class="settings-row-item"><div class="sri-icon green"><i class="ti ti-brand-google"></i></div><div class="sri-info"><div class="sri-name">Синхронізація</div><div class="sri-sub" id="sync-status">Перевірка...</div></div><button class="btn-ghost-sm" id="sync-now-btn">Sync</button></div><div class="settings-row-item"><div class="sri-icon"><i class="ti ti-link"></i></div><div class="sri-info"><div class="sri-name">URL скрипта</div><div class="sri-sub url-preview" id="script-url-preview">Не налаштовано</div></div><button class="btn-ghost-sm" id="set-url-btn">Змінити</button></div></div></div>
@@ -74,14 +75,21 @@
   <div class="cat-panel active" id="panel-expense">
     <div class="settings-card">
       <div class="cat-accordion" id="expense-cats-list"></div>
-      <div class="settings-row-item"><input class="settings-name-input flex1" id="new-expense-cat" placeholder="+ Нова категорія витрат"><button class="btn-ghost-sm" id="add-expense-cat"><i class="ti ti-plus"></i></button></div>
+      <div class="settings-row-item"><input class="settings-name-input flex1" id="new-expense-cat" placeholder="Назва категорії витрат"><button class="btn-ghost-sm" id="add-expense-cat"><i class="ti ti-plus"></i> Обрати іконку</button></div>
     </div>
   </div>
   <div class="cat-panel" id="panel-income">
     <div class="settings-card">
       <div class="cat-accordion" id="income-cats-list"></div>
-      <div class="settings-row-item"><input class="settings-name-input flex1" id="new-income-cat" placeholder="+ Нова категорія доходів"><button class="btn-ghost-sm" id="add-income-cat"><i class="ti ti-plus"></i></button></div>
+      <div class="settings-row-item"><input class="settings-name-input flex1" id="new-income-cat" placeholder="Назва категорії доходів"><button class="btn-ghost-sm" id="add-income-cat"><i class="ti ti-plus"></i> Обрати іконку</button></div>
     </div>
+  </div>
+</div>
+<div class="settings-section">
+  <div class="settings-label">Картки та рахунки</div>
+  <div class="settings-card">
+    <div class="cat-accordion" id="cards-list"></div>
+    <div class="settings-row-item"><input class="settings-name-input flex1" id="new-card" placeholder="Назва картки / рахунку"><button class="btn-ghost-sm" id="add-card"><i class="ti ti-plus"></i> Обрати іконку</button></div>
   </div>
 </div>
 </div></section>
