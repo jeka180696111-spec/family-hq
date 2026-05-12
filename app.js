@@ -64,7 +64,12 @@ function getTotalBalance(){
 }
 function getCat(id){return [...getExpCats(),...getIncCats()].find(c=>c.id===id)||{id,icon:'ti-dots',bg:'#F0F0F0',color:'#555'};}
 function getGoals(){try{const s=localStorage.getItem(APP_CONFIG.GOALS_KEY);return s?JSON.parse(s):[];}catch{return[];}}
-function saveGoals(g){localStorage.setItem(APP_CONFIG.GOALS_KEY,JSON.stringify(g));}
+function saveGoals(g){
+  localStorage.setItem(APP_CONFIG.GOALS_KEY,JSON.stringify(g));
+  state.goals=g;
+  // Синкуємо в Sheet
+  if(state.scriptUrl)apiPost({action:'updateGoals',goals:g}).catch(e=>console.warn('Goals sync:',e));
+}
 function fmtMoney(n,cur){if(n===undefined||n===null||isNaN(n))return'—';const sym=CUR_SYMBOLS[cur]||cur;const fmt=Math.abs(Math.round(n)).toLocaleString('uk-UA');return cur==='UAH'?fmt+' '+sym:sym+fmt;}
 function fmtDate(s){if(!s)return'';const d=new Date(s);if(isNaN(d))return s;const t=new Date();const y=new Date(t);y.setDate(t.getDate()-1);if(d.toDateString()===t.toDateString())return'сьогодні '+d.toLocaleTimeString('uk-UA',{hour:'2-digit',minute:'2-digit'});if(d.toDateString()===y.toDateString())return'вчора '+d.toLocaleTimeString('uk-UA',{hour:'2-digit',minute:'2-digit'});return d.getDate()+' '+MONTH_UK[d.getMonth()].toLowerCase().slice(0,3)+' '+d.toLocaleTimeString('uk-UA',{hour:'2-digit',minute:'2-digit'});}
 function fmtMonth(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
@@ -191,7 +196,14 @@ function loadPageData(page){
   else if(page==='calendar')renderCalendar();
   else if(page==='analytics'){if(state.dashboard)renderAnalytics();}
   else if(page==='reserve'){if(state.reserve)renderReserve(state.reserve);}
-  else if(page==='goals')renderGoals(getGoals());
+  else if(page==='goals'){
+    // Спочатку показуємо локальні
+    const localGoals=getGoals();
+    if(localGoals.length)renderGoals(localGoals);
+    // Потім тягнемо з Sheet
+    if(state.scriptUrl)fetchGoals();
+    else renderDemoData('goals');
+  }
   else if(page==='settings')renderSettingsUI();
   // Тягнемо з сервера
   if(!state.scriptUrl){renderDemoData(page);return;}
@@ -218,6 +230,17 @@ async function fetchDashboard(){try{const d=await apiGet('dashboard');if(d&&!d.e
 async function fetchTransfers(){try{const d=await apiGet('transfers');if(d){state.transfers=d.transfers||[];}}catch(e){console.warn('fetchTransfers:',e);}}
 async function fetchOperations(){try{const d=await apiGet('operations',{month:fmtMonth(state.currentMonth)});if(d&&d.operations){state.operations=d.operations;renderOperations();renderCalendar();renderMemberColumns();}}catch(e){console.warn('fetchOperations:',e);}}
 async function fetchReserve(){try{const d=await apiGet('reserve');if(d&&!d.error){state.reserve=d;renderReserve(d);}}catch(e){console.warn('fetchReserve:',e);}}
+async function fetchGoals(){
+  try{
+    const d=await apiGet('goals');
+    if(d&&d.goals&&d.goals.length){
+      // Зберігаємо в localStorage і показуємо
+      localStorage.setItem(APP_CONFIG.GOALS_KEY,JSON.stringify(d.goals));
+      state.goals=d.goals;
+      renderGoals(d.goals);
+    }
+  }catch(e){console.warn('fetchGoals:',e);}
+}
 async function loadFx(){try{const d=state.scriptUrl?await apiGet('fx'):null;if(d){state.fx=d;setText('fx-usd',d.USD?.mid?.toFixed(2)+' ₴');setText('fx-eur',d.EUR?.mid?.toFixed(2)+' ₴');}}catch(e){}}
 
 // ── RENDER DASHBOARD ─────────────────────────────────────────────
@@ -541,7 +564,7 @@ function renderGoals(goals){
   if(!goals.length){el.innerHTML='<div style="padding:20px;color:var(--c-text-3);font-size:14px">Цілей немає. Додай першу ціль!</div>';return;}
   el.innerHTML=goals.map((g,i)=>{
     const pct=g.target>0?Math.min(Math.round(g.saved/g.target*100),100):0;
-    return '<div class="goal-card"><div class="goal-card-head"><div class="goal-icon" style="background:var(--c-blue-soft)"><i class="ti ti-target" style="color:var(--c-blue)"></i></div><div style="flex:1"><div class="goal-name">'+esc(g.name)+'</div><div class="goal-budget">'+esc(g.budget||'Сімейний')+'</div></div><div class="goal-pct">'+pct+'%</div></div><div class="goal-progress-wrap"><div class="goal-progress-fill" style="width:'+pct+'%"></div></div><div class="goal-footer"><span class="goal-saved">'+fmtMoney(g.saved,'UAH')+'</span><span class="goal-remaining">з '+fmtMoney(g.target,'UAH')+'</span></div><div class="goal-actions"><button class="goal-action-btn goal-transfer-btn" data-idx="'+i+'">⇄ Переказ</button><button class="goal-action-btn goal-delete-btn" data-del="'+i+'">✕ Видалити</button></div></div>';
+    return '<div class="goal-card"><div class="goal-card-head"><div class="goal-icon" style="background:var(--c-blue-soft)"><i class="ti ti-target" style="color:var(--c-blue)"></i></div><div style="flex:1"><div class="goal-name">'+esc(g.displayName||g.name)+'</div><div class="goal-budget">'+esc(g.budget||'Сімейний')+'</div></div><div class="goal-pct">'+pct+'%</div></div><div class="goal-progress-wrap"><div class="goal-progress-fill" style="width:'+pct+'%"></div></div><div class="goal-footer"><span class="goal-saved">'+fmtMoney(g.saved,'UAH')+'</span><span class="goal-remaining">з '+fmtMoney(g.target,'UAH')+'</span></div><div class="goal-actions"><button class="goal-action-btn goal-transfer-btn" data-idx="'+i+'">⇄ Переказ</button><button class="goal-action-btn goal-delete-btn" data-del="'+i+'">✕ Видалити</button></div></div>';
   }).join('');
   document.querySelectorAll('.goal-transfer-btn').forEach(b=>{
     b.addEventListener('click',()=>openTransferModal(parseInt(b.dataset.idx)));
@@ -549,7 +572,8 @@ function renderGoals(goals){
   document.querySelectorAll('.goal-delete-btn').forEach(b=>{
     b.addEventListener('click',()=>{
       if(!confirm('Видалити ціль?'))return;
-      const g=getGoals();g.splice(parseInt(b.dataset.del),1);saveGoals(g);renderGoals(g);showToast('Ціль видалено');
+      const g=getGoals();const delIdx=parseInt(b.dataset.del);const delGoal=g[delIdx];g.splice(delIdx,1);saveGoals(g);renderGoals(g);showToast('Ціль видалено');
+      if(state.scriptUrl&&delGoal?.row)apiPost({action:'deleteGoal',row:delGoal.row}).catch(()=>{});
     });
   });
 }
@@ -837,9 +861,13 @@ function submitGoal(){
   const target=parseFloat(document.getElementById('goal-target-input').value);
   if(!name||!target){showToast('Вкажи назву і суму','error');return;}
   const g=getGoals();
-  const goal={name,target,saved:parseFloat(document.getElementById('goal-saved-input').value)||0,budget:document.getElementById('goal-budget-input').value||'Сімейний'};
-  if(state.editingGoalIdx>=0)g[state.editingGoalIdx]=goal;else g.push(goal);
+  const deadline=document.getElementById('goal-deadline-input')?.value||null;
+  const goal={name,displayName:name,target,saved:parseFloat(document.getElementById('goal-saved-input').value)||0,budget:document.getElementById('goal-budget-input')?.value||'Сімейний',deadline};
+  const isNew=state.editingGoalIdx<0;
+  if(!isNew)g[state.editingGoalIdx]=goal;else g.push(goal);
   saveGoals(g);closeModal();renderGoals(g);showToast('✅ Збережено!');
+  // Додаємо в Sheet якщо нова
+  if(isNew&&state.scriptUrl){apiPost({action:'addGoal',...goal}).catch(e=>console.warn('Add goal:',e));}
 }
 
 // Transfer modal
@@ -962,13 +990,20 @@ async function fullSync(silent=true){
   if(!silent)showSyncStatus('syncing');
   try{
     // Паралельно тягнемо все
-    const [dash, ops, settings] = await Promise.all([
+    const [dash, ops, settings, goalsData] = await Promise.all([
       apiGet('dashboard').catch(()=>null),
       apiGet('operations',{month:fmtMonth(state.currentMonth)}).catch(()=>null),
       apiGet('settings').catch(()=>null),
+      apiGet('goals').catch(()=>null),
     ]);
     // Очищаємо демо-дані якщо прийшли реальні
     if(ops?.operations) state.operations=state.operations.filter(o=>!o._demo);
+    // Цілі
+    if(goalsData?.goals?.length){
+      localStorage.setItem(APP_CONFIG.GOALS_KEY,JSON.stringify(goalsData.goals));
+      state.goals=goalsData.goals;
+      if(state.currentPage==='goals')renderGoals(goalsData.goals);
+    }
 
     // Застосовуємо дані
     if(dash){ state.dashboard=dash; renderDashboard(dash); }
