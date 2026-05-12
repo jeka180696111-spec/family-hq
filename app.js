@@ -217,20 +217,26 @@ function loadPageData(page){
 async function apiGet(action,params={}){
   if(!state.scriptUrl)return null;
   const url=new URL(state.scriptUrl);
-  url.searchParams.set('action',action);url.searchParams.set('token',state.token||'');
+  url.searchParams.set('action',action);
+  url.searchParams.set('token',state.token||'');
+  url.searchParams.set('tokenType','access');  // tell Apps Script this is access_token
   Object.entries(params).forEach(([k,v])=>url.searchParams.set(k,v));
-  const r=await fetch(url.toString());if(!r.ok)throw new Error('API '+r.status);return r.json();
+  const r=await fetch(url.toString(),{redirect:'follow'});
+  if(!r.ok)throw new Error('API '+r.status);
+  const text=await r.text();
+  try{return JSON.parse(text);}catch{throw new Error('Bad JSON: '+text.substring(0,100));}
 }
 async function apiPost(body){
   if(!state.scriptUrl)return null;
-  // Tunnel POST through GET to avoid CORS preflight on Apps Script
+  // Tunnel through GET to avoid CORS preflight
   const url=new URL(state.scriptUrl);
   url.searchParams.set('method','POST');
   url.searchParams.set('token',state.token||'');
   url.searchParams.set('payload',JSON.stringify(body));
   const r=await fetch(url.toString(),{redirect:'follow'});
   if(!r.ok)throw new Error('API '+r.status);
-  return r.json();
+  const text=await r.text();
+  try{return JSON.parse(text);}catch{throw new Error('Bad JSON: '+text.substring(0,100));}
 }
 async function fetchDashboard(){try{const d=await apiGet('dashboard');if(d&&!d.error){state.dashboard=d;renderDashboard(d);renderMemberColumns();}}catch(e){console.warn('fetchDashboard:',e);}}
 async function fetchTransfers(){try{const d=await apiGet('transfers');if(d){state.transfers=d.transfers||[];}}catch(e){console.warn('fetchTransfers:',e);}}
