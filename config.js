@@ -1,0 +1,17 @@
+// ═══════════════════════════════
+// CONFIG — APP_CONFIG, state, constants
+// ═══════════════════════════════
+'use strict';
+const APP_CONFIG={GOOGLE_CLIENT_ID:'650414957833-s37phqum36bfomv5sr5n2cm4tau55ng5.apps.googleusercontent.com',SCRIPT_URL:'https://script.google.com/macros/s/AKfycbxVU7QVsVZYyOqwIN9vpB6ielpHhhP7EYl07xcZrdXb5vnohbzB/exec',SCRIPT_URL_KEY:'budget_script_url',TOKEN_KEY:'budget_google_token',USER_KEY:'budget_user',THEME_KEY:'budget_theme',FONT_KEY:'budget_font',AVATAR_KEY:'budget_avatar',USERNAME_KEY:'budget_username',FAMILY_KEY:'budget_family',GOALS_KEY:'budget_goals',EXP_CATS_KEY:'budget_exp_cats',INC_CATS_KEY:'budget_inc_cats',CARDS_KEY:'budget_cards',MONO_EVGEN_KEY:'budget_mono_evgen',MONO_MARINA_KEY:'budget_mono_marina',PROFILES_KEY:'budget_profiles',LAST_SYNC_KEY:'budget_last_sync',TRANSFERS_KEY:'budget_transfers'};
+const ICON_LIST=['ti-shopping-cart','ti-car','ti-home','ti-tools-kitchen-2','ti-heart','ti-shirt','ti-device-gamepad-2','ti-sofa','ti-baby-carriage','ti-dots','ti-briefcase','ti-coin','ti-plane','ti-book','ti-coffee','ti-paw','ti-phone','ti-gift','ti-bike','ti-pill','ti-school','ti-sport-billard','ti-music','ti-bus','ti-credit-card','ti-cash','ti-building-bank','ti-star','ti-pizza','ti-salad','ti-droplet','ti-bolt','ti-wifi','ti-device-laptop','ti-tools','ti-shirt-sport','ti-garden-cart','ti-vaccine','ti-receipt'];
+const state={user:null,token:null,scriptUrl:'',currentPage:'dashboard',currentMonth:new Date(),calMonth:new Date(),currentType:'Витрата',currentCurrency:'UAH',reserveType:'Поповнення',reserveCurrency:'UAH',selectedCat:'',selectedCard:'',modalMember:null,dashboard:null,reserve:null,operations:[],goals:[],transfers:[],fx:null,filterActive:'all',editingGoalIdx:-1,activeAccountId:null,editingOp:null};
+const CURRENCIES=['UAH','USD','EUR'],CUR_SYMBOLS={UAH:'₴',USD:'$',EUR:'€'};
+const MONTH_UK=['Січень','Лютий','Березень','Квітень','Травень','Червень','Липень','Серпень','Вересень','Жовтень','Листопад','Грудень'];
+const DEFAULT_EXP_CATS=[{id:'Продукти',icon:'ti-shopping-cart',bg:'#E1F5EE',color:'#085041'},{id:'Транспорт',icon:'ti-car',bg:'#FAECE7',color:'#712B13'},{id:'Комунальні',icon:'ti-home',bg:'#E6F1FB',color:'#0C447C'},{id:'Ресторани',icon:'ti-tools-kitchen-2',bg:'#FEF3E2',color:'#633806'},{id:"Здоров'я",icon:'ti-heart',bg:'#FBEAF0',color:'#72243E'},{id:'Одяг',icon:'ti-shirt',bg:'#EEEDFE',color:'#3C3489'},{id:'Розваги',icon:'ti-device-gamepad-2',bg:'#F0F4FF',color:'#2D4AB7'},{id:'Дім',icon:'ti-sofa',bg:'#E6F1FB',color:'#0C447C'},{id:'Дитячі',icon:'ti-baby-carriage',bg:'#FBEAF0',color:'#72243E'},{id:'Інше',icon:'ti-dots',bg:'#F0F0F0',color:'#555'}];
+const DEFAULT_INC_CATS=[{id:'Зарплата',icon:'ti-briefcase',bg:'#EAF3DE',color:'#27500A'},{id:'Підробіток',icon:'ti-coin',bg:'#FEF3E2',color:'#633806'},{id:'Інше',icon:'ti-dots',bg:'#F0F0F0',color:'#555'}];
+const DEFAULT_CARDS=[{id:'Готівка',icon:'ti-cash',bg:'#EAF3DE',color:'#27500A'},{id:'Моно чорна',icon:'ti-credit-card',bg:'#1a1a2e',color:'#fff'},{id:'ПУМБ',icon:'ti-credit-card',bg:'#E6F1FB',color:'#0C447C'},{id:'Приват',icon:'ti-credit-card',bg:'#FBEAF0',color:'#72243E'},{id:'Кредитна',icon:'ti-credit-card',bg:'#FAEEDA',color:'#633806'}];
+// Два члени сім'ї — константа для дашборду і операцій
+const FAMILY_MEMBERS=['Євген','Марина'];
+// Кольори членів
+const MEMBER_COLORS={Євген:{bg:'var(--c-blue-soft)',cl:'var(--c-blue)',initials:'ЄК'},Марина:{bg:'var(--c-pink-soft)',cl:'var(--c-pink)',initials:'МК'}};
+// ── HELPERS ──────────────────────────────────────────────────────
