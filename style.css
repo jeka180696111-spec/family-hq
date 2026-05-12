@@ -177,4 +177,6 @@ input,select{font-family:var(--font);color:var(--c-text);}input:focus,select:foc
 /* Calendar period picker */
 .cal-period-row{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;}
 .cal-period-btn{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;background:var(--c-bg-3);color:var(--c-text-2);border:.5px solid var(--c-border);transition:var(--transition);cursor:pointer;}
-.cal-period-btn.active{background:var(--c-accent);color:#fff;border-color:var(--c-accent);}
+.font-picker{display:flex;gap:8px;flex-wrap:wrap;}
+.font-btn{flex:1;min-width:80px;padding:10px;border-radius:var(--radius-sm);background:var(--c-card);border:1.5px solid var(--c-border);font-size:13px;font-weight:600;color:var(--c-text-2);transition:var(--transition);cursor:pointer;}
+.font-btn.active{border-color:var(--c-accent);color:var(--c-accent);background:var(--c-bg-3);}
