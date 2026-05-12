@@ -117,13 +117,5 @@
 <div id="modal-goal" class="modal hidden"><div class="modal-handle"></div><div class="modal-head"><div class="modal-title" id="goal-modal-title">Нова ціль</div></div><input type="text" id="goal-name-input" class="desc-input" placeholder="Назва цілі"><div class="amount-wrap"><span class="amount-cur-sym">₴</span><input type="number" id="goal-target-input" class="amount-input" placeholder="Сума цілі" inputmode="decimal"></div><input type="number" id="goal-saved-input" class="desc-input" placeholder="Вже накопичено (0)"><input type="text" id="goal-budget-input" class="desc-input" placeholder="Бюджет (Сімейний)"><div class="modal-footer"><button class="save-btn" id="goal-save-btn">Зберегти ціль</button></div></div>
 <div id="modal-transfer" class="modal hidden"><div class="modal-handle"></div><div class="modal-head"><div class="modal-title">Переказ між цілями</div></div><div class="settings-card" style="margin-bottom:14px"><div class="settings-row-item"><div class="sri-info"><div class="sri-name">З цілі</div><select class="settings-select" id="transfer-from"></select></div></div><div class="settings-row-item"><div class="sri-info"><div class="sri-name">До цілі</div><select class="settings-select" id="transfer-to"></select></div></div></div><div class="amount-wrap"><span class="amount-cur-sym">₴</span><input type="number" id="transfer-amount" class="amount-input" placeholder="Сума" inputmode="decimal"></div><div class="modal-footer"><button class="save-btn" id="transfer-save-btn">Перекласти</button></div></div>
 <button id="fab" aria-label="Додати"><i class="ti ti-plus"></i></button>
-<!-- App modules — порядок важливий -->
-<script src="js/config.js"></script>
-<script src="js/storage.js"></script>
-<script src="js/api.js"></script>
-<script src="js/render.js"></script>
-<script src="js/settings.js"></script>
-<script src="js/modals.js"></script>
-<script src="js/init.js"></script>
-<script src="js/events.js"></script>
+<script src="app.js"></script>
 </body></html>
