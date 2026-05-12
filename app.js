@@ -3,7 +3,7 @@
 // CONFIG — APP_CONFIG, state, constants
 // ═══════════════════════════════
 'use strict';
-const APP_CONFIG={GOOGLE_CLIENT_ID:'650414957833-s37phqum36bfomv5sr5n2cm4tau55ng5.apps.googleusercontent.com',SCRIPT_URL:'https://script.google.com/macros/s/AKfycbxVU7QVsVZYyOqwIN9vpB6ielpHhhP7EYl07xcZrdXb5vnohbzB/exec',SCRIPT_URL_KEY:'budget_script_url',TOKEN_KEY:'budget_google_token',USER_KEY:'budget_user',THEME_KEY:'budget_theme',FONT_KEY:'budget_font',AVATAR_KEY:'budget_avatar',USERNAME_KEY:'budget_username',FAMILY_KEY:'budget_family',GOALS_KEY:'budget_goals',EXP_CATS_KEY:'budget_exp_cats',INC_CATS_KEY:'budget_inc_cats',CARDS_KEY:'budget_cards',MONO_EVGEN_KEY:'budget_mono_evgen',MONO_MARINA_KEY:'budget_mono_marina',PROFILES_KEY:'budget_profiles',LAST_SYNC_KEY:'budget_last_sync',TRANSFERS_KEY:'budget_transfers'};
+const APP_CONFIG={GOOGLE_CLIENT_ID:'650414957833-s37phqum36bfomv5sr5n2cm4tau55ng5.apps.googleusercontent.com',SCRIPT_URL:'https://script.google.com/macros/s/AKfycbwlZdxmHbaCVEJ5XmvA3oLEOHgGAPHzoGgXmB4OKgSmbhbH1whzid4YHNKvLMQiaczbbA/exec',SCRIPT_URL_KEY:'budget_script_url',TOKEN_KEY:'budget_google_token',USER_KEY:'budget_user',THEME_KEY:'budget_theme',FONT_KEY:'budget_font',AVATAR_KEY:'budget_avatar',USERNAME_KEY:'budget_username',FAMILY_KEY:'budget_family',GOALS_KEY:'budget_goals',EXP_CATS_KEY:'budget_exp_cats',INC_CATS_KEY:'budget_inc_cats',CARDS_KEY:'budget_cards',MONO_EVGEN_KEY:'budget_mono_evgen',MONO_MARINA_KEY:'budget_mono_marina',PROFILES_KEY:'budget_profiles',LAST_SYNC_KEY:'budget_last_sync',TRANSFERS_KEY:'budget_transfers',SECRET_KEY:'budget2026koval'};
 const ICON_LIST=['ti-shopping-cart','ti-car','ti-home','ti-tools-kitchen-2','ti-heart','ti-shirt','ti-device-gamepad-2','ti-sofa','ti-baby-carriage','ti-dots','ti-briefcase','ti-coin','ti-plane','ti-book','ti-coffee','ti-paw','ti-phone','ti-gift','ti-bike','ti-pill','ti-school','ti-sport-billard','ti-music','ti-bus','ti-credit-card','ti-cash','ti-building-bank','ti-star','ti-pizza','ti-salad','ti-droplet','ti-bolt','ti-wifi','ti-device-laptop','ti-tools','ti-shirt-sport','ti-garden-cart','ti-vaccine','ti-receipt'];
 const state={user:null,token:null,scriptUrl:'',currentPage:'dashboard',currentMonth:new Date(),calMonth:new Date(),currentType:'Витрата',currentCurrency:'UAH',reserveType:'Поповнення',reserveCurrency:'UAH',selectedCat:'',selectedCard:'',modalMember:null,dashboard:null,reserve:null,operations:[],goals:[],transfers:[],fx:null,filterActive:'all',editingGoalIdx:-1,activeAccountId:null,editingOp:null};
 const CURRENCIES=['UAH','USD','EUR'],CUR_SYMBOLS={UAH:'₴',USD:'$',EUR:'€'};
@@ -97,14 +97,22 @@ function showToast(msg,type='success'){const t=document.createElement('div');t.s
 async function apiGet(action,params={}){
   if(!state.scriptUrl)return null;
   const url=new URL(state.scriptUrl);
-  url.searchParams.set('action',action);url.searchParams.set('token',state.token||'');
+  url.searchParams.set('action',action);url.searchParams.set('key',APP_CONFIG.SECRET_KEY);
+  url.searchParams.set('token',state.token||'');
   Object.entries(params).forEach(([k,v])=>url.searchParams.set(k,v));
   const r=await fetch(url.toString());if(!r.ok)throw new Error('API '+r.status);return r.json();
 }
 async function apiPost(body){
   if(!state.scriptUrl)return null;
-  const r=await fetch(state.scriptUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,token:state.token})});
-  if(!r.ok)throw new Error('API '+r.status);return r.json();
+  // GET tunnel — Apps Script не підтримує CORS preflight на POST
+  const url=new URL(state.scriptUrl);
+  url.searchParams.set('method','POST');
+  url.searchParams.set('key',APP_CONFIG.SECRET_KEY);
+  url.searchParams.set('payload',JSON.stringify(body));
+  const r=await fetch(url.toString(),{redirect:'follow'});
+  if(!r.ok)throw new Error('API '+r.status);
+  const text=await r.text();
+  try{return JSON.parse(text);}catch{return null;}
 }
 async function fetchDashboard(){try{const d=await apiGet('dashboard');if(d&&!d.error){state.dashboard=d;renderDashboard(d);renderMemberColumns();}}catch(e){console.warn('fetchDashboard:',e);}}
 async function fetchTransfers(){try{const d=await apiGet('transfers');if(d){state.transfers=d.transfers||[];}}catch(e){console.warn('fetchTransfers:',e);}}
@@ -1307,7 +1315,7 @@ function bindEvents(){
   document.getElementById('add-btn-dash').addEventListener('click',()=>openModal());
   const aob=document.getElementById('add-btn-ops');if(aob)aob.addEventListener('click',()=>openModal());
   document.getElementById('add-reserve-btn').addEventListener('click',openReserveModal);
-  document.getElementById('add-goal-btn').addEventListener('click',()=>openGoalModal());
+  const _agb=document.getElementById('add-goal-btn');if(_agb)_agb.addEventListener('click',()=>openGoalModal());
   document.getElementById('modal-overlay').addEventListener('click',closeModal);
   // Type toggles
   document.getElementById('tt-expense').addEventListener('click',()=>setType('Витрата'));
@@ -1328,8 +1336,8 @@ function bindEvents(){
     });
   });
   document.getElementById('res-save-btn').addEventListener('click',submitReserve);
-  document.getElementById('goal-save-btn').addEventListener('click',submitGoal);
-  document.getElementById('transfer-save-btn').addEventListener('click',submitTransfer);
+  const _gsb=document.getElementById('goal-save-btn');if(_gsb)_gsb.addEventListener('click',submitGoal);
+  const _tsb=document.getElementById('transfer-save-btn');if(_tsb)_tsb.addEventListener('click',submitTransfer);
   // Theme & scale
   document.querySelectorAll('.theme-btn').forEach(b=>b.addEventListener('click',()=>applyTheme(b.dataset.theme)));
   document.querySelectorAll('.scale-btn').forEach(b=>b.addEventListener('click',()=>applyScale(b.dataset.scale)));
