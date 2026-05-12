@@ -246,3 +246,15 @@ input,select{font-family:var(--font);color:var(--c-text);}input:focus,select:foc
 #fab-menu .fab-menu-item{cursor:pointer;}
 #fab-menu .fab-menu-item > div:last-child{transition:transform .15s;}
 #fab-menu .fab-menu-item:hover > div:last-child{transform:scale(1.08);}
+
+/* ── Card groups in settings ─────────────────────────────────── */
+.cards-group-label{
+  display:flex;align-items:center;gap:8px;
+  padding:10px 16px 6px;
+  font-size:11px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.05em;color:var(--c-text-3);
+  border-top:.5px solid var(--c-border);
+  margin-top:4px;
+}
+.cards-group-label:first-child{border-top:none;margin-top:0;}
+.cards-group-label i{font-size:14px;}
