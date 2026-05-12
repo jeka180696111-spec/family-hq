@@ -922,7 +922,7 @@ async function submitOperation(){
   if(!state.selectedCat){showToast('Вибери категорію','error');return;}
   const dtVal=document.getElementById('datetime-input').value;
   const dt=dtVal?new Date(dtVal).toISOString():new Date().toISOString();
-  const btn=document.getElementById('save-btn');btn.disabled=true;btn.textContent='Збереження...';
+  btn.disabled=true;btn.textContent='Збереження...';
   try{
     if(!state.selectedCard){showToast('Вибери рахунок','error');btn.disabled=false;updateModalType();return;}
     const whoName=state.modalMember||getMyMember();
