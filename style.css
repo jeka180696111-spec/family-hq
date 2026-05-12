@@ -246,26 +246,3 @@ input,select{font-family:var(--font);color:var(--c-text);}input:focus,select:foc
 #fab-menu .fab-menu-item{cursor:pointer;}
 #fab-menu .fab-menu-item > div:last-child{transition:transform .15s;}
 #fab-menu .fab-menu-item:hover > div:last-child{transform:scale(1.08);}
-
-/* ── Member col collapse ──────────────────────────────────────── */
-.member-col-chevron{font-size:16px;color:var(--c-text-3);transition:transform var(--transition);margin-left:auto;flex-shrink:0;}
-.member-col.collapsed .member-col-chevron{transform:rotate(-90deg);}
-.member-col.collapsed .member-cards-wrap{display:none;}
-.member-cards-wrap{display:flex;flex-direction:column;gap:6px;padding-top:8px;}
-.member-col-head{cursor:pointer;display:flex;align-items:center;gap:10px;}
-
-/* ── Savings section in member col ──────────────────────────────── */
-.member-savings-section{margin-top:8px;padding-top:8px;border-top:0.5px solid var(--c-border);}
-.member-savings-label{font-size:11px;font-weight:700;color:var(--c-green);display:flex;align-items:center;gap:5px;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em;}
-
-/* ── Calendar editable tx ────────────────────────────────────────── */
-.tx-editable{position:relative;}
-.tx-editable:hover{background:var(--c-bg-3);border-radius:var(--radius-sm);}
-.tx-edit-hint{flex-shrink:0;opacity:0;transition:opacity var(--transition);}
-.tx-editable:hover .tx-edit-hint{opacity:1;}
-.tx-editable:active{transform:scale(.98);}
-
-/* ── Savings cards on reserve page ──────────────────────────────── */
-#savings-cards-list{display:flex;flex-direction:column;gap:8px;}
-.savings-card-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:0.5px solid var(--c-border);}
-.savings-card-row:last-child{border-bottom:none;}
