@@ -203,7 +203,7 @@ function navigateTo(page){
   if(el)el.classList.add('active');
   document.querySelectorAll('[data-page="'+page+'"]').forEach(e=>e.classList.add('active'));
   state.currentPage=page;
-  const titles={dashboard:'Дашборд',operations:'Операції',calendar:'Календар',analytics:'Аналіз',reserve:'Резерв',goals:'Цілі',settings:'Налаштування'};
+  const titles={dashboard:'Дашборд',operations:'Операції',calendar:'Календар',analytics:'Аналіз',reserve:'Накопичення',settings:'Налаштування'};
   setText('topbar-title',titles[page]||page);
   loadPageData(page);closeSidebar();
 }
@@ -287,38 +287,57 @@ function renderMemberColumns(){
     const mc=MEMBER_COLORS[member]||{bg:'var(--c-bg-3)',cl:'var(--c-text)',initials:'??'};
     const prof=profiles[member]||{name:member,avatar:null};
     const cards=getCards(member);
-    // Баланс по картках — з операцій і з dashboardbyMember
     const memberData=byMember[member]||{income:0,expense:0,byCard:{}};
-    const totalBal=memberData.income-memberData.expense;
-    const cardsHtml=cards.map(c=>{
-      const cardData=memberData.byCard?.[c.id]||{income:0,expense:0};
-      const bal=cardData.income-cardData.expense;
-      // Локальний баланс з state.operations
-      const localBal=state.operations.filter(o=>o.who===member&&o.card===c.id).reduce((s,o)=>{if(o.type==='Дохід')return s+(o.amountUah||o.amount);if(o.type==='Витрата')return s-(o.amountUah||o.amount);return s;},0);
-      const displayBal=state.operations.length?localBal:bal;
-      return `<div class="member-card-chip" data-member="${esc(member)}" data-account="${esc(c.id)}">
-        <div class="mcc-icon" style="background:${c.bg}"><i class="ti ${c.icon}" style="color:${c.color}"></i></div>
-        <div class="mcc-info">
-          <div class="mcc-name">${esc(c.id)}</div>
-          <div class="mcc-bal ${displayBal>=0?'pos':'neg'}">${fmtMoney(Math.abs(displayBal),'UAH')}</div>
-        </div>
-      </div>`;
-    }).join('');
-    const displayBal=state.operations.length?state.operations.filter(o=>o.who===member).reduce((s,o)=>{if(o.type==='Дохід')return s+(o.amountUah||o.amount);if(o.type==='Витрата')return s-(o.amountUah||o.amount);return s;},0):totalBal;
+    const getCardBal=(c)=>{
+      const local=state.operations.filter(o=>o.who===member&&o.card===c.id).reduce((s,o)=>{
+        if(o.type==='Дохід')return s+(o.amountUah||o.amount);
+        if(o.type==='Витрата')return s-(o.amountUah||o.amount);
+        return s;
+      },0);
+      const cd=memberData.byCard?.[c.id]||{income:0,expense:0};
+      return state.operations.length?local:(cd.income-cd.expense);
+    };
+    const totalBal=state.operations.length
+      ?state.operations.filter(o=>o.who===member).reduce((s,o)=>{if(o.type==='Дохід')return s+(o.amountUah||o.amount);if(o.type==='Витрата')return s-(o.amountUah||o.amount);return s;},0)
+      :(memberData.income-memberData.expense);
     const avatarHtml=prof.avatar
-      ?`<img src="${prof.avatar}" class="member-col-av-img">`
-      :`<div class="member-col-av" style="background:${mc.bg};color:${mc.cl}">${mc.initials}</div>`;
-    return `<div class="member-col">
-      <div class="member-col-head">
-        <div class="member-col-av-wrap">${avatarHtml}</div>
-        <div class="member-col-name">${esc(prof.name||member)}</div>
-        <div class="member-col-total ${displayBal>=0?'pos':'neg'}">${fmtMoney(Math.abs(displayBal),'UAH')}</div>
-      </div>
-      <div class="member-cards">${cardsHtml}</div>
-    </div>`;
+      ?'<img src="'+prof.avatar+'" class="member-col-av-img">'
+      :'<div class="member-col-av" style="background:'+mc.bg+';color:'+mc.cl+'">'+mc.initials+'</div>';
+    // Cards grouped
+    const GROUPS=[{id:'cards',label:'Картки',icon:'ti-credit-card'},{id:'cash',label:'Готівка',icon:'ti-cash'},{id:'credit',label:'Кредитні',icon:'ti-credit-card-refund'},{id:'savings',label:'Заощадження',icon:'ti-piggy-bank'}];
+    let cardsHtml='';
+    GROUPS.forEach(g=>{
+      const gc=cards.filter(c=>(c.group||'cards')===g.id);
+      if(!gc.length)return;
+      cardsHtml+='<div class="member-cards-group-label"><i class="ti '+g.icon+'"></i>'+g.label+'</div>';
+      gc.forEach(c=>{
+        const bal=getCardBal(c);
+        cardsHtml+='<div class="member-card-chip" data-member="'+esc(member)+'" data-account="'+esc(c.id)+'"><div class="mcc-icon" style="background:'+c.bg+'"><i class="ti '+c.icon+'" style="color:'+c.color+'"></i></div><div class="mcc-info"><div class="mcc-name">'+esc(c.id)+'</div><div class="mcc-bal '+(bal>=0?'pos':'neg')+'">'+fmtMoney(Math.abs(bal),'UAH')+'</div></div></div>';
+      });
+    });
+    return '<div class="member-col" data-member="'+esc(member)+'">'
+      +'<div class="member-col-head" data-toggle="member">'
+      +'<div class="member-col-av-wrap">'+avatarHtml+'</div>'
+      +'<div class="member-col-name">'+esc(prof.name||member)+'</div>'
+      +'<div class="member-col-total '+(totalBal>=0?'pos':'neg')+'">'+fmtMoney(Math.abs(totalBal),'UAH')+'</div>'
+      +'<i class="ti ti-chevron-down member-col-chevron"></i>'
+      +'</div>'
+      +'<div class="member-cards-wrap" style="display:none">'+cardsHtml+'</div>'
+      +'</div>';
   }).join('');
+  // Bind toggle
+  el.querySelectorAll('[data-toggle="member"]').forEach(h=>{
+    h.addEventListener('click',()=>{
+      const wrap=h.nextElementSibling;
+      const chevron=h.querySelector('.member-col-chevron');
+      const isOpen=wrap.style.display!=='none';
+      wrap.style.display=isOpen?'none':'flex';
+      chevron.style.transform=isOpen?'':'rotate(180deg)';
+    });
+  });
+  // Bind card chips
   el.querySelectorAll('.member-card-chip').forEach(ch=>{
-    ch.addEventListener('click',()=>openAccountDetail(ch.dataset.account,ch.dataset.member));
+    ch.addEventListener('click',e=>{e.stopPropagation();openAccountDetail(ch.dataset.account,ch.dataset.member);});
   });
 }
 function renderAccountChips(){
