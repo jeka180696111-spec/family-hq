@@ -1,13 +1,17 @@
 'use strict';
-const APP_CONFIG={GOOGLE_CLIENT_ID:'650414957833-s37phqum36bfomv5sr5n2cm4tau55ng5.apps.googleusercontent.com',SCRIPT_URL_KEY:'budget_script_url',TOKEN_KEY:'budget_google_token',USER_KEY:'budget_user',THEME_KEY:'budget_theme',SCALE_KEY:'budget_scale',AVATAR_KEY:'budget_avatar',USERNAME_KEY:'budget_username',FAMILY_KEY:'budget_family',GOALS_KEY:'budget_goals',EXP_CATS_KEY:'budget_exp_cats',INC_CATS_KEY:'budget_inc_cats',MONO_EVGEN_KEY:'budget_mono_evgen',MONO_MARINA_KEY:'budget_mono_marina'};
+const APP_CONFIG={GOOGLE_CLIENT_ID:'650414957833-s37phqum36bfomv5sr5n2cm4tau55ng5.apps.googleusercontent.com',SCRIPT_URL_KEY:'budget_script_url',TOKEN_KEY:'budget_google_token',USER_KEY:'budget_user',THEME_KEY:'budget_theme',SCALE_KEY:'budget_scale',FONT_KEY:'budget_font',AVATAR_KEY:'budget_avatar',USERNAME_KEY:'budget_username',FAMILY_KEY:'budget_family',GOALS_KEY:'budget_goals',EXP_CATS_KEY:'budget_exp_cats',INC_CATS_KEY:'budget_inc_cats',CARDS_KEY:'budget_cards',MONO_EVGEN_KEY:'budget_mono_evgen',MONO_MARINA_KEY:'budget_mono_marina'};
+const ICON_LIST=['ti-shopping-cart','ti-car','ti-home','ti-tools-kitchen-2','ti-heart','ti-shirt','ti-device-gamepad-2','ti-sofa','ti-baby-carriage','ti-dots','ti-briefcase','ti-coin','ti-plane','ti-book','ti-coffee','ti-paw','ti-phone','ti-gift','ti-bike','ti-pill','ti-school','ti-sport-billard','ti-music','ti-bus','ti-credit-card','ti-cash','ti-building-bank','ti-star','ti-pizza','ti-salad','ti-droplet','ti-bolt','ti-wifi','ti-device-laptop','ti-tools','ti-shirt-sport','ti-garden-cart','ti-paw','ti-vaccine','ti-receipt'];
 const state={user:null,token:null,scriptUrl:'',currentPage:'dashboard',currentMonth:new Date(),calMonth:new Date(),currentType:'Витрата',currentCurrency:'UAH',reserveType:'Поповнення',reserveCurrency:'UAH',selectedCat:'',dashboard:null,reserve:null,operations:[],goals:[],fx:null,filterActive:'all',editingGoalIdx:-1};
 const CURRENCIES=['UAH','USD','EUR'],CUR_SYMBOLS={UAH:'₴',USD:'$',EUR:'€'};
 const MONTH_UK=['Січень','Лютий','Березень','Квітень','Травень','Червень','Липень','Серпень','Вересень','Жовтень','Листопад','Грудень'];
 const DEFAULT_EXP_CATS=[{id:'Продукти',icon:'ti-shopping-cart',bg:'#E1F5EE',color:'#085041'},{id:'Транспорт',icon:'ti-car',bg:'#FAECE7',color:'#712B13'},{id:'Комунальні',icon:'ti-home',bg:'#E6F1FB',color:'#0C447C'},{id:'Ресторани',icon:'ti-tools-kitchen-2',bg:'#FEF3E2',color:'#633806'},{id:"Здоров'я",icon:'ti-heart',bg:'#FBEAF0',color:'#72243E'},{id:'Одяг',icon:'ti-shirt',bg:'#EEEDFE',color:'#3C3489'},{id:'Розваги',icon:'ti-device-gamepad-2',bg:'#F0F4FF',color:'#2D4AB7'},{id:'Дім',icon:'ti-sofa',bg:'#E6F1FB',color:'#0C447C'},{id:'Дитячі',icon:'ti-baby-carriage',bg:'#FBEAF0',color:'#72243E'},{id:'Інше',icon:'ti-dots',bg:'#F0F0F0',color:'#555'}];
 const DEFAULT_INC_CATS=[{id:'Зарплата',icon:'ti-briefcase',bg:'#EAF3DE',color:'#27500A'},{id:'Підробіток',icon:'ti-coin',bg:'#FEF3E2',color:'#633806'},{id:'Інше',icon:'ti-dots',bg:'#F0F0F0',color:'#555'}];
+const DEFAULT_CARDS=[{id:'Готівка',icon:'ti-cash',bg:'#EAF3DE',color:'#27500A'},{id:'Моно чорна',icon:'ti-credit-card',bg:'#1a1a2e',color:'#fff'},{id:'ПУМБ',icon:'ti-credit-card',bg:'#E6F1FB',color:'#0C447C'},{id:'Приват',icon:'ti-credit-card',bg:'#FBEAF0',color:'#72243E'},{id:'Кредитна',icon:'ti-credit-card',bg:'#FAEEDA',color:'#633806'}];
 // ── HELPERS ──────────────────────────────────────────────────────
 function getExpCats(){try{const s=localStorage.getItem(APP_CONFIG.EXP_CATS_KEY);return s?JSON.parse(s):DEFAULT_EXP_CATS;}catch{return DEFAULT_EXP_CATS;}}
 function getIncCats(){try{const s=localStorage.getItem(APP_CONFIG.INC_CATS_KEY);return s?JSON.parse(s):DEFAULT_INC_CATS;}catch{return DEFAULT_INC_CATS;}}
+function getCards(){try{const s=localStorage.getItem(APP_CONFIG.CARDS_KEY);return s?JSON.parse(s):DEFAULT_CARDS;}catch{return DEFAULT_CARDS;}}
+function saveCards(c){localStorage.setItem(APP_CONFIG.CARDS_KEY,JSON.stringify(c));syncSettingsToSheet();}
 function getCat(id){return [...getExpCats(),...getIncCats()].find(c=>c.id===id)||{id,icon:'ti-dots',bg:'#F0F0F0',color:'#555'};}
 function getGoals(){try{const s=localStorage.getItem(APP_CONFIG.GOALS_KEY);return s?JSON.parse(s):[];}catch{return[];}}
 function saveGoals(g){localStorage.setItem(APP_CONFIG.GOALS_KEY,JSON.stringify(g));}
@@ -24,8 +28,9 @@ window.addEventListener('DOMContentLoaded',()=>{loadSettings();initGoogleAuth();
 function loadSettings(){
   const theme=localStorage.getItem(APP_CONFIG.THEME_KEY)||'light';
   const scale=localStorage.getItem(APP_CONFIG.SCALE_KEY)||'1.0';
+  const font=localStorage.getItem(APP_CONFIG.FONT_KEY)||'Manrope';
   state.scriptUrl=localStorage.getItem(APP_CONFIG.SCRIPT_URL_KEY)||'';
-  applyTheme(theme);applyScale(scale);
+  applyTheme(theme);applyScale(scale);applyFont(font);
   // Load family name
   const fam=localStorage.getItem(APP_CONFIG.FAMILY_KEY)||'Родина Коваль';
   const fi=document.getElementById('family-name-input');
@@ -324,24 +329,35 @@ function renderGoals(goals){
 // ── RENDER SETTINGS ───────────────────────────────────────────────
 function renderSettingsUI(){
   const el=document.getElementById('script-url-preview');
-  el.textContent=state.scriptUrl?state.scriptUrl.substring(0,50)+'…':'Не налаштовано';
+  if(el) el.textContent=state.scriptUrl?state.scriptUrl.substring(0,50)+'…':'Не налаштовано';
   const ss=document.getElementById('sync-status');
-  ss.textContent=state.scriptUrl?'● Підключено':'○ Не підключено';
-  ss.style.color=state.scriptUrl?'var(--c-green)':'var(--c-red)';
+  if(ss){ss.textContent=state.scriptUrl?'● Підключено':'○ Не підключено';ss.style.color=state.scriptUrl?'var(--c-green)':'var(--c-red)';}
   renderCatsList('expense-cats-list',getExpCats(),false);
   renderCatsList('income-cats-list',getIncCats(),true);
+  renderCardsList('cards-list',getCards());
 }
 function renderCatsList(containerId,cats,isIncome){
   const el=document.getElementById(containerId);if(!el)return;
-  el.innerHTML=cats.map((c,i)=>'<div class="cat-accordion-item"><div class="cat-bar-icon" style="background:'+c.bg+'"><i class="ti '+c.icon+'" style="color:'+c.color+'"></i></div><div class="cat-accordion-name">'+esc(c.id)+'</div><button class="cat-del-btn" data-idx="'+i+'" data-inc="'+isIncome+'"><i class="ti ti-x"></i></button></div>').join('');
+  el.innerHTML=cats.map((c,i)=>`<div class="cat-accordion-item"><div class="cat-bar-icon" style="background:${c.bg}"><i class="ti ${c.icon}" style="color:${c.color}"></i></div><div class="cat-accordion-name">${esc(c.id)}</div><button class="cat-del-btn" data-idx="${i}" data-inc="${isIncome}"><i class="ti ti-x"></i></button></div>`).join('');
   el.querySelectorAll('.cat-del-btn').forEach(b=>{
     b.addEventListener('click',()=>{
       const inc=b.dataset.inc==='true';
       const key=inc?APP_CONFIG.INC_CATS_KEY:APP_CONFIG.EXP_CATS_KEY;
-      const cats=inc?getIncCats():getExpCats();
-      cats.splice(parseInt(b.dataset.idx),1);
-      localStorage.setItem(key,JSON.stringify(cats));
+      const list=inc?getIncCats():getExpCats();
+      list.splice(parseInt(b.dataset.idx),1);
+      localStorage.setItem(key,JSON.stringify(list));
+      syncSettingsToSheet();
       renderSettingsUI();showToast('Категорію видалено');
+    });
+  });
+}
+function renderCardsList(containerId,cards){
+  const el=document.getElementById(containerId);if(!el)return;
+  el.innerHTML=cards.map((c,i)=>`<div class="cat-accordion-item"><div class="cat-bar-icon" style="background:${c.bg}"><i class="ti ${c.icon}" style="color:${c.color}"></i></div><div class="cat-accordion-name">${esc(c.id)}</div><button class="cat-del-btn" data-idx="${i}"><i class="ti ti-x"></i></button></div>`).join('');
+  el.querySelectorAll('.cat-del-btn').forEach(b=>{
+    b.addEventListener('click',()=>{
+      const list=getCards();list.splice(parseInt(b.dataset.idx),1);saveCards(list);
+      renderSettingsUI();showToast('Картку видалено');
     });
   });
 }
@@ -535,8 +551,80 @@ function prevMonth(){state.currentMonth=new Date(state.currentMonth.getFullYear(
 function nextMonth(){state.currentMonth=new Date(state.currentMonth.getFullYear(),state.currentMonth.getMonth()+1,1);updateMonthLabel();loadPageData(state.currentPage);}
 
 // ── THEME / SCALE ─────────────────────────────────────────────────
+function applyFont(f){
+  const fonts={'Manrope':'Manrope,sans-serif','Inter':'Inter,sans-serif','Nunito':'Nunito,sans-serif','Roboto':'Roboto,sans-serif'};
+  document.documentElement.style.setProperty('--font',fonts[f]||fonts['Manrope']);
+  document.body.style.fontFamily=fonts[f]||fonts['Manrope'];
+  localStorage.setItem(APP_CONFIG.FONT_KEY,f);
+  document.querySelectorAll('.font-btn').forEach(b=>b.classList.toggle('active',b.dataset.font===f));
+}
+async function syncSettingsToSheet(){
+  if(!state.scriptUrl||!state.token)return;
+  try{
+    await apiPost({action:'updateSettings',expCats:getExpCats(),incCats:getIncCats(),cards:getCards()});
+  }catch(e){console.warn('Settings sync failed:',e);}
+}
 function applyTheme(t){document.body.setAttribute('data-theme',t);localStorage.setItem(APP_CONFIG.THEME_KEY,t);document.querySelectorAll('.theme-btn').forEach(b=>b.classList.toggle('active',b.dataset.theme===t));}
 function applyScale(s){document.documentElement.style.fontSize=(16*parseFloat(s))+'px';localStorage.setItem(APP_CONFIG.SCALE_KEY,s);document.querySelectorAll('.scale-btn').forEach(b=>b.classList.toggle('active',b.dataset.scale===s));}
+
+// ── ICON PICKER ───────────────────────────────────────────────────
+function openIconPicker(mode){
+  // mode: 'expense' | 'income' | 'card'
+  const inputId = mode==='card' ? 'new-card' : (mode==='income' ? 'new-income-cat' : 'new-expense-cat');
+  const nameVal = (document.getElementById(inputId)||{}).value||'';
+  if(!nameVal.trim()){showToast('Спочатку введи назву','error');return;}
+
+  // Знімаємо старий пікер якщо є
+  let old=document.getElementById('icon-picker-modal');if(old)old.remove();
+
+  const colors=[
+    {bg:'#E1F5EE',color:'#085041'},{bg:'#FAECE7',color:'#712B13'},{bg:'#E6F1FB',color:'#0C447C'},
+    {bg:'#FEF3E2',color:'#633806'},{bg:'#FBEAF0',color:'#72243E'},{bg:'#EEEDFE',color:'#3C3489'},
+    {bg:'#F0F4FF',color:'#2D4AB7'},{bg:'#EAF3DE',color:'#27500A'},{bg:'#FAEEDA',color:'#633806'},
+    {bg:'#1a1a2e',color:'#ffffff'},{bg:'#F0F0F0',color:'#555555'},
+  ];
+
+  let selIcon='ti-dots';
+  let selColor=colors[0];
+
+  const div=document.createElement('div');
+  div.id='icon-picker-modal';
+  div.style.cssText='position:fixed;inset:0;z-index:600;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.5);backdrop-filter:blur(2px);';
+  div.innerHTML=`
+    <div style="background:var(--c-card);border-radius:20px 20px 0 0;padding:20px;width:100%;max-width:500px;max-height:80vh;overflow-y:auto;">
+      <div style="width:40px;height:4px;background:var(--c-border);border-radius:2px;margin:0 auto 16px;"></div>
+      <div style="font-size:16px;font-weight:700;margin-bottom:14px;">Оберіть іконку</div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--c-text-3);margin-bottom:8px;">Іконка</div>
+      <div id="ip-icons" style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-bottom:16px;"></div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--c-text-3);margin-bottom:8px;">Колір</div>
+      <div id="ip-colors" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;"></div>
+      <button id="ip-save" style="width:100%;padding:14px;border-radius:14px;background:var(--c-accent);color:#fff;font-size:15px;font-weight:700;">Додати</button>
+    </div>`;
+  document.body.appendChild(div);
+  div.addEventListener('click',e=>{if(e.target===div)div.remove();});
+
+  const iconsEl=div.querySelector('#ip-icons');
+  const colorsEl=div.querySelector('#ip-colors');
+
+  function renderPicker(){
+    iconsEl.innerHTML=ICON_LIST.map(ic=>`<button data-ic="${ic}" style="width:100%;aspect-ratio:1;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;background:${ic===selIcon?selColor.bg:'var(--c-bg-3)'};border:2px solid ${ic===selIcon?selColor.color:'transparent'};transition:.15s;"><i class="ti ${ic}" style="color:${ic===selIcon?selColor.color:'var(--c-text-2)'}"></i></button>`).join('');
+    colorsEl.innerHTML=colors.map((c,i)=>`<button data-cidx="${i}" style="width:32px;height:32px;border-radius:50%;background:${c.bg};border:3px solid ${c===selColor?c.color:'transparent'};transition:.15s;"></button>`).join('');
+    iconsEl.querySelectorAll('[data-ic]').forEach(b=>b.addEventListener('click',()=>{selIcon=b.dataset.ic;renderPicker();}));
+    colorsEl.querySelectorAll('[data-cidx]').forEach(b=>b.addEventListener('click',()=>{selColor=colors[parseInt(b.dataset.cidx)];renderPicker();}));
+  }
+  renderPicker();
+
+  div.querySelector('#ip-save').addEventListener('click',()=>{
+    const name=nameVal.trim();
+    const item={id:name,icon:selIcon,bg:selColor.bg,color:selColor.color};
+    if(mode==='expense'){const list=getExpCats();list.push(item);localStorage.setItem(APP_CONFIG.EXP_CATS_KEY,JSON.stringify(list));}
+    else if(mode==='income'){const list=getIncCats();list.push(item);localStorage.setItem(APP_CONFIG.INC_CATS_KEY,JSON.stringify(list));}
+    else if(mode==='card'){saveCards([...getCards(),item]);}
+    syncSettingsToSheet();
+    const inp=document.getElementById(inputId);if(inp)inp.value='';
+    renderSettingsUI();div.remove();showToast('✅ Додано!');
+  });
+}
 
 // ── SIDEBAR ───────────────────────────────────────────────────────
 function openSidebar(){document.getElementById('sidebar').classList.add('open');let ov=document.getElementById('sb-ov');if(!ov){ov=document.createElement('div');ov.id='sb-ov';ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:99;';ov.onclick=closeSidebar;document.body.appendChild(ov);}ov.style.display='block';}
@@ -580,6 +668,18 @@ function bindEvents(){
   // Theme & scale
   document.querySelectorAll('.theme-btn').forEach(b=>b.addEventListener('click',()=>applyTheme(b.dataset.theme)));
   document.querySelectorAll('.scale-btn').forEach(b=>b.addEventListener('click',()=>applyScale(b.dataset.scale)));
+  document.querySelectorAll('.font-btn').forEach(b=>b.addEventListener('click',()=>applyFont(b.dataset.font)));
+  // Category tabs
+  document.querySelectorAll('.cat-tab').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const tab=btn.dataset.tab;
+      document.querySelectorAll('.cat-tab').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.cat-panel').forEach(p=>p.classList.remove('active'));
+      const panel=document.getElementById('panel-'+tab);
+      if(panel)panel.classList.add('active');
+    });
+  });
   // Settings
   document.getElementById('logout-btn').addEventListener('click',logout);
   document.getElementById('set-url-btn').addEventListener('click',setScriptUrl);
@@ -620,18 +720,9 @@ function bindEvents(){
     catch(e){showToast('Помилка імпорту','error');}
   });
   // Add categories
-  document.getElementById('add-expense-cat').addEventListener('click',()=>{
-    const v=document.getElementById('new-expense-cat').value.trim();if(!v)return;
-    const cats=getExpCats();cats.push({id:v,icon:'ti-dots',bg:'#F0F0F0',color:'#555'});
-    localStorage.setItem(APP_CONFIG.EXP_CATS_KEY,JSON.stringify(cats));
-    document.getElementById('new-expense-cat').value='';renderSettingsUI();showToast('✅ Додано!');
-  });
-  document.getElementById('add-income-cat').addEventListener('click',()=>{
-    const v=document.getElementById('new-income-cat').value.trim();if(!v)return;
-    const cats=getIncCats();cats.push({id:v,icon:'ti-dots',bg:'#F0F0F0',color:'#555'});
-    localStorage.setItem(APP_CONFIG.INC_CATS_KEY,JSON.stringify(cats));
-    document.getElementById('new-income-cat').value='';renderSettingsUI();showToast('✅ Додано!');
-  });
+  document.getElementById('add-expense-cat').addEventListener('click',()=>openIconPicker('expense'));
+  document.getElementById('add-income-cat').addEventListener('click',()=>openIconPicker('income'));
+  document.getElementById('add-card').addEventListener('click',()=>openIconPicker('card'));
   // Filters
   document.querySelectorAll('.filter-pill').forEach(b=>b.addEventListener('click',()=>{
     document.querySelectorAll('.filter-pill').forEach(x=>x.classList.remove('active'));
