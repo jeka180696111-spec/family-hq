@@ -6,7 +6,7 @@ const CURRENCIES=['UAH','USD','EUR'],CUR_SYMBOLS={UAH:'₴',USD:'$',EUR:'€'};
 const MONTH_UK=['Січень','Лютий','Березень','Квітень','Травень','Червень','Липень','Серпень','Вересень','Жовтень','Листопад','Грудень'];
 const DEFAULT_EXP_CATS=[{id:'Продукти',icon:'ti-shopping-cart',bg:'#E1F5EE',color:'#085041'},{id:'Транспорт',icon:'ti-car',bg:'#FAECE7',color:'#712B13'},{id:'Комунальні',icon:'ti-home',bg:'#E6F1FB',color:'#0C447C'},{id:'Ресторани',icon:'ti-tools-kitchen-2',bg:'#FEF3E2',color:'#633806'},{id:"Здоров'я",icon:'ti-heart',bg:'#FBEAF0',color:'#72243E'},{id:'Одяг',icon:'ti-shirt',bg:'#EEEDFE',color:'#3C3489'},{id:'Розваги',icon:'ti-device-gamepad-2',bg:'#F0F4FF',color:'#2D4AB7'},{id:'Дім',icon:'ti-sofa',bg:'#E6F1FB',color:'#0C447C'},{id:'Дитячі',icon:'ti-baby-carriage',bg:'#FBEAF0',color:'#72243E'},{id:'Інше',icon:'ti-dots',bg:'#F0F0F0',color:'#555'}];
 const DEFAULT_INC_CATS=[{id:'Зарплата',icon:'ti-briefcase',bg:'#EAF3DE',color:'#27500A'},{id:'Підробіток',icon:'ti-coin',bg:'#FEF3E2',color:'#633806'},{id:'Інше',icon:'ti-dots',bg:'#F0F0F0',color:'#555'}];
-const DEFAULT_CARDS=[{id:'Готівка',icon:'ti-cash',bg:'#EAF3DE',color:'#27500A'},{id:'Моно чорна',icon:'ti-credit-card',bg:'#1a1a2e',color:'#fff'},{id:'ПУМБ',icon:'ti-credit-card',bg:'#E6F1FB',color:'#0C447C'},{id:'Приват',icon:'ti-credit-card',bg:'#FBEAF0',color:'#72243E'},{id:'Кредитна',icon:'ti-credit-card',bg:'#FAEEDA',color:'#633806'}];
+const DEFAULT_CARDS=[{id:'Готівка',icon:'ti-cash',bg:'#EAF3DE',color:'#27500A'},{id:'Моно чорна',icon:'ti-credit-card',bg:'#1a1a2e',color:'#fff'},{id:'ПУМБ',icon:'ti-credit-card',bg:'#E6F1FB',color:'#0C447C'},{id:'Приват',icon:'ti-credit-card',bg:'#FBEAF0',color:'#72243E'},{id:'Кредитна',icon:'ti-credit-card',bg:'#FAEEDA',color:'#633806'},{id:'Банка UAH',icon:'ti-piggy-bank',bg:'#EAF3DE',color:'#1D9E75',isSavings:true},{id:'Банка USD',icon:'ti-piggy-bank',bg:'#E6F1FB',color:'#185FA5',isSavings:true},{id:'Банка EUR',icon:'ti-piggy-bank',bg:'#EEEDFE',color:'#7F77DD',isSavings:true}];
 // Два члени сім'ї — константа для дашборду і операцій
 const FAMILY_MEMBERS=['Євген','Марина'];
 // Кольори членів
@@ -185,7 +185,7 @@ function navigateTo(page){
   if(el)el.classList.add('active');
   document.querySelectorAll('[data-page="'+page+'"]').forEach(e=>e.classList.add('active'));
   state.currentPage=page;
-  const titles={dashboard:'Дашборд',operations:'Операції',calendar:'Календар',analytics:'Аналіз',reserve:'Резерв',goals:'Цілі',settings:'Налаштування'};
+  const titles={dashboard:'Дашборд',operations:'Операції',calendar:'Календар',analytics:'Аналіз',reserve:'Накопичення',settings:'Налаштування'};
   setText('topbar-title',titles[page]||page);
   loadPageData(page);closeSidebar();
 }
@@ -195,7 +195,7 @@ function loadPageData(page){
   else if(page==='operations')renderOperations();
   else if(page==='calendar')renderCalendar();
   else if(page==='analytics'){if(state.dashboard)renderAnalytics();}
-  else if(page==='reserve'){if(state.reserve)renderReserve(state.reserve);}
+  else if(page==='reserve'){if(state.reserve)renderReserve(state.reserve);renderSavingsCards();fetchReserve();}
   else if(page==='goals'){
     // Спочатку показуємо локальні
     const localGoals=getGoals();
@@ -217,26 +217,14 @@ function loadPageData(page){
 async function apiGet(action,params={}){
   if(!state.scriptUrl)return null;
   const url=new URL(state.scriptUrl);
-  url.searchParams.set('action',action);
-  url.searchParams.set('token',state.token||'');
-  url.searchParams.set('tokenType','access');  // tell Apps Script this is access_token
+  url.searchParams.set('action',action);url.searchParams.set('token',state.token||'');
   Object.entries(params).forEach(([k,v])=>url.searchParams.set(k,v));
-  const r=await fetch(url.toString(),{redirect:'follow'});
-  if(!r.ok)throw new Error('API '+r.status);
-  const text=await r.text();
-  try{return JSON.parse(text);}catch{throw new Error('Bad JSON: '+text.substring(0,100));}
+  const r=await fetch(url.toString());if(!r.ok)throw new Error('API '+r.status);return r.json();
 }
 async function apiPost(body){
   if(!state.scriptUrl)return null;
-  // Tunnel through GET to avoid CORS preflight
-  const url=new URL(state.scriptUrl);
-  url.searchParams.set('method','POST');
-  url.searchParams.set('token',state.token||'');
-  url.searchParams.set('payload',JSON.stringify(body));
-  const r=await fetch(url.toString(),{redirect:'follow'});
-  if(!r.ok)throw new Error('API '+r.status);
-  const text=await r.text();
-  try{return JSON.parse(text);}catch{throw new Error('Bad JSON: '+text.substring(0,100));}
+  const r=await fetch(state.scriptUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,token:state.token})});
+  if(!r.ok)throw new Error('API '+r.status);return r.json();
 }
 async function fetchDashboard(){try{const d=await apiGet('dashboard');if(d&&!d.error){state.dashboard=d;renderDashboard(d);renderMemberColumns();}}catch(e){console.warn('fetchDashboard:',e);}}
 async function fetchTransfers(){try{const d=await apiGet('transfers');if(d){state.transfers=d.transfers||[];}}catch(e){console.warn('fetchTransfers:',e);}}
@@ -275,38 +263,58 @@ function renderMemberColumns(){
     const mc=MEMBER_COLORS[member]||{bg:'var(--c-bg-3)',cl:'var(--c-text)',initials:'??'};
     const prof=profiles[member]||{name:member,avatar:null};
     const cards=getCards(member);
-    // Баланс по картках — з операцій і з dashboardbyMember
     const memberData=byMember[member]||{income:0,expense:0,byCard:{}};
     const totalBal=memberData.income-memberData.expense;
-    const cardsHtml=cards.map(c=>{
-      const cardData=memberData.byCard?.[c.id]||{income:0,expense:0};
-      const bal=cardData.income-cardData.expense;
-      // Локальний баланс з state.operations
+    // Розбиваємо картки на звичайні і накопичення
+    const regularCards=cards.filter(c=>!c.isSavings);
+    const savingsCards=cards.filter(c=>c.isSavings);
+    const getCardBal=(c)=>{
       const localBal=state.operations.filter(o=>o.who===member&&o.card===c.id).reduce((s,o)=>{if(o.type==='Дохід')return s+(o.amountUah||o.amount);if(o.type==='Витрата')return s-(o.amountUah||o.amount);return s;},0);
-      const displayBal=state.operations.length?localBal:bal;
+      const cardData=memberData.byCard?.[c.id]||{income:0,expense:0};
+      return state.operations.length?localBal:(cardData.income-cardData.expense);
+    };
+    const cardsHtml=(arr)=>arr.map(c=>{
+      const bal=getCardBal(c);
       return `<div class="member-card-chip" data-member="${esc(member)}" data-account="${esc(c.id)}">
         <div class="mcc-icon" style="background:${c.bg}"><i class="ti ${c.icon}" style="color:${c.color}"></i></div>
         <div class="mcc-info">
           <div class="mcc-name">${esc(c.id)}</div>
-          <div class="mcc-bal ${displayBal>=0?'pos':'neg'}">${fmtMoney(Math.abs(displayBal),'UAH')}</div>
+          <div class="mcc-bal ${bal>=0?'pos':'neg'}">${fmtMoney(Math.abs(bal),'UAH')}</div>
         </div>
       </div>`;
     }).join('');
+    const savingsTotalBal=savingsCards.reduce((s,c)=>s+getCardBal(c),0);
     const displayBal=state.operations.length?state.operations.filter(o=>o.who===member).reduce((s,o)=>{if(o.type==='Дохід')return s+(o.amountUah||o.amount);if(o.type==='Витрата')return s-(o.amountUah||o.amount);return s;},0):totalBal;
     const avatarHtml=prof.avatar
       ?`<img src="${prof.avatar}" class="member-col-av-img">`
       :`<div class="member-col-av" style="background:${mc.bg};color:${mc.cl}">${mc.initials}</div>`;
-    return `<div class="member-col">
-      <div class="member-col-head">
+    const savingsHtml=savingsCards.length?`
+      <div class="member-savings-section">
+        <div class="member-savings-label"><i class="ti ti-piggy-bank"></i> Накопичення · ${fmtMoney(Math.abs(savingsTotalBal),'UAH')}</div>
+        ${cardsHtml(savingsCards)}
+      </div>`:'';
+    return `<div class="member-col collapsed" data-member="${esc(member)}">
+      <div class="member-col-head" data-toggle="member-col">
         <div class="member-col-av-wrap">${avatarHtml}</div>
         <div class="member-col-name">${esc(prof.name||member)}</div>
         <div class="member-col-total ${displayBal>=0?'pos':'neg'}">${fmtMoney(Math.abs(displayBal),'UAH')}</div>
+        <i class="ti ti-chevron-down member-col-chevron"></i>
       </div>
-      <div class="member-cards">${cardsHtml}</div>
+      <div class="member-cards-wrap">
+        ${cardsHtml(regularCards)}
+        ${savingsHtml}
+      </div>
     </div>`;
   }).join('');
+  // Toggle collapse
+  el.querySelectorAll('[data-toggle="member-col"]').forEach(h=>{
+    h.addEventListener('click',()=>{
+      const col=h.closest('.member-col');
+      col.classList.toggle('collapsed');
+    });
+  });
   el.querySelectorAll('.member-card-chip').forEach(ch=>{
-    ch.addEventListener('click',()=>openAccountDetail(ch.dataset.account,ch.dataset.member));
+    ch.addEventListener('click',e=>{e.stopPropagation();openAccountDetail(ch.dataset.account,ch.dataset.member);});
   });
 }
 function renderAccountChips(){
@@ -524,12 +532,75 @@ function showCalDay(day,m,y){
     const od=new Date(o.date);return od.getDate()===day&&od.getMonth()===m&&od.getFullYear()===y;
   });
   const det=document.getElementById('cal-day-detail');
-  const ttl=document.getElementById('cal-day-title');
-  const lst=document.getElementById('cal-day-list');
   setText('cal-day-title',day+' '+MONTH_UK[m].toLowerCase());
-  if(!ops.length){lst.innerHTML='<div style="padding:16px;text-align:center;color:var(--c-text-3);font-size:13px">Немає операцій</div>';}
-  else lst.innerHTML=ops.map(txItem).join('');
+  const lst=document.getElementById('cal-day-list');
+  if(!ops.length){
+    lst.innerHTML='<div style="padding:16px;text-align:center;color:var(--c-text-3);font-size:13px">Немає операцій</div>';
+  } else {
+    lst.innerHTML=ops.map(op=>{
+      const cat=getCat(op.category);const plus=op.type==='Дохід';
+      return `<div class="tx-item tx-editable" data-row="${op.row||''}" style="cursor:pointer;">
+        <div class="tx-icon" style="background:${cat.bg}"><i class="ti ${cat.icon}" style="color:${cat.color}"></i></div>
+        <div class="tx-info">
+          <div class="tx-name">${esc(op.desc||op.category)}</div>
+          <div class="tx-meta">${esc(op.category)} · ${esc(op.who||'')} · ${fmtDate(op.date)}</div>
+        </div>
+        <div class="tx-amount ${plus?'plus':'minus'}">${plus?'+':'−'}${fmtMoney(op.amount,op.currency)}</div>
+        <div class="tx-edit-hint"><i class="ti ti-pencil" style="font-size:14px;color:var(--c-text-3)"></i></div>
+      </div>`;
+    }).join('');
+    lst.querySelectorAll('.tx-editable').forEach(el=>{
+      let pressTimer;
+      el.addEventListener('click',()=>openEditOpModal(ops.find(o=>String(o.row)===el.dataset.row)));
+      el.addEventListener('touchstart',()=>{pressTimer=setTimeout(()=>openEditOpModal(ops.find(o=>String(o.row)===el.dataset.row)),500);});
+      el.addEventListener('touchend',()=>clearTimeout(pressTimer));
+    });
+  }
   det.style.display='block';
+}
+
+function openEditOpModal(op){
+  if(!op)return;
+  state.editingOp=op;
+  // Fill modal with existing data
+  const inc=op.type==='Дохід';
+  state.currentType=op.type;
+  state.currentCurrency=op.currency||'UAH';
+  state.selectedCat=op.category||'';
+  renderCatGrid();updateModalType();
+  document.getElementById('amount-input').value=op.amount||'';
+  document.getElementById('desc-input').value=op.desc||'';
+  document.getElementById('currency-btn').innerHTML=(op.currency||'UAH')+' <i class="ti ti-chevron-down"></i>';
+  document.getElementById('amount-cur-icon').textContent=CUR_SYMBOLS[op.currency||'UAH'];
+  if(op.date){
+    const local=new Date(new Date(op.date).getTime()-new Date(op.date).getTimezoneOffset()*60000).toISOString().slice(0,16);
+    document.getElementById('datetime-input').value=local;
+  }
+  // Change save button to "update"
+  const btn=document.getElementById('save-btn');
+  btn.textContent='Зберегти зміни';
+  btn.dataset.editMode='1';
+  // Add delete button temporarily
+  let delBtn=document.getElementById('edit-delete-btn');
+  if(!delBtn){
+    delBtn=document.createElement('button');
+    delBtn.id='edit-delete-btn';
+    delBtn.style.cssText='width:100%;padding:12px;border-radius:14px;background:var(--c-red-soft);color:var(--c-red);font-size:14px;font-weight:700;margin-top:8px;border:none;cursor:pointer;';
+    delBtn.innerHTML='<i class="ti ti-trash"></i> Видалити запис';
+    document.getElementById('save-btn').after(delBtn);
+  }
+  delBtn.onclick=async()=>{
+    if(!confirm('Видалити цей запис?'))return;
+    if(state.scriptUrl&&op.row){
+      await apiPost({action:'deleteOperation',row:op.row}).catch(()=>{});
+    }
+    state.operations=state.operations.filter(o=>o!==op);
+    closeModal();renderCalendar();renderOperations();
+    if(state.currentPage==='dashboard'){renderMemberColumns();renderRecentOps(state.operations);}
+    showToast('🗑️ Видалено');
+  };
+  document.getElementById('modal-overlay').classList.remove('hidden');
+  document.getElementById('modal-add').classList.remove('hidden');
 }
 
 // ── RENDER ANALYTICS ─────────────────────────────────────────────
@@ -568,6 +639,34 @@ function renderReserve(d){
     const add=tx.type==="Поповнення";
     return '<div class="tx-item"><div class="tx-icon" style="background:'+(add?'var(--c-green-soft)':'var(--c-red-soft)')+'"><i class="ti ti-shield" style="color:'+(add?'var(--c-green)':'var(--c-red)')+'"></i></div><div class="tx-info"><div class="tx-name">'+esc(tx.comment||tx.type)+'</div><div class="tx-meta">'+esc(tx.type)+' · '+esc(tx.who||'')+' · '+fmtDate(tx.date)+'</div></div><div class="tx-amount '+(add?'plus':'minus')+'">'+(add?'+':'−')+(CUR_SYMBOLS[tx.currency]||'₴')+Math.abs(tx.amount).toLocaleString('uk-UA')+'</div></div>';
   }).join('');
+}
+
+// ── RENDER SAVINGS CARDS (on reserve/накопичення page) ───────────
+function renderSavingsCards(){
+  const el=document.getElementById('savings-cards-list');if(!el)return;
+  const allCards=[];
+  FAMILY_MEMBERS.forEach(member=>{
+    getCards(member).filter(c=>c.isSavings).forEach(c=>{
+      const bal=state.operations.filter(o=>o.who===member&&o.card===c.id).reduce((s,o)=>{
+        if(o.type==='Дохід')return s+(o.amountUah||o.amount);
+        if(o.type==='Витрата')return s-(o.amountUah||o.amount);
+        return s;
+      },0);
+      allCards.push({card:c,member,bal});
+    });
+  });
+  if(!allCards.length){el.innerHTML='<div style="padding:16px;text-align:center;color:var(--c-text-3);font-size:13px">Немає накопичувальних рахунків.<br>Додай картку типу "Банка" в Налаштуваннях.</div>';return;}
+  el.innerHTML=allCards.map(({card:c,member,bal})=>{
+    const mc=MEMBER_COLORS[member]||{initials:'?'};
+    return '<div class="savings-card-row" data-account="'+esc(c.id)+'" data-member="'+esc(member)+'" style="cursor:pointer">'+
+      '<div class="mcc-icon" style="background:'+c.bg+'"><i class="ti '+c.icon+'" style="color:'+c.color+'"></i></div>'+
+      '<div class="tx-info"><div class="tx-name">'+esc(c.id)+'</div><div class="tx-meta">'+esc(member)+'</div></div>'+
+      '<div class="tx-amount '+(bal>=0?'plus':'minus')+'">'+(bal>=0?'':'-')+fmtMoney(Math.abs(bal),"UAH")+'</div>'+
+    '</div>';
+  }).join('');
+  el.querySelectorAll('.savings-card-row').forEach(row=>{
+    row.addEventListener('click',()=>openAccountDetail(row.dataset.account,row.dataset.member));
+  });
 }
 
 // ── RENDER GOALS ─────────────────────────────────────────────────
@@ -754,6 +853,10 @@ function updateModalOwner(){
   renderCardGrid(); // перемалюємо картки для нового члена
 }
 function closeModal(){
+  const btn=document.getElementById('save-btn');
+  if(btn){btn.dataset.editMode='';btn.textContent='Зберегти витрату';btn.style.background='var(--c-red)';}
+  const delBtn=document.getElementById('edit-delete-btn');if(delBtn)delBtn.remove();
+  state.editingOp=null;
   document.getElementById('modal-overlay').classList.add('hidden');
   ['modal-add','modal-reserve','modal-goal','modal-transfer'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.classList.add('hidden');
@@ -788,6 +891,32 @@ function cycleCurrency(){
   document.getElementById('amount-cur-icon').textContent=CUR_SYMBOLS[state.currentCurrency];
 }
 async function submitOperation(){
+  const btn=document.getElementById('save-btn');
+  // Edit mode — update existing
+  if(btn.dataset.editMode==='1'&&state.editingOp){
+    const op=state.editingOp;
+    const amt=parseFloat(document.getElementById('amount-input').value);
+    if(!amt||amt<=0){showToast('Вкажи суму','error');return;}
+    const dtVal=document.getElementById('datetime-input').value;
+    const updates={...op,type:state.currentType,category:state.selectedCat,amount:amt,currency:state.currentCurrency,desc:document.getElementById('desc-input').value||'',date:dtVal?new Date(dtVal).toISOString():op.date};
+    // Update locally
+    const idx=state.operations.indexOf(op);
+    if(idx>=0)state.operations[idx]={...op,...updates};
+    // Sync
+    if(state.scriptUrl&&op.row){
+      apiPost({action:'updateOperation',row:op.row,...updates}).catch(()=>{});
+    }
+    state.editingOp=null;
+    btn.dataset.editMode='';
+    btn.textContent='Зберегти витрату';
+    const delBtn=document.getElementById('edit-delete-btn');if(delBtn)delBtn.remove();
+    closeModal();
+    renderCalendar();renderOperations();
+    if(state.currentPage==='dashboard'){renderMemberColumns();renderRecentOps(state.operations);}
+    showToast('✅ Оновлено!');
+    return;
+  }
+
   const amt=parseFloat(document.getElementById('amount-input').value);
   if(!amt||amt<=0){showToast('Вкажи суму','error');return;}
   if(!state.selectedCat){showToast('Вибери категорію','error');return;}
@@ -946,8 +1075,8 @@ function openTransferModal(context){
     if(to.type==='reserve'){body.toReserve=true;}
 
     // Локально
-    if(from.type==='member'){state.operations.unshift({type:'Витрата',category:'Переказ',desc:`→ ${to.type==='member'?to.id+' '+to.card:'Резерв'}`,amount:amt,amountUah:amt,currency:trfCurrency,who:from.id,card:from.card,date:new Date().toISOString()});}
-    if(to.type==='member'){state.operations.unshift({type:'Дохід',category:'Переказ',desc:`← ${from.type==='member'?from.id+' '+from.card:'Резерв'}`,amount:amt,amountUah:amt,currency:trfCurrency,who:to.id,card:to.card,date:new Date().toISOString()});}
+    if(from.type==='member'){state.operations.unshift({type:'Витрата',category:'Переказ',desc:`→ ${to.type==='member'?to.id+' '+to.card:'Накопичення'}`,amount:amt,amountUah:amt,currency:trfCurrency,who:from.id,card:from.card,date:new Date().toISOString()});}
+    if(to.type==='member'){state.operations.unshift({type:'Дохід',category:'Переказ',desc:`← ${from.type==='member'?from.id+' '+from.card:'Накопичення'}`,amount:amt,amountUah:amt,currency:trfCurrency,who:to.id,card:to.card,date:new Date().toISOString()});}
     // Ціль → ціль
     if(from.type==='goal'&&to.type==='goal'){
       const g=getGoals();const fi=parseInt(from.id);const ti=parseInt(to.id);
@@ -1226,7 +1355,7 @@ function openFabMenu(){
   const items=[
     {icon:'ti-plus',label:'Витрата / Дохід',bg:'var(--c-accent)',action:()=>{div.remove();openModal();}},
     {icon:'ti-arrows-exchange',label:'Переказ',bg:'var(--c-blue)',action:()=>{div.remove();openTransferModal();}},
-    {icon:'ti-shield',label:'Резерв',bg:'#27500A',action:()=>{div.remove();openReserveModal();}},
+    {icon:'ti-shield',label:'Накопичення',bg:'#27500A',action:()=>{div.remove();openReserveModal();}},
     {icon:'ti-target',label:'Ціль',bg:'var(--c-pink)',action:()=>{div.remove();openGoalModal();}},
   ];
   div.innerHTML=items.map((it,i)=>`
