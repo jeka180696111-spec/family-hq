@@ -247,14 +247,38 @@ input,select{font-family:var(--font);color:var(--c-text);}input:focus,select:foc
 #fab-menu .fab-menu-item > div:last-child{transition:transform .15s;}
 #fab-menu .fab-menu-item:hover > div:last-child{transform:scale(1.08);}
 
-/* ── Card groups in settings ─────────────────────────────────── */
-.cards-group-label{
-  display:flex;align-items:center;gap:8px;
-  padding:10px 16px 6px;
-  font-size:11px;font-weight:700;text-transform:uppercase;
-  letter-spacing:.05em;color:var(--c-text-3);
-  border-top:.5px solid var(--c-border);
-  margin-top:4px;
-}
-.cards-group-label:first-child{border-top:none;margin-top:0;}
+/* ── Member col collapse ──────────────────────────────────────── */
+.member-col{background:var(--c-card);border:.5px solid var(--c-border);border-radius:var(--radius);overflow:hidden;margin-bottom:8px;}
+.member-col-head{display:flex;align-items:center;gap:10px;padding:14px 16px;cursor:pointer;transition:var(--transition);}
+.member-col-head:hover{background:var(--c-bg-3);}
+.member-col-chevron{font-size:16px;color:var(--c-text-3);margin-left:auto;transition:transform var(--transition);flex-shrink:0;}
+.member-cards-wrap{display:flex;flex-direction:column;gap:6px;padding:0 12px 12px;}
+.member-cards-group-label{display:flex;align-items:center;gap:6px;padding:8px 4px 4px;font-size:11px;font-weight:700;color:var(--c-text-3);text-transform:uppercase;letter-spacing:.05em;}
+.member-cards-group-label i{font-size:14px;}
+.member-cards-group-label:first-child{padding-top:4px;}
+/* Savings section */
+.member-savings-section{margin-top:8px;padding-top:8px;border-top:.5px solid var(--c-border);}
+.member-savings-label{font-size:11px;font-weight:700;color:var(--c-green);display:flex;align-items:center;gap:5px;margin-bottom:6px;}
+
+/* ── Cards group in settings ─────────────────────────────────── */
+.cards-group-label{display:flex;align-items:center;gap:8px;padding:10px 16px 6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--c-text-3);border-top:.5px solid var(--c-border);}
+.cards-group-label:first-child{border-top:none;}
 .cards-group-label i{font-size:14px;}
+
+/* ── Calendar period ─────────────────────────────────────────── */
+.cal-kpi-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;}
+.cal-kpi{background:var(--c-card);border:.5px solid var(--c-border);border-radius:var(--radius);padding:12px 14px;}
+.cal-kpi-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--c-text-2);margin-bottom:4px;}
+.cal-kpi-val{font-size:16px;font-weight:800;}
+.cal-kpi.inc .cal-kpi-val{color:var(--c-green);}
+.cal-kpi.exp .cal-kpi-val{color:var(--c-red);}
+.cal-kpi.bal .cal-kpi-val{color:var(--c-blue);}
+.cal-period-row{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;}
+.cal-period-btn{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;background:var(--c-bg-3);color:var(--c-text-2);border:.5px solid var(--c-border);transition:var(--transition);cursor:pointer;}
+.cal-period-btn.active{background:var(--c-accent);color:#fff;border-color:var(--c-accent);}
+.cal-month-label{font-size:15px;font-weight:700;}
+.cal-nav{display:flex;align-items:center;gap:8px;margin-bottom:12px;}
+
+/* ── Two-col member layout ───────────────────────────────────── */
+#members-columns{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;}
+@media(max-width:768px){#members-columns{grid-template-columns:1fr;}}
