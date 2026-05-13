@@ -1,67 +1,97 @@
 // ═══════════════════════════════════════════════════════════════
-// DASHBOARD — головна сторінка
+// DASHBOARD — головна сторінка з графіками
 // ═══════════════════════════════════════════════════════════════
 
 import { FAMILY_MEMBERS, state } from './config.js';
-import { getCards, getProfiles, getWalletTypes, getWalletTypeById, getFamilyName } from './storage.js';
+import { getCards, getProfiles, getWalletTypeById, getFamilyName, getVisibleWallets, setVisibleWallets, getViewAsMember } from './storage.js';
 import { apiGet } from './api.js';
-import { esc, fmtMoney, fmtMoneyShort, setText, fmtDate, monthKey, log } from './utils.js';
+import { esc, fmtMoney, fmtMoneyShort, setText, fmtDate, log } from './utils.js';
 import { openOperationDialog } from './operations.js';
+import { whoAmI } from './auth.js';
 
-// ── Завантаження даних з сервера ────────────────────────────
 export async function loadDashboard() {
   try {
-    const data = await apiGet('dashboard');
+    // Дашборд завжди показує поточний місяць
+    const data = await apiGet('dashboard', { period: 'month' });
     state.dashboard = data;
-    // Зберігаємо час останньої синхронізації
     localStorage.setItem('budget_last_sync', new Date().toISOString());
     renderDashboard();
   } catch (e) {
     log('loadDashboard error:', e.message);
-    // Все одно рендеримо що є (offline mode)
     renderDashboard();
   }
 }
 
-// Експортуємо щоб FAB міг тригернути перезавантаження
 window.refreshDashboard = loadDashboard;
 
-// ── Рендер ──────────────────────────────────────────────────
+const PERIOD_LABELS = {
+  month: 'Цей місяць',
+  quarter: 'Квартал',
+  year: 'Рік',
+};
+
 export function renderDashboard() {
   const el = document.getElementById('page-dashboard');
   if (!el) return;
 
-  const d = state.dashboard || { totalIncome: 0, totalExpense: 0, balance: 0, byMember: {}, byCategory: {}, recent: [] };
+  const d = state.dashboard || { totalIncome: 0, totalExpense: 0, balance: 0, byMember: {}, byCategory: {}, byDay: {}, byDayIncome: {}, recent: [] };
   const profiles = getProfiles();
+  const period = 'month'; // дашборд завжди — поточний місяць
+  const viewAs = getViewAsMember();
 
-  // Привітання
   const hour = new Date().getHours();
   const greet = hour < 6 ? 'Доброї ночі' : hour < 12 ? 'Доброго ранку' : hour < 18 ? 'Доброго дня' : 'Доброго вечора';
-  const myName = profiles[state.user ? whoAmIByEmail(state.user.email) : 'Євген']?.name || 'Друже';
+  const me = whoAmI() || FAMILY_MEMBERS[0];
+  const myName = profiles[me]?.name || me;
 
-  // Поточний місяць
-  const monthName = new Date().toLocaleDateString('uk-UA', { month: 'long', year: 'numeric' });
+  // Заголовок періоду
+  const now = new Date();
+  let periodLabel = '';
+  if (period === 'month') {
+    periodLabel = now.toLocaleDateString('uk-UA', { month: 'long', year: 'numeric' });
+  } else if (period === 'quarter') {
+    const q = Math.floor(now.getMonth() / 3) + 1;
+    periodLabel = `Q${q} ${now.getFullYear()}`;
+  } else {
+    periodLabel = String(now.getFullYear());
+  }
+
+  // Фільтр "viewAs" — якщо обрано конкретного, рахуємо лише його дані
+  let totalIncome = d.totalIncome || 0;
+  let totalExpense = d.totalExpense || 0;
+  let byCategoryView = d.byCategory || {};
+  let byDayView = d.byDay || {};
+  let byDayIncomeView = d.byDayIncome || {};
+
+  if (viewAs && d.byMember && d.byMember[viewAs]) {
+    totalIncome = d.byMember[viewAs].income || 0;
+    totalExpense = d.byMember[viewAs].expense || 0;
+    // (для byCategory і byDay у нас нема breakdown по члену з бекенду,
+    //  тому показуємо те що є — повний)
+  }
+
+  const totalBalance = calcTotalBalance(viewAs);
+  const savRate = totalIncome > 0 ? Math.round((totalIncome - totalExpense) / totalIncome * 100) : 0;
 
   el.innerHTML = `
     <div class="dashboard">
-      <!-- HERO: вітання + загальний баланс -->
-      <div class="dash-hero">
+      <!-- HERO -->
+      <div class="dash-hero-v2">
         <div class="dash-hero-left">
-          <div class="dash-greet">${greet}, ${esc(myName)}! 👋</div>
-          <div class="dash-hero-label">Загальний баланс</div>
-          <div class="dash-hero-balance">${fmtMoney(d.balance || 0, 'UAH')}</div>
+          <div class="dash-greet">${greet}, ${esc(myName)}! 👋${viewAs ? ` <span class="dash-viewas-tag">дивлюсь як ${esc(profiles[viewAs]?.name || viewAs)}</span>` : ''}</div>
+          <div class="dash-hero-label">${viewAs ? 'Баланс ' + esc(profiles[viewAs]?.name || viewAs) : 'Загальний баланс'}</div>
+          <div class="dash-hero-balance">${fmtMoney(totalBalance, 'UAH')}</div>
           <div class="dash-hero-meta">
-            <span class="dash-hero-pill ${d.savingsRate > 0 ? 'pos' : 'neg'}">
-              <i class="ti ${d.savingsRate > 0 ? 'ti-trending-up' : 'ti-trending-down'}"></i>
-              ${(d.savingsRate || 0).toFixed(0)}% накопичено
+            <span class="dash-hero-pill ${savRate >= 0 ? 'pos' : 'neg'}">
+              <i class="ti ${savRate >= 0 ? 'ti-trending-up' : 'ti-trending-down'}"></i>
+              ${savRate}% накопичено
             </span>
-            <span class="dash-hero-month">${esc(monthName)}</span>
+            <span class="dash-hero-month">${esc(periodLabel)}</span>
           </div>
         </div>
-        <div class="dash-hero-right"></div>
       </div>
 
-      <!-- Швидкі дії (під hero) -->
+      <!-- Швидкі дії -->
       <div class="dash-quick-actions">
         <button class="quick-action" data-quick="income"><i class="ti ti-arrow-down-circle"></i><span>Дохід</span></button>
         <button class="quick-action" data-quick="expense"><i class="ti ti-arrow-up-circle"></i><span>Витрата</span></button>
@@ -69,40 +99,41 @@ export function renderDashboard() {
         <button class="quick-action" data-quick="exchange"><i class="ti ti-currency-dollar"></i><span>Обмін</span></button>
       </div>
 
-      <!-- Грід: 2 колонки на десктопі, 1 на мобілці -->
+      <!-- Грід -->
       <div class="dash-grid">
-        <!-- Колонка 1: Доходи/Витрати + Категорії -->
         <div class="dash-col">
-          <div class="dash-card dash-incomes">
+          <div class="dash-card dash-stat-card">
             <div class="dash-card-head">
-              <span class="dash-card-title">Доходи місяця</span>
-              <span class="dash-card-amount c-green">${fmtMoney(d.totalIncome || 0, 'UAH')}</span>
+              <span class="dash-card-title">Витрати · ${esc(periodLabel)}</span>
+              <span class="dash-card-amount c-red">${fmtMoney(totalExpense, 'UAH')}</span>
             </div>
-            <div class="dash-mini-bar bar-green"></div>
+            ${renderSparkline(byDayView, 'red')}
           </div>
 
-          <div class="dash-card dash-expenses">
+          <div class="dash-card dash-stat-card">
             <div class="dash-card-head">
-              <span class="dash-card-title">Витрати місяця</span>
-              <span class="dash-card-amount c-red">${fmtMoney(d.totalExpense || 0, 'UAH')}</span>
+              <span class="dash-card-title">Доходи · ${esc(periodLabel)}</span>
+              <span class="dash-card-amount c-green">${fmtMoney(totalIncome, 'UAH')}</span>
             </div>
-            <div class="dash-mini-bar bar-red"></div>
+            ${renderSparkline(byDayIncomeView, 'green')}
           </div>
 
-          ${renderCategoriesBlock(d)}
+          ${renderCategoriesBlock(d, byCategoryView, totalExpense)}
         </div>
 
-        <!-- Колонка 2: Кошельки + Останні операції -->
         <div class="dash-col">
           <div class="dash-card dash-wallets-card">
             <div class="dash-card-head">
-              <span class="dash-card-title">Кошельки</span>
-              <a href="#" class="dash-card-action" data-go="wallets">Усі →</a>
+              <span class="dash-card-title">Кошельки${viewAs ? ' · ' + esc(profiles[viewAs]?.name || viewAs) : ''}</span>
+              <div class="dash-card-actions">
+                <button class="dash-card-icon-btn" data-config="wallets" title="Налаштувати"><i class="ti ti-adjustments"></i></button>
+                <a href="#" class="dash-card-action" data-go="wallets">Усі →</a>
+              </div>
             </div>
-            ${renderWalletsBlock()}
+            ${renderWalletsBlock(viewAs)}
           </div>
 
-          ${renderRecentBlock(d.recent || [])}
+          ${renderRecentBlock(d.recent || [], viewAs)}
         </div>
       </div>
     </div>
@@ -111,24 +142,74 @@ export function renderDashboard() {
   bindHandlers(el);
 }
 
-// ── Допоміжний: визначити мене ──────────────────────────────
-function whoAmIByEmail(email) {
-  if (!email) return 'Євген';
-  const e = email.toLowerCase();
-  if (e.includes('jeka') || e.includes('zhenya') || e.includes('evgen')) return 'Євген';
-  if (e.includes('marina') || e.includes('maryna')) return 'Марина';
-  return 'Євген';
+// ── Загальний баланс ────────────────────────────────────────
+function calcTotalBalance(viewAs) {
+  const ops = state.operations || [];
+  let total = 0;
+  ops.forEach(o => {
+    // Перекази НЕ враховуємо
+    if (o.category === 'Переказ') return;
+    // Фільтр по виду
+    if (viewAs && o.who !== viewAs) return;
+    if (o.type === 'Дохід')   total += (o.amountUah || o.amount || 0);
+    if (o.type === 'Витрата') total -= (o.amountUah || o.amount || 0);
+  });
+  return total;
+}
+
+// ── Sparkline (мікро-графік) ────────────────────────────────
+function renderSparkline(byDay, color) {
+  const days = Object.keys(byDay).map(Number).sort((a, b) => a - b);
+  if (!days.length) {
+    return `<div class="sparkline-empty">Немає даних</div>`;
+  }
+  const w = 280, h = 60;
+  const max = Math.max(...days.map(d => byDay[d]), 1);
+  const minDay = days[0];
+  const maxDay = days[days.length - 1];
+  const range = Math.max(1, maxDay - minDay);
+
+  // Точки лінії
+  const points = days.map(d => {
+    const x = ((d - minDay) / range) * w;
+    const y = h - (byDay[d] / max) * h * 0.85 - 5;
+    return [x, y];
+  });
+
+  // SVG path
+  let path = `M ${points[0][0]} ${points[0][1]}`;
+  for (let i = 1; i < points.length; i++) {
+    const [x1, y1] = points[i - 1];
+    const [x2, y2] = points[i];
+    const cx = (x1 + x2) / 2;
+    path += ` Q ${cx} ${y1}, ${x2} ${y2}`;
+  }
+
+  // Площа під лінією (для заливки)
+  const areaPath = path + ` L ${points[points.length - 1][0]} ${h} L ${points[0][0]} ${h} Z`;
+  const lineColor = color === 'green' ? 'var(--c-green)' : color === 'red' ? 'var(--c-red)' : 'var(--c-accent)';
+  const fillColor = color === 'green' ? 'var(--c-green-soft)' : color === 'red' ? 'var(--c-red-soft)' : 'var(--c-accent-soft)';
+
+  return `
+    <div class="sparkline">
+      <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" width="100%" height="${h}">
+        <path d="${areaPath}" fill="${fillColor}" opacity="0.6"/>
+        <path d="${path}" fill="none" stroke="${lineColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        ${points.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="2" fill="${lineColor}"/>`).join('')}
+      </svg>
+    </div>
+  `;
 }
 
 // ── Блок кошельків ──────────────────────────────────────────
-function renderWalletsBlock() {
-  const profiles = getProfiles();
+function renderWalletsBlock(viewAs) {
   const allCards = [];
   FAMILY_MEMBERS.forEach(m => {
+    // Якщо viewAs — показуємо тільки його
+    if (viewAs && m !== viewAs) return;
     getCards(m).forEach((c, idx) => allCards.push({ ...c, owner: m, ownerIdx: idx }));
   });
 
-  // Top 5 карт за балансом
   function cardBal(c) {
     const ops = state.operations || [];
     let bal = 0;
@@ -141,12 +222,21 @@ function renderWalletsBlock() {
     return bal;
   }
 
-  const cardsWithBal = allCards.map(c => ({ ...c, balance: cardBal(c) }))
-    .sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance))
-    .slice(0, 5);
+  // Фільтр видимих кошельків
+  const visible = getVisibleWallets();
+
+  let filtered = allCards;
+  if (visible !== null) {
+    filtered = allCards.filter(c => visible.includes(`${c.owner}::${c.id}`));
+  }
+
+  const cardsWithBal = filtered.map(c => ({ ...c, balance: cardBal(c) }))
+    .sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance));
 
   if (!cardsWithBal.length) {
-    return '<div class="empty-mini">Жодного кошелька. Додай через "+" або в розділі Кошельки.</div>';
+    return visible !== null && visible.length === 0
+      ? '<div class="empty-mini">Усі кошельки приховано. Натисни ⚙ щоб налаштувати.</div>'
+      : '<div class="empty-mini">Жодного кошелька. Додай на сторінці Кошельки.</div>';
   }
 
   return `
@@ -168,10 +258,10 @@ function renderWalletsBlock() {
 }
 
 // ── Блок категорій ──────────────────────────────────────────
-function renderCategoriesBlock(d) {
-  const byCat = d.byCategory || {};
+function renderCategoriesBlock(d, byCat, total) {
+  byCat = byCat || d.byCategory || {};
   const entries = Object.entries(byCat).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  const total = d.totalExpense || entries.reduce((s, [, v]) => s + v, 0) || 1;
+  total = total || d.totalExpense || entries.reduce((s, [, v]) => s + v, 0) || 1;
 
   if (!entries.length) return '';
 
@@ -197,9 +287,14 @@ function renderCategoriesBlock(d) {
   `;
 }
 
-// ── Блок останніх операцій ──────────────────────────────────
-function renderRecentBlock(recent) {
+function renderRecentBlock(recent, viewAs) {
   if (!recent || !recent.length) return '';
+  // Фільтр по viewAs
+  let filtered = recent;
+  if (viewAs) {
+    filtered = recent.filter(o => o.who === viewAs);
+  }
+  if (!filtered.length) return '';
   return `
     <div class="dash-card">
       <div class="dash-card-head">
@@ -207,7 +302,7 @@ function renderRecentBlock(recent) {
         <a href="#" class="dash-card-action" data-go="operations">Усі →</a>
       </div>
       <div class="dash-recent-list">
-        ${recent.slice(0, 5).map(op => {
+        ${filtered.slice(0, 5).map(op => {
           const isExp = op.type === 'Витрата';
           return `
             <div class="dash-recent-item" data-op-row="${op.row}">
@@ -227,9 +322,7 @@ function renderRecentBlock(recent) {
   `;
 }
 
-// ── Слухачі ─────────────────────────────────────────────────
 function bindHandlers(el) {
-  // Швидкі дії
   el.querySelectorAll('[data-quick]').forEach(b => {
     b.addEventListener('click', () => {
       const act = b.dataset.quick;
@@ -240,7 +333,6 @@ function bindHandlers(el) {
     });
   });
 
-  // Навігація
   el.querySelectorAll('[data-go]').forEach(a => {
     a.addEventListener('click', (e) => {
       e.preventDefault();
@@ -248,19 +340,136 @@ function bindHandlers(el) {
     });
   });
 
-  // Клік на кошельок → перехід до сторінки кошельків
+  // Кнопка "налаштувати" (поки тільки для кошельків)
+  el.querySelectorAll('[data-config="wallets"]').forEach(b => {
+    b.addEventListener('click', () => openWalletsVisibilityDialog());
+  });
+
   el.querySelectorAll('.dash-wallet-item').forEach(item => {
     item.addEventListener('click', () => {
       import('./main.js').then(m => m.navigateTo('wallets'));
     });
   });
 
-  // Клік на операцію → редагувати
   el.querySelectorAll('.dash-recent-item').forEach(item => {
     item.addEventListener('click', () => {
       const row = parseInt(item.dataset.opRow);
       const op = (state.dashboard?.recent || []).find(o => o.row === row);
       if (op) openOperationDialog({ type: op.type, editing: op });
+    });
+  });
+}
+
+// ── Діалог налаштування видимих кошельків ───────────────────
+function openWalletsVisibilityDialog() {
+  import('./modals.js').then(({ openBottomSheet, closeModal }) => {
+    const allCards = [];
+    FAMILY_MEMBERS.forEach(m => {
+      getCards(m).forEach(c => allCards.push({ ...c, owner: m, key: `${m}::${c.id}` }));
+    });
+
+    const visible = getVisibleWallets(); // null = всі
+    const selectedSet = new Set(visible || allCards.map(c => c.key));
+
+    let modalId;
+
+    function renderList() {
+      const profiles = getProfiles();
+      const byOwner = {};
+      allCards.forEach(c => {
+        if (!byOwner[c.owner]) byOwner[c.owner] = [];
+        byOwner[c.owner].push(c);
+      });
+
+      return Object.entries(byOwner).map(([owner, cards]) => `
+        <div class="vis-group">
+          <div class="vis-group-head">
+            <span>${esc(profiles[owner]?.name || owner)}</span>
+            <button class="vis-toggle-all" data-toggle-owner="${esc(owner)}">
+              ${cards.every(c => selectedSet.has(c.key)) ? 'Зняти всі' : 'Обрати всі'}
+            </button>
+          </div>
+          ${cards.map(c => `
+            <label class="vis-row">
+              <input type="checkbox" data-wallet-key="${esc(c.key)}" ${selectedSet.has(c.key) ? 'checked' : ''}>
+              <div class="vis-row-icon" style="background:${c.bg}">
+                <i class="ti ${c.icon}" style="color:${c.color}"></i>
+              </div>
+              <span class="vis-row-name">${esc(c.id)}</span>
+            </label>
+          `).join('')}
+        </div>
+      `).join('');
+    }
+
+    modalId = openBottomSheet({
+      title: 'Які кошельки показувати на дашборді',
+      content: `
+        <div class="settings-hint" style="padding:0 0 14px;border:none;">
+          Обери ті кошельки які хочеш бачити на головній сторінці. Всі інші сховаються.
+        </div>
+        <div id="vis-list">${renderList()}</div>
+      `,
+      footer: `
+        <button class="btn-ghost" data-act="all">Усі</button>
+        <button class="btn-primary flex-1" data-act="save">Зберегти</button>
+      `,
+      onOpen: (wrap) => {
+        const listEl = wrap.querySelector('#vis-list');
+
+        function rerender() {
+          listEl.innerHTML = renderList();
+          bindList();
+        }
+
+        function bindList() {
+          // Чекбокси
+          listEl.querySelectorAll('[data-wallet-key]').forEach(cb => {
+            cb.addEventListener('change', (e) => {
+              if (e.target.checked) selectedSet.add(e.target.dataset.walletKey);
+              else selectedSet.delete(e.target.dataset.walletKey);
+              // Перерендер головок груп
+              listEl.querySelectorAll('.vis-toggle-all').forEach(b => {
+                const ow = b.dataset.toggleOwner;
+                const ownerCards = allCards.filter(c => c.owner === ow);
+                b.textContent = ownerCards.every(c => selectedSet.has(c.key)) ? 'Зняти всі' : 'Обрати всі';
+              });
+            });
+          });
+          // Toggle всех в группе
+          listEl.querySelectorAll('.vis-toggle-all').forEach(b => {
+            b.addEventListener('click', () => {
+              const ow = b.dataset.toggleOwner;
+              const ownerCards = allCards.filter(c => c.owner === ow);
+              const allChecked = ownerCards.every(c => selectedSet.has(c.key));
+              if (allChecked) {
+                ownerCards.forEach(c => selectedSet.delete(c.key));
+              } else {
+                ownerCards.forEach(c => selectedSet.add(c.key));
+              }
+              rerender();
+            });
+          });
+        }
+        bindList();
+
+        wrap.querySelector('[data-act="all"]').addEventListener('click', () => {
+          selectedSet.clear();
+          allCards.forEach(c => selectedSet.add(c.key));
+          rerender();
+        });
+        wrap.querySelector('[data-act="save"]').addEventListener('click', () => {
+          // Якщо обрано всі — зберігаємо null (показувати всі)
+          if (selectedSet.size === allCards.length) {
+            setVisibleWallets(null);
+          } else {
+            setVisibleWallets(Array.from(selectedSet));
+          }
+          closeModal(modalId);
+          renderDashboard();
+          import('./utils.js').then(u => u.showToast('✅ Налаштовано'));
+        });
+      }
     });
   });
 }
