@@ -65,11 +65,35 @@
 <div class="settings-section" style="display:none"><div class="settings-label">Monobank</div><div class="settings-card"><div class="settings-row-item"><div class="sri-icon" style="background:#1a1a2e;color:#fff"><i class="ti ti-credit-card"></i></div><div class="sri-info"><div class="sri-name">Токен Євген</div><input class="settings-token-input" id="mono-token-evgen" placeholder="uXXXXXXXXXXXXX" type="password"></div><button class="btn-ghost-sm" id="save-mono-evgen">Зберегти</button></div><div class="settings-row-item"><div class="sri-icon" style="background:#1a1a2e;color:#fff"><i class="ti ti-credit-card"></i></div><div class="sri-info"><div class="sri-name">Токен Марина</div><input class="settings-token-input" id="mono-token-marina" placeholder="uXXXXXXXXXXXXX" type="password"></div><button class="btn-ghost-sm" id="save-mono-marina">Зберегти</button></div><div class="settings-row-item"><div class="sri-icon"><i class="ti ti-download"></i></div><div class="sri-info"><div class="sri-name">Імпорт виписки</div><div class="sri-sub">Завантажити операції за 7 днів</div></div><button class="btn-ghost-sm" id="import-mono-btn">Імпорт</button></div></div></div>
 <div class="settings-section">
   <div class="settings-label">Категорії</div>
-  <div class="settings-card" id="settings-cats-container"></div>
+  <div class="cat-tabs">
+    <button class="cat-tab active" data-tab="expense"><i class="ti ti-arrow-up-circle"></i> Витрати</button>
+    <button class="cat-tab" data-tab="income"><i class="ti ti-arrow-down-circle"></i> Доходи</button>
+  </div>
+  <div class="cat-panel active" id="panel-expense">
+    <div class="settings-card">
+      <div class="cat-accordion" id="expense-cats-list"></div>
+      <div class="settings-row-item"><input class="settings-name-input flex1" id="new-expense-cat" placeholder="Назва категорії витрат"><button class="btn-ghost-sm" id="add-expense-cat"><i class="ti ti-plus"></i> Іконка</button></div>
+    </div>
+  </div>
+  <div class="cat-panel" id="panel-income">
+    <div class="settings-card">
+      <div class="cat-accordion" id="income-cats-list"></div>
+      <div class="settings-row-item"><input class="settings-name-input flex1" id="new-income-cat" placeholder="Назва категорії доходів"><button class="btn-ghost-sm" id="add-income-cat"><i class="ti ti-plus"></i> Іконка</button></div>
+    </div>
+  </div>
 </div>
 <div class="settings-section">
   <div class="settings-label">Профілі та рахунки</div>
-  <div class="settings-card" id="settings-profiles-container"></div>
+  <div class="members-cards-tabs">
+    <button class="mc-tab active" data-mctab="evgen">👤 Євген</button>
+    <button class="mc-tab" data-mctab="marina">👤 Марина</button>
+  </div>
+  <div class="mc-panel active" id="mc-panel-evgen">
+    <div class="settings-card" id="member-profile-evgen"></div>
+  </div>
+  <div class="mc-panel" id="mc-panel-marina">
+    <div class="settings-card" id="member-profile-marina"></div>
+  </div>
 </div>
 </div></section>
 </main>
