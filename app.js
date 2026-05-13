@@ -557,36 +557,6 @@ function updateCalKPI(){
   setText('cal-expense',fmtMoney(exp,'UAH'));
   setText('cal-balance',fmtMoney(inc-exp,'UAH'));
 }
-function renderCalendar(){
-  const d=state.calMonth;
-  const y=d.getFullYear(),m=d.getMonth();
-  setText('cal-month-label',MONTH_UK[m]+' '+y);
-  const firstDay=(new Date(y,m,1).getDay()+6)%7; // Mon=0
-  const daysInMonth=new Date(y,m+1,0).getDate();
-  const ops=state.operations.filter(o=>{
-    const od=new Date(o.date);return od.getFullYear()===y&&od.getMonth()===m&&o.type==="Витрата";
-  });
-  const byDay={};
-  ops.forEach(o=>{const day=new Date(o.date).getDate();byDay[day]=(byDay[day]||0)+(o.amountUah||o.amount);});
-  const today=new Date();
-  const headers=['Пн','Вт','Ср','Чт','Пт','Сб','Нд'];
-  let html=headers.map(h=>'<div class="cal-header">'+h+'</div>').join('');
-  for(let i=0;i<firstDay;i++)html+='<div class="cal-day empty"></div>';
-  for(let day=1;day<=daysInMonth;day++){
-    const amt=byDay[day]||0;
-    const isToday=today.getDate()===day&&today.getMonth()===m&&today.getFullYear()===y;
-    html+='<div class="cal-day'+(isToday?' today':'')+'" data-day="'+day+'"><div class="cal-day-num">'+day+'</div>'+(amt>0?'<div class="cal-day-amt">'+fmtMoney(amt,"UAH")+'</div>':'')+'</div>';
-  }
-  document.getElementById('cal-grid').innerHTML=html;
-  updateCalKPI();
-  document.querySelectorAll('.cal-day[data-day]').forEach(el=>{
-    el.addEventListener('click',()=>{
-      document.querySelectorAll('.cal-day').forEach(x=>x.classList.remove('selected'));
-      el.classList.add('selected');
-      showCalDay(parseInt(el.dataset.day),m,y);
-    });
-  });
-}
 function showCalDay(day,m,y){
   const ops=state.operations.filter(o=>{
     const od=new Date(o.date);return od.getDate()===day&&od.getMonth()===m&&od.getFullYear()===y;
@@ -696,6 +666,155 @@ function renderCardsList(containerId,cards,member){
       const m=b.dataset.member||null;
       const list=getCards(m);list.splice(parseInt(b.dataset.idx),1);saveCards(list,m);
       renderSettingsUI();renderMemberColumns();showToast('Картку видалено');
+    });
+  });
+}
+
+// ── RENDER MEMBER PROFILE CARD (Settings) ────────────────────────
+function renderMemberProfileCard(elemId, member){
+  const el=document.getElementById('member-profile-'+elemId);if(!el)return;
+  const profs=getProfiles();
+  const prof=profs[member]||{name:member,avatar:null};
+  const mc=MEMBER_COLORS[member]||{bg:'var(--c-bg-3)',cl:'var(--c-text)',initials:'??'};
+  const cards=getCards(member);
+  const isAdmin=(state.user?.role==='admin'||getMyMember()===member);
+  const avatarHtml=prof.avatar
+    ?`<img src="${prof.avatar}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;">`
+    :`<div style="width:44px;height:44px;border-radius:50%;background:${mc.bg};color:${mc.cl};display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;">${mc.initials}</div>`;
+  el.innerHTML=`
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+      <div style="cursor:pointer;" id="av-click-${elemId}">${avatarHtml}</div>
+      <div style="flex:1">
+        <input class="settings-name-input" id="profile-name-${elemId}" value="${esc(prof.name||member)}" placeholder="Ім'я" style="font-size:15px;font-weight:700;width:100%;${!isAdmin?'opacity:.5;pointer-events:none;':''}">
+        <div style="font-size:11px;color:var(--c-text-3);margin-top:3px;">Ім'я гаманця = ім'я профілю</div>
+      </div>
+      ${isAdmin?`<button class="btn-ghost-sm" id="save-profile-${elemId}"><i class="ti ti-check"></i></button>`:''}
+    </div>
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--c-text-3);margin-bottom:8px;">Рахунки</div>
+    <div class="cat-accordion" id="cards-${elemId}-list"></div>
+    ${isAdmin?`<div class="settings-row-item" style="margin-top:8px;"><input class="settings-name-input flex1" id="new-card-${elemId}" placeholder="Назва рахунку"><button class="btn-ghost-sm" id="add-card-${elemId}"><i class="ti ti-plus"></i> Іконка</button></div>`:''}
+  `;
+  renderCardsList('cards-'+elemId+'-list', cards, member);
+  const saveBtn=el.querySelector('#save-profile-'+elemId);
+  if(saveBtn) saveBtn.addEventListener('click',()=>{
+    const newName=el.querySelector('#profile-name-'+elemId).value.trim();if(!newName)return;
+    const profs2=getProfiles();profs2[member]=profs2[member]||{};profs2[member].name=newName;
+    saveProfiles(profs2);renderMemberColumns();showToast('✅ Збережено!');
+  });
+  const avBtn=el.querySelector('#av-click-'+elemId);
+  if(avBtn&&isAdmin) avBtn.addEventListener('click',()=>{
+    const inp=document.createElement('input');inp.type='file';inp.accept='image/*';
+    inp.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();
+      r.onload=ev=>{const url=ev.target.result;const profs2=getProfiles();
+        profs2[member]=profs2[member]||{};profs2[member].avatar=url;saveProfiles(profs2);
+        if(member===getMyMember()){localStorage.setItem(APP_CONFIG.AVATAR_KEY,url);applyAvatar(url);}
+        renderMemberProfileCard(elemId,member);renderMemberColumns();showToast('✅ Аватар!');};
+      r.readAsDataURL(f);};inp.click();
+  });
+  const addBtn=el.querySelector('#add-card-'+elemId);
+  if(addBtn) addBtn.addEventListener('click',()=>{
+    openIconPicker(elemId==='evgen'?'card-evgen':'card-marina');
+  });
+}
+
+// ── RENDER CALENDAR (з режимами) ─────────────────────────────────
+function renderCalendar(){
+  const period=state.calPeriod||'month';
+  updateCalKPI();
+  const grid=document.getElementById('cal-grid');
+  if(period==='month') renderCalMonth(grid);
+  else if(period==='3m') renderCalMulti(grid,3);
+  else if(period==='6m') renderCalMulti(grid,6);
+  else renderCalYear(grid);
+}
+function renderCalMonth(grid){
+  const d=state.calMonth,y=d.getFullYear(),m=d.getMonth();
+  setText('cal-month-label',MONTH_UK[m]+' '+y);
+  const firstDay=(new Date(y,m,1).getDay()+6)%7;
+  const daysInMonth=new Date(y,m+1,0).getDate();
+  const byDay={};
+  state.operations.filter(o=>{const od=new Date(o.date);return od.getFullYear()===y&&od.getMonth()===m&&o.type==='Витрата';})
+    .forEach(o=>{const day=new Date(o.date).getDate();byDay[day]=(byDay[day]||0)+(o.amountUah||o.amount);});
+  const today=new Date();
+  const H=['Пн','Вт','Ср','Чт','Пт','Сб','Нд'];
+  let html=H.map(h=>'<div class="cal-header">'+h+'</div>').join('');
+  for(let i=0;i<firstDay;i++)html+='<div class="cal-day empty"></div>';
+  for(let day=1;day<=daysInMonth;day++){
+    const amt=byDay[day]||0,isToday=today.getDate()===day&&today.getMonth()===m&&today.getFullYear()===y;
+    html+='<div class="cal-day'+(isToday?' today':'')+'" data-day="'+day+'" data-m="'+m+'" data-y="'+y+'"><div class="cal-day-num">'+day+'</div>'+(amt?'<div class="cal-day-amt">'+fmtMoney(amt,'UAH')+'</div>':'')+'</div>';
+  }
+  grid.innerHTML=html;
+  addCalListeners(grid);
+}
+function renderCalMulti(grid,count){
+  const now=state.calMonth;
+  let html='';
+  for(let i=count-1;i>=0;i--){
+    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+    const y=d.getFullYear(),m=d.getMonth();
+    const firstDay=(new Date(y,m,1).getDay()+6)%7;
+    const daysInMonth=new Date(y,m+1,0).getDate();
+    const byDay={};
+    state.operations.filter(o=>{const od=new Date(o.date);return od.getFullYear()===y&&od.getMonth()===m&&o.type==='Витрата';})
+      .forEach(o=>{const day=new Date(o.date).getDate();byDay[day]=(byDay[day]||0)+(o.amountUah||o.amount);});
+    const H=['Пн','Вт','Ср','Чт','Пт','Сб','Нд'];
+    html+='<div style="margin-bottom:20px"><div style="font-size:13px;font-weight:700;color:var(--c-accent);margin-bottom:8px;padding-left:2px">'+MONTH_UK[m]+' '+y+'</div>';
+    html+='<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">';
+    html+=H.map(h=>'<div class="cal-header">'+h+'</div>').join('');
+    let day=1;
+    const weeks=Math.ceil((firstDay+daysInMonth)/7);
+    for(let w=0;w<weeks;w++){
+      for(let dw=0;dw<7;dw++){
+        if((w===0&&dw<firstDay)||day>daysInMonth){html+='<div class="cal-day empty" style="min-height:34px"></div>';}
+        else{
+          const amt=byDay[day]||0;
+          html+='<div class="cal-day" style="min-height:34px;padding:3px 2px" data-day="'+day+'" data-m="'+m+'" data-y="'+y+'"><div class="cal-day-num" style="font-size:10px">'+day+'</div>'+(amt?'<div class="cal-day-dot"></div>':'')+'</div>';
+          day++;
+        }
+      }
+    }
+    html+='</div></div>';
+  }
+  setText('cal-month-label',count+' міс.');
+  grid.innerHTML=html;
+  addCalListeners(grid);
+}
+function renderCalYear(grid){
+  const y=state.calMonth.getFullYear();
+  setText('cal-month-label',String(y));
+  const byMonth=new Array(12).fill(0);
+  state.operations.filter(o=>{const d=new Date(o.date);return d.getFullYear()===y&&o.type==='Витрата';})
+    .forEach(o=>{byMonth[new Date(o.date).getMonth()]+=(o.amountUah||o.amount);});
+  const mx=Math.max(...byMonth,1);
+  const today=new Date();
+  let html='<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;padding:4px 0">';
+  html+=MONTH_UK.map((mn,mi)=>{
+    const h=Math.max(Math.round(byMonth[mi]/mx*80),byMonth[mi]>0?4:0);
+    const isCur=today.getMonth()===mi&&today.getFullYear()===y;
+    return '<div style="display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer" data-m="'+mi+'" data-y="'+y+'">'
+      +'<div style="width:100%;height:88px;display:flex;align-items:flex-end;justify-content:center">'
+      +'<div style="width:70%;height:'+h+'px;border-radius:4px 4px 0 0;background:var(--c-accent);opacity:'+(isCur?1:.7)+'"></div></div>'
+      +'<div style="font-size:9px;font-weight:700;color:var(--c-text-2);text-align:center">'+(byMonth[mi]>0?fmtMoney(byMonth[mi],'UAH'):'')+'</div>'
+      +'<div style="font-size:10px;font-weight:'+(isCur?700:600)+';color:'+(isCur?'var(--c-accent)':'var(--c-text-3)')+'">'+mn.substring(0,3)+'</div>'
+      +'</div>';
+  }).join('');
+  html+='</div>';
+  grid.innerHTML=html;
+  grid.querySelectorAll('[data-m][data-y]').forEach(el=>{
+    el.addEventListener('click',()=>{
+      state.calMonth=new Date(parseInt(el.dataset.y),parseInt(el.dataset.m),1);
+      state.calPeriod='month';
+      document.querySelectorAll('.cal-period-btn').forEach(b=>b.classList.toggle('active',b.dataset.period==='month'));
+      renderCalendar();
+    });
+  });
+}
+function addCalListeners(grid){
+  grid.querySelectorAll('.cal-day[data-day]').forEach(el=>{
+    el.addEventListener('click',()=>{
+      grid.querySelectorAll('.cal-day').forEach(x=>x.classList.remove('selected'));
+      el.classList.add('selected');
+      showCalDay(parseInt(el.dataset.day),parseInt(el.dataset.m||state.calMonth.getMonth()),parseInt(el.dataset.y||state.calMonth.getFullYear()));
     });
   });
 }
@@ -1281,7 +1400,7 @@ function bindEvents(){
   document.getElementById('add-btn-dash').addEventListener('click',()=>openModal());
   const aob=document.getElementById('add-btn-ops');if(aob)aob.addEventListener('click',()=>openModal());
   document.getElementById('add-reserve-btn').addEventListener('click',openReserveModal);
-  document.getElementById('add-goal-btn').addEventListener('click',()=>openGoalModal());
+  const agoal=document.getElementById('add-goal-btn');if(agoal)agoal.addEventListener('click',()=>openGoalModal());
   document.getElementById('modal-overlay').addEventListener('click',closeModal);
   // Type toggles
   document.getElementById('tt-expense').addEventListener('click',()=>setType('Витрата'));
