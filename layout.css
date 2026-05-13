@@ -32,12 +32,7 @@
   padding: 20px 16px;
   border-bottom: 1px solid var(--c-border);
 }
-.sb-logo {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 18px;
-}
+.sb-logo { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
 .sb-logo-icon {
   width: 40px; height: 40px;
   border-radius: 12px;
@@ -46,16 +41,12 @@
   display: flex; align-items: center; justify-content: center;
   font-size: 20px;
 }
-.sb-logo-info {
-  flex: 1; min-width: 0;
-}
+.sb-logo-info { flex: 1; min-width: 0; }
 .sb-logo-name {
   font-size: 14px; font-weight: 700;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.sb-logo-sub {
-  font-size: 11px; color: var(--c-text-3);
-}
+.sb-logo-sub { font-size: 11px; color: var(--c-text-3); }
 
 .sb-user {
   display: flex; align-items: center; gap: 10px;
@@ -74,13 +65,7 @@
 .sb-user-name { font-size: 13px; font-weight: 600; }
 .sb-user-role { font-size: 11px; color: var(--c-green); }
 
-.sb-nav {
-  flex: 1;
-  padding: 12px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
+.sb-nav { flex: 1; padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; }
 .sb-section-label {
   font-size: 10px;
   font-weight: 700;
@@ -106,12 +91,7 @@
 }
 .sb-item i { font-size: 18px; }
 
-.sb-footer {
-  padding: 12px 16px;
-  border-top: 1px solid var(--c-border);
-  font-size: 11px;
-  color: var(--c-text-3);
-}
+.sb-footer { padding: 12px 16px; border-top: 1px solid var(--c-border); font-size: 11px; color: var(--c-text-3); }
 
 /* ── TOPBAR ─────────────────────────────────────────────────── */
 .topbar {
@@ -124,14 +104,9 @@
   border-bottom: 1px solid var(--c-border);
   position: sticky; top: 0;
   z-index: 40;
+  height: 64px;
 }
-.topbar-title {
-  font-size: 16px;
-  font-weight: 700;
-  flex: 1;
-  text-align: left;
-  margin-left: 12px;
-}
+.topbar-title { font-size: 16px; font-weight: 700; flex: 1; text-align: left; margin-left: 12px; }
 .topbar-menu, .topbar-action {
   width: 40px; height: 40px;
   border-radius: 12px;
@@ -143,34 +118,111 @@
 .topbar-menu:hover, .topbar-action:hover { background: var(--c-bg-3); }
 .topbar-menu { display: none; }
 
-/* ── CONTENT ────────────────────────────────────────────────── */
-.content {
-  grid-area: content;
-  padding: 0;
-  overflow-y: auto;
-  background: var(--c-bg);
-}
-.page {
-  display: none;
-  min-height: calc(100vh - 64px);
-}
-.page.active { display: block; }
-.page-inner {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 24px 28px 100px;
-}
-
-.page-head {
+/* ── Перемикач юзера у topbar ─────────────────────────────── */
+.topbar-viewas-btn {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px 6px 6px;
+  border-radius: 24px;
+  background: var(--c-bg-3);
+  color: var(--c-text);
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.15s;
+  margin-right: 8px;
+}
+.topbar-viewas-btn:hover { background: var(--c-border); }
+.topbar-viewas-avatar {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700;
+  font-size: 12px;
+}
+.topbar-viewas-name {
+  max-width: 100px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.topbar-viewas-btn .ti-chevron-down {
+  font-size: 14px;
+  color: var(--c-text-3);
+}
+
+/* Меню вибору юзера */
+.viewas-menu {
+  background: var(--c-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-xl);
+  padding: 6px;
+  min-width: 220px;
+  max-width: 280px;
+}
+.viewas-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  color: var(--c-text);
+  text-align: left;
+  transition: background 0.15s;
+}
+.viewas-item:hover { background: var(--c-bg-3); }
+.viewas-item.active {
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
+}
+.viewas-avatar {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: var(--c-bg-3);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.viewas-item.active .viewas-avatar {
+  background: var(--c-accent);
+  color: #fff;
+}
+.viewas-info { flex: 1; min-width: 0; }
+.viewas-name { font-size: 13px; font-weight: 600; }
+.viewas-desc { font-size: 11px; color: var(--c-text-3); }
+.viewas-item.active .viewas-desc { color: var(--c-accent); opacity: 0.7; }
+.viewas-item i.ti-check {
+  font-size: 16px;
+  color: var(--c-accent);
+}
+
+/* ── Hero "Дивлюсь як" tag ────────────────────────────────── */
+.dash-viewas-tag {
+  display: inline-block;
+  background: rgba(255,255,255,0.2);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 6px;
+}
+
+/* ── CONTENT ────────────────────────────────────────────────── */
+.content { grid-area: content; padding: 0; overflow-y: auto; background: var(--c-bg); }
+.page { display: none; min-height: calc(100vh - 64px); }
+.page.active { display: block; }
+.page-inner { max-width: 1400px; margin: 0 auto; padding: 24px 28px 100px; }
+
+.page-head {
+  display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 20px;
 }
-.page-title {
-  font-size: 24px;
-  font-weight: 700;
-}
+.page-title { font-size: 24px; font-weight: 700; }
 
 /* ── BOTTOM NAV (mobile) ────────────────────────────────────── */
 .bottom-nav {
@@ -185,15 +237,10 @@
   justify-content: space-around;
 }
 .bn-item {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
   padding: 6px;
   color: var(--c-text-3);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 10px; font-weight: 600;
 }
 .bn-item i { font-size: 22px; }
 .bn-item.active { color: var(--c-accent); }
@@ -213,21 +260,18 @@
 /* ── SIDEBAR OVERLAY (mobile) ───────────────────────────────── */
 .sidebar-overlay {
   display: none;
-  position: fixed;
-  inset: 0;
+  position: fixed; inset: 0;
   background: rgba(0,0,0,0.4);
   z-index: 45;
 }
 body.sidebar-open .sidebar-overlay { display: block; }
-body.sidebar-open .sidebar {
-  transform: translateX(0) !important;
-}
+body.sidebar-open .sidebar { transform: translateX(0) !important; }
 
-/* ── MOBILE ────────────────────────────────────────────────── */
+/* ── MOBILE з SAFE-AREA для iPhone notch ───────────────────── */
 @media (max-width: 900px) {
   .app {
     grid-template-columns: 1fr;
-    grid-template-rows: 56px 1fr;
+    grid-template-rows: auto 1fr;
     grid-template-areas: "topbar" "content";
   }
   .sidebar {
@@ -237,24 +281,35 @@ body.sidebar-open .sidebar {
     transform: translateX(-100%);
     transition: transform 0.25s;
     box-shadow: var(--shadow-xl);
+    padding-top: env(safe-area-inset-top);
   }
-  .topbar { height: 56px; }
+  /* ⭐ КРИТИЧНО: topbar з відступом для notch */
+  .topbar {
+    height: auto;
+    min-height: 56px;
+    padding-top: max(12px, env(safe-area-inset-top));
+    padding-bottom: 12px;
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
   .topbar-menu { display: flex; }
   .bottom-nav { display: flex; }
-  .page-inner { padding: 16px 14px 100px; }
+  .page-inner { padding: 16px 14px 90px; }
   .content { padding-bottom: 70px; }
+  /* Sidebar на мобілці теж з notch */
+  body.sidebar-open .sidebar {
+    padding-top: max(20px, env(safe-area-inset-top));
+  }
 }
 
 /* ── AUTH SCREEN ────────────────────────────────────────────── */
 .auth-screen {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: fixed; inset: 0;
+  display: flex; align-items: center; justify-content: center;
   background: var(--c-bg);
   z-index: 1000;
   padding: 20px;
+  padding-top: max(20px, env(safe-area-inset-top));
 }
 .auth-card {
   background: var(--c-card);
@@ -274,14 +329,6 @@ body.sidebar-open .sidebar {
   display: flex; align-items: center; justify-content: center;
   font-size: 40px;
 }
-.auth-title {
-  font-size: 24px;
-  font-weight: 700;
-  margin-bottom: 8px;
-}
-.auth-text {
-  font-size: 14px;
-  color: var(--c-text-2);
-  margin-bottom: 24px;
-}
+.auth-title { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
+.auth-text { font-size: 14px; color: var(--c-text-2); margin-bottom: 24px; }
 #google-signin-btn { display: flex; justify-content: center; }
