@@ -713,7 +713,10 @@ function openWalletTypeEditor(editIdx){
   const isEdit = (editIdx!==undefined && editIdx>=0);
   const original = isEdit ? types[editIdx] : null;
 
-  let old=document.getElementById('icon-picker-modal');if(old)old.remove();
+  // Знімаємо старі модалки (можуть бути будь-які пікери відкриті)
+  ['wallet-type-modal','icon-picker-modal'].forEach(id=>{
+    const old=document.getElementById(id);if(old)old.remove();
+  });
 
   const colors=[
     {bg:'#E1F5EE',color:'#085041'},{bg:'#FAECE7',color:'#712B13'},{bg:'#E6F1FB',color:'#0C447C'},
@@ -722,50 +725,60 @@ function openWalletTypeEditor(editIdx){
     {bg:'#1a1a2e',color:'#ffffff'},{bg:'#F0F0F0',color:'#555555'},
   ];
 
-  let selName = original?.name || '';
-  let selIcon = original?.icon || 'ti-wallet';
-  let selColor = original ? {bg:original.bg||colors[0].bg, color:original.color||colors[0].color} : colors[0];
+  let selName = (original && original.name) ? original.name : '';
+  let selIcon = (original && original.icon) ? original.icon : 'ti-wallet';
+  let selColor = original
+    ? {bg:original.bg||colors[0].bg, color:original.color||colors[0].color}
+    : colors[0];
 
   const div=document.createElement('div');
-  div.id='icon-picker-modal';
-  div.style.cssText='position:fixed;inset:0;z-index:600;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.5);backdrop-filter:blur(2px);';
+  div.id='wallet-type-modal';
+  div.style.cssText='position:fixed;inset:0;z-index:700;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.5);backdrop-filter:blur(2px);';
   div.innerHTML=`
     <div style="background:var(--c-card);border-radius:20px 20px 0 0;padding:20px;width:100%;max-width:500px;max-height:85vh;overflow-y:auto;">
       <div style="width:40px;height:4px;background:var(--c-border);border-radius:2px;margin:0 auto 16px;"></div>
       <div style="font-size:16px;font-weight:700;margin-bottom:14px;">${isEdit?'Редагувати тип':'Новий тип рахунку'}</div>
 
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--c-text-3);margin-bottom:8px;">Назва</div>
-      <input id="wt-name" value="${esc(selName)}" placeholder="Наприклад: Накопичення в євро" style="width:100%;padding:10px 12px;border-radius:10px;background:var(--c-bg-3);border:1px solid var(--c-border);color:var(--c-text);font-size:14px;margin-bottom:14px;">
+      <input id="wtm-name" type="text" value="${esc(selName)}" placeholder="Наприклад: Накопичення в євро" style="width:100%;padding:10px 12px;border-radius:10px;background:var(--c-bg-3);border:1px solid var(--c-border);color:var(--c-text);font-size:14px;margin-bottom:14px;box-sizing:border-box;">
 
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--c-text-3);margin-bottom:8px;">Іконка</div>
-      <div id="wt-icons" style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-bottom:16px;"></div>
+      <div id="wtm-icons" style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-bottom:16px;"></div>
 
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--c-text-3);margin-bottom:8px;">Колір</div>
-      <div id="wt-colors" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;"></div>
+      <div id="wtm-colors" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;"></div>
 
       <div style="display:flex;gap:8px;">
-        ${isEdit?`<button id="wt-delete" style="flex:0 0 auto;padding:14px 18px;border-radius:14px;background:var(--c-red-soft);color:var(--c-red);font-size:14px;font-weight:700;">Видалити</button>`:''}
-        <button id="wt-save" style="flex:1;padding:14px;border-radius:14px;background:var(--c-accent);color:#fff;font-size:15px;font-weight:700;">${isEdit?'Зберегти':'Додати'}</button>
+        ${isEdit?`<button type="button" id="wtm-delete" style="flex:0 0 auto;padding:14px 18px;border-radius:14px;background:var(--c-red-soft);color:var(--c-red);font-size:14px;font-weight:700;">Видалити</button>`:''}
+        <button type="button" id="wtm-save" style="flex:1;padding:14px;border-radius:14px;background:var(--c-accent);color:#fff;font-size:15px;font-weight:700;">${isEdit?'Зберегти':'Додати'}</button>
       </div>
     </div>`;
   document.body.appendChild(div);
   div.addEventListener('click',e=>{if(e.target===div)div.remove();});
 
-  const nameEl=div.querySelector('#wt-name');
-  const iconsEl=div.querySelector('#wt-icons');
-  const colorsEl=div.querySelector('#wt-colors');
+  const nameEl=div.querySelector('#wtm-name');
+  const iconsEl=div.querySelector('#wtm-icons');
+  const colorsEl=div.querySelector('#wtm-colors');
+  // Авто-фокус на полі назви
+  setTimeout(()=>nameEl.focus(),100);
 
   function renderPicker(){
-    iconsEl.innerHTML=ICON_LIST.map(ic=>`<button data-ic="${ic}" style="width:100%;aspect-ratio:1;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;background:${ic===selIcon?selColor.bg:'var(--c-bg-3)'};border:2px solid ${ic===selIcon?selColor.color:'transparent'};transition:.15s;"><i class="ti ${ic}" style="color:${ic===selIcon?selColor.color:'var(--c-text-2)'}"></i></button>`).join('');
-    colorsEl.innerHTML=colors.map((c,i)=>`<button data-cidx="${i}" style="width:32px;height:32px;border-radius:50%;background:${c.bg};border:3px solid ${c===selColor||(c.bg===selColor.bg&&c.color===selColor.color)?c.color:'transparent'};transition:.15s;"></button>`).join('');
+    iconsEl.innerHTML=ICON_LIST.map(ic=>`<button type="button" data-ic="${ic}" style="width:100%;aspect-ratio:1;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;background:${ic===selIcon?selColor.bg:'var(--c-bg-3)'};border:2px solid ${ic===selIcon?selColor.color:'transparent'};transition:.15s;"><i class="ti ${ic}" style="color:${ic===selIcon?selColor.color:'var(--c-text-2)'}"></i></button>`).join('');
+    colorsEl.innerHTML=colors.map((c,i)=>`<button type="button" data-cidx="${i}" style="width:32px;height:32px;border-radius:50%;background:${c.bg};border:3px solid ${(c.bg===selColor.bg&&c.color===selColor.color)?c.color:'transparent'};transition:.15s;"></button>`).join('');
     iconsEl.querySelectorAll('[data-ic]').forEach(b=>b.addEventListener('click',()=>{selIcon=b.dataset.ic;renderPicker();}));
     colorsEl.querySelectorAll('[data-cidx]').forEach(b=>b.addEventListener('click',()=>{selColor=colors[parseInt(b.dataset.cidx)];renderPicker();}));
   }
   renderPicker();
 
-  div.querySelector('#wt-save').addEventListener('click',()=>{
-    const name=(nameEl.value||'').trim();
-    if(!name){showToast('Введи назву типу','error');return;}
+  div.querySelector('#wtm-save').addEventListener('click',()=>{
+    // Беремо значення з ЦЬОГО конкретного інпута
+    const nameInput=document.getElementById('wtm-name');
+    const name=(nameInput?nameInput.value:'').trim();
+    if(!name){
+      showToast('Введи назву типу','error');
+      if(nameInput)nameInput.focus();
+      return;
+    }
     // Генеруємо id з назви (транслітерація для зручності)
     const id = isEdit
       ? original.id
@@ -785,7 +798,7 @@ function openWalletTypeEditor(editIdx){
     renderSettingsUI();renderMemberColumns();div.remove();showToast(isEdit?'✅ Збережено!':'✅ Додано!');
   });
 
-  const delBtn=div.querySelector('#wt-delete');
+  const delBtn=div.querySelector('#wtm-delete');
   if(delBtn) delBtn.addEventListener('click',()=>{
     if(!confirm('Видалити тип?'))return;
     const types=getWalletTypes();types.splice(editIdx,1);saveWalletTypes(types);
