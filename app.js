@@ -1,12 +1,20 @@
 'use strict';
-const APP_CONFIG={GOOGLE_CLIENT_ID:'650414957833-s37phqum36bfomv5sr5n2cm4tau55ng5.apps.googleusercontent.com',SCRIPT_URL_KEY:'budget_script_url',TOKEN_KEY:'budget_google_token',USER_KEY:'budget_user',THEME_KEY:'budget_theme',FONT_KEY:'budget_font',AVATAR_KEY:'budget_avatar',USERNAME_KEY:'budget_username',FAMILY_KEY:'budget_family',GOALS_KEY:'budget_goals',EXP_CATS_KEY:'budget_exp_cats',INC_CATS_KEY:'budget_inc_cats',CARDS_KEY:'budget_cards',MONO_EVGEN_KEY:'budget_mono_evgen',MONO_MARINA_KEY:'budget_mono_marina',PROFILES_KEY:'budget_profiles',LAST_SYNC_KEY:'budget_last_sync',TRANSFERS_KEY:'budget_transfers',SECRET_KEY:'budget2026koval',SCRIPT_URL:'https://script.google.com/macros/s/AKfycbyJcoxq4McYpb-MxcIiQ4wCLjdwH2N7uc8lebh_9M6ktpq57oxi6Bhy2e3O9xcTrZe4zA/exec'};
+const APP_CONFIG={GOOGLE_CLIENT_ID:'650414957833-s37phqum36bfomv5sr5n2cm4tau55ng5.apps.googleusercontent.com',SCRIPT_URL_KEY:'budget_script_url',TOKEN_KEY:'budget_google_token',USER_KEY:'budget_user',THEME_KEY:'budget_theme',FONT_KEY:'budget_font',AVATAR_KEY:'budget_avatar',USERNAME_KEY:'budget_username',FAMILY_KEY:'budget_family',GOALS_KEY:'budget_goals',EXP_CATS_KEY:'budget_exp_cats',INC_CATS_KEY:'budget_inc_cats',CARDS_KEY:'budget_cards',MONO_EVGEN_KEY:'budget_mono_evgen',MONO_MARINA_KEY:'budget_mono_marina',PROFILES_KEY:'budget_profiles',LAST_SYNC_KEY:'budget_last_sync',TRANSFERS_KEY:'budget_transfers',WALLET_TYPES_KEY:'budget_wallet_types',SECRET_KEY:'budget2026koval',SCRIPT_URL:'https://script.google.com/macros/s/AKfycbyJcoxq4McYpb-MxcIiQ4wCLjdwH2N7uc8lebh_9M6ktpq57oxi6Bhy2e3O9xcTrZe4zA/exec'};
 const ICON_LIST=['ti-shopping-cart','ti-car','ti-home','ti-tools-kitchen-2','ti-heart','ti-shirt','ti-device-gamepad-2','ti-sofa','ti-baby-carriage','ti-dots','ti-briefcase','ti-coin','ti-plane','ti-book','ti-coffee','ti-paw','ti-phone','ti-gift','ti-bike','ti-pill','ti-school','ti-sport-billard','ti-music','ti-bus','ti-credit-card','ti-cash','ti-building-bank','ti-star','ti-pizza','ti-salad','ti-droplet','ti-bolt','ti-wifi','ti-device-laptop','ti-tools','ti-shirt-sport','ti-garden-cart','ti-vaccine','ti-receipt'];
-const state={user:null,token:null,scriptUrl:'',currentPage:'dashboard',currentMonth:new Date(),calMonth:new Date(),calPeriod:'month',currentType:'Витрата',currentCurrency:'UAH',reserveType:'Поповнення',reserveCurrency:'UAH',selectedCat:'',selectedCard:'',modalMember:null,dashboard:null,reserve:null,operations:[],goals:[],transfers:[],fx:null,filterActive:'all',editingGoalIdx:-1,activeAccountId:null,editingOp:null};
+const state={user:null,token:null,scriptUrl:'',currentPage:'dashboard',currentMonth:new Date(),calMonth:new Date(),calPeriod:'month',currentType:'Витрата',currentCurrency:'UAH',reserveType:'Поповнення',reserveCurrency:'UAH',selectedCat:'',selectedCard:'',modalMember:null,dashboard:null,reserve:null,operations:[],goals:[],transfers:[],fx:null,filterActive:'all',editingGoalIdx:-1,activeAccountId:null,editingOp:null,openMember:undefined};
 const CURRENCIES=['UAH','USD','EUR'],CUR_SYMBOLS={UAH:'₴',USD:'$',EUR:'€'};
 const MONTH_UK=['Січень','Лютий','Березень','Квітень','Травень','Червень','Липень','Серпень','Вересень','Жовтень','Листопад','Грудень'];
 const DEFAULT_EXP_CATS=[{id:'Продукти',icon:'ti-shopping-cart',bg:'#E1F5EE',color:'#085041'},{id:'Транспорт',icon:'ti-car',bg:'#FAECE7',color:'#712B13'},{id:'Комунальні',icon:'ti-home',bg:'#E6F1FB',color:'#0C447C'},{id:'Ресторани',icon:'ti-tools-kitchen-2',bg:'#FEF3E2',color:'#633806'},{id:"Здоров'я",icon:'ti-heart',bg:'#FBEAF0',color:'#72243E'},{id:'Одяг',icon:'ti-shirt',bg:'#EEEDFE',color:'#3C3489'},{id:'Розваги',icon:'ti-device-gamepad-2',bg:'#F0F4FF',color:'#2D4AB7'},{id:'Дім',icon:'ti-sofa',bg:'#E6F1FB',color:'#0C447C'},{id:'Дитячі',icon:'ti-baby-carriage',bg:'#FBEAF0',color:'#72243E'},{id:'Інше',icon:'ti-dots',bg:'#F0F0F0',color:'#555'}];
 const DEFAULT_INC_CATS=[{id:'Зарплата',icon:'ti-briefcase',bg:'#EAF3DE',color:'#27500A'},{id:'Підробіток',icon:'ti-coin',bg:'#FEF3E2',color:'#633806'},{id:'Інше',icon:'ti-dots',bg:'#F0F0F0',color:'#555'}];
 const DEFAULT_CARDS=[{id:'Готівка',icon:'ti-cash',bg:'#EAF3DE',color:'#27500A'},{id:'Моно чорна',icon:'ti-credit-card',bg:'#1a1a2e',color:'#fff'},{id:'ПУМБ',icon:'ti-credit-card',bg:'#E6F1FB',color:'#0C447C'},{id:'Приват',icon:'ti-credit-card',bg:'#FBEAF0',color:'#72243E'},{id:'Кредитна',icon:'ti-credit-card',bg:'#FAEEDA',color:'#633806'}];
+// Дефолтні типи рахунків (юзер може додавати/редагувати/видаляти)
+const DEFAULT_WALLET_TYPES=[
+  {id:'cash',     name:'Готівка',     icon:'ti-cash',              bg:'#EAF3DE',color:'#27500A'},
+  {id:'card',     name:'Картка',      icon:'ti-credit-card',       bg:'#E6F1FB',color:'#185FA5'},
+  {id:'credit',   name:'Кредитна',    icon:'ti-credit-card-pay',   bg:'#FAEEDA',color:'#633806'},
+  {id:'savings',  name:'Накопичення', icon:'ti-coins',             bg:'#FEF3E2',color:'#BA7517'},
+  {id:'currency', name:'Валюта',      icon:'ti-currency-dollar',   bg:'#EEEDFE',color:'#7F77DD'},
+];
 // Два члени сім'ї — константа для дашборду і операцій
 const FAMILY_MEMBERS=['Євген','Марина'];
 // Кольори членів
@@ -27,6 +35,24 @@ function saveCards(c,member){
 // Профілі юзерів (ім'я, аватар, картки) — зберігаємо/читаємо з Sheet
 function getProfiles(){try{const s=localStorage.getItem(APP_CONFIG.PROFILES_KEY);return s?JSON.parse(s):{Євген:{name:'Євген',avatar:null,cards:DEFAULT_CARDS},Марина:{name:'Марина',avatar:null,cards:DEFAULT_CARDS}};}catch{return {};}}
 function saveProfiles(p){localStorage.setItem(APP_CONFIG.PROFILES_KEY,JSON.stringify(p));syncSettingsToSheet();}
+// Типи рахунків (юзер керує)
+function getWalletTypes(){
+  try{
+    const s=localStorage.getItem(APP_CONFIG.WALLET_TYPES_KEY);
+    if(!s)return DEFAULT_WALLET_TYPES;
+    const parsed=JSON.parse(s);
+    return Array.isArray(parsed)&&parsed.length?parsed:DEFAULT_WALLET_TYPES;
+  }catch{return DEFAULT_WALLET_TYPES;}
+}
+function saveWalletTypes(types){
+  localStorage.setItem(APP_CONFIG.WALLET_TYPES_KEY,JSON.stringify(types));
+  syncSettingsToSheet();
+}
+function getWalletTypeById(id){
+  if(!id)return null;
+  const types=getWalletTypes();
+  return types.find(t=>t.id===id)||null;
+}
 // Отримати профіль поточного юзера за email
 function getMyMember(){
   const email=(state.user?.email||'').toLowerCase();
@@ -267,20 +293,17 @@ function renderMemberColumns(){
   const profiles=getProfiles();
   const byMember=state.dashboard?.byMember||{};
 
-  // Групи карток за назвою
+  // Динамічні групи з налаштувань юзера + fallback для карток без типу
+  const userTypes=getWalletTypes();
   const CARD_GROUPS=[
-    {id:'credit',  label:'Кредитні',    icon:'ti-credit-card',   match:['кредит']},
-    {id:'cash',    label:'Готівка',      icon:'ti-cash',          match:['готівка','налич']},
-    {id:'savings', label:'Накопичення',  icon:'ti-piggy-bank',    match:['накопич','ощад','депозит','savings']},
-    {id:'cards',   label:'Картки',       icon:'ti-cards',         match:[]}, // решта
+    ...userTypes.map(t=>({id:t.id,label:t.name,icon:t.icon||'ti-wallet',color:t.color})),
+    {id:'_other', label:'Інше', icon:'ti-dots', color:'var(--c-text-3)'}, // картки без типу
   ];
-  function getGroupId(cardId){
-    const low=(cardId||'').toLowerCase();
-    for(const g of CARD_GROUPS){
-      if(g.id==='cards')continue;
-      if(g.match.some(m=>low.includes(m)))return g.id;
-    }
-    return 'cards';
+  function getGroupId(card){
+    if(card.walletType && userTypes.find(t=>t.id===card.walletType))return card.walletType;
+    // Fallback для legacy карток без walletType
+    if(card.isSavings && userTypes.find(t=>t.id==='savings'))return 'savings';
+    return '_other';
   }
 
   el.innerHTML=FAMILY_MEMBERS.map(member=>{
@@ -303,7 +326,7 @@ function renderMemberColumns(){
     // Групуємо картки
     const grouped={};
     cards.forEach(c=>{
-      const g=getGroupId(c.id);
+      const g=getGroupId(c);
       if(!grouped[g])grouped[g]=[];
       grouped[g].push(c);
     });
@@ -344,13 +367,21 @@ function renderMemberColumns(){
   // Collapsible — клік по заголовку
   el.querySelectorAll('.member-col-head').forEach(hd=>{
     hd.addEventListener('click',()=>{
+      const member=hd.dataset.member;
       const wrap=hd.nextElementSibling;
       const chev=hd.querySelector('.member-col-chevron');
       const isOpen=wrap.style.display!=='none';
       // Закриваємо всі, відкриваємо цей
       el.querySelectorAll('.member-cards-wrap').forEach(w=>{w.style.display='none';});
       el.querySelectorAll('.member-col-chevron').forEach(c=>{c.style.transform='rotate(-90deg)';});
-      if(!isOpen){wrap.style.display='';chev.style.transform='';}
+      if(!isOpen){
+        wrap.style.display='';chev.style.transform='';
+        state.openMember=member;
+      } else {
+        state.openMember=null;
+      }
+      // Запам'ятовуємо стан
+      localStorage.setItem('budget_open_member',state.openMember||'');
     });
   });
 
@@ -362,18 +393,16 @@ function renderMemberColumns(){
     });
   });
 
-  // За замовчуванням відкриваємо першого члена
-  const firstWrap=el.querySelector('.member-cards-wrap');
-  const firstChev=el.querySelector('.member-col-chevron');
-  if(firstWrap){firstWrap.style.display='';if(firstChev)firstChev.style.transform='';}
-  // Решту закриваємо
-  el.querySelectorAll('.member-cards-wrap:not(:first-of-type)').forEach((w,i)=>{
-    if(i>0){w.style.display='none';}
-  });
-  el.querySelectorAll('.member-col').forEach((col,i)=>{
+  // Відновлюємо стан з localStorage (НЕ переписуємо при кожному ререндері)
+  if(state.openMember===undefined){
+    state.openMember=localStorage.getItem('budget_open_member')||FAMILY_MEMBERS[0];
+  }
+  el.querySelectorAll('.member-col').forEach((col)=>{
+    const member=col.dataset.member;
     const wrap=col.querySelector('.member-cards-wrap');
     const chev=col.querySelector('.member-col-chevron');
-    if(i>0&&wrap){wrap.style.display='none';if(chev)chev.style.transform='rotate(-90deg)';}
+    const isOpen=member===state.openMember;
+    if(wrap){wrap.style.display=isOpen?'':'none';if(chev)chev.style.transform=isOpen?'':'rotate(-90deg)';}
   });
 }
 
@@ -640,14 +669,146 @@ function renderSettingsUI(){
   }
   renderCatsList('expense-cats-list',getExpCats(),false);
   renderCatsList('income-cats-list',getIncCats(),true);
+  renderWalletTypesList('wallet-types-list');
   renderMemberProfileCard('evgen','Євген');
   renderMemberProfileCard('marina','Марина');
 }
+
+// ── РЕНДЕР ТИПІВ РАХУНКІВ ─────────────────────────────────────
+function renderWalletTypesList(containerId){
+  const el=document.getElementById(containerId);if(!el)return;
+  const types=getWalletTypes();
+  el.innerHTML=types.map((t,i)=>`<div class="cat-accordion-item" data-edit-idx="${i}" style="cursor:pointer"><div class="cat-bar-icon" style="background:${t.bg||'#F0F0F0'}"><i class="ti ${t.icon||'ti-wallet'}" style="color:${t.color||'#555'}"></i></div><div class="cat-accordion-name">${esc(t.name)}<span style="display:block;font-size:10px;color:var(--c-text-3);font-weight:500;margin-top:2px;">id: ${esc(t.id)}</span></div><button class="cat-del-btn" data-idx="${i}"><i class="ti ti-x"></i></button></div>`).join('');
+  // Клік по типу — редагування
+  el.querySelectorAll('.cat-accordion-item').forEach(item=>{
+    item.addEventListener('click',e=>{
+      if(e.target.closest('.cat-del-btn'))return;
+      openWalletTypeEditor(parseInt(item.dataset.editIdx));
+    });
+  });
+  el.querySelectorAll('.cat-del-btn').forEach(b=>{
+    b.addEventListener('click',e=>{
+      e.stopPropagation();
+      const idx=parseInt(b.dataset.idx);
+      const types=getWalletTypes();
+      const t=types[idx];
+      // Перевірка: чи використовується тип у кошельках
+      const allCards=[...getCards('Євген'),...getCards('Марина')];
+      const usedIn=allCards.filter(c=>c.walletType===t.id);
+      if(usedIn.length){
+        if(!confirm(`Тип "${t.name}" використовується у ${usedIn.length} рахунках. Все одно видалити?\n(рахунки залишаться, але без типу)`))return;
+      } else {
+        if(!confirm('Видалити тип "'+t.name+'"?'))return;
+      }
+      types.splice(idx,1);
+      saveWalletTypes(types);
+      renderSettingsUI();renderMemberColumns();showToast('Тип видалено');
+    });
+  });
+}
+
+// Редактор типу кошелька (з вибором іконки і кольору)
+function openWalletTypeEditor(editIdx){
+  const types=getWalletTypes();
+  const isEdit = (editIdx!==undefined && editIdx>=0);
+  const original = isEdit ? types[editIdx] : null;
+
+  let old=document.getElementById('icon-picker-modal');if(old)old.remove();
+
+  const colors=[
+    {bg:'#E1F5EE',color:'#085041'},{bg:'#FAECE7',color:'#712B13'},{bg:'#E6F1FB',color:'#0C447C'},
+    {bg:'#FEF3E2',color:'#633806'},{bg:'#FBEAF0',color:'#72243E'},{bg:'#EEEDFE',color:'#3C3489'},
+    {bg:'#F0F4FF',color:'#2D4AB7'},{bg:'#EAF3DE',color:'#27500A'},{bg:'#FAEEDA',color:'#633806'},
+    {bg:'#1a1a2e',color:'#ffffff'},{bg:'#F0F0F0',color:'#555555'},
+  ];
+
+  let selName = original?.name || '';
+  let selIcon = original?.icon || 'ti-wallet';
+  let selColor = original ? {bg:original.bg||colors[0].bg, color:original.color||colors[0].color} : colors[0];
+
+  const div=document.createElement('div');
+  div.id='icon-picker-modal';
+  div.style.cssText='position:fixed;inset:0;z-index:600;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.5);backdrop-filter:blur(2px);';
+  div.innerHTML=`
+    <div style="background:var(--c-card);border-radius:20px 20px 0 0;padding:20px;width:100%;max-width:500px;max-height:85vh;overflow-y:auto;">
+      <div style="width:40px;height:4px;background:var(--c-border);border-radius:2px;margin:0 auto 16px;"></div>
+      <div style="font-size:16px;font-weight:700;margin-bottom:14px;">${isEdit?'Редагувати тип':'Новий тип рахунку'}</div>
+
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--c-text-3);margin-bottom:8px;">Назва</div>
+      <input id="wt-name" value="${esc(selName)}" placeholder="Наприклад: Накопичення в євро" style="width:100%;padding:10px 12px;border-radius:10px;background:var(--c-bg-3);border:1px solid var(--c-border);color:var(--c-text);font-size:14px;margin-bottom:14px;">
+
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--c-text-3);margin-bottom:8px;">Іконка</div>
+      <div id="wt-icons" style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-bottom:16px;"></div>
+
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--c-text-3);margin-bottom:8px;">Колір</div>
+      <div id="wt-colors" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;"></div>
+
+      <div style="display:flex;gap:8px;">
+        ${isEdit?`<button id="wt-delete" style="flex:0 0 auto;padding:14px 18px;border-radius:14px;background:var(--c-red-soft);color:var(--c-red);font-size:14px;font-weight:700;">Видалити</button>`:''}
+        <button id="wt-save" style="flex:1;padding:14px;border-radius:14px;background:var(--c-accent);color:#fff;font-size:15px;font-weight:700;">${isEdit?'Зберегти':'Додати'}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+  div.addEventListener('click',e=>{if(e.target===div)div.remove();});
+
+  const nameEl=div.querySelector('#wt-name');
+  const iconsEl=div.querySelector('#wt-icons');
+  const colorsEl=div.querySelector('#wt-colors');
+
+  function renderPicker(){
+    iconsEl.innerHTML=ICON_LIST.map(ic=>`<button data-ic="${ic}" style="width:100%;aspect-ratio:1;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;background:${ic===selIcon?selColor.bg:'var(--c-bg-3)'};border:2px solid ${ic===selIcon?selColor.color:'transparent'};transition:.15s;"><i class="ti ${ic}" style="color:${ic===selIcon?selColor.color:'var(--c-text-2)'}"></i></button>`).join('');
+    colorsEl.innerHTML=colors.map((c,i)=>`<button data-cidx="${i}" style="width:32px;height:32px;border-radius:50%;background:${c.bg};border:3px solid ${c===selColor||(c.bg===selColor.bg&&c.color===selColor.color)?c.color:'transparent'};transition:.15s;"></button>`).join('');
+    iconsEl.querySelectorAll('[data-ic]').forEach(b=>b.addEventListener('click',()=>{selIcon=b.dataset.ic;renderPicker();}));
+    colorsEl.querySelectorAll('[data-cidx]').forEach(b=>b.addEventListener('click',()=>{selColor=colors[parseInt(b.dataset.cidx)];renderPicker();}));
+  }
+  renderPicker();
+
+  div.querySelector('#wt-save').addEventListener('click',()=>{
+    const name=(nameEl.value||'').trim();
+    if(!name){showToast('Введи назву типу','error');return;}
+    // Генеруємо id з назви (транслітерація для зручності)
+    const id = isEdit
+      ? original.id
+      : name.toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_а-яіїєґ]/gi,'').substring(0,30) || ('type_'+Date.now());
+    const item = {id, name, icon:selIcon, bg:selColor.bg, color:selColor.color};
+    const types=getWalletTypes();
+    if(isEdit){
+      types[editIdx]=item;
+    } else {
+      // Унікальність id
+      if(types.find(t=>t.id===id)){
+        item.id = id+'_'+Date.now();
+      }
+      types.push(item);
+    }
+    saveWalletTypes(types);
+    renderSettingsUI();renderMemberColumns();div.remove();showToast(isEdit?'✅ Збережено!':'✅ Додано!');
+  });
+
+  const delBtn=div.querySelector('#wt-delete');
+  if(delBtn) delBtn.addEventListener('click',()=>{
+    if(!confirm('Видалити тип?'))return;
+    const types=getWalletTypes();types.splice(editIdx,1);saveWalletTypes(types);
+    renderSettingsUI();renderMemberColumns();div.remove();showToast('Видалено');
+  });
+}
 function renderCatsList(containerId,cats,isIncome){
   const el=document.getElementById(containerId);if(!el)return;
-  el.innerHTML=cats.map((c,i)=>`<div class="cat-accordion-item"><div class="cat-bar-icon" style="background:${c.bg}"><i class="ti ${c.icon}" style="color:${c.color}"></i></div><div class="cat-accordion-name">${esc(c.id)}</div><button class="cat-del-btn" data-idx="${i}" data-inc="${isIncome}"><i class="ti ti-x"></i></button></div>`).join('');
+  el.innerHTML=cats.map((c,i)=>`<div class="cat-accordion-item" data-edit-idx="${i}" data-edit-inc="${isIncome}" style="cursor:pointer"><div class="cat-bar-icon" style="background:${c.bg}"><i class="ti ${c.icon}" style="color:${c.color}"></i></div><div class="cat-accordion-name">${esc(c.id)}</div><button class="cat-del-btn" data-idx="${i}" data-inc="${isIncome}"><i class="ti ti-x"></i></button></div>`).join('');
+  // Клік по елементу — редагування
+  el.querySelectorAll('.cat-accordion-item').forEach(item=>{
+    item.addEventListener('click',e=>{
+      if(e.target.closest('.cat-del-btn'))return; // клік по хрестику — окремо
+      const idx=parseInt(item.dataset.editIdx);
+      const inc=item.dataset.editInc==='true';
+      const list=inc?getIncCats():getExpCats();
+      openIconPicker(inc?'income':'expense',{item:list[idx],index:idx});
+    });
+  });
   el.querySelectorAll('.cat-del-btn').forEach(b=>{
-    b.addEventListener('click',()=>{
+    b.addEventListener('click',e=>{
+      e.stopPropagation();
+      if(!confirm('Видалити категорію?'))return;
       const inc=b.dataset.inc==='true';
       const key=inc?APP_CONFIG.INC_CATS_KEY:APP_CONFIG.EXP_CATS_KEY;
       const list=inc?getIncCats():getExpCats();
@@ -660,12 +821,29 @@ function renderCatsList(containerId,cats,isIncome){
 }
 function renderCardsList(containerId,cards,member){
   const el=document.getElementById(containerId);if(!el)return;
-  el.innerHTML=cards.map((c,i)=>`<div class="cat-accordion-item"><div class="cat-bar-icon" style="background:${c.bg}"><i class="ti ${c.icon}" style="color:${c.color}"></i></div><div class="cat-accordion-name">${esc(c.id)}</div><button class="cat-del-btn" data-idx="${i}" data-member="${esc(member||'')}"><i class="ti ti-x"></i></button></div>`).join('');
+  el.innerHTML=cards.map((c,i)=>{
+    const tp = getWalletTypeById(c.walletType);
+    const typeLabel = tp ? tp.name : (c.isSavings?'Накопич.':'—');
+    return `<div class="cat-accordion-item" data-edit-idx="${i}" data-edit-member="${esc(member||'')}" style="cursor:pointer"><div class="cat-bar-icon" style="background:${c.bg}"><i class="ti ${c.icon}" style="color:${c.color}"></i></div><div class="cat-accordion-name">${esc(c.id)}<span style="display:block;font-size:10px;color:var(--c-text-3);font-weight:500;margin-top:2px;">${esc(typeLabel)}</span></div><button class="cat-del-btn" data-idx="${i}" data-member="${esc(member||'')}"><i class="ti ti-x"></i></button></div>`;
+  }).join('');
+  // Клік по картці — редагування
+  el.querySelectorAll('.cat-accordion-item').forEach(item=>{
+    item.addEventListener('click',e=>{
+      if(e.target.closest('.cat-del-btn'))return;
+      const idx=parseInt(item.dataset.editIdx);
+      const m=item.dataset.editMember||null;
+      const list=getCards(m);
+      const mode=m==='Євген'?'card-evgen':m==='Марина'?'card-marina':'card';
+      openIconPicker(mode,{item:list[idx],index:idx});
+    });
+  });
   el.querySelectorAll('.cat-del-btn').forEach(b=>{
-    b.addEventListener('click',()=>{
+    b.addEventListener('click',e=>{
+      e.stopPropagation();
+      if(!confirm('Видалити рахунок?'))return;
       const m=b.dataset.member||null;
       const list=getCards(m);list.splice(parseInt(b.dataset.idx),1);saveCards(list,m);
-      renderSettingsUI();renderMemberColumns();showToast('Картку видалено');
+      renderSettingsUI();renderMemberColumns();showToast('Рахунок видалено');
     });
   });
 }
@@ -1191,6 +1369,16 @@ function applySettings(d){
   setIfNew(APP_CONFIG.INC_CATS_KEY, d.incCats);
   setIfNew(APP_CONFIG.CARDS_KEY+'_Євген',  d.cardsEvgen);
   setIfNew(APP_CONFIG.CARDS_KEY+'_Марина', d.cardsMarina);
+  setIfNew(APP_CONFIG.WALLET_TYPES_KEY, d.walletTypes);
+
+  // Назва родини
+  if(d.familyName && d.familyName!==localStorage.getItem(APP_CONFIG.FAMILY_KEY)){
+    localStorage.setItem(APP_CONFIG.FAMILY_KEY,d.familyName);
+    setText('sb-family-name',d.familyName);
+    const fi=document.getElementById('family-name-input');
+    if(fi)fi.value=d.familyName;
+    changed=true;
+  }
 
   if(d.profiles){
     const profStr=JSON.stringify(d.profiles);
@@ -1273,10 +1461,12 @@ async function syncSettingsToSheet(){
   try{
     await apiPost({
       action:'updateSettings',
+      familyName:localStorage.getItem(APP_CONFIG.FAMILY_KEY)||'Родина Коваль',
       expCats:getExpCats(),
       incCats:getIncCats(),
       cardsEvgen:getCards('Євген'),
       cardsMarina:getCards('Марина'),
+      walletTypes:getWalletTypes(),
       profiles:getProfiles(),
     });
     syncState.pendingSettings=false;
@@ -1285,16 +1475,23 @@ async function syncSettingsToSheet(){
 async function fetchSettingsFromSheet(){ await fullSync(true); }
 function applyTheme(t){document.body.setAttribute('data-theme',t);localStorage.setItem(APP_CONFIG.THEME_KEY,t);document.querySelectorAll('.theme-btn').forEach(b=>b.classList.toggle('active',b.dataset.theme===t));}
 
-// ── ICON PICKER ───────────────────────────────────────────────────
-function openIconPicker(mode){
-  // mode: 'expense' | 'income' | 'card'
+// ── ICON PICKER (також редактор кошельків/категорій) ──────────────
+// mode: 'expense' | 'income' | 'card-evgen' | 'card-marina'
+// editItem: { item, index } — якщо передано, редагуємо, інакше створюємо
+function openIconPicker(mode, editItem){
   let memberForCard=null;
   if(mode==='card-evgen')memberForCard='Євген';
   else if(mode==='card-marina')memberForCard='Марина';
   const baseMode=mode.startsWith('card')?'card':mode;
   const inputId = baseMode==='card' ? ('new-card'+(memberForCard?'-'+memberForCard.toLowerCase():'')) : (mode==='income' ? 'new-income-cat' : 'new-expense-cat');
-  const nameVal = (document.getElementById(inputId)||{}).value||'';
-  if(!nameVal.trim()){showToast('Спочатку введи назву','error');return;}
+
+  let initialName = '';
+  if(editItem && editItem.item){
+    initialName = editItem.item.id || '';
+  } else {
+    initialName = ((document.getElementById(inputId)||{}).value||'').trim();
+    if(!initialName){showToast('Спочатку введи назву','error');return;}
+  }
 
   // Знімаємо старий пікер якщо є
   let old=document.getElementById('icon-picker-modal');if(old)old.remove();
@@ -1306,44 +1503,124 @@ function openIconPicker(mode){
     {bg:'#1a1a2e',color:'#ffffff'},{bg:'#F0F0F0',color:'#555555'},
   ];
 
-  let selIcon='ti-dots';
-  let selColor=colors[0];
+  // Типи кошельків — з налаштувань юзера, не захардкоджені
+  const WALLET_TYPES = baseMode==='card' ? getWalletTypes() : [];
+
+  let selName = initialName;
+  let selIcon = (editItem && editItem.item && editItem.item.icon) || (baseMode==='card' ? 'ti-credit-card' : 'ti-dots');
+  let selColor = (editItem && editItem.item)
+    ? {bg:editItem.item.bg, color:editItem.item.color}
+    : colors[0];
+  let selType = (editItem && editItem.item && editItem.item.walletType)
+    || (editItem && editItem.item && editItem.item.isSavings ? 'savings' : null)
+    || (baseMode==='card' && getWalletTypes()[0] ? getWalletTypes()[0].id : null);
+
+  const isEdit = !!(editItem && editItem.item);
+  const titleText = isEdit
+    ? (baseMode==='card' ? 'Редагувати рахунок' : 'Редагувати категорію')
+    : (baseMode==='card' ? 'Новий рахунок' : 'Нова категорія');
 
   const div=document.createElement('div');
   div.id='icon-picker-modal';
   div.style.cssText='position:fixed;inset:0;z-index:600;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.5);backdrop-filter:blur(2px);';
   div.innerHTML=`
-    <div style="background:var(--c-card);border-radius:20px 20px 0 0;padding:20px;width:100%;max-width:500px;max-height:80vh;overflow-y:auto;">
+    <div style="background:var(--c-card);border-radius:20px 20px 0 0;padding:20px;width:100%;max-width:500px;max-height:85vh;overflow-y:auto;">
       <div style="width:40px;height:4px;background:var(--c-border);border-radius:2px;margin:0 auto 16px;"></div>
-      <div style="font-size:16px;font-weight:700;margin-bottom:14px;">Оберіть іконку</div>
+      <div style="font-size:16px;font-weight:700;margin-bottom:14px;">${titleText}</div>
+
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--c-text-3);margin-bottom:8px;">Назва</div>
+      <input id="ip-name" value="${esc(selName)}" placeholder="Назва" style="width:100%;padding:10px 12px;border-radius:10px;background:var(--c-bg-3);border:1px solid var(--c-border);color:var(--c-text);font-size:14px;margin-bottom:14px;">
+
+      ${baseMode==='card' ? `
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--c-text-3);margin-bottom:8px;">Тип рахунку</div>
+      <div id="ip-types" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:16px;"></div>
+      ` : ''}
+
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--c-text-3);margin-bottom:8px;">Іконка</div>
       <div id="ip-icons" style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-bottom:16px;"></div>
+
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--c-text-3);margin-bottom:8px;">Колір</div>
       <div id="ip-colors" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;"></div>
-      <button id="ip-save" style="width:100%;padding:14px;border-radius:14px;background:var(--c-accent);color:#fff;font-size:15px;font-weight:700;">Додати</button>
+
+      <div style="display:flex;gap:8px;">
+        ${isEdit ? `<button id="ip-delete" style="flex:0 0 auto;padding:14px 18px;border-radius:14px;background:var(--c-red-soft);color:var(--c-red);font-size:14px;font-weight:700;">Видалити</button>` : ''}
+        <button id="ip-save" style="flex:1;padding:14px;border-radius:14px;background:var(--c-accent);color:#fff;font-size:15px;font-weight:700;">${isEdit?'Зберегти':'Додати'}</button>
+      </div>
     </div>`;
   document.body.appendChild(div);
   div.addEventListener('click',e=>{if(e.target===div)div.remove();});
 
+  const nameEl=div.querySelector('#ip-name');
   const iconsEl=div.querySelector('#ip-icons');
   const colorsEl=div.querySelector('#ip-colors');
+  const typesEl=div.querySelector('#ip-types');
 
   function renderPicker(){
     iconsEl.innerHTML=ICON_LIST.map(ic=>`<button data-ic="${ic}" style="width:100%;aspect-ratio:1;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;background:${ic===selIcon?selColor.bg:'var(--c-bg-3)'};border:2px solid ${ic===selIcon?selColor.color:'transparent'};transition:.15s;"><i class="ti ${ic}" style="color:${ic===selIcon?selColor.color:'var(--c-text-2)'}"></i></button>`).join('');
     colorsEl.innerHTML=colors.map((c,i)=>`<button data-cidx="${i}" style="width:32px;height:32px;border-radius:50%;background:${c.bg};border:3px solid ${c===selColor?c.color:'transparent'};transition:.15s;"></button>`).join('');
+    if(typesEl){
+      typesEl.innerHTML=WALLET_TYPES.map(t=>`<button data-tp="${esc(t.id)}" style="padding:8px 6px;border-radius:10px;background:${t.id===selType?(t.bg||selColor.bg):'var(--c-bg-3)'};border:2px solid ${t.id===selType?(t.color||selColor.color):'transparent'};font-size:11px;font-weight:600;color:${t.id===selType?(t.color||selColor.color):'var(--c-text-2)'};display:flex;flex-direction:column;align-items:center;gap:4px;transition:.15s;"><i class="ti ${t.icon}" style="font-size:16px;"></i>${esc(t.name)}</button>`).join('');
+      typesEl.querySelectorAll('[data-tp]').forEach(b=>b.addEventListener('click',()=>{
+        selType=b.dataset.tp;
+        // Авто-підбір іконки по типу
+        const tp=WALLET_TYPES.find(x=>x.id===selType);
+        if(tp && !isEdit) selIcon=tp.icon;
+        renderPicker();
+      }));
+    }
     iconsEl.querySelectorAll('[data-ic]').forEach(b=>b.addEventListener('click',()=>{selIcon=b.dataset.ic;renderPicker();}));
     colorsEl.querySelectorAll('[data-cidx]').forEach(b=>b.addEventListener('click',()=>{selColor=colors[parseInt(b.dataset.cidx)];renderPicker();}));
   }
   renderPicker();
 
+  // Save
   div.querySelector('#ip-save').addEventListener('click',()=>{
-    const name=nameVal.trim();
+    const name=(nameEl.value||'').trim();
+    if(!name){showToast('Введи назву','error');return;}
     const item={id:name,icon:selIcon,bg:selColor.bg,color:selColor.color};
-    if(mode==='expense'){const list=getExpCats();list.push(item);localStorage.setItem(APP_CONFIG.EXP_CATS_KEY,JSON.stringify(list));syncSettingsToSheet();}
-    else if(mode==='income'){const list=getIncCats();list.push(item);localStorage.setItem(APP_CONFIG.INC_CATS_KEY,JSON.stringify(list));syncSettingsToSheet();}
-    else if(baseMode==='card'){saveCards([...getCards(memberForCard),item],memberForCard);renderMemberColumns();renderSettingsUI();}
+    if(baseMode==='card'){
+      item.walletType=selType;
+      if(selType==='savings') item.isSavings=true;
+    }
+
+    if(mode==='expense'){
+      const list=getExpCats();
+      if(isEdit) list[editItem.index]=item;
+      else list.push(item);
+      localStorage.setItem(APP_CONFIG.EXP_CATS_KEY,JSON.stringify(list));
+      syncSettingsToSheet();
+    } else if(mode==='income'){
+      const list=getIncCats();
+      if(isEdit) list[editItem.index]=item;
+      else list.push(item);
+      localStorage.setItem(APP_CONFIG.INC_CATS_KEY,JSON.stringify(list));
+      syncSettingsToSheet();
+    } else if(baseMode==='card'){
+      const list=getCards(memberForCard);
+      if(isEdit) list[editItem.index]=item;
+      else list.push(item);
+      saveCards(list,memberForCard);
+      renderMemberColumns();
+    }
     const inp=document.getElementById(inputId);if(inp)inp.value='';
-    renderSettingsUI();div.remove();showToast('✅ Додано!');
+    renderSettingsUI();div.remove();showToast(isEdit?'✅ Збережено!':'✅ Додано!');
+  });
+
+  // Delete (тільки в режимі редагування)
+  const delBtn=div.querySelector('#ip-delete');
+  if(delBtn) delBtn.addEventListener('click',()=>{
+    if(!confirm('Видалити?'))return;
+    if(mode==='expense'){
+      const list=getExpCats();list.splice(editItem.index,1);
+      localStorage.setItem(APP_CONFIG.EXP_CATS_KEY,JSON.stringify(list));syncSettingsToSheet();
+    } else if(mode==='income'){
+      const list=getIncCats();list.splice(editItem.index,1);
+      localStorage.setItem(APP_CONFIG.INC_CATS_KEY,JSON.stringify(list));syncSettingsToSheet();
+    } else if(baseMode==='card'){
+      const list=getCards(memberForCard);list.splice(editItem.index,1);saveCards(list,memberForCard);
+      renderMemberColumns();
+    }
+    renderSettingsUI();div.remove();showToast('Видалено');
   });
 }
 
@@ -1455,7 +1732,11 @@ function bindEvents(){
   // Family name
   document.getElementById('save-family-btn').addEventListener('click',()=>{
     const v=document.getElementById('family-name-input').value.trim();
-    if(!v)return;localStorage.setItem(APP_CONFIG.FAMILY_KEY,v);setText('sb-family-name',v);showToast('✅ Збережено!');
+    if(!v)return;
+    localStorage.setItem(APP_CONFIG.FAMILY_KEY,v);
+    setText('sb-family-name',v);
+    syncSettingsToSheet();
+    showToast('✅ Збережено!');
   });
   // Username
   document.getElementById('settings-name-input').addEventListener('change',e=>{
@@ -1501,6 +1782,8 @@ function bindEvents(){
   // Add categories
   document.getElementById('add-expense-cat').addEventListener('click',()=>openIconPicker('expense'));
   document.getElementById('add-income-cat').addEventListener('click',()=>openIconPicker('income'));
+  const addWT=document.getElementById('add-wallet-type');
+  if(addWT)addWT.addEventListener('click',()=>openWalletTypeEditor());
   const acE=document.getElementById('add-card-evgen');if(acE)acE.addEventListener('click',()=>openIconPicker('card-evgen'));
   const acM=document.getElementById('add-card-marina');if(acM)acM.addEventListener('click',()=>openIconPicker('card-marina'));
   // Filters
