@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="uk" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#F8FAF9">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>Сімейний бюджет</title>
+
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+
+<!-- Шрифти -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+
+<!-- Іконки -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.10.0/dist/tabler-icons.min.css">
+
+<!-- Стилі -->
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/pages.css">
+
+<!-- Google Sign-In -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+
+<!-- ─── Екран авторизації ────────────────────────────────── -->
+<div id="auth-screen" class="auth-screen" style="display:none">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <i class="ti ti-home-2"></i>
+    </div>
+    <h1 class="auth-title">Сімейний бюджет</h1>
+    <p class="auth-text">Увійди через Google щоб синхронізувати дані</p>
+    <div id="google-signin-btn"></div>
+  </div>
+</div>
+
+<!-- ─── Основний додаток ─────────────────────────────────── -->
+<div id="app-main" class="app">
+
+  <!-- Sidebar -->
+  <aside id="sidebar" class="sidebar"></aside>
+  <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+  <!-- Топбар -->
+  <header id="topbar" class="topbar"></header>
+
+  <!-- Сторінки -->
+  <main id="content" class="content">
+    <section id="page-dashboard" class="page active"></section>
+    <section id="page-wallets" class="page"></section>
+    <section id="page-operations" class="page"></section>
+    <section id="page-analytics" class="page"></section>
+    <section id="page-reserve" class="page"></section>
+    <section id="page-goals" class="page"></section>
+    <section id="page-settings" class="page"></section>
+  </main>
+
+  <!-- Нижня навігація (мобілка) -->
+  <nav id="bottom-nav" class="bottom-nav"></nav>
+
+</div>
+
+<!-- Підключаємо модулі -->
+<script type="module" src="js/main.js"></script>
+
+</body>
+</html>
