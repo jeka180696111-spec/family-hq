@@ -282,3 +282,42 @@ input,select{font-family:var(--font);color:var(--c-text);}input:focus,select:foc
 /* ── Two-col member layout ───────────────────────────────────── */
 #members-columns{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;}
 @media(max-width:768px){#members-columns{grid-template-columns:1fr;}}
+
+/* ── Settings Accordion ──────────────────────────────────────── */
+.settings-accordion-section{border-bottom:.5px solid var(--c-border);}
+.settings-accordion-section:last-child{border-bottom:none;}
+.settings-acc-btn{width:100%;display:flex;align-items:center;gap:10px;padding:13px 16px;font-size:13px;font-weight:700;color:var(--c-text);background:none;text-align:left;transition:var(--transition);}
+.settings-acc-btn:hover{background:var(--c-bg-3);}
+.settings-acc-chev{margin-left:auto;font-size:16px;color:var(--c-text-3);transition:transform var(--transition);}
+.settings-acc-count{background:var(--c-bg-3);border-radius:20px;padding:1px 8px;font-size:11px;font-weight:600;color:var(--c-text-2);margin-left:4px;}
+.settings-acc-body{padding:0 0 8px;}
+
+/* ── Member col collapse ──────────────────────────────────────── */
+.member-cards-wrap{display:flex;flex-direction:column;gap:6px;padding:0 12px 12px;flex-direction:column;}
+.member-cards-group-label{display:flex;align-items:center;gap:6px;padding:8px 4px 4px;font-size:10px;font-weight:700;color:var(--c-text-3);text-transform:uppercase;letter-spacing:.05em;}
+.member-cards-group-label i{font-size:13px;}
+
+/* ── Calendar multi-month & year ─────────────────────────────── */
+.cal-month-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:12px;}
+.cal-multimonth-block{margin-bottom:20px;}
+.cal-multimonth-title{font-size:13px;font-weight:700;color:var(--c-accent);margin-bottom:8px;padding-left:4px;}
+.cal-week-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;}
+.cal-day-sm{min-height:36px;padding:4px 2px;}
+.cal-day-sm .cal-day-num{font-size:10px;}
+.cal-year-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;}
+@media(max-width:500px){.cal-year-grid{grid-template-columns:repeat(4,1fr);}}
+.cal-year-col{display:flex;flex-direction:column;align-items:center;gap:4px;}
+.cal-year-col.today .cal-year-label{color:var(--c-accent);font-weight:700;}
+.cal-year-bar-wrap{width:100%;height:88px;display:flex;align-items:flex-end;justify-content:center;}
+.cal-year-bar{width:70%;border-radius:4px 4px 0 0;background:var(--c-accent);opacity:.75;transition:height .4s;}
+.cal-year-amt{font-size:9px;font-weight:700;color:var(--c-text-2);text-align:center;min-height:12px;}
+.cal-year-label{font-size:10px;font-weight:600;color:var(--c-text-3);}
+
+/* ── Wallet card ────────────────────────────────────────────────  */
+.wallet-card{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--radius-sm);background:var(--c-bg-3);cursor:pointer;transition:var(--transition);border:.5px solid transparent;}
+.wallet-card:hover{border-color:var(--c-accent);background:var(--c-bg);}
+.wallet-card-icon{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;}
+.wallet-card-name{flex:1;font-size:12px;font-weight:600;color:var(--c-text-2);}
+.wallet-card-bal{font-size:13px;font-weight:800;}
+.wallet-card-bal.pos{color:var(--c-green);}
+.wallet-card-bal.neg{color:var(--c-red);}
