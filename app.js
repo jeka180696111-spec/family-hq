@@ -1,5 +1,5 @@
 'use strict';
-const APP_CONFIG={GOOGLE_CLIENT_ID:'650414957833-s37phqum36bfomv5sr5n2cm4tau55ng5.apps.googleusercontent.com',SCRIPT_URL_KEY:'budget_script_url',TOKEN_KEY:'budget_google_token',USER_KEY:'budget_user',THEME_KEY:'budget_theme',FONT_KEY:'budget_font',AVATAR_KEY:'budget_avatar',USERNAME_KEY:'budget_username',FAMILY_KEY:'budget_family',GOALS_KEY:'budget_goals',EXP_CATS_KEY:'budget_exp_cats',INC_CATS_KEY:'budget_inc_cats',CARDS_KEY:'budget_cards',MONO_EVGEN_KEY:'budget_mono_evgen',MONO_MARINA_KEY:'budget_mono_marina',PROFILES_KEY:'budget_profiles',LAST_SYNC_KEY:'budget_last_sync',TRANSFERS_KEY:'budget_transfers',SECRET_KEY:'budget2026koval',SCRIPT_URL:'https://script.google.com/macros/s/AKfycbwlZdxmHbaCVEJ5XmvA3oLEOHgGAPHzoGgXmB4OKgSmbhbH1whzid4YHNKvLMQiaczbbA/exec'};
+const APP_CONFIG={GOOGLE_CLIENT_ID:'650414957833-s37phqum36bfomv5sr5n2cm4tau55ng5.apps.googleusercontent.com',SCRIPT_URL_KEY:'budget_script_url',TOKEN_KEY:'budget_google_token',USER_KEY:'budget_user',THEME_KEY:'budget_theme',FONT_KEY:'budget_font',AVATAR_KEY:'budget_avatar',USERNAME_KEY:'budget_username',FAMILY_KEY:'budget_family',GOALS_KEY:'budget_goals',EXP_CATS_KEY:'budget_exp_cats',INC_CATS_KEY:'budget_inc_cats',CARDS_KEY:'budget_cards',MONO_EVGEN_KEY:'budget_mono_evgen',MONO_MARINA_KEY:'budget_mono_marina',PROFILES_KEY:'budget_profiles',LAST_SYNC_KEY:'budget_last_sync',TRANSFERS_KEY:'budget_transfers',SECRET_KEY:'budget2026koval',SCRIPT_URL:'https://script.google.com/macros/s/AKfycby8lG2XMjpnVexB4c6g0nFAhVyMEwpyUFQphWnSQ0oxuLdPL7axkLXEUWujXrs1hwnYHQ/exec'};
 const ICON_LIST=['ti-shopping-cart','ti-car','ti-home','ti-tools-kitchen-2','ti-heart','ti-shirt','ti-device-gamepad-2','ti-sofa','ti-baby-carriage','ti-dots','ti-briefcase','ti-coin','ti-plane','ti-book','ti-coffee','ti-paw','ti-phone','ti-gift','ti-bike','ti-pill','ti-school','ti-sport-billard','ti-music','ti-bus','ti-credit-card','ti-cash','ti-building-bank','ti-star','ti-pizza','ti-salad','ti-droplet','ti-bolt','ti-wifi','ti-device-laptop','ti-tools','ti-shirt-sport','ti-garden-cart','ti-vaccine','ti-receipt'];
 const state={user:null,token:null,scriptUrl:'',currentPage:'dashboard',currentMonth:new Date(),calMonth:new Date(),calPeriod:'month',currentType:'Витрата',currentCurrency:'UAH',reserveType:'Поповнення',reserveCurrency:'UAH',selectedCat:'',selectedCard:'',modalMember:null,dashboard:null,reserve:null,operations:[],goals:[],transfers:[],fx:null,filterActive:'all',editingGoalIdx:-1,activeAccountId:null,editingOp:null};
 const CURRENCIES=['UAH','USD','EUR'],CUR_SYMBOLS={UAH:'₴',USD:'$',EUR:'€'};
@@ -185,7 +185,7 @@ function navigateTo(page){
   if(el)el.classList.add('active');
   document.querySelectorAll('[data-page="'+page+'"]').forEach(e=>e.classList.add('active'));
   state.currentPage=page;
-  const titles={dashboard:'Дашборд',operations:'Операції',calendar:'Календар',analytics:'Аналіз',reserve:'Накопичення',settings:'Налаштування'};
+  const titles={dashboard:'Дашборд',operations:'Операції',calendar:'Календар',analytics:'Аналіз',reserve:'Накопичення',goals:'Цілі',settings:'Налаштування'};
   setText('topbar-title',titles[page]||page);
   loadPageData(page);closeSidebar();
 }
@@ -1503,9 +1503,6 @@ function bindEvents(){
   document.getElementById('add-income-cat').addEventListener('click',()=>openIconPicker('income'));
   const acE=document.getElementById('add-card-evgen');if(acE)acE.addEventListener('click',()=>openIconPicker('card-evgen'));
   const acM=document.getElementById('add-card-marina');if(acM)acM.addEventListener('click',()=>openIconPicker('card-marina'));
-  // Кнопка ручної синхронізації
-  const syncBtn=document.getElementById('sync-now-btn');
-  if(syncBtn)syncBtn.addEventListener('click',()=>{fetchSettingsFromSheet();loadFx();loadPageData(state.currentPage);showToast('🔄 Синхронізація...');});
   // Filters
   document.querySelectorAll('.filter-pill').forEach(b=>b.addEventListener('click',()=>{
     document.querySelectorAll('.filter-pill').forEach(x=>x.classList.remove('active'));
