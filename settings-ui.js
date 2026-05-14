@@ -96,6 +96,14 @@ export function renderSettingsPage() {
             </div>
             <button class="btn-ghost-sm" id="change-url-btn">Змінити</button>
           </div>
+          <div class="settings-row">
+            <div class="settings-row-icon"><i class="ti ti-stethoscope"></i></div>
+            <div class="settings-row-info">
+              <div class="settings-row-name">Діагностика</div>
+              <div class="settings-row-sub">Перевірити чи все працює</div>
+            </div>
+            <button class="btn-ghost-sm" id="diag-btn">Запустити</button>
+          </div>
         </div>
       </div>
 
@@ -296,10 +304,17 @@ function bindHandlers(el) {
   el.querySelector('#sync-now-btn')?.addEventListener('click', async () => {
     showToast('🔄 Перевіряю...');
     const ok = await pingBackend();
-    if (!ok) { showToast('Сервер не відповідає', 'error'); return; }
-    if (window.fullSync) await window.fullSync();
-    showToast('✅ Синхронізовано');
-    renderSettingsPage();
+    if (!ok) { showToast('Сервер не відповідає. Перевір URL.', 'error'); return; }
+    try {
+      // Спершу пушимо налаштування на сервер
+      await import('./api.js').then(m => m.syncSettingsToSheet());
+      // Потім тягнемо все
+      if (window.fullSync) await window.fullSync();
+      showToast('✅ Синхронізовано! Дані збережено в Google Sheet.');
+      renderSettingsPage();
+    } catch (e) {
+      showToast('Помилка синку: ' + e.message, 'error');
+    }
   });
 
   // URL
@@ -311,6 +326,121 @@ function bindHandlers(el) {
       showToast('✅ URL змінено');
       renderSettingsPage();
     }
+  });
+
+  // Діагностика
+  el.querySelector('#diag-btn')?.addEventListener('click', async () => {
+    const { openBottomSheet, closeModal } = await import('./modals.js');
+    const { apiGet, apiPost, pingBackend } = await import('./api.js');
+
+    const results = [];
+    let resultsHtml = '<div class="diag-list"><div class="diag-item"><i class="ti ti-loader"></i> Запускаю...</div></div>';
+
+    const modalId = openBottomSheet({
+      title: '🔍 Діагностика',
+      content: `<div id="diag-content">${resultsHtml}</div>`,
+      footer: '<button class="btn-primary flex-1" data-modal-close>Закрити</button>',
+    });
+
+    function update(items) {
+      const c = document.getElementById('diag-content');
+      if (!c) return;
+      c.innerHTML = `<div class="diag-list">${items.map(it => {
+        const icon = it.status === 'ok' ? 'ti-check' : it.status === 'fail' ? 'ti-x' : 'ti-loader';
+        const cls = it.status === 'ok' ? 'ok' : it.status === 'fail' ? 'fail' : 'pending';
+        return `<div class="diag-item ${cls}">
+          <i class="ti ${icon}"></i>
+          <div>
+            <div class="diag-item-name">${esc(it.name)}</div>
+            ${it.detail ? `<div class="diag-item-detail">${esc(it.detail)}</div>` : ''}
+          </div>
+        </div>`;
+      }).join('')}</div>`;
+    }
+
+    // 1. URL налаштовано?
+    const url = getScriptUrl();
+    results.push({ name: 'URL скрипта', status: url ? 'ok' : 'fail', detail: url ? url.substring(0, 50) + '...' : 'НЕ налаштовано' });
+    update(results);
+
+    // 2. Token є?
+    results.push({ name: 'Google токен', status: state.token ? 'ok' : 'fail', detail: state.token ? 'OK' : 'НЕМАЄ — увійди заново' });
+    update(results);
+
+    // 3. Ping
+    results.push({ name: 'Ping сервера', status: 'pending' });
+    update(results);
+    try {
+      const ok = await pingBackend();
+      results[results.length - 1].status = ok ? 'ok' : 'fail';
+      results[results.length - 1].detail = ok ? 'Відповідає' : 'НЕ відповідає';
+    } catch (e) {
+      results[results.length - 1].status = 'fail';
+      results[results.length - 1].detail = e.message;
+    }
+    update(results);
+
+    // 4. Спроба прочитати налаштування
+    results.push({ name: 'Читання Settings', status: 'pending' });
+    update(results);
+    try {
+      const s = await apiGet('settings');
+      const cardsE = (s.cardsEvgen && Array.isArray(s.cardsEvgen)) ? s.cardsEvgen.length : 0;
+      const cardsM = (s.cardsMarina && Array.isArray(s.cardsMarina)) ? s.cardsMarina.length : 0;
+      results[results.length - 1].status = 'ok';
+      results[results.length - 1].detail = `Євген: ${cardsE} карт, Марина: ${cardsM} карт`;
+    } catch (e) {
+      results[results.length - 1].status = 'fail';
+      results[results.length - 1].detail = e.message;
+    }
+    update(results);
+
+    // 5. Спроба записати тестові налаштування
+    results.push({ name: 'Запис Settings (sync)', status: 'pending' });
+    update(results);
+    try {
+      const { syncSettingsToSheet } = await import('./api.js');
+      await syncSettingsToSheet();
+      results[results.length - 1].status = 'ok';
+      results[results.length - 1].detail = 'Поточні дані надіслано на сервер';
+    } catch (e) {
+      results[results.length - 1].status = 'fail';
+      results[results.length - 1].detail = e.message;
+    }
+    update(results);
+
+    // 6. Версія Code.gs (по наявності нових полів)
+    results.push({ name: 'Версія Code.gs', status: 'pending' });
+    update(results);
+    try {
+      const s = await apiGet('settings');
+      const hasNewFields = 'walletTypes' in s || 'familyName' in s;
+      results[results.length - 1].status = hasNewFields ? 'ok' : 'fail';
+      results[results.length - 1].detail = hasNewFields ? 'Нова (v2.2) — підтримує walletTypes' : '⚠️ СТАРА — перерозгорни Code.gs (Нова версія)';
+    } catch (e) {
+      results[results.length - 1].status = 'fail';
+      results[results.length - 1].detail = e.message;
+    }
+    update(results);
+
+    // 7. localStorage size
+    let lsSize = 0;
+    try {
+      for (let k in localStorage) {
+        if (localStorage.hasOwnProperty(k)) lsSize += (localStorage[k].length + k.length) * 2;
+      }
+      const kb = (lsSize / 1024).toFixed(1);
+      results.push({ name: 'localStorage', status: lsSize < 4 * 1024 * 1024 ? 'ok' : 'fail', detail: `${kb} KB використано` });
+    } catch (e) {
+      results.push({ name: 'localStorage', status: 'fail', detail: e.message });
+    }
+    update(results);
+
+    // 8. Перевірка локальних кошельків
+    const cardsE = getCards('Євген');
+    const cardsM = getCards('Марина');
+    results.push({ name: 'Локальні кошельки', status: 'ok', detail: `Євген: ${cardsE.length}, Марина: ${cardsM.length}` });
+    update(results);
   });
 
   // Додати
