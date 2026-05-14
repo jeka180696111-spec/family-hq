@@ -3,7 +3,10 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { APP_CONFIG, state, syncState } from './config.js';
-import { getScriptUrl, getExpCats, getIncCats, getCards, getProfiles, getWalletTypes, getFamilyName } from './storage.js';
+import {
+  getScriptUrl, getExpCats, getIncCats, getCards, getProfiles,
+  getWalletTypes, getFamilyName, clearDirty,
+} from './storage.js';
 import { log, logError } from './utils.js';
 
 // ── GET-запит ───────────────────────────────────────────────
@@ -36,7 +39,7 @@ export async function apiGet(action, params) {
   }
 }
 
-// ── POST через GET payload (обхід CORS Apps Script) ─────────
+// ── POST: справжній POST з text/plain (БЕЗ CORS preflight) ──
 export async function apiPost(body) {
   const url = getScriptUrl() || state.scriptUrl;
   if (!url) throw new Error('No script URL configured');
@@ -44,13 +47,16 @@ export async function apiPost(body) {
   const payload = { ...body, key: APP_CONFIG.SECRET_KEY };
   if (state.token) payload.token = state.token;
 
-  const q = new URLSearchParams();
-  q.set('payload', JSON.stringify(payload));
-  q.set('key', APP_CONFIG.SECRET_KEY);
-
-  const fullUrl = url + '?' + q.toString();
   try {
-    const resp = await fetch(fullUrl, { method: 'GET', redirect: 'follow' });
+    // ВАЖЛИВО: Content-Type 'text/plain' — НЕ викликає CORS preflight!
+    // Apps Script читає e.postData.contents — JSON парситься на бекенді
+    const resp = await fetch(url, {
+      method: 'POST',
+      mode: 'cors',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
+    });
     const text = await resp.text();
     let data;
     try { data = JSON.parse(text); }
@@ -64,31 +70,58 @@ export async function apiPost(body) {
 }
 
 // ── Сінк налаштувань на сервер ──────────────────────────────
+let syncInFlight = null;
 export async function syncSettingsToSheet() {
-  if (!state.scriptUrl || !state.token) {
+  // Запобігаємо паралельним sync (debounce)
+  if (syncInFlight) return syncInFlight;
+
+  if (!getScriptUrl() && !state.scriptUrl) {
     syncState.pendingSettings = true;
     return;
   }
-  try {
-    await apiPost({
-      action: 'updateSettings',
-      familyName: getFamilyName(),
-      expCats: getExpCats(),
-      incCats: getIncCats(),
-      cardsEvgen: getCards('Євген'),
-      cardsMarina: getCards('Марина'),
-      walletTypes: getWalletTypes(),
-      profiles: getProfiles(),
-    });
-    syncState.pendingSettings = false;
-    log('settings synced');
-  } catch (e) {
+  if (!state.token) {
     syncState.pendingSettings = true;
-    logError('syncSettings', e.message);
+    return;
   }
+
+  syncInFlight = (async () => {
+    try {
+      const payload = {
+        action: 'updateSettings',
+        familyName: getFamilyName(),
+        expCats: getExpCats(),
+        incCats: getIncCats(),
+        cardsEvgen: getCards('Євген'),
+        cardsMarina: getCards('Марина'),
+        walletTypes: getWalletTypes(),
+        profiles: getProfiles(),
+      };
+      await apiPost(payload);
+
+      // При успіху — очищуємо ВСІ dirty-флаги пов'язані з налаштуваннями
+      clearDirty(APP_CONFIG.FAMILY_KEY);
+      clearDirty(APP_CONFIG.EXP_CATS_KEY);
+      clearDirty(APP_CONFIG.INC_CATS_KEY);
+      clearDirty(APP_CONFIG.CARDS_KEY + '_Євген');
+      clearDirty(APP_CONFIG.CARDS_KEY + '_Марина');
+      clearDirty(APP_CONFIG.WALLET_TYPES_KEY);
+      clearDirty(APP_CONFIG.PROFILES_KEY);
+
+      syncState.pendingSettings = false;
+      log('settings synced');
+    } catch (e) {
+      syncState.pendingSettings = true;
+      logError('syncSettings', e.message);
+      throw e;
+    } finally {
+      syncInFlight = null;
+    }
+  })();
+
+  return syncInFlight;
 }
 
-// ── Ping (для перевірки що бекенд живий) ────────────────────
+// ── Ping ────────────────────────────────────────────────────
 export async function pingBackend() {
   try {
     const data = await apiGet('ping');
