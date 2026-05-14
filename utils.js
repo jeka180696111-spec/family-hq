@@ -21,6 +21,43 @@ export function fmtMoney(amount, currency) {
   return currency === 'UAH' || !currency ? `${num} ${sym}` : `${sym}${num}`;
 }
 
+// Конвертація суми у UAH (за поточним курсом НБУ)
+export function toUah(amount, currency, fx) {
+  if (!amount || isNaN(amount)) return 0;
+  if (!currency || currency === 'UAH') return Math.round(amount);
+  if (!fx || !fx[currency]) return Math.round(amount); // fallback: показуємо як є
+  const rate = fx[currency].mid || fx[currency].buy || fx[currency].sale || 0;
+  return Math.round(amount * rate);
+}
+
+// Формат із UAH в дужках для валютних кошельків
+// USD/EUR → "$200 (≈ 8 798 ₴)"
+// UAH → "40 077 ₴" (без дужок)
+export function fmtMoneyWithUah(amount, currency, fx) {
+  if (amount === null || amount === undefined || isNaN(amount)) return '0 ₴';
+  if (!currency || currency === 'UAH') {
+    return fmtMoney(amount, 'UAH');
+  }
+  // Валютний — показуємо в його валюті + UAH в дужках
+  const main = fmtMoney(amount, currency);
+  const uahEquiv = toUah(amount, currency, fx);
+  return `${main} <span class="cur-uah">(≈ ${fmtMoney(uahEquiv, 'UAH')})</span>`;
+}
+
+// Знак суми зі вставкою UAH
+// для негативних: "−$200 (≈ −8 798 ₴)"
+export function fmtMoneySigned(amount, currency, fx, withUah) {
+  if (amount === null || amount === undefined || isNaN(amount)) return '0 ₴';
+  const sign = amount < 0 ? '−' : (amount > 0 ? '+' : '');
+  const absAmount = Math.abs(amount);
+  if (!currency || currency === 'UAH' || !withUah) {
+    return sign + fmtMoney(absAmount, currency || 'UAH');
+  }
+  const main = fmtMoney(absAmount, currency);
+  const uahEquiv = toUah(absAmount, currency, fx);
+  return `${sign}${main} <span class="cur-uah">(≈ ${sign}${fmtMoney(uahEquiv, 'UAH')})</span>`;
+}
+
 // Скорочена форма (1.2K, 145.8K)
 export function fmtMoneyShort(amount, currency) {
   if (!amount) return '0';
