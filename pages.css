@@ -772,3 +772,33 @@
   font-size: 16px;
 }
 .theme-btn.active { background: var(--c-card); color: var(--c-accent); box-shadow: var(--shadow-sm); }
+
+/* ─── ДІАГНОСТИКА ─────────────────────────────────────────── */
+.diag-list { display: flex; flex-direction: column; gap: 8px; }
+.diag-item {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px;
+  background: var(--c-bg-3);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--c-text-3);
+}
+.diag-item i {
+  font-size: 18px;
+  width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.diag-item.ok { border-left-color: var(--c-green); }
+.diag-item.ok i { background: var(--c-green-soft); color: var(--c-green); }
+.diag-item.fail { border-left-color: var(--c-red); }
+.diag-item.fail i { background: var(--c-red-soft); color: var(--c-red); }
+.diag-item.pending i {
+  animation: spin 1s linear infinite;
+  background: var(--c-bg-3);
+  color: var(--c-text-3);
+}
+@keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+.diag-item-name { font-size: 13px; font-weight: 600; }
+.diag-item-detail { font-size: 11px; color: var(--c-text-3); margin-top: 2px; word-break: break-word; }
