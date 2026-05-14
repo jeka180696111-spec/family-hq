@@ -4,7 +4,7 @@
 
 export const APP_CONFIG = {
   // ⚠️ ОНОВИ при зміні розгортання Apps Script
-  SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbyJcoxq4McYpb-MxcIiQ4wCLjdwH2N7uc8lebh_9M6ktpq57oxi6Bhy2e3O9xcTrZe4zA/exec',
+  SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbz_E8srUjv2BASAsoacO0bBjvoYrpltFDvb0Me93PCKr_umvbDbtsSQTHO1MUttGUPw1Q/exec',
 
   // Google OAuth (Sign in with Google)
   GOOGLE_CLIENT_ID: '459630045625-hns8b8q39rnga0vfqng16i3v0pp4cv5p.apps.googleusercontent.com',
