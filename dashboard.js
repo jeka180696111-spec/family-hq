@@ -5,7 +5,7 @@
 import { FAMILY_MEMBERS, state } from './config.js';
 import { getCards, getProfiles, getWalletTypeById, getFamilyName, getVisibleWallets, setVisibleWallets, getViewAsMember } from './storage.js';
 import { apiGet } from './api.js';
-import { esc, fmtMoney, fmtMoneyShort, setText, fmtDate, log } from './utils.js';
+import { esc, fmtMoney, fmtMoneyShort, fmtMoneyWithUah, setText, fmtDate, log } from './utils.js';
 import { openOperationDialog } from './operations.js';
 import { whoAmI } from './auth.js';
 
@@ -213,10 +213,22 @@ function renderWalletsBlock(viewAs) {
   function cardBal(c) {
     const ops = state.operations || [];
     let bal = 0;
+    const cardCur = c.currency || 'UAH';
     ops.forEach(o => {
       if (o.who === c.owner && o.card === c.id) {
-        if (o.type === 'Дохід') bal += (o.amountUah || o.amount || 0);
-        if (o.type === 'Витрата') bal -= (o.amountUah || o.amount || 0);
+        const opCur = o.currency || 'UAH';
+        let val = 0;
+        if (opCur === cardCur) {
+          val = o.amount || 0;
+        } else {
+          val = o.amountUah || o.amount || 0;
+          if (cardCur !== 'UAH' && state.fx && state.fx[cardCur]) {
+            const rate = state.fx[cardCur].mid || 1;
+            val = val / rate;
+          }
+        }
+        if (o.type === 'Дохід') bal += val;
+        if (o.type === 'Витрата') bal -= val;
       }
     });
     return bal;
@@ -248,9 +260,9 @@ function renderWalletsBlock(viewAs) {
           </div>
           <div class="dash-wallet-info">
             <div class="dash-wallet-name">${esc(c.id)}</div>
-            <div class="dash-wallet-owner">${esc(c.owner)}</div>
+            <div class="dash-wallet-owner">${esc(c.owner)}${c.currency && c.currency !== 'UAH' ? ' · ' + c.currency : ''}</div>
           </div>
-          <div class="dash-wallet-balance ${c.balance >= 0 ? 'pos' : 'neg'}">${fmtMoney(c.balance, 'UAH')}</div>
+          <div class="dash-wallet-balance ${c.balance >= 0 ? 'pos' : 'neg'}">${fmtMoneyWithUah(c.balance, c.currency || 'UAH', state.fx)}</div>
         </div>
       `).join('')}
     </div>
