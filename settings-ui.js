@@ -409,14 +409,22 @@ function bindHandlers(el) {
     }
     update(results);
 
-    // 6. Версія Code.gs (по наявності нових полів)
+    // 6. Версія Code.gs — через ping (надійніше)
     results.push({ name: 'Версія Code.gs', status: 'pending' });
     update(results);
     try {
-      const s = await apiGet('settings');
-      const hasNewFields = 'walletTypes' in s || 'familyName' in s;
-      results[results.length - 1].status = hasNewFields ? 'ok' : 'fail';
-      results[results.length - 1].detail = hasNewFields ? 'Нова (v2.2) — підтримує walletTypes' : '⚠️ СТАРА — перерозгорни Code.gs (Нова версія)';
+      const pingResp = await apiGet('ping');
+      const version = pingResp.version;
+      const features = pingResp.features || [];
+      const isNew = version === '2.2' || features.includes('walletTypes');
+      results[results.length - 1].status = isNew ? 'ok' : 'fail';
+      if (isNew) {
+        results[results.length - 1].detail = `v${version} ✅ (підтримує: ${features.join(', ')})`;
+      } else if (version) {
+        results[results.length - 1].detail = `⚠️ v${version} — це СТАРА. Треба v2.2. Перерозгорни Code.gs!`;
+      } else {
+        results[results.length - 1].detail = '⚠️ Версія невідома — це СТАРА версія без поля version. Перерозгорни Code.gs!';
+      }
     } catch (e) {
       results[results.length - 1].status = 'fail';
       results[results.length - 1].detail = e.message;
