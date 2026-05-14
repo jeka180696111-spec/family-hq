@@ -5,7 +5,7 @@
 import { FAMILY_MEMBERS, state } from './config.js';
 import { getCards, setCards, getWalletTypes, getWalletTypeById, getProfiles } from './storage.js';
 import { syncSettingsToSheet } from './api.js';
-import { esc, fmtMoney, showToast } from './utils.js';
+import { esc, fmtMoney, fmtMoneyWithUah, toUah, showToast } from './utils.js';
 import { openIconPicker } from './icon-picker.js';
 import { confirmModal } from './modals.js';
 
@@ -33,27 +33,46 @@ export function renderWalletsPage() {
   const profiles = getProfiles();
 
   // Підрахунок балансу для кожної картки (з state.operations)
+  // Баланс кошелька — у його ВЛАСНІЙ валюті (з operation.amount, не amountUah)
   function cardBalance(card) {
     const ops = state.operations || [];
     let bal = 0;
     ops.forEach(o => {
       if (o.who === card.owner && o.card === card.id) {
-        if (o.type === 'Дохід')   bal += (o.amountUah || o.amount || 0);
-        if (o.type === 'Витрата') bal -= (o.amountUah || o.amount || 0);
+        // Беремо amount у валюті операції; якщо валюти збігаються — додаємо
+        const opCur = o.currency || 'UAH';
+        const cardCur = card.currency || 'UAH';
+        let val = 0;
+        if (opCur === cardCur) {
+          val = o.amount || 0;
+        } else {
+          // Якщо валюти різні — використовуємо amountUah і конвертуємо назад
+          // (це рідкісний кейс, але можливий якщо щось додали не в тій валюті)
+          val = o.amountUah || o.amount || 0;
+          if (cardCur !== 'UAH' && state.fx && state.fx[cardCur]) {
+            const rate = state.fx[cardCur].mid || 1;
+            val = val / rate;
+          }
+        }
+        if (o.type === 'Дохід')   bal += val;
+        if (o.type === 'Витрата') bal -= val;
       }
     });
     return bal;
   }
 
-  // Загальна сума по фільтру
-  const totalBalance = filtered.reduce((s, c) => s + cardBalance(c), 0);
+  // Загальна сума по фільтру в UAH
+  const totalBalanceUah = filtered.reduce((s, c) => {
+    const bal = cardBalance(c);
+    return s + toUah(bal, c.currency || 'UAH', state.fx);
+  }, 0);
   const totalCount = filtered.length;
 
   el.innerHTML = `
     <div class="page-inner">
       <div class="wallets-hero">
         <div class="wallets-hero-label">${ownerFilter === 'all' ? 'Усі рахунки' : 'Рахунки: ' + esc(profiles[ownerFilter]?.name || ownerFilter)}</div>
-        <div class="wallets-hero-balance">${fmtMoney(totalBalance, 'UAH')}</div>
+        <div class="wallets-hero-balance">${fmtMoney(totalBalanceUah, 'UAH')}</div>
         <div class="wallets-hero-meta">${totalCount} ${totalCount === 1 ? 'кошельок' : 'кошельків'}</div>
       </div>
 
@@ -90,6 +109,7 @@ export function renderWalletsPage() {
           </div>
         ` : filtered.map(c => {
           const bal = cardBalance(c);
+          const cur = c.currency || 'UAH';
           const tp = getWalletTypeById(c.walletType);
           return `
             <div class="wallet-row" data-owner="${esc(c.owner)}" data-idx="${c.ownerIdx}">
@@ -101,9 +121,10 @@ export function renderWalletsPage() {
                 <div class="wallet-row-sub">
                   <span class="wallet-row-owner">${esc(c.owner)}</span>
                   ${tp ? `<span class="wallet-row-type" style="color:${tp.color}">· ${esc(tp.name)}</span>` : ''}
+                  <span class="wallet-row-cur">· ${cur}</span>
                 </div>
               </div>
-              <div class="wallet-row-balance ${bal >= 0 ? 'pos' : 'neg'}">${fmtMoney(bal, 'UAH')}</div>
+              <div class="wallet-row-balance ${bal >= 0 ? 'pos' : 'neg'}">${fmtMoneyWithUah(bal, cur, state.fx)}</div>
             </div>
           `;
         }).join('')}
@@ -172,12 +193,14 @@ export function openCreateWallet(presetOwner) {
     namePlaceholder: 'Наприклад: Монобанк USD',
     extraFields: ownerSelect,
     showTypes: true,
+    showCurrency: true,
     typesList: types,
     selectedType: types[0]?.id,
+    selectedCurrency: 'UAH',
     selectedIcon: types[0]?.icon || 'ti-wallet',
     selectedColor: { bg: types[0]?.bg || '#E6F1FB', color: types[0]?.color || '#0C447C' },
     isEdit: false,
-    onSave: ({ name, icon, color, walletType, owner }) => {
+    onSave: ({ name, icon, color, walletType, currency, owner }) => {
       const ownerFinal = owner && FAMILY_MEMBERS.includes(owner) ? owner : selOwner;
       const cards = getCards(ownerFinal);
       // Перевірка унікальності
@@ -185,10 +208,9 @@ export function openCreateWallet(presetOwner) {
         showToast('Кошельок з такою назвою вже існує', 'error');
         return;
       }
-      cards.push({ id: name, icon, bg: color.bg, color: color.color, walletType });
+      cards.push({ id: name, icon, bg: color.bg, color: color.color, walletType, currency: currency || 'UAH' });
       setCards(cards, ownerFinal);
       renderWalletsPage();
-      // Сінк з підтвердженням
       showToast('💾 Зберігаю...');
       syncSettingsToSheet()
         .then(() => showToast('✅ Кошельок збережено на сервер'))
@@ -221,19 +243,19 @@ export function openEditWallet(owner, idx) {
     nameValue: card.id,
     extraFields: ownerSelect,
     showTypes: true,
+    showCurrency: true,
     typesList: types,
     selectedType: card.walletType || types[0]?.id,
+    selectedCurrency: card.currency || 'UAH',
     selectedIcon: card.icon,
     selectedColor: { bg: card.bg, color: card.color },
     isEdit: true,
-    onSave: ({ name, icon, color, walletType, owner: newOwner }) => {
-      const updated = { id: name, icon, bg: color.bg, color: color.color, walletType };
-      // Якщо власник той же — просто оновлюємо
+    onSave: ({ name, icon, color, walletType, currency, owner: newOwner }) => {
+      const updated = { id: name, icon, bg: color.bg, color: color.color, walletType, currency: currency || 'UAH' };
       if (newOwner === owner || !newOwner) {
         cards[idx] = updated;
         setCards(cards, owner);
       } else {
-        // Переносимо в іншого власника
         cards.splice(idx, 1);
         setCards(cards, owner);
         const targetCards = getCards(newOwner);
