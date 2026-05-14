@@ -36,9 +36,10 @@ export function renderOperationsPage() {
   const cur = state.currentMonth instanceof Date ? state.currentMonth : new Date();
   const monthLabel = cur.toLocaleDateString('uk-UA', { month: 'long', year: 'numeric' });
 
-  // Підсумок місяця
-  const totalInc = ops.filter(o => o.type === 'Дохід').reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
-  const totalExp = ops.filter(o => o.type === 'Витрата').reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
+  // Підсумок місяця — БЕЗ переказів!
+  const realOps = ops.filter(o => o.category !== 'Переказ');
+  const totalInc = realOps.filter(o => o.type === 'Дохід').reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
+  const totalExp = realOps.filter(o => o.type === 'Витрата').reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
 
   el.innerHTML = `
     <div class="page-inner">
@@ -153,9 +154,10 @@ function renderCalendarView(ops, monthDate) {
   let firstWeekday = firstDay.getDay() - 1;
   if (firstWeekday < 0) firstWeekday = 6;
 
-  // Підраховуємо суми по днях
+  // Підраховуємо суми по днях (БЕЗ переказів!)
   const byDay = {}; // { 1: {inc, exp}, ... }
   ops.forEach(o => {
+    if (o.category === 'Переказ') return; // переказы не враховуємо
     const d = new Date(o.date);
     if (d.getMonth() !== month || d.getFullYear() !== year) return;
     const day = d.getDate();
