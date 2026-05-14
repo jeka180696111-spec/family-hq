@@ -381,11 +381,16 @@ async function bootApp() {
   navigateTo('dashboard');
   refreshFx();
 
+  // Початковий синк один раз
   setTimeout(() => fullSync(), 100);
 
+  // Авто-синк раз на 2 хвилини (тільки якщо вкладка активна і ми на дашборді)
   setInterval(() => {
-    if (state.currentPage === 'dashboard') loadDashboard();
-  }, 30000);
+    if (document.hidden) return;
+    if (state.currentPage !== 'dashboard') return;
+    log('auto-sync tick');
+    loadDashboard();
+  }, 120000); // 2 хвилини замість 30 секунд
 }
 
 document.addEventListener('DOMContentLoaded', () => {
