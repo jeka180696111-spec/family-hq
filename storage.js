@@ -81,6 +81,15 @@ export function setIncCats(cats) {
   writeJson(APP_CONFIG.INC_CATS_KEY, cats);
 }
 
+// ── Авто-визначення валюти за назвою кошелька ───────────────
+function detectCurrency(name) {
+  if (!name) return 'UAH';
+  const n = String(name).toLowerCase();
+  if (n.includes('долар') || n.includes('доллар') || n.includes('usd') || n.includes('$')) return 'USD';
+  if (n.includes('євро') || n.includes('евро') || n.includes('eur') || n.includes('€')) return 'EUR';
+  return 'UAH';
+}
+
 // ── Картки/кошельки по членах сім'ї ─────────────────────────
 export function getCards(member) {
   if (!member) {
@@ -93,7 +102,12 @@ export function getCards(member) {
   }
   const key = APP_CONFIG.CARDS_KEY + '_' + member;
   const v = readJson(key, null);
-  return v === null ? DEFAULT_CARDS : (Array.isArray(v) ? v : DEFAULT_CARDS);
+  const list = v === null ? DEFAULT_CARDS : (Array.isArray(v) ? v : DEFAULT_CARDS);
+  // Авто-додаємо currency якщо відсутнє (для старих кошельків)
+  return list.map(c => ({
+    ...c,
+    currency: c.currency || detectCurrency(c.id),
+  }));
 }
 
 export function setCards(cards, member) {
