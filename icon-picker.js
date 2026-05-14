@@ -42,6 +42,7 @@ export function openIconPicker(opts) {
   const iconsId = uid('ip-icons');
   const colorsId = uid('ip-colors');
   const typesId = uid('ip-types');
+  const curId = uid('ip-cur');
   const saveId = uid('ip-save');
   const delId = uid('ip-del');
 
@@ -49,14 +50,35 @@ export function openIconPicker(opts) {
   let selIcon  = opts.selectedIcon || 'ti-wallet';
   let selColor = opts.selectedColor || COLOR_PALETTE[0];
   let selType  = opts.selectedType || null;
+  let selCur   = opts.selectedCurrency || 'UAH';
 
   const showTypes = opts.showTypes && Array.isArray(opts.typesList) && opts.typesList.length > 0;
   if (showTypes && !selType) selType = opts.typesList[0].id;
+
+  const showCurrency = opts.showCurrency;
 
   const content = `
     ${opts.extraFields || ''}
     <label class="ip-label">${esc(opts.nameLabel || 'Назва')}</label>
     <input id="${namId}" class="ip-input" type="text" value="${esc(selName)}" placeholder="${esc(opts.namePlaceholder || '')}">
+
+    ${showCurrency ? `
+      <label class="ip-label">Валюта</label>
+      <div class="ip-cur-row">
+        <button type="button" class="ip-cur-btn ${selCur === 'UAH' ? 'active' : ''}" data-cur="UAH">
+          <span class="ip-cur-sym">₴</span>
+          <span class="ip-cur-name">Гривня</span>
+        </button>
+        <button type="button" class="ip-cur-btn ${selCur === 'USD' ? 'active' : ''}" data-cur="USD">
+          <span class="ip-cur-sym">$</span>
+          <span class="ip-cur-name">Долар</span>
+        </button>
+        <button type="button" class="ip-cur-btn ${selCur === 'EUR' ? 'active' : ''}" data-cur="EUR">
+          <span class="ip-cur-sym">€</span>
+          <span class="ip-cur-name">Євро</span>
+        </button>
+      </div>
+    ` : ''}
 
     ${showTypes ? `
       <label class="ip-label">Тип рахунку</label>
@@ -145,6 +167,14 @@ export function openIconPicker(opts) {
       }
       render();
 
+      // Перемикач валюти
+      wrap.querySelectorAll('[data-cur]').forEach(b => {
+        b.addEventListener('click', () => {
+          selCur = b.dataset.cur;
+          wrap.querySelectorAll('[data-cur]').forEach(x => x.classList.toggle('active', x.dataset.cur === selCur));
+        });
+      });
+
       // Save
       wrap.querySelector('#' + saveId).addEventListener('click', () => {
         const name = (nameEl.value || '').trim();
@@ -155,6 +185,7 @@ export function openIconPicker(opts) {
         }
         const result = { name, icon: selIcon, color: selColor };
         if (showTypes) result.walletType = selType;
+        if (showCurrency) result.currency = selCur;
         // extra fields
         wrap.querySelectorAll('[data-ip-extra]').forEach(el => {
           result[el.dataset.ipExtra] = el.value;
