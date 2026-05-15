@@ -11,6 +11,11 @@ import { log, logError } from './utils.js';
 
 let db = null;
 
+// Дата в Київському часовому поясі
+function todayKyiv() {
+  return new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Kyiv' });
+}
+
 // ── Ініціалізація Firestore ─────────────────────────────────
 export function initFirestore() {
   db = firebase.firestore();
@@ -259,7 +264,7 @@ async function addOperation(body) {
   }
 
   const op = {
-    date: body.date || new Date().toISOString().split('T')[0],
+    date: body.date || todayKyiv(),
     type: body.type,
     category: body.category,
     amount,
@@ -310,7 +315,7 @@ async function deleteOperation(body) {
 async function addTransfer(body) {
   const batch = db.batch();
   const opsRef = familyRef().collection('operations');
-  const now = new Date().toISOString().split('T')[0];
+  const now = todayKyiv();
 
   // Витрата з відправника
   const fromOp = {
@@ -369,7 +374,7 @@ async function addReserveOp(body) {
 
   if (!data.transactions) data.transactions = [];
   data.transactions.unshift({
-    date: new Date().toISOString().split('T')[0],
+    date: todayKyiv(),
     type: body.type,
     amount: amt,
     currency: cur,
