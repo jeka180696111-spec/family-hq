@@ -130,11 +130,16 @@ async function sendMessage(chatId, text, options = {}) {
   });
 }
 
+// ── Дата в Київському часовому поясі ────────────────────────
+function todayKyiv() {
+  return new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Kyiv' }); // 'YYYY-MM-DD'
+}
+
 // ── Зберегти операцію в Firestore ───────────────────────────
 async function saveOperation(op) {
   const ref = db.collection('families').doc(FAMILY_ID).collection('operations');
   await ref.add({
-    date: new Date().toISOString().split('T')[0],
+    date: todayKyiv(),
     type: op.type,
     category: op.category,
     amount: op.amount,
@@ -232,7 +237,7 @@ async function handleCommand(cmd, chatId, userId, userName, who, res) {
     }
 
     case '/today': {
-      const today = new Date().toISOString().split('T')[0];
+      const today = todayKyiv();
       const snapshot = await db.collection('families').doc(FAMILY_ID)
         .collection('operations')
         .where('date', '==', today)
