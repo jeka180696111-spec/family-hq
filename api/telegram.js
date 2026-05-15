@@ -180,6 +180,89 @@ const CAT_EMOJI = {
   'Інше': '📌',
 };
 
+// ── Обробка команд ──────────────────────────────────────────
+async function handleCommand(cmd, chatId, userId, userName, who, res) {
+  switch (cmd) {
+    case '/start':
+      await sendMessage(chatId,
+        `👋 Привіт, ${userName}!\n\n` +
+        `Я бот <b>Сімейного бюджету</b>.\n\n` +
+        `📝 <b>Як додати витрату:</b>\n` +
+        `<code>каву 85</code> — витрата 85₴ → Ресторани\n` +
+        `<code>продукти 1200</code> — витрата 1200₴ → Продукти\n` +
+        `<code>бензин 1500 моно</code> — витрата з Моно\n\n` +
+        `💰 <b>Як додати дохід:</b>\n` +
+        `<code>зп 40000</code> — дохід (Зарплата)\n\n` +
+        `Або натисни кнопку нижче 👇`,
+        {
+          reply_markup: {
+            keyboard: [
+              [{ text: '💰 Баланс' }, { text: '📅 Сьогодні' }],
+              [{ text: '➕ Витрата' }, { text: '💵 Дохід' }],
+              [{ text: '❓ Допомога' }],
+            ],
+            resize_keyboard: true,
+            is_persistent: true,
+          }
+        }
+      );
+      return res.status(200).json({ ok: true });
+
+    case '/help':
+      await sendMessage(chatId,
+        `📝 Просто напиши що купив і суму:\n` +
+        `<code>каву 85</code>\n` +
+        `<code>продукти 500 моно</code>\n` +
+        `<code>зп 40000</code>\n\n` +
+        `💰 Баланс — /balance\n` +
+        `📅 Сьогодні — /today`
+      );
+      return res.status(200).json({ ok: true });
+
+    case '/balance': {
+      const bal = await getBalance(who);
+      await sendMessage(chatId,
+        `📊 <b>Баланс ${who}:</b>\n\n` +
+        `💰 Доходи: +${fmtMoney(bal.income)}\n` +
+        `💸 Витрати: -${fmtMoney(bal.expense)}\n` +
+        `━━━━━━━━━━━━━━━\n` +
+        `💎 Баланс: <b>${fmtMoney(bal.balance)}</b>`
+      );
+      return res.status(200).json({ ok: true });
+    }
+
+    case '/today': {
+      const today = new Date().toISOString().split('T')[0];
+      const snapshot = await db.collection('families').doc(FAMILY_ID)
+        .collection('operations')
+        .where('date', '==', today)
+        .get();
+      const ops = snapshot.docs.map(d => d.data()).filter(o => o.category !== 'Переказ');
+      const totalExp = ops.filter(o => o.type === 'Витрата').reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
+      const totalInc = ops.filter(o => o.type === 'Дохід').reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
+
+      let txt = `📅 <b>Сьогодні (${today}):</b>\n\n`;
+      if (!ops.length) {
+        txt += `Ще жодної операції.`;
+      } else {
+        ops.forEach(o => {
+          const emoji = CAT_EMOJI[o.category] || '📌';
+          const sign = o.type === 'Витрата' ? '-' : '+';
+          txt += `${emoji} ${sign}${fmtMoney(o.amount)} · ${o.category}${o.desc ? ' · ' + o.desc : ''}\n`;
+        });
+        txt += `\n💸 Витрати: ${fmtMoney(totalExp)}`;
+        if (totalInc > 0) txt += `\n💰 Доходи: ${fmtMoney(totalInc)}`;
+      }
+      await sendMessage(chatId, txt);
+      return res.status(200).json({ ok: true });
+    }
+
+    default:
+      await sendMessage(chatId, `❓ Невідома команда. Натисни кнопку нижче або напиши витрату.`);
+      return res.status(200).json({ ok: true });
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // WEBHOOK HANDLER
 // ═══════════════════════════════════════════════════════════════
@@ -208,83 +291,30 @@ module.exports = async function handler(req, res) {
     // ── Команди ──────────────────────────────────────────────
     if (text.startsWith('/')) {
       const cmd = text.split(' ')[0].toLowerCase();
+      return handleCommand(cmd, chatId, userId, userName, who, res);
+    }
 
-      switch (cmd) {
-        case '/start':
-          await sendMessage(chatId,
-            `👋 Привіт, ${userName}!\n\n` +
-            `Я бот <b>Сімейного бюджету</b>.\n\n` +
-            `📝 <b>Як додати витрату:</b>\n` +
-            `<code>каву 85</code> — додасть витрату 85₴ в категорію Ресторани\n` +
-            `<code>продукти 1200</code> — витрата 1200₴ на Продукти\n` +
-            `<code>бензин 1500 моно</code> — витрата з картки Моно\n\n` +
-            `💰 <b>Як додати дохід:</b>\n` +
-            `<code>зп 40000</code> — дохід 40000₴ (Зарплата)\n` +
-            `<code>дохід 5000 підробіток</code>\n\n` +
-            `💱 <b>Валюта:</b>\n` +
-            `<code>$200 долар</code> — 200$ на кошельок Долар\n` +
-            `<code>€500 євро</code> — 500€ на кошельок Євро\n\n` +
-            `📊 <b>Команди:</b>\n` +
-            `/balance — поточний баланс\n` +
-            `/today — витрати за сьогодні\n` +
-            `/help — ця довідка\n\n` +
-            `🆔 Твій Telegram ID: <code>${userId}</code>`
-          );
-          return res.status(200).json({ ok: true });
+    // ── Reply keyboard кнопки ────────────────────────────────
+    const btnMap = {
+      '💰 Баланс': '/balance',
+      '📅 Сьогодні': '/today',
+      '❓ Допомога': '/help',
+      '➕ Витрата': null, // спеціальна обробка
+      '💵 Дохід': null,   // спеціальна обробка
+    };
 
-        case '/help':
-          await sendMessage(chatId,
-            `📝 Просто напиши що купив і суму:\n` +
-            `<code>каву 85</code>\n` +
-            `<code>продукти 500 моно</code>\n` +
-            `<code>зп 40000</code>\n\n` +
-            `/balance — баланс\n` +
-            `/today — витрати сьогодні`
-          );
-          return res.status(200).json({ ok: true });
-
-        case '/balance': {
-          const bal = await getBalance(who);
-          await sendMessage(chatId,
-            `📊 <b>Баланс ${who}:</b>\n\n` +
-            `💰 Доходи: +${fmtMoney(bal.income)}\n` +
-            `💸 Витрати: -${fmtMoney(bal.expense)}\n` +
-            `━━━━━━━━━━━━━━━\n` +
-            `💎 Баланс: <b>${fmtMoney(bal.balance)}</b>`
-          );
-          return res.status(200).json({ ok: true });
-        }
-
-        case '/today': {
-          const today = new Date().toISOString().split('T')[0];
-          const snapshot = await db.collection('families').doc(FAMILY_ID)
-            .collection('operations')
-            .where('date', '==', today)
-            .get();
-          const ops = snapshot.docs.map(d => d.data()).filter(o => o.category !== 'Переказ');
-          const totalExp = ops.filter(o => o.type === 'Витрата').reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
-          const totalInc = ops.filter(o => o.type === 'Дохід').reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
-
-          let text = `📅 <b>Сьогодні (${today}):</b>\n\n`;
-          if (!ops.length) {
-            text += `Ще жодної операції.`;
-          } else {
-            ops.forEach(o => {
-              const emoji = CAT_EMOJI[o.category] || '📌';
-              const sign = o.type === 'Витрата' ? '-' : '+';
-              text += `${emoji} ${sign}${fmtMoney(o.amount)} · ${o.category}${o.desc ? ' · ' + o.desc : ''}\n`;
-            });
-            text += `\n💸 Витрати: ${fmtMoney(totalExp)}`;
-            if (totalInc > 0) text += `\n💰 Доходи: ${fmtMoney(totalInc)}`;
-          }
-          await sendMessage(chatId, text);
-          return res.status(200).json({ ok: true });
-        }
-
-        default:
-          await sendMessage(chatId, `❓ Невідома команда. Спробуй /help`);
-          return res.status(200).json({ ok: true });
+    if (btnMap[text] !== undefined) {
+      if (btnMap[text]) {
+        return handleCommand(btnMap[text], chatId, userId, userName, who, res);
       }
+      // Кнопки Витрата / Дохід — підказка
+      const isIncome = text.includes('Дохід');
+      await sendMessage(chatId,
+        isIncome
+          ? `💵 Напиши дохід, наприклад:\n<code>зп 40000</code>\n<code>дохід 5000 підробіток</code>`
+          : `➕ Напиши витрату, наприклад:\n<code>каву 85</code>\n<code>продукти 500 моно</code>`
+      );
+      return res.status(200).json({ ok: true });
     }
 
     // ── Текстове повідомлення — парсимо операцію ─────────────
