@@ -130,9 +130,6 @@ export function renderWalletsPage() {
         }).join('')}
       </div>
 
-      <button class="btn-floating-add" id="add-wallet-btn" title="Додати кошельок">
-        <i class="ti ti-plus"></i>
-      </button>
     </div>
   `;
 
@@ -158,12 +155,6 @@ export function renderWalletsPage() {
       openEditWallet(owner, idx);
     });
   });
-
-  // Кнопка додати
-  const addBtn = el.querySelector('#add-wallet-btn');
-  if (addBtn) {
-    addBtn.addEventListener('click', () => openCreateWallet());
-  }
 }
 
 // ── Створення кошелька ──────────────────────────────────────
