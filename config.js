@@ -12,21 +12,71 @@ export const FIREBASE_CONFIG = {
   appId: "1:391938954609:web:d22a868a85070821cd92d0",
 };
 
-// Родина
+// Родина — динамічні імена (завантажуються з Firestore/localStorage)
 export const FAMILY_ID = 'koval';
-export const FAMILY_MEMBERS = ['Євген', 'Марина'];
 
-// Дозволені email (тільки ці можуть увійти)
-export const ALLOWED_EMAILS = [
-  'jeka180696111@gmail.com',
-  // Додай email Марини коли вона зареєструється
-];
+// Дефолтні імена (перевизначаються через налаштування)
+let _familyMembers = null;
+export function getFamilyMembers() {
+  if (_familyMembers) return _familyMembers;
+  try {
+    const saved = localStorage.getItem('budget_members');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        _familyMembers = parsed;
+        return parsed;
+      }
+    }
+  } catch(e) {}
+  return ['Євген', 'Марина']; // дефолт
+}
+export function setFamilyMembers(members) {
+  _familyMembers = members;
+  localStorage.setItem('budget_members', JSON.stringify(members));
+}
+// Сумісність зі старим кодом (деякі модулі імпортують як const)
+export const FAMILY_MEMBERS = new Proxy([], {
+  get(target, prop) {
+    const members = getFamilyMembers();
+    if (prop === 'length') return members.length;
+    if (prop === Symbol.iterator) return members[Symbol.iterator].bind(members);
+    if (prop === 'forEach') return members.forEach.bind(members);
+    if (prop === 'map') return members.map.bind(members);
+    if (prop === 'filter') return members.filter.bind(members);
+    if (prop === 'find') return members.find.bind(members);
+    if (prop === 'includes') return members.includes.bind(members);
+    if (prop === 'indexOf') return members.indexOf.bind(members);
+    if (prop === 'join') return members.join.bind(members);
+    if (prop === 'some') return members.some.bind(members);
+    if (prop === 'every') return members.every.bind(members);
+    if (prop === 'reduce') return members.reduce.bind(members);
+    if (prop === 'slice') return members.slice.bind(members);
+    if (typeof prop === 'string' && !isNaN(prop)) return members[Number(prop)];
+    return members[prop];
+  }
+});
 
-// Маппінг email → ім'я в сім'ї
-export const EMAIL_TO_MEMBER = {
-  'jeka180696111@gmail.com': 'Євген',
-  // 'marina@gmail.com': 'Марина',
-};
+// Дозволені email (порожній = всі дозволені)
+export const ALLOWED_EMAILS = [];
+
+// Маппінг email → ім'я (завантажується з налаштувань)
+export function getEmailToMember() {
+  try {
+    const saved = localStorage.getItem('budget_email_map');
+    if (saved) return JSON.parse(saved);
+  } catch(e) {}
+  return {
+    'jeka180696111@gmail.com': 'Євген',
+  };
+}
+export function setEmailToMember(map) {
+  localStorage.setItem('budget_email_map', JSON.stringify(map));
+}
+// Сумісність
+export const EMAIL_TO_MEMBER = new Proxy({}, {
+  get(target, prop) { return getEmailToMember()[prop]; }
+});
 
 // localStorage ключі
 export const APP_CONFIG = {
@@ -73,7 +123,7 @@ export const DEFAULT_CARDS = [
 export const DEFAULT_WALLET_TYPES = [
   { id: 'cash',    name: 'Готівка',      icon: 'ti-cash',            bg: '#EAF3DE', color: '#27500A' },
   { id: 'card',    name: 'Картка',       icon: 'ti-credit-card',     bg: '#E6F1FB', color: '#185FA5' },
-  { id: 'credit',  name: 'Кредитна',     icon: 'ti-credit-card-pay', bg: '#FAEEDA', color: '#633806' },
+  { id: 'credit',  name: 'Кредитна',     icon: 'ti-credit-card-pay', bg: '#FAEEDA', color: '#633806', hasLimit: true },
   { id: 'savings', name: 'Накопичення',  icon: 'ti-coins',           bg: '#FEF3E2', color: '#BA7517' },
 ];
 
