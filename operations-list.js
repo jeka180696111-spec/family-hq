@@ -1,326 +1,231 @@
 // ═══════════════════════════════════════════════════════════════
-// OPERATIONS LIST — сторінка зі списком операцій + календарем
+// OPERATIONS — додавання, редагування операцій
 // ═══════════════════════════════════════════════════════════════
 
 import { FAMILY_MEMBERS, state } from './config.js';
-import { apiGet } from './api.js';
-import { esc, fmtMoney, fmtMoneyShort, fmtDate, monthKey } from './utils.js';
-import { openOperationDialog } from './operations.js';
-import { getProfiles } from './storage.js';
+import { getCards, getExpCats, getIncCats, getProfiles } from './storage.js';
+import { apiPost } from './api.js';
+import { esc, fmtMoney, fmtDate, showToast, uid } from './utils.js';
+import { openBottomSheet, closeModal } from './modals.js';
+import { whoAmI } from './auth.js';
 
-export async function loadOperations() {
-  try {
-    const cur = state.currentMonth instanceof Date ? state.currentMonth : new Date();
-    const data = await apiGet('operations', { month: monthKey(cur), limit: 500 });
-    state.operations = data.operations || [];
-  } catch (e) {
-    state.operations = [];
-  }
-  renderOperationsPage();
-}
+// ── Відкриття форми операції ────────────────────────────────
+// opts: { type:'Дохід'|'Витрата', editing:{row,...}, presetMember, presetCard, presetCategory }
+export function openOperationDialog(opts = {}) {
+  const type = opts.type || 'Витрата';
+  const isEdit = !!opts.editing;
+  const editing = opts.editing || {};
 
-export function renderOperationsPage() {
-  const el = document.getElementById('page-operations');
-  if (!el) return;
+  // Дефолтні значення
+  const me = whoAmI() || FAMILY_MEMBERS[0];
+  let curMember = editing.who || opts.presetMember || me;
+  let curCard   = editing.card || opts.presetCard || '';
+  let curCat    = editing.category || opts.presetCategory || '';
+  let curCur    = editing.currency || 'UAH';
+  let curAmount = editing.amount || '';
+  let curDesc   = editing.desc || '';
+  let curDate   = editing.date ? new Date(editing.date) : new Date();
 
-  // Режим: 'list' | 'calendar'
-  if (!state.opsView) state.opsView = 'list';
+  const amtId  = uid('op-amt');
+  const curId  = uid('op-cur');
+  const descId = uid('op-desc');
+  const dateId = uid('op-date');
+  const saveId = uid('op-save');
+  const delId  = uid('op-del');
 
-  const profiles = getProfiles();
-  let ops = state.operations || [];
+  function getCats() { return type === 'Дохід' ? getIncCats() : getExpCats(); }
 
-  const f = state.opFilter || { who: 'all', type: 'all' };
-  if (f.who !== 'all') ops = ops.filter(o => o.who === f.who);
-  if (f.type !== 'all') ops = ops.filter(o => o.type === f.type);
+  function renderContent() {
+    const profiles = getProfiles();
+    const myCards = getCards(curMember);
 
-  const cur = state.currentMonth instanceof Date ? state.currentMonth : new Date();
-  const monthLabel = cur.toLocaleDateString('uk-UA', { month: 'long', year: 'numeric' });
-
-  // Підсумок місяця — БЕЗ переказів!
-  const realOps = ops.filter(o => o.category !== 'Переказ');
-  const totalInc = realOps.filter(o => o.type === 'Дохід').reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
-  const totalExp = realOps.filter(o => o.type === 'Витрата').reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
-
-  el.innerHTML = `
-    <div class="page-inner">
-      <div class="page-head">
-        <h1 class="page-title">Операції</h1>
-        <div class="month-switcher">
-          <button class="btn-icon" data-month="prev"><i class="ti ti-chevron-left"></i></button>
-          <span class="month-label">${esc(monthLabel)}</span>
-          <button class="btn-icon" data-month="next"><i class="ti ti-chevron-right"></i></button>
-        </div>
-      </div>
-
-      <!-- Сумарка місяця -->
-      <div class="ops-summary">
-        <div class="ops-summary-item ops-summary-inc">
-          <div class="ops-summary-label">Доходи</div>
-          <div class="ops-summary-amount">+${fmtMoney(totalInc, 'UAH')}</div>
-        </div>
-        <div class="ops-summary-item ops-summary-exp">
-          <div class="ops-summary-label">Витрати</div>
-          <div class="ops-summary-amount">−${fmtMoney(totalExp, 'UAH')}</div>
-        </div>
-        <div class="ops-summary-item ops-summary-bal">
-          <div class="ops-summary-label">Баланс</div>
-          <div class="ops-summary-amount ${totalInc - totalExp >= 0 ? 'c-green' : 'c-red'}">${totalInc - totalExp >= 0 ? '+' : '−'}${fmtMoney(Math.abs(totalInc - totalExp), 'UAH')}</div>
-        </div>
-      </div>
-
-      <!-- Перемикач Список / Календар -->
-      <div class="ops-view-switch">
-        <button class="ops-view-btn ${state.opsView === 'list' ? 'active' : ''}" data-view="list">
-          <i class="ti ti-list"></i> Список
-        </button>
-        <button class="ops-view-btn ${state.opsView === 'calendar' ? 'active' : ''}" data-view="calendar">
-          <i class="ti ti-calendar-month"></i> Календар
-        </button>
-      </div>
-
-      <!-- Фільтри -->
-      <div class="ops-filters">
-        <div class="wallets-filter-chips">
-          <button class="chip ${f.who === 'all' ? 'active' : ''}" data-filter-who="all">Усі</button>
-          ${FAMILY_MEMBERS.map(m => `
-            <button class="chip ${f.who === m ? 'active' : ''}" data-filter-who="${esc(m)}">${esc(profiles[m]?.name || m)}</button>
-          `).join('')}
-        </div>
-        <div class="wallets-filter-chips">
-          <button class="chip ${f.type === 'all' ? 'active' : ''}" data-filter-type="all">Усі типи</button>
-          <button class="chip ${f.type === 'Дохід' ? 'active' : ''}" data-filter-type="Дохід"><i class="ti ti-arrow-down-circle"></i> Дохід</button>
-          <button class="chip ${f.type === 'Витрата' ? 'active' : ''}" data-filter-type="Витрата"><i class="ti ti-arrow-up-circle"></i> Витрата</button>
-          <button class="chip ${f.type === 'Переказ' ? 'active' : ''}" data-filter-type="Переказ"><i class="ti ti-arrows-exchange"></i> Переказ</button>
-        </div>
-      </div>
-
-      <div id="ops-content">
-        ${state.opsView === 'calendar' ? renderCalendarView(ops, cur) : renderListView(ops)}
-      </div>
-    </div>
-  `;
-
-  bindHandlers(el);
-}
-
-// ── Вид списком ─────────────────────────────────────────────
-function renderListView(ops) {
-  if (!ops.length) {
     return `
-      <div class="empty-state">
-        <i class="ti ti-list" style="font-size:48px;color:var(--c-text-3);opacity:.5;"></i>
-        <div class="empty-state-title">Жодної операції</div>
-        <div class="empty-state-text">Додай через "+"</div>
+      <!-- Перемикач Витрата/Дохід -->
+      <div class="op-type-switch">
+        <button type="button" class="op-type-btn ${type === 'Витрата' ? 'active expense' : ''}" data-op-type="Витрата"><i class="ti ti-arrow-up-circle"></i> Витрата</button>
+        <button type="button" class="op-type-btn ${type === 'Дохід' ? 'active income' : ''}" data-op-type="Дохід"><i class="ti ti-arrow-down-circle"></i> Дохід</button>
       </div>
+
+      <!-- Сума і валюта -->
+      <div class="op-amount-row">
+        <input id="${amtId}" class="op-amount-input" type="number" inputmode="decimal" step="0.01" placeholder="0" value="${esc(curAmount)}">
+        <select id="${curId}" class="op-cur-select">
+          <option value="UAH" ${curCur === 'UAH' ? 'selected' : ''}>₴</option>
+          <option value="USD" ${curCur === 'USD' ? 'selected' : ''}>$</option>
+          <option value="EUR" ${curCur === 'EUR' ? 'selected' : ''}>€</option>
+        </select>
+      </div>
+
+      <!-- Власник -->
+      <label class="ip-label">Хто</label>
+      <div class="op-chips">
+        ${FAMILY_MEMBERS.map(m => `
+          <button type="button" class="chip op-chip-member ${m === curMember ? 'active' : ''}" data-op-member="${esc(m)}">
+            ${esc(profiles[m]?.name || m)}
+          </button>
+        `).join('')}
+      </div>
+
+      <!-- Кошельок -->
+      <label class="ip-label">Кошельок</label>
+      <div class="op-chips op-chips-cards">
+        ${myCards.map(c => `
+          <button type="button" class="chip op-chip-card ${c.id === curCard ? 'active' : ''}" data-op-card="${esc(c.id)}"
+            style="${c.id === curCard ? `background:${c.bg};color:${c.color};border-color:${c.color}` : ''}">
+            <i class="ti ${c.icon}"></i> ${esc(c.id)}
+          </button>
+        `).join('')}
+        ${myCards.length === 0 ? '<div class="empty-mini">Спочатку додай кошельок</div>' : ''}
+      </div>
+
+      <!-- Категорія -->
+      <label class="ip-label">Категорія</label>
+      <div class="op-chips op-chips-cats">
+        ${getCats().map(c => `
+          <button type="button" class="chip op-chip-cat ${c.id === curCat ? 'active' : ''}" data-op-cat="${esc(c.id)}"
+            style="${c.id === curCat ? `background:${c.bg};color:${c.color};border-color:${c.color}` : ''}">
+            <i class="ti ${c.icon}"></i> ${esc(c.id)}
+          </button>
+        `).join('')}
+      </div>
+
+      <!-- Опис -->
+      <label class="ip-label">Коментар</label>
+      <input id="${descId}" class="ip-input" type="text" value="${esc(curDesc)}" placeholder="Наприклад: вечеря в кафе">
+
+      <!-- Дата -->
+      <label class="ip-label">Дата</label>
+      <input id="${dateId}" class="ip-input" type="datetime-local" value="${toDatetimeLocal(curDate)}">
     `;
   }
 
-  // Групуємо за датою (DESC)
-  const byDate = {};
-  ops.forEach(o => {
-    const k = fmtDate(o.date);
-    if (!byDate[k]) byDate[k] = [];
-    byDate[k].push(o);
-  });
-
-  const dateKeys = Object.keys(byDate).sort((a, b) => {
-    // Парсимо DD.MM.YYYY
-    const pa = a.split('.').reverse().join('-');
-    const pb = b.split('.').reverse().join('-');
-    return pb.localeCompare(pa);
-  });
-
-  return `
-    <div class="ops-list">
-      ${dateKeys.map(date => `
-        <div class="ops-group">
-          <div class="ops-group-date">${esc(date)}</div>
-          ${byDate[date].map(op => renderOpItem(op)).join('')}
-        </div>
-      `).join('')}
-    </div>
-  `;
-}
-
-// ── Вид календарем ──────────────────────────────────────────
-function renderCalendarView(ops, monthDate) {
-  const year = monthDate.getFullYear();
-  const month = monthDate.getMonth();
-  const firstDay = new Date(year, month, 1);
-  const lastDay = new Date(year, month + 1, 0);
-  const daysInMonth = lastDay.getDate();
-
-  // День тижня першого дня (ПН=0, ВС=6)
-  let firstWeekday = firstDay.getDay() - 1;
-  if (firstWeekday < 0) firstWeekday = 6;
-
-  // Підраховуємо суми по днях (БЕЗ переказів!)
-  const byDay = {}; // { 1: {inc, exp}, ... }
-  ops.forEach(o => {
-    if (o.category === 'Переказ') return; // переказы не враховуємо
-    const d = new Date(o.date);
-    if (d.getMonth() !== month || d.getFullYear() !== year) return;
-    const day = d.getDate();
-    if (!byDay[day]) byDay[day] = { inc: 0, exp: 0, count: 0 };
-    if (o.type === 'Дохід') byDay[day].inc += (o.amountUah || o.amount || 0);
-    if (o.type === 'Витрата') byDay[day].exp += (o.amountUah || o.amount || 0);
-    byDay[day].count++;
-  });
-
-  // Максимальна витрата за день (для heatmap)
-  const maxExp = Math.max(...Object.values(byDay).map(d => d.exp), 1);
-
-  // Заголовки днів тижня
-  const weekdays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Нд'];
-
-  let cells = '';
-  // Порожні клітинки перед першим днем
-  for (let i = 0; i < firstWeekday; i++) {
-    cells += `<div class="cal-cell cal-empty"></div>`;
+  function toDatetimeLocal(d) {
+    const dt = d instanceof Date ? d : new Date(d);
+    const pad = n => String(n).padStart(2, '0');
+    return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
   }
 
-  const today = new Date();
-  const isCurrentMonth = today.getMonth() === month && today.getFullYear() === year;
+  const modalId = openBottomSheet({
+    title: isEdit ? 'Редагувати операцію' : 'Нова операція',
+    content: renderContent(),
+    footer: `
+      ${isEdit ? `<button id="${delId}" class="btn-danger">Видалити</button>` : ''}
+      <button class="btn-ghost" data-modal-close>Скасувати</button>
+      <button id="${saveId}" class="btn-primary flex-1">${isEdit ? 'Зберегти' : 'Додати'}</button>
+    `,
+    size: 'lg',
+    onOpen: (wrap) => {
+      setTimeout(() => wrap.querySelector('#' + amtId)?.focus(), 200);
 
-  for (let day = 1; day <= daysInMonth; day++) {
-    const dayData = byDay[day];
-    const intensity = dayData ? Math.min(1, dayData.exp / maxExp) : 0;
-    const isToday = isCurrentMonth && day === today.getDate();
-    const isSelected = state.selectedCalDay === day;
-    const dayOfWeek = (firstWeekday + day - 1) % 7;
-    const isWeekend = dayOfWeek === 5 || dayOfWeek === 6;
+      // Перемикач типу
+      wrap.querySelectorAll('[data-op-type]').forEach(b => {
+        b.addEventListener('click', () => {
+          opts.type = b.dataset.opType;
+          // Перерендер модалки (зберігаючи введені дані)
+          curAmount = wrap.querySelector('#' + amtId).value;
+          curDesc   = wrap.querySelector('#' + descId).value;
+          curCat = ''; // категорії різні для типів
+          const body = wrap.querySelector('.modal-body');
+          body.innerHTML = renderContent.call(null);
+          bindHandlers(wrap);
+        });
+      });
 
-    cells += `
-      <div class="cal-cell ${dayData ? 'has-data' : ''} ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''} ${isWeekend ? 'weekend' : ''}"
-        data-day="${day}"
-        style="${dayData ? `--heat:${intensity}` : ''}">
-        <div class="cal-day-num">${day}</div>
-        ${dayData ? `
-          <div class="cal-day-info">
-            ${dayData.exp > 0 ? `<div class="cal-exp">−${fmtMoneyShort(dayData.exp, 'UAH')}</div>` : ''}
-            ${dayData.inc > 0 ? `<div class="cal-inc">+${fmtMoneyShort(dayData.inc, 'UAH')}</div>` : ''}
-          </div>
-        ` : ''}
-      </div>
-    `;
-  }
+      bindHandlers(wrap);
+    }
+  });
 
-  // Деталі обраного дня
-  let dayDetails = '';
-  if (state.selectedCalDay) {
-    const dayOps = ops.filter(o => {
-      const d = new Date(o.date);
-      return d.getMonth() === month && d.getFullYear() === year && d.getDate() === state.selectedCalDay;
-    }).sort((a, b) => new Date(b.date) - new Date(a.date));
+  function bindHandlers(wrap) {
+    // Власник
+    wrap.querySelectorAll('[data-op-member]').forEach(b => {
+      b.addEventListener('click', () => {
+        curMember = b.dataset.opMember;
+        curCard = ''; // скидаємо вибір картки бо змінився власник
+        const body = wrap.querySelector('.modal-body');
+        // Зберігаємо значення інпутів перед перерендером
+        curAmount = wrap.querySelector('#' + amtId).value;
+        curDesc   = wrap.querySelector('#' + descId).value;
+        body.innerHTML = renderContent();
+        bindHandlers(wrap);
+      });
+    });
 
-    if (dayOps.length) {
-      dayDetails = `
-        <div class="cal-day-details">
-          <div class="cal-day-details-head">${state.selectedCalDay} ${monthDate.toLocaleDateString('uk-UA', { month: 'long' })}</div>
-          ${dayOps.map(op => renderOpItem(op)).join('')}
-        </div>
-      `;
-    } else {
-      dayDetails = `
-        <div class="cal-day-details">
-          <div class="cal-day-details-head">${state.selectedCalDay} ${monthDate.toLocaleDateString('uk-UA', { month: 'long' })}</div>
-          <div class="empty-mini">Жодної операції цього дня</div>
-        </div>
-      `;
+    // Картка
+    wrap.querySelectorAll('[data-op-card]').forEach(b => {
+      b.addEventListener('click', () => {
+        curCard = b.dataset.opCard;
+        wrap.querySelectorAll('[data-op-card]').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+      });
+    });
+
+    // Категорія
+    wrap.querySelectorAll('[data-op-cat]').forEach(b => {
+      b.addEventListener('click', () => {
+        curCat = b.dataset.opCat;
+        wrap.querySelectorAll('[data-op-cat]').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+      });
+    });
+
+    // Save
+    wrap.querySelector('#' + saveId).addEventListener('click', async () => {
+      const amt = parseFloat(wrap.querySelector('#' + amtId).value);
+      const cur = wrap.querySelector('#' + curId).value;
+      const desc = wrap.querySelector('#' + descId).value.trim();
+      const dt = wrap.querySelector('#' + dateId).value;
+
+      if (!amt || amt <= 0) { showToast('Введи суму', 'error'); return; }
+      if (!curCat) { showToast('Вибери категорію', 'error'); return; }
+      if (!curCard) { showToast('Вибери кошельок', 'error'); return; }
+
+      const body = {
+        action: isEdit ? 'updateOperation' : 'addOperation',
+        type: opts.type,
+        amount: amt,
+        currency: cur,
+        category: curCat,
+        desc,
+        date: new Date(dt).toISOString(),
+        who: curMember,
+        card: curCard,
+        budget: curMember,
+        source: isEdit ? editing.source : 'Ручний',
+      };
+      if (isEdit) body.row = editing.row;
+
+      const btn = wrap.querySelector('#' + saveId);
+      btn.disabled = true;
+      btn.textContent = 'Збереження...';
+      try {
+        await apiPost(body);
+        closeModal(modalId);
+        showToast(isEdit ? '✅ Збережено' : '✅ Операція додана');
+        if (window.refreshDashboard) window.refreshDashboard();
+      } catch (e) {
+        showToast('Помилка: ' + e.message, 'error');
+        btn.disabled = false;
+        btn.textContent = isEdit ? 'Зберегти' : 'Додати';
+      }
+    });
+
+    // Delete
+    const delBtn = wrap.querySelector('#' + delId);
+    if (delBtn) {
+      delBtn.addEventListener('click', async () => {
+        const ok = await import('./modals.js').then(m => m.confirmModal('Видалити операцію?', { danger: true, okText: 'Видалити' }));
+        if (!ok) return;
+        try {
+          await apiPost({ action: 'deleteOperation', row: editing.row });
+          closeModal(modalId);
+          showToast('Видалено');
+          if (window.refreshDashboard) window.refreshDashboard();
+        } catch (e) {
+          showToast('Помилка: ' + e.message, 'error');
+        }
+      });
     }
   }
 
-  return `
-    <div class="cal-wrap">
-      <div class="cal-weekdays">
-        ${weekdays.map(d => `<div class="cal-weekday">${d}</div>`).join('')}
-      </div>
-      <div class="cal-grid">
-        ${cells}
-      </div>
-      ${dayDetails}
-    </div>
-  `;
-}
-
-function renderOpItem(op) {
-  const isExp = op.type === 'Витрата';
-  const isInc = op.type === 'Дохід';
-  const colorCls = isExp ? 'red' : isInc ? 'green' : 'blue';
-  const iconCls = isExp ? 'ti-arrow-up' : isInc ? 'ti-arrow-down' : 'ti-arrows-exchange';
-  const sign = isExp ? '−' : isInc ? '+' : '';
-  return `
-    <div class="op-item" data-op-row="${op.row}">
-      <div class="op-item-icon bg-${colorCls}">
-        <i class="ti ${iconCls}"></i>
-      </div>
-      <div class="op-item-info">
-        <div class="op-item-name">${esc(op.category || '—')}${op.desc ? ` · ${esc(op.desc)}` : ''}</div>
-        <div class="op-item-meta">${esc(op.who || '')}${op.card ? ` · ${esc(op.card)}` : ''}</div>
-      </div>
-      <div class="op-item-amount c-${colorCls === 'red' ? 'red' : 'green'}">
-        ${sign}${fmtMoney(op.amount, op.currency)}
-      </div>
-    </div>
-  `;
-}
-
-function bindHandlers(el) {
-  // Перемикач Список / Календар
-  el.querySelectorAll('[data-view]').forEach(b => {
-    b.addEventListener('click', () => {
-      state.opsView = b.dataset.view;
-      state.selectedCalDay = null;
-      renderOperationsPage();
-    });
-  });
-
-  // Фільтри
-  el.querySelectorAll('[data-filter-who]').forEach(b => {
-    b.addEventListener('click', () => {
-      state.opFilter = state.opFilter || { who: 'all', type: 'all' };
-      state.opFilter.who = b.dataset.filterWho;
-      renderOperationsPage();
-    });
-  });
-  el.querySelectorAll('[data-filter-type]').forEach(b => {
-    b.addEventListener('click', () => {
-      state.opFilter = state.opFilter || { who: 'all', type: 'all' };
-      state.opFilter.type = b.dataset.filterType;
-      renderOperationsPage();
-    });
-  });
-
-  // Місяць
-  el.querySelector('[data-month="prev"]')?.addEventListener('click', () => {
-    const d = state.currentMonth instanceof Date ? state.currentMonth : new Date();
-    state.currentMonth = new Date(d.getFullYear(), d.getMonth() - 1, 1);
-    state.selectedCalDay = null;
-    loadOperations();
-  });
-  el.querySelector('[data-month="next"]')?.addEventListener('click', () => {
-    const d = state.currentMonth instanceof Date ? state.currentMonth : new Date();
-    state.currentMonth = new Date(d.getFullYear(), d.getMonth() + 1, 1);
-    state.selectedCalDay = null;
-    loadOperations();
-  });
-
-  // Клік на день календаря
-  el.querySelectorAll('.cal-cell[data-day]').forEach(cell => {
-    cell.addEventListener('click', () => {
-      const day = parseInt(cell.dataset.day);
-      // Тоглимо: вдруге клік по тому ж дню — закриваємо
-      state.selectedCalDay = state.selectedCalDay === day ? null : day;
-      renderOperationsPage();
-    });
-  });
-
-  // Клік на операцію — редагування
-  el.querySelectorAll('.op-item').forEach(item => {
-    item.addEventListener('click', () => {
-      const row = parseInt(item.dataset.opRow);
-      const op = state.operations.find(o => o.row === row);
-      if (op) openOperationDialog({ type: op.type, editing: op });
-    });
-  });
+  return modalId;
 }
