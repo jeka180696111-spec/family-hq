@@ -153,7 +153,8 @@ async function getOperations(params) {
   else q = q.limit(500);
 
   const snapshot = await q.get();
-  return snapshot.docs.map(doc => ({ id: doc.id, row: doc.id, ...doc.data() }));
+  const ops = snapshot.docs.map(doc => ({ id: doc.id, row: doc.id, ...doc.data() }));
+  return { operations: ops };
 }
 
 // ── Налаштування ─────────────────────────────────────────────
@@ -241,13 +242,27 @@ export async function apiPost(body) {
 
 // ── Додати операцію ──────────────────────────────────────────
 async function addOperation(body) {
+  const amount = Number(body.amount) || 0;
+  const currency = body.currency || 'UAH';
+
+  // Конвертуємо в UAH
+  let amountUah = amount;
+  if (currency !== 'UAH' && state.fx && state.fx[currency]) {
+    const rate = state.fx[currency].mid || state.fx[currency].buy || state.fx[currency].sale || 1;
+    amountUah = Math.round(amount * rate);
+  }
+  // Якщо фронт передав amountUah — використовуємо його
+  if (body.amountUah && Number(body.amountUah) > 0) {
+    amountUah = Number(body.amountUah);
+  }
+
   const op = {
     date: body.date || new Date().toISOString().split('T')[0],
-    type: body.type, // 'Дохід' | 'Витрата'
+    type: body.type,
     category: body.category,
-    amount: Number(body.amount) || 0,
-    currency: body.currency || 'UAH',
-    amountUah: Number(body.amountUah) || Number(body.amount) || 0,
+    amount,
+    currency,
+    amountUah,
     desc: body.desc || '',
     who: body.who || state.member || FAMILY_MEMBERS[0],
     card: body.card || '',
@@ -255,7 +270,7 @@ async function addOperation(body) {
   };
 
   const ref = await familyRef().collection('operations').add(op);
-  log('operation added:', ref.id);
+  log('operation added:', ref.id, currency, amount, '→', amountUah, 'UAH');
   return { ok: true, id: ref.id };
 }
 
