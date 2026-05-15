@@ -29,6 +29,18 @@ export function renderOperationsPage() {
   const profiles = getProfiles();
   let ops = state.operations || [];
 
+  // Сортуємо: нові зверху (за датою, потім за часом створення)
+  ops = [...ops].sort((a, b) => {
+    // Спочатку по даті (DESC)
+    const dateA = a.date || '';
+    const dateB = b.date || '';
+    if (dateA !== dateB) return dateB.localeCompare(dateA);
+    // Якщо дата однакова — по часу створення (DESC)
+    const timeA = a.createdAt || '';
+    const timeB = b.createdAt || '';
+    return timeB.localeCompare(timeA);
+  });
+
   const f = state.opFilter || { who: 'all', type: 'all' };
   if (f.who !== 'all') ops = ops.filter(o => o.who === f.who);
   if (f.type !== 'all') ops = ops.filter(o => o.type === f.type);
