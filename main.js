@@ -45,7 +45,7 @@ export function navigateTo(page) {
   document.title = PAGE_TITLES[page] + ' · Сімейний бюджет';
   setText('topbar-title', PAGE_TITLES[page]);
 
-  document.querySelectorAll('[data-nav-page]').forEach(a => {
+  document.querySelectorAll('.sb-item[data-nav-page]').forEach(a => {
     a.classList.toggle('active', a.dataset.navPage === page);
   });
 
@@ -132,31 +132,33 @@ function renderSidebar() {
   const myProfile = profiles[me] || {};
 
   sb.innerHTML = `
-    <div class="sidebar-header">
-      <div class="sidebar-logo"><i class="ti ti-home-2"></i></div>
-      <div class="sidebar-brand">
-        <div class="sidebar-brand-name">${esc(getFamilyName() || 'Сімейний бюджет')}</div>
-        <div class="sidebar-brand-sub">Сімейний бюджет</div>
+    <div class="sb-header">
+      <div class="sb-logo">
+        <div class="sb-logo-icon"><i class="ti ti-home-2"></i></div>
+        <div class="sb-logo-info">
+          <div class="sb-logo-name">${esc(getFamilyName() || 'Кіосе')}</div>
+          <div class="sb-logo-sub">Сімейний бюджет</div>
+        </div>
+      </div>
+      <div class="sb-user">
+        <div class="sb-user-avatar" style="background:var(--c-accent-soft);color:var(--c-accent)">${(myProfile.name || me)[0]}</div>
+        <div>
+          <div class="sb-user-name">${esc(myProfile.name || me)}</div>
+          <div class="sb-user-role">Активний</div>
+        </div>
       </div>
     </div>
-    <div class="sidebar-user">
-      <div class="sidebar-avatar">${(myProfile.name || me)[0]}</div>
-      <div class="sidebar-user-info">
-        <div class="sidebar-user-name">${esc(myProfile.name || me)}</div>
-        <div class="sidebar-user-role">Активний</div>
-      </div>
-    </div>
-    <nav class="sidebar-nav">
-      <div class="sidebar-nav-label">Головне</div>
-      <a class="sidebar-nav-link active" data-nav-page="dashboard"><i class="ti ti-layout-dashboard"></i> Дашборд</a>
-      <a class="sidebar-nav-link" data-nav-page="wallets"><i class="ti ti-wallet"></i> Кошельки</a>
-      <a class="sidebar-nav-link" data-nav-page="operations"><i class="ti ti-list"></i> Операції</a>
-      <a class="sidebar-nav-link" data-nav-page="analytics"><i class="ti ti-chart-bar"></i> Аналіз</a>
-      <div class="sidebar-nav-label">Фінанси</div>
-      <a class="sidebar-nav-link" data-nav-page="reserve"><i class="ti ti-coins"></i> Накопичення</a>
-      <a class="sidebar-nav-link" data-nav-page="goals"><i class="ti ti-target"></i> Цілі</a>
-      <div class="sidebar-nav-label">Система</div>
-      <a class="sidebar-nav-link" data-nav-page="settings"><i class="ti ti-settings"></i> Налаштування</a>
+    <nav class="sb-nav">
+      <div class="sb-section-label">Головне</div>
+      <a class="sb-item active" data-nav-page="dashboard"><i class="ti ti-layout-dashboard"></i> Дашборд</a>
+      <a class="sb-item" data-nav-page="wallets"><i class="ti ti-wallet"></i> Кошельки</a>
+      <a class="sb-item" data-nav-page="operations"><i class="ti ti-list"></i> Операції</a>
+      <a class="sb-item" data-nav-page="analytics"><i class="ti ti-chart-bar"></i> Аналіз</a>
+      <div class="sb-section-label">Фінанси</div>
+      <a class="sb-item" data-nav-page="reserve"><i class="ti ti-coins"></i> Накопичення</a>
+      <a class="sb-item" data-nav-page="goals"><i class="ti ti-target"></i> Цілі</a>
+      <div class="sb-section-label">Система</div>
+      <a class="sb-item" data-nav-page="settings"><i class="ti ti-settings"></i> Налаштування</a>
     </nav>
   `;
 
@@ -272,11 +274,11 @@ function renderBottomNav() {
   const bn = document.getElementById('bottom-nav');
   if (!bn) return;
   bn.innerHTML = `
-    <a class="bottom-nav-link active" data-nav-page="dashboard"><i class="ti ti-layout-dashboard"></i><span>Дашборд</span></a>
-    <a class="bottom-nav-link" data-nav-page="wallets"><i class="ti ti-wallet"></i><span>Кошельки</span></a>
+    <a class="bn-item active" data-nav-page="dashboard"><i class="ti ti-layout-dashboard"></i><span>Дашборд</span></a>
+    <a class="bn-item" data-nav-page="wallets"><i class="ti ti-wallet"></i><span>Кошельки</span></a>
     <div class="bottom-nav-fab-gap"></div>
-    <a class="bottom-nav-link" data-nav-page="operations"><i class="ti ti-list"></i><span>Операції</span></a>
-    <a class="bottom-nav-link" data-nav-page="settings"><i class="ti ti-settings"></i><span>Ще</span></a>
+    <a class="bn-item" data-nav-page="operations"><i class="ti ti-list"></i><span>Операції</span></a>
+    <a class="bn-item" data-nav-page="settings"><i class="ti ti-settings"></i><span>Ще</span></a>
   `;
   bn.querySelectorAll('[data-nav-page]').forEach(a => {
     a.addEventListener('click', (e) => {
