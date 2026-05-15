@@ -1,97 +1,102 @@
 // ═══════════════════════════════════════════════════════════════
-// AUTH — авторизація через Google
+// AUTH — Firebase Google Authentication
 // ═══════════════════════════════════════════════════════════════
 
-import { APP_CONFIG, state } from './config.js';
-import { getUsername, setUsername, getAvatar, setAvatar, getMyMember } from './storage.js';
+import { state, EMAIL_TO_MEMBER, ALLOWED_EMAILS, FAMILY_MEMBERS } from './config.js';
 import { log, logError } from './utils.js';
 
-// ── Завантаження збереженого юзера з localStorage ───────────
-export function restoreSession() {
-  const userJson = localStorage.getItem(APP_CONFIG.USER_KEY);
-  const token = localStorage.getItem(APP_CONFIG.TOKEN_KEY);
-  if (userJson && token) {
-    try {
-      state.user = JSON.parse(userJson);
-      state.token = token;
-      log('session restored:', state.user.email);
-      return true;
-    } catch (e) {
-      logError('restoreSession', e);
+let firebaseAuth = null;
+let googleProvider = null;
+
+// ── Ініціалізація Firebase Auth ─────────────────────────────
+export function initAuth(onSignIn) {
+  firebaseAuth = firebase.auth();
+  googleProvider = new firebase.auth.GoogleAuthProvider();
+
+  // Слухаємо зміну стану авторизації
+  firebaseAuth.onAuthStateChanged((user) => {
+    if (user) {
+      // Перевіряємо чи дозволений email
+      if (ALLOWED_EMAILS.length > 0 && !ALLOWED_EMAILS.includes(user.email)) {
+        log('Unauthorized email:', user.email);
+        firebaseAuth.signOut();
+        showLoginError('Цей акаунт не має доступу. Зверніться до адміністратора.');
+        return;
+      }
+
+      state.user = {
+        uid: user.uid,
+        email: user.email,
+        name: user.displayName || user.email.split('@')[0],
+        avatar: user.photoURL || null,
+      };
+      state.member = EMAIL_TO_MEMBER[user.email] || FAMILY_MEMBERS[0];
+
+      log('Firebase auth:', state.user.email, '→', state.member);
+
+      // Ховаємо екран логіну, показуємо додаток
+      if (onSignIn) onSignIn(state.user);
+    } else {
+      // Не залогінений — показуємо екран логіну
+      state.user = null;
+      state.member = null;
+      showLoginScreen();
     }
-  }
-  return false;
-}
-
-// ── Google Sign-In Initialization ───────────────────────────
-export function initGoogleAuth(onSignIn) {
-  if (typeof google === 'undefined' || !google.accounts) {
-    log('Google API not loaded yet, retrying...');
-    setTimeout(() => initGoogleAuth(onSignIn), 500);
-    return;
-  }
-  google.accounts.id.initialize({
-    client_id: APP_CONFIG.GOOGLE_CLIENT_ID,
-    callback: (response) => handleCredentialResponse(response, onSignIn),
-    auto_select: false,
-    cancel_on_tap_outside: true,
   });
-  // Рендер кнопки
-  const btn = document.getElementById('google-signin-btn');
-  if (btn) {
-    google.accounts.id.renderButton(btn, {
-      theme: 'outline',
-      size: 'large',
-      type: 'standard',
-      text: 'signin_with',
-      shape: 'pill',
-      locale: 'uk',
-    });
-  }
 }
 
-function handleCredentialResponse(response, onSignIn) {
-  const token = response.credential;
-  // Decode JWT payload
+// ── Відновлення сесії ────────────────────────────────────────
+export function restoreSession() {
+  // Firebase зберігає сесію автоматично (IndexedDB)
+  // onAuthStateChanged спрацює сам
+  return firebaseAuth && firebaseAuth.currentUser !== null;
+}
+
+// ── Google Sign-In ──────────────────────────────────────────
+export async function signInWithGoogle() {
   try {
-    const parts = token.split('.');
-    if (parts.length !== 3) throw new Error('Invalid JWT');
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-    state.user = {
-      email: payload.email,
-      name: payload.given_name || payload.name || payload.email.split('@')[0],
-      avatar: payload.picture || null,
-      sub: payload.sub,
-    };
-    state.token = token;
-    localStorage.setItem(APP_CONFIG.USER_KEY, JSON.stringify(state.user));
-    localStorage.setItem(APP_CONFIG.TOKEN_KEY, token);
-
-    // Якщо в localStorage немає кастомного імені — використовуємо з Google
-    if (!getUsername()) setUsername(state.user.name);
-    if (!getAvatar() && state.user.avatar) setAvatar(state.user.avatar);
-
-    log('signed in:', state.user.email);
-    if (onSignIn) onSignIn(state.user);
+    await firebaseAuth.signInWithPopup(googleProvider);
   } catch (e) {
-    logError('handleCredentialResponse', e);
+    if (e.code === 'auth/popup-closed-by-user') return;
+    logError('signInWithGoogle', e.message);
+    showLoginError('Помилка входу: ' + e.message);
   }
 }
 
 // ── Вихід ───────────────────────────────────────────────────
 export function signOut() {
-  if (typeof google !== 'undefined' && google.accounts && google.accounts.id) {
-    google.accounts.id.disableAutoSelect();
+  if (firebaseAuth) {
+    firebaseAuth.signOut();
   }
   state.user = null;
-  state.token = null;
-  localStorage.removeItem(APP_CONFIG.USER_KEY);
-  localStorage.removeItem(APP_CONFIG.TOKEN_KEY);
+  state.member = null;
   location.reload();
 }
 
-// ── Який це юзер у нашій сім'ї ──────────────────────────────
+// ── Хто я в сім'ї ───────────────────────────────────────────
 export function whoAmI() {
   if (!state.user) return null;
-  return getMyMember(state.user.email);
+  return state.member || EMAIL_TO_MEMBER[state.user.email] || FAMILY_MEMBERS[0];
+}
+
+// ── Показати екран логіну ───────────────────────────────────
+function showLoginScreen() {
+  const app = document.getElementById('app-root');
+  const login = document.getElementById('login-screen');
+  if (app) app.style.display = 'none';
+  if (login) login.style.display = 'flex';
+}
+
+function showLoginError(msg) {
+  const errEl = document.getElementById('login-error');
+  if (errEl) {
+    errEl.textContent = msg;
+    errEl.style.display = 'block';
+  }
+}
+
+// ── Ініціалізація Google Sign-In кнопки ─────────────────────
+// Для сумісності зі старим initGoogleAuth
+export function initGoogleAuth(onSignIn) {
+  initAuth(onSignIn);
 }
