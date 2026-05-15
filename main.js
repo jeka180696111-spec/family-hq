@@ -289,10 +289,7 @@ function renderBottomNav() {
       navigateTo(a.dataset.navPage);
     });
   });
-  // FAB в нижньому меню — відкриває меню дій
-  document.getElementById('bn-fab-btn')?.addEventListener('click', () => {
-    import('./fab.js').then(m => m.toggleFabMenu && m.toggleFabMenu());
-  });
+  // FAB ініціалізується в initFAB(), тут не додаємо listener
 }
 
 // ── Sidebar mobile ──────────────────────────────────────────
