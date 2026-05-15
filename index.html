@@ -13,33 +13,56 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" href="icon-192.png">
 
-<!-- Шрифти -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-
-<!-- Іконки -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.10.0/dist/tabler-icons.min.css">
 
-<!-- Стилі -->
 <link rel="stylesheet" href="base.css">
 <link rel="stylesheet" href="layout.css">
 <link rel="stylesheet" href="components.css">
 <link rel="stylesheet" href="pages.css">
 
-<!-- Firebase SDK (compat mode — працює з <script>, без bundler) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+<style>
+.auth-google-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 24px;
+  border: 1px solid #dadce0;
+  border-radius: 24px;
+  background: #fff;
+  color: #3c4043;
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+  margin-top: 8px;
+}
+.auth-google-btn:hover {
+  background: #f7f8f8;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+.auth-error {
+  color: #d93025;
+  font-size: 13px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: #fce8e6;
+  border-radius: 8px;
+}
+</style>
 </head>
 <body>
 
-<!-- ─── Екран авторизації ────────────────────────────────── -->
 <div id="login-screen" class="auth-screen" style="display:flex">
   <div class="auth-card">
-    <div class="auth-logo">
-      <i class="ti ti-home-2"></i>
-    </div>
+    <div class="auth-logo"><i class="ti ti-home-2"></i></div>
     <h1 class="auth-title">Сімейний бюджет</h1>
     <p class="auth-text">Увійди через Google щоб синхронізувати дані</p>
     <button id="google-signin-btn" class="auth-google-btn">
@@ -50,17 +73,10 @@
   </div>
 </div>
 
-<!-- ─── Основний додаток ─────────────────────────────────── -->
 <div id="app-root" class="app" style="display:none">
-
-  <!-- Sidebar -->
   <aside id="sidebar" class="sidebar"></aside>
   <div id="sidebar-overlay" class="sidebar-overlay"></div>
-
-  <!-- Топбар -->
   <header id="topbar" class="topbar"></header>
-
-  <!-- Сторінки -->
   <main id="content" class="content">
     <section id="page-dashboard" class="page active"></section>
     <section id="page-wallets" class="page"></section>
@@ -70,20 +86,11 @@
     <section id="page-goals" class="page"></section>
     <section id="page-settings" class="page"></section>
   </main>
-
-  <!-- Курси валют -->
   <div id="fx-bar" class="fx-bar"></div>
-
-  <!-- Нижня навігація (мобілка) -->
   <nav id="bottom-nav" class="bottom-nav"></nav>
-
 </div>
 
-<!-- Підключаємо модулі -->
-<script type="module">
-  // Пробуємо завантажити main.js з кореня, якщо не знайде — з js/
-  import('./main.js').catch(() => import('./js/main.js'));
-</script>
+<script type="module" src="main.js"></script>
 
 </body>
 </html>
