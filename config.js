@@ -77,19 +77,50 @@ export const DEFAULT_WALLET_TYPES = [
   { id: 'savings', name: 'Накопичення',  icon: 'ti-coins',           bg: '#FEF3E2', color: '#BA7517' },
 ];
 
+// Іконки для вибору (icon-picker)
+export const ICON_LIST = [
+  'ti-cash','ti-credit-card','ti-credit-card-pay','ti-wallet','ti-coins','ti-currency-dollar',
+  'ti-currency-euro','ti-currency-hryvnia','ti-shopping-cart','ti-shopping-bag','ti-basket',
+  'ti-car','ti-bus','ti-train','ti-plane','ti-bike','ti-walk','ti-home','ti-building',
+  'ti-tools-kitchen-2','ti-cup','ti-pizza','ti-meat','ti-apple','ti-heart','ti-medical-cross',
+  'ti-pill','ti-shirt','ti-dress','ti-shoe','ti-device-gamepad-2','ti-music','ti-movie',
+  'ti-book','ti-school','ti-baby-carriage','ti-dog','ti-cat','ti-flower','ti-tree','ti-bolt',
+  'ti-flame','ti-droplet','ti-wifi','ti-device-mobile','ti-device-laptop','ti-tools','ti-paint',
+  'ti-briefcase','ti-coin','ti-piggy-bank','ti-target','ti-gift','ti-cake','ti-star','ti-heart-filled',
+  'ti-sofa','ti-bed','ti-bath','ti-key','ti-mail','ti-phone','ti-headphones','ti-camera',
+  'ti-palette','ti-scissors','ti-needle','ti-paw','ti-dots',
+];
+
 // Глобальний стейт (runtime)
 export const state = {
   user: null,       // Firebase user object
   member: null,     // 'Євген' | 'Марина'
+  token: null,      // сумісність зі старим кодом
+  scriptUrl: '',    // не використовується, для сумісності
   dashboard: null,
   operations: [],
   reserve: null,
   goals: [],
+  transfers: [],
   fx: null,         // курси валют { USD: { buy, sale, mid }, EUR: { ... } }
   currentPage: 'dashboard',
+  currentMonth: new Date(),
+  calMonth: new Date(),
+  calPeriod: 'month',
+  currentType: 'Витрата',
+  currentCurrency: 'UAH',
+  reserveType: 'Поповнення',
+  reserveCurrency: 'UAH',
+  selectedCat: '',
+  selectedCard: '',
+  modalMember: null,
+  filterActive: 'all',
+  editingGoalIdx: -1,
+  activeAccountId: null,
+  editingOp: null,
+  openMember: undefined,
   walletFilter: 'all',
   walletTypeFilter: 'all',
-  openMember: null,
 };
 
 // Допоміжний стейт для синхронізації
