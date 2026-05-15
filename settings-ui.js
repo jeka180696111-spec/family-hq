@@ -8,7 +8,7 @@ import {
   getWalletTypes, setWalletTypes,
   getFamilyName, setFamilyName,
   getProfiles, setProfiles,
-  getTheme, getScriptUrl, setScriptUrl,
+  getTheme,
 } from './storage.js';
 import { syncSettingsToSheet, pingBackend } from './api.js';
 import { applyTheme, toggleTheme } from './theme.js';
@@ -24,7 +24,6 @@ export function renderSettingsPage() {
   const theme = getTheme();
   const family = getFamilyName();
   const profiles = getProfiles();
-  const url = getScriptUrl();
   const lastSync = localStorage.getItem('budget_last_sync');
 
   el.innerHTML = `
@@ -78,23 +77,15 @@ export function renderSettingsPage() {
 
       <!-- Sync -->
       <div class="settings-section">
-        <div class="settings-label">Google Sheets</div>
+        <div class="settings-label">Firebase</div>
         <div class="settings-card">
           <div class="settings-row">
-            <div class="settings-row-icon green"><i class="ti ti-brand-google"></i></div>
+            <div class="settings-row-icon green"><i class="ti ti-brand-firebase"></i></div>
             <div class="settings-row-info">
               <div class="settings-row-name">Синхронізація</div>
               <div class="settings-row-sub" id="sync-status">${lastSync ? 'Остання: ' + new Date(lastSync).toLocaleString('uk-UA') : 'Не виконувалась'}</div>
             </div>
             <button class="btn-ghost-sm" id="sync-now-btn"><i class="ti ti-refresh"></i> Sync</button>
-          </div>
-          <div class="settings-row">
-            <div class="settings-row-icon"><i class="ti ti-link"></i></div>
-            <div class="settings-row-info">
-              <div class="settings-row-name">URL скрипта</div>
-              <div class="settings-row-sub url-preview">${url ? esc(url.substring(0, 60)) + '...' : 'Не налаштовано'}</div>
-            </div>
-            <button class="btn-ghost-sm" id="change-url-btn">Змінити</button>
           </div>
           <div class="settings-row">
             <div class="settings-row-icon"><i class="ti ti-stethoscope"></i></div>
@@ -302,43 +293,27 @@ function bindHandlers(el) {
 
   // Sync
   el.querySelector('#sync-now-btn')?.addEventListener('click', async () => {
-    showToast('🔄 Перевіряю...');
-    const ok = await pingBackend();
-    if (!ok) { showToast('Сервер не відповідає. Перевір URL.', 'error'); return; }
+    showToast('🔄 Синхронізую з Firebase...');
     try {
-      // Спершу пушимо налаштування на сервер
       await import('./api.js').then(m => m.syncSettingsToSheet());
-      // Потім тягнемо все
       if (window.fullSync) await window.fullSync();
-      showToast('✅ Синхронізовано! Дані збережено в Google Sheet.');
+      showToast('✅ Синхронізовано з Firebase!');
       renderSettingsPage();
     } catch (e) {
-      showToast('Помилка синку: ' + e.message, 'error');
-    }
-  });
-
-  // URL
-  el.querySelector('#change-url-btn')?.addEventListener('click', async () => {
-    const newUrl = await promptModal('URL скрипта', getScriptUrl(), { placeholder: 'https://script.google.com/...' });
-    if (newUrl) {
-      setScriptUrl(newUrl);
-      state.scriptUrl = newUrl;
-      showToast('✅ URL змінено');
-      renderSettingsPage();
+      showToast('Помилка: ' + e.message, 'error');
     }
   });
 
   // Діагностика
   el.querySelector('#diag-btn')?.addEventListener('click', async () => {
-    const { openBottomSheet, closeModal } = await import('./modals.js');
-    const { apiGet, apiPost, pingBackend } = await import('./api.js');
+    const { openBottomSheet } = await import('./modals.js');
+    const { apiGet, pingBackend } = await import('./api.js');
 
     const results = [];
-    let resultsHtml = '<div class="diag-list"><div class="diag-item"><i class="ti ti-loader"></i> Запускаю...</div></div>';
 
     const modalId = openBottomSheet({
-      title: '🔍 Діагностика',
-      content: `<div id="diag-content">${resultsHtml}</div>`,
+      title: '🔍 Діагностика Firebase',
+      content: `<div id="diag-content"><div class="diag-list"><div class="diag-item"><i class="ti ti-loader"></i> Запускаю...</div></div></div>`,
       footer: '<button class="btn-primary flex-1" data-modal-close>Закрити</button>',
     });
 
@@ -358,30 +333,31 @@ function bindHandlers(el) {
       }).join('')}</div>`;
     }
 
-    // 1. URL налаштовано?
-    const url = getScriptUrl();
-    results.push({ name: 'URL скрипта', status: url ? 'ok' : 'fail', detail: url ? url.substring(0, 50) + '...' : 'НЕ налаштовано' });
+    // 1. Firebase ініціалізовано?
+    const fbOk = typeof firebase !== 'undefined' && firebase.app();
+    results.push({ name: 'Firebase SDK', status: fbOk ? 'ok' : 'fail', detail: fbOk ? 'Ініціалізовано' : 'НЕ завантажено' });
     update(results);
 
-    // 2. Token є?
-    results.push({ name: 'Google токен', status: state.token ? 'ok' : 'fail', detail: state.token ? 'OK' : 'НЕМАЄ — увійди заново' });
+    // 2. Auth
+    const user = firebase.auth().currentUser;
+    results.push({ name: 'Авторизація', status: user ? 'ok' : 'fail', detail: user ? user.email : 'Не залогінений' });
     update(results);
 
-    // 3. Ping
-    results.push({ name: 'Ping сервера', status: 'pending' });
+    // 3. Firestore ping
+    results.push({ name: 'Firestore', status: 'pending' });
     update(results);
     try {
       const ok = await pingBackend();
       results[results.length - 1].status = ok ? 'ok' : 'fail';
-      results[results.length - 1].detail = ok ? 'Відповідає' : 'НЕ відповідає';
+      results[results.length - 1].detail = ok ? 'Доступний' : 'Недоступний';
     } catch (e) {
       results[results.length - 1].status = 'fail';
       results[results.length - 1].detail = e.message;
     }
     update(results);
 
-    // 4. Спроба прочитати налаштування
-    results.push({ name: 'Читання Settings', status: 'pending' });
+    // 4. Читання settings
+    results.push({ name: 'Налаштування', status: 'pending' });
     update(results);
     try {
       const s = await apiGet('settings');
@@ -395,59 +371,30 @@ function bindHandlers(el) {
     }
     update(results);
 
-    // 5. Спроба записати тестові налаштування
-    results.push({ name: 'Запис Settings (sync)', status: 'pending' });
+    // 5. Запис
+    results.push({ name: 'Запис в Firestore', status: 'pending' });
     update(results);
     try {
       const { syncSettingsToSheet } = await import('./api.js');
       await syncSettingsToSheet();
       results[results.length - 1].status = 'ok';
-      results[results.length - 1].detail = 'Поточні дані надіслано на сервер';
+      results[results.length - 1].detail = 'Налаштування збережено';
     } catch (e) {
       results[results.length - 1].status = 'fail';
       results[results.length - 1].detail = e.message;
     }
     update(results);
 
-    // 6. Версія Code.gs — через ping (надійніше)
-    results.push({ name: 'Версія Code.gs', status: 'pending' });
-    update(results);
-    try {
-      const pingResp = await apiGet('ping');
-      const version = pingResp.version;
-      const features = pingResp.features || [];
-      const isNew = version === '2.2' || features.includes('walletTypes');
-      results[results.length - 1].status = isNew ? 'ok' : 'fail';
-      if (isNew) {
-        results[results.length - 1].detail = `v${version} ✅ (підтримує: ${features.join(', ')})`;
-      } else if (version) {
-        results[results.length - 1].detail = `⚠️ v${version} — це СТАРА. Треба v2.2. Перерозгорни Code.gs!`;
-      } else {
-        results[results.length - 1].detail = '⚠️ Версія невідома — це СТАРА версія без поля version. Перерозгорни Code.gs!';
-      }
-    } catch (e) {
-      results[results.length - 1].status = 'fail';
-      results[results.length - 1].detail = e.message;
-    }
-    update(results);
-
-    // 7. localStorage size
+    // 6. localStorage
     let lsSize = 0;
     try {
       for (let k in localStorage) {
         if (localStorage.hasOwnProperty(k)) lsSize += (localStorage[k].length + k.length) * 2;
       }
-      const kb = (lsSize / 1024).toFixed(1);
-      results.push({ name: 'localStorage', status: lsSize < 4 * 1024 * 1024 ? 'ok' : 'fail', detail: `${kb} KB використано` });
+      results.push({ name: 'localStorage', status: 'ok', detail: `${(lsSize / 1024).toFixed(1)} KB` });
     } catch (e) {
       results.push({ name: 'localStorage', status: 'fail', detail: e.message });
     }
-    update(results);
-
-    // 8. Перевірка локальних кошельків
-    const cardsE = getCards('Євген');
-    const cardsM = getCards('Марина');
-    results.push({ name: 'Локальні кошельки', status: 'ok', detail: `Євген: ${cardsE.length}, Марина: ${cardsM.length}` });
     update(results);
   });
 
