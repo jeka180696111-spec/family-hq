@@ -1,92 +1,398 @@
 // ═══════════════════════════════════════════════════════════════
-// API — спілкування з Google Apps Script
+// API — Firestore (замість Google Apps Script)
 // ═══════════════════════════════════════════════════════════════
 
-import { APP_CONFIG, state, syncState } from './config.js';
+import { state, syncState, FAMILY_ID, FAMILY_MEMBERS, APP_CONFIG } from './config.js';
 import {
-  getScriptUrl, getExpCats, getIncCats, getCards, getProfiles,
-  getWalletTypes, getFamilyName, clearDirty,
+  getExpCats, getIncCats, getCards, getProfiles,
+  getWalletTypes, getFamilyName,
 } from './storage.js';
 import { log, logError } from './utils.js';
 
-// ── GET-запит ───────────────────────────────────────────────
+let db = null;
+
+// ── Ініціалізація Firestore ─────────────────────────────────
+export function initFirestore() {
+  db = firebase.firestore();
+  log('Firestore initialized');
+}
+
+// ── Хелпер: колекція родини ──────────────────────────────────
+function familyRef() {
+  return db.collection('families').doc(FAMILY_ID);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ЧИТАННЯ
+// ═══════════════════════════════════════════════════════════════
+
+// ── Dashboard (агрегація операцій за період) ─────────────────
 export async function apiGet(action, params) {
-  const url = getScriptUrl() || state.scriptUrl;
-  if (!url) throw new Error('No script URL configured');
+  if (!db) throw new Error('Firestore not initialized');
 
-  const q = new URLSearchParams();
-  q.set('action', action);
-  q.set('key', APP_CONFIG.SECRET_KEY);
-  if (state.token) q.set('token', state.token);
-  if (params) {
-    Object.entries(params).forEach(([k, v]) => {
-      if (v !== undefined && v !== null) q.set(k, v);
-    });
-  }
+  switch (action) {
+    case 'ping':
+      return { ok: true, version: 'firebase-1.0', features: ['walletTypes', 'familyName', 'periodFilter'] };
 
-  const fullUrl = url + '?' + q.toString();
-  try {
-    const resp = await fetch(fullUrl, { method: 'GET', redirect: 'follow' });
-    const text = await resp.text();
-    let data;
-    try { data = JSON.parse(text); }
-    catch (e) { throw new Error('Invalid JSON response: ' + text.substring(0, 200)); }
-    if (data.error) throw new Error(data.error);
-    return data;
-  } catch (e) {
-    logError('apiGet', action, e.message);
-    throw e;
+    case 'dashboard':
+      return getDashboard(params?.period || 'month');
+
+    case 'operations':
+      return getOperations(params);
+
+    case 'settings':
+      return getSettings();
+
+    case 'reserve':
+      return getReserve();
+
+    case 'goals':
+      return getGoals();
+
+    case 'fx':
+      return getFxRates();
+
+    case 'transfers':
+      return getTransfers();
+
+    default:
+      throw new Error('Unknown action: ' + action);
   }
 }
 
-// ── POST: справжній POST з text/plain (БЕЗ CORS preflight) ──
+// ── Дашборд ──────────────────────────────────────────────────
+async function getDashboard(period) {
+  const now = new Date();
+  let startDate;
+
+  if (period === 'year') {
+    startDate = new Date(now.getFullYear(), 0, 1);
+  } else if (period === 'quarter') {
+    const q = Math.floor(now.getMonth() / 3);
+    startDate = new Date(now.getFullYear(), q * 3, 1);
+  } else {
+    startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+  }
+
+  const snapshot = await familyRef().collection('operations')
+    .where('date', '>=', startDate.toISOString().split('T')[0])
+    .orderBy('date', 'desc')
+    .get();
+
+  const ops = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  const realOps = ops.filter(o => o.category !== 'Переказ');
+
+  const totalIncome = realOps.filter(o => o.type === 'Дохід').reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
+  const totalExpense = realOps.filter(o => o.type === 'Витрата').reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
+
+  // По членах
+  const byMember = {};
+  realOps.forEach(o => {
+    const who = o.who || 'Інше';
+    if (!byMember[who]) byMember[who] = { income: 0, expense: 0 };
+    if (o.type === 'Дохід') byMember[who].income += (o.amountUah || o.amount || 0);
+    if (o.type === 'Витрата') byMember[who].expense += (o.amountUah || o.amount || 0);
+  });
+  // Додаємо balance і byCard
+  ops.forEach(o => {
+    const who = o.who || 'Інше';
+    const card = o.card || '';
+    if (!byMember[who]) byMember[who] = { income: 0, expense: 0 };
+    if (!byMember[who].byCard) byMember[who].byCard = {};
+    if (!card) return;
+    if (!byMember[who].byCard[card]) byMember[who].byCard[card] = { income: 0, expense: 0, balance: 0 };
+    if (o.type === 'Дохід') byMember[who].byCard[card].income += (o.amountUah || o.amount || 0);
+    if (o.type === 'Витрата') byMember[who].byCard[card].expense += (o.amountUah || o.amount || 0);
+  });
+  Object.values(byMember).forEach(m => {
+    m.balance = (m.income || 0) - (m.expense || 0);
+    if (m.byCard) Object.values(m.byCard).forEach(c => c.balance = c.income - c.expense);
+  });
+
+  // По категоріях
+  const byCategory = {};
+  realOps.filter(o => o.type === 'Витрата').forEach(o => {
+    const cat = o.category || 'Інше';
+    byCategory[cat] = (byCategory[cat] || 0) + (o.amountUah || o.amount || 0);
+  });
+
+  // По днях
+  const byDay = {};
+  const byDayIncome = {};
+  realOps.forEach(o => {
+    const d = new Date(o.date);
+    const day = d.getDate();
+    if (o.type === 'Витрата') byDay[day] = (byDay[day] || 0) + (o.amountUah || o.amount || 0);
+    if (o.type === 'Дохід') byDayIncome[day] = (byDayIncome[day] || 0) + (o.amountUah || o.amount || 0);
+  });
+
+  // Останні 8
+  const allOpsSnapshot = await familyRef().collection('operations')
+    .orderBy('date', 'desc')
+    .limit(8)
+    .get();
+  const recent = allOpsSnapshot.docs.map(doc => ({ id: doc.id, row: doc.id, ...doc.data() }));
+
+  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+  return {
+    month, period,
+    totalIncome: Math.round(totalIncome),
+    totalExpense: Math.round(totalExpense),
+    balance: Math.round(totalIncome - totalExpense),
+    savingsRate: totalIncome > 0 ? (totalIncome - totalExpense) / totalIncome * 100 : 0,
+    byMember, byCategory, byDay, byDayIncome, recent,
+    fx: state.fx || {},
+  };
+}
+
+// ── Операції ─────────────────────────────────────────────────
+async function getOperations(params) {
+  let q = familyRef().collection('operations').orderBy('date', 'desc');
+  if (params?.limit) q = q.limit(Number(params.limit));
+  else q = q.limit(500);
+
+  const snapshot = await q.get();
+  return snapshot.docs.map(doc => ({ id: doc.id, row: doc.id, ...doc.data() }));
+}
+
+// ── Налаштування ─────────────────────────────────────────────
+async function getSettings() {
+  const doc = await familyRef().get();
+  if (!doc.exists) return {};
+  return doc.data() || {};
+}
+
+// ── Резерв ───────────────────────────────────────────────────
+async function getReserve() {
+  const doc = await familyRef().collection('meta').doc('reserve').get();
+  if (!doc.exists) return { totalUah: 0, balances: {}, transactions: [] };
+  return doc.data();
+}
+
+// ── Цілі ─────────────────────────────────────────────────────
+async function getGoals() {
+  const snapshot = await familyRef().collection('goals').get();
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+}
+
+// ── Перекази ─────────────────────────────────────────────────
+async function getTransfers() {
+  const snapshot = await familyRef().collection('operations')
+    .where('category', '==', 'Переказ')
+    .orderBy('date', 'desc')
+    .limit(50)
+    .get();
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+}
+
+// ── Курси валют (з Firestore або fallback) ───────────────────
+async function getFxRates() {
+  try {
+    const doc = await db.collection('meta').doc('fx').get();
+    if (doc.exists) {
+      const data = doc.data();
+      state.fx = data;
+      return data;
+    }
+  } catch (e) {
+    logError('getFxRates firestore', e.message);
+  }
+  // Fallback: НБУ API (публічний)
+  try {
+    const resp = await fetch('https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json');
+    const rates = await resp.json();
+    const fx = {};
+    rates.forEach(r => {
+      if (r.cc === 'USD') fx.USD = { buy: r.rate, sale: r.rate, mid: r.rate };
+      if (r.cc === 'EUR') fx.EUR = { buy: r.rate, sale: r.rate, mid: r.rate };
+    });
+    state.fx = fx;
+    // Зберігаємо в Firestore для кешування
+    try { await db.collection('meta').doc('fx').set({ ...fx, updatedAt: new Date().toISOString() }); } catch (e) {}
+    return fx;
+  } catch (e) {
+    logError('getFxRates nbu', e.message);
+    return {};
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ЗАПИС
+// ═══════════════════════════════════════════════════════════════
+
 export async function apiPost(body) {
-  const url = getScriptUrl() || state.scriptUrl;
-  if (!url) throw new Error('No script URL configured');
+  if (!db) throw new Error('Firestore not initialized');
 
-  const payload = { ...body, key: APP_CONFIG.SECRET_KEY };
-  if (state.token) payload.token = state.token;
-
-  try {
-    // ВАЖЛИВО: Content-Type 'text/plain' — НЕ викликає CORS preflight!
-    // Apps Script читає e.postData.contents — JSON парситься на бекенді
-    const resp = await fetch(url, {
-      method: 'POST',
-      mode: 'cors',
-      redirect: 'follow',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload),
-    });
-    const text = await resp.text();
-    let data;
-    try { data = JSON.parse(text); }
-    catch (e) { throw new Error('Invalid JSON: ' + text.substring(0, 200)); }
-    if (data.error) throw new Error(data.error);
-    return data;
-  } catch (e) {
-    logError('apiPost', body.action, e.message);
-    throw e;
+  switch (body.action) {
+    case 'addOp':        return addOperation(body);
+    case 'addTransfer':  return addTransfer(body);
+    case 'addReserve':   return addReserveOp(body);
+    case 'updateSettings': return updateSettings(body);
+    case 'addGoal':      return addGoal(body);
+    case 'updateGoal':   return updateGoal(body);
+    default:
+      throw new Error('Unknown action: ' + body.action);
   }
 }
 
-// ── Сінк налаштувань на сервер ──────────────────────────────
+// ── Додати операцію ──────────────────────────────────────────
+async function addOperation(body) {
+  const op = {
+    date: body.date || new Date().toISOString().split('T')[0],
+    type: body.type, // 'Дохід' | 'Витрата'
+    category: body.category,
+    amount: Number(body.amount) || 0,
+    currency: body.currency || 'UAH',
+    amountUah: Number(body.amountUah) || Number(body.amount) || 0,
+    desc: body.desc || '',
+    who: body.who || state.member || FAMILY_MEMBERS[0],
+    card: body.card || '',
+    createdAt: new Date().toISOString(),
+  };
+
+  const ref = await familyRef().collection('operations').add(op);
+  log('operation added:', ref.id);
+  return { ok: true, id: ref.id };
+}
+
+// ── Переказ ──────────────────────────────────────────────────
+async function addTransfer(body) {
+  const batch = db.batch();
+  const opsRef = familyRef().collection('operations');
+  const now = new Date().toISOString().split('T')[0];
+
+  // Витрата з відправника
+  const fromOp = {
+    date: now,
+    type: 'Витрата',
+    category: 'Переказ',
+    amount: Number(body.amount),
+    currency: body.currency || 'UAH',
+    amountUah: Number(body.amountUah) || Number(body.amount),
+    desc: `→ ${body.toWho || ''}/${body.toCard || ''} ${body.desc || ''}`.trim(),
+    who: body.fromWho,
+    card: body.fromCard,
+    createdAt: new Date().toISOString(),
+  };
+  batch.set(opsRef.doc(), fromOp);
+
+  // Дохід у отримувача
+  const toOp = {
+    date: now,
+    type: 'Дохід',
+    category: 'Переказ',
+    amount: Number(body.amount),
+    currency: body.currency || 'UAH',
+    amountUah: Number(body.amountUah) || Number(body.amount),
+    desc: `← ${body.fromWho || ''}/${body.fromCard || ''} ${body.desc || ''}`.trim(),
+    who: body.toWho || body.fromWho,
+    card: body.toCard || '',
+    createdAt: new Date().toISOString(),
+  };
+  batch.set(opsRef.doc(), toOp);
+
+  await batch.commit();
+  log('transfer added');
+  return { ok: true };
+}
+
+// ── Резерв ───────────────────────────────────────────────────
+async function addReserveOp(body) {
+  const ref = familyRef().collection('meta').doc('reserve');
+  const doc = await ref.get();
+  const data = doc.exists ? doc.data() : { totalUah: 0, balances: {}, transactions: [] };
+
+  const amt = Number(body.amount);
+  const cur = body.currency || 'UAH';
+  const sign = body.type === 'Поповнення' ? 1 : -1;
+
+  if (!data.balances) data.balances = {};
+  data.balances[cur] = (data.balances[cur] || 0) + amt * sign;
+
+  // Конвертуємо в UAH для загальної суми
+  let uahAmt = amt;
+  if (cur !== 'UAH' && state.fx && state.fx[cur]) {
+    uahAmt = amt * (state.fx[cur].mid || 1);
+  }
+  data.totalUah = (data.totalUah || 0) + uahAmt * sign;
+
+  if (!data.transactions) data.transactions = [];
+  data.transactions.unshift({
+    date: new Date().toISOString().split('T')[0],
+    type: body.type,
+    amount: amt,
+    currency: cur,
+    comment: body.comment || '',
+    who: state.member || FAMILY_MEMBERS[0],
+  });
+
+  // Обрізаємо до 100 транзакцій
+  if (data.transactions.length > 100) data.transactions = data.transactions.slice(0, 100);
+
+  await ref.set(data);
+  return { ok: true };
+}
+
+// ── Зберегти налаштування ────────────────────────────────────
+async function updateSettings(body) {
+  const data = {};
+  if (body.familyName !== undefined) data.familyName = body.familyName;
+  if (body.expCats !== undefined) data.expCats = body.expCats;
+  if (body.incCats !== undefined) data.incCats = body.incCats;
+  if (body.cardsEvgen !== undefined) data.cardsEvgen = body.cardsEvgen;
+  if (body.cardsMarina !== undefined) data.cardsMarina = body.cardsMarina;
+  if (body.walletTypes !== undefined) data.walletTypes = body.walletTypes;
+  if (body.profiles !== undefined) data.profiles = body.profiles;
+  data.updatedAt = new Date().toISOString();
+
+  await familyRef().set(data, { merge: true });
+  log('settings saved to Firestore');
+  return { ok: true };
+}
+
+// ── Цілі ─────────────────────────────────────────────────────
+async function addGoal(body) {
+  const goal = {
+    name: body.name,
+    target: Number(body.target),
+    saved: Number(body.saved) || 0,
+    deadline: body.deadline || '',
+    icon: body.icon || 'ti-target',
+    createdAt: new Date().toISOString(),
+  };
+  const ref = await familyRef().collection('goals').add(goal);
+  return { ok: true, id: ref.id };
+}
+
+async function updateGoal(body) {
+  if (!body.id) throw new Error('Goal id required');
+  const updates = {};
+  if (body.name !== undefined) updates.name = body.name;
+  if (body.target !== undefined) updates.target = Number(body.target);
+  if (body.saved !== undefined) updates.saved = Number(body.saved);
+  if (body.deadline !== undefined) updates.deadline = body.deadline;
+  updates.updatedAt = new Date().toISOString();
+
+  await familyRef().collection('goals').doc(body.id).update(updates);
+  return { ok: true };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// СИНХРОНІЗАЦІЯ НАЛАШТУВАНЬ
+// ═══════════════════════════════════════════════════════════════
+
 let syncInFlight = null;
 export async function syncSettingsToSheet() {
-  // Запобігаємо паралельним sync (debounce)
   if (syncInFlight) return syncInFlight;
-
-  if (!getScriptUrl() && !state.scriptUrl) {
-    syncState.pendingSettings = true;
-    return;
-  }
-  if (!state.token) {
+  if (!db) {
     syncState.pendingSettings = true;
     return;
   }
 
   syncInFlight = (async () => {
     try {
-      const payload = {
+      await updateSettings({
         action: 'updateSettings',
         familyName: getFamilyName(),
         expCats: getExpCats(),
@@ -95,20 +401,9 @@ export async function syncSettingsToSheet() {
         cardsMarina: getCards('Марина'),
         walletTypes: getWalletTypes(),
         profiles: getProfiles(),
-      };
-      await apiPost(payload);
-
-      // При успіху — очищуємо ВСІ dirty-флаги пов'язані з налаштуваннями
-      clearDirty(APP_CONFIG.FAMILY_KEY);
-      clearDirty(APP_CONFIG.EXP_CATS_KEY);
-      clearDirty(APP_CONFIG.INC_CATS_KEY);
-      clearDirty(APP_CONFIG.CARDS_KEY + '_Євген');
-      clearDirty(APP_CONFIG.CARDS_KEY + '_Марина');
-      clearDirty(APP_CONFIG.WALLET_TYPES_KEY);
-      clearDirty(APP_CONFIG.PROFILES_KEY);
-
+      });
       syncState.pendingSettings = false;
-      log('settings synced');
+      log('settings synced to Firestore');
     } catch (e) {
       syncState.pendingSettings = true;
       logError('syncSettings', e.message);
@@ -124,9 +419,34 @@ export async function syncSettingsToSheet() {
 // ── Ping ────────────────────────────────────────────────────
 export async function pingBackend() {
   try {
-    const data = await apiGet('ping');
-    return data && data.ok === true;
+    if (!db) return false;
+    // Просто перевіряємо що Firestore доступний
+    await db.collection('meta').doc('ping').set({ t: Date.now() });
+    return true;
   } catch (e) {
     return false;
+  }
+}
+
+// ── Завантаження налаштувань з Firestore → localStorage ──────
+export async function loadSettingsFromFirestore() {
+  try {
+    const data = await getSettings();
+    if (!data) return;
+
+    const { setExpCats, setIncCats, setCards, setWalletTypes,
+            setProfiles, setFamilyName } = await import('./storage.js');
+
+    if (data.expCats && Array.isArray(data.expCats)) setExpCats(data.expCats);
+    if (data.incCats && Array.isArray(data.incCats)) setIncCats(data.incCats);
+    if (data.cardsEvgen && Array.isArray(data.cardsEvgen)) setCards(data.cardsEvgen, 'Євген');
+    if (data.cardsMarina && Array.isArray(data.cardsMarina)) setCards(data.cardsMarina, 'Марина');
+    if (data.walletTypes && Array.isArray(data.walletTypes)) setWalletTypes(data.walletTypes);
+    if (data.profiles) setProfiles(data.profiles);
+    if (data.familyName) setFamilyName(data.familyName);
+
+    log('settings loaded from Firestore');
+  } catch (e) {
+    logError('loadSettingsFromFirestore', e.message);
   }
 }
