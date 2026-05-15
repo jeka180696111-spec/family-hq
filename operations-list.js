@@ -318,8 +318,8 @@ function bindHandlers(el) {
   // Клік на операцію — редагування
   el.querySelectorAll('.op-item').forEach(item => {
     item.addEventListener('click', () => {
-      const row = parseInt(item.dataset.opRow);
-      const op = state.operations.find(o => o.row === row);
+      const row = item.dataset.opRow;
+      const op = state.operations.find(o => String(o.row) === String(row) || String(o.id) === String(row));
       if (op) openOperationDialog({ type: op.type, editing: op });
     });
   });
