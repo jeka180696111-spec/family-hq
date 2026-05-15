@@ -70,7 +70,8 @@ export function renderDashboard() {
     //  тому показуємо те що є — повний)
   }
 
-  const totalBalance = calcTotalBalance(viewAs);
+  const { freeBalance, savingsBalance } = calcBalanceSplit(viewAs);
+  const totalBalance = freeBalance + savingsBalance;
   const savRate = totalIncome > 0 ? Math.round((totalIncome - totalExpense) / totalIncome * 100) : 0;
 
   el.innerHTML = `
@@ -79,9 +80,10 @@ export function renderDashboard() {
       <div class="dash-hero-v2">
         <div class="dash-hero-left">
           <div class="dash-greet">${greet}, ${esc(myName)}! 👋${viewAs ? ` <span class="dash-viewas-tag">дивлюсь як ${esc(profiles[viewAs]?.name || viewAs)}</span>` : ''}</div>
-          <div class="dash-hero-label">${viewAs ? 'Баланс ' + esc(profiles[viewAs]?.name || viewAs) : 'Загальний баланс'}</div>
-          <div class="dash-hero-balance">${fmtMoney(totalBalance, 'UAH')}</div>
+          <div class="dash-hero-label">Вільні кошти</div>
+          <div class="dash-hero-balance">${fmtMoney(freeBalance, 'UAH')}</div>
           <div class="dash-hero-meta">
+            ${savingsBalance > 0 ? `<span class="dash-hero-pill pos"><i class="ti ti-coins"></i> Накопичення: ${fmtMoney(savingsBalance, 'UAH')}</span>` : ''}
             <span class="dash-hero-pill ${savRate >= 0 ? 'pos' : 'neg'}">
               <i class="ti ${savRate >= 0 ? 'ti-trending-up' : 'ti-trending-down'}"></i>
               ${savRate}% накопичено
@@ -142,19 +144,39 @@ export function renderDashboard() {
   bindHandlers(el);
 }
 
-// ── Загальний баланс ────────────────────────────────────────
-function calcTotalBalance(viewAs) {
+// ── Баланс з розділенням: вільні vs накопичення ──────────────
+function calcBalanceSplit(viewAs) {
   const ops = state.operations || [];
-  let total = 0;
-  ops.forEach(o => {
-    // Перекази НЕ враховуємо
-    if (o.category === 'Переказ') return;
-    // Фільтр по виду
-    if (viewAs && o.who !== viewAs) return;
-    if (o.type === 'Дохід')   total += (o.amountUah || o.amount || 0);
-    if (o.type === 'Витрата') total -= (o.amountUah || o.amount || 0);
+  let freeBalance = 0;
+  let savingsBalance = 0;
+
+  // Збираємо кошельки типу savings
+  const savingsCards = new Set();
+  FAMILY_MEMBERS.forEach(m => {
+    getCards(m).forEach(c => {
+      const wt = getWalletTypeById(c.walletType);
+      if (wt && wt.id === 'savings') {
+        savingsCards.add(`${m}::${c.id}`);
+      }
+    });
   });
-  return total;
+
+  ops.forEach(o => {
+    if (o.category === 'Переказ') return;
+    if (viewAs && o.who !== viewAs) return;
+    const amt = o.amountUah || o.amount || 0;
+    const key = `${o.who}::${o.card}`;
+    const isSavings = savingsCards.has(key);
+    const val = o.type === 'Дохід' ? amt : -amt;
+
+    if (isSavings) {
+      savingsBalance += val;
+    } else {
+      freeBalance += val;
+    }
+  });
+
+  return { freeBalance: Math.round(freeBalance), savingsBalance: Math.round(savingsBalance) };
 }
 
 // ── Sparkline (мікро-графік) ────────────────────────────────
