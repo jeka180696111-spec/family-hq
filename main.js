@@ -279,7 +279,7 @@ function renderBottomNav() {
   bn.innerHTML = `
     <a class="bn-item active" data-nav-page="dashboard"><i class="ti ti-layout-dashboard"></i><span>Дашборд</span></a>
     <a class="bn-item" data-nav-page="wallets"><i class="ti ti-wallet"></i><span>Кошельки</span></a>
-    <div class="bottom-nav-fab-gap"></div>
+    <button class="bn-fab" id="bn-fab-btn"><i class="ti ti-plus"></i></button>
     <a class="bn-item" data-nav-page="operations"><i class="ti ti-list"></i><span>Операції</span></a>
     <a class="bn-item" data-nav-page="settings"><i class="ti ti-settings"></i><span>Ще</span></a>
   `;
@@ -289,16 +289,18 @@ function renderBottomNav() {
       navigateTo(a.dataset.navPage);
     });
   });
+  // FAB в нижньому меню — відкриває меню дій
+  document.getElementById('bn-fab-btn')?.addEventListener('click', () => {
+    import('./fab.js').then(m => m.toggleFabMenu && m.toggleFabMenu());
+  });
 }
 
 // ── Sidebar mobile ──────────────────────────────────────────
 function openSidebar() {
-  document.getElementById('sidebar')?.classList.add('open');
-  document.getElementById('sidebar-overlay')?.classList.add('visible');
+  document.body.classList.add('sidebar-open');
 }
 function closeSidebar() {
-  document.getElementById('sidebar')?.classList.remove('open');
-  document.getElementById('sidebar-overlay')?.classList.remove('visible');
+  document.body.classList.remove('sidebar-open');
 }
 
 // ═══════════════════════════════════════════════════════════════
