@@ -88,10 +88,13 @@ function loadPageData(page) {
 // ── Повний синк (з Firestore) ───────────────────────────────
 async function fullSync() {
   try {
-    // 1. Налаштування з Firestore → localStorage
+    // 1. Курси валют (потрібні для конвертації)
+    await refreshFx();
+
+    // 2. Налаштування з Firestore → localStorage
     await loadSettingsFromFirestore();
 
-    // 2. Дашборд і операції паралельно
+    // 3. Дашборд і операції паралельно
     await Promise.all([
       loadDashboard(),
       loadOperations(),
