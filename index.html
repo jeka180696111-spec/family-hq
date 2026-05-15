@@ -21,11 +21,16 @@
 <!-- Іконки -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.10.0/dist/tabler-icons.min.css">
 
-<!-- Стилі -->
+<!-- Стилі (плоска структура) -->
 <link rel="stylesheet" href="base.css">
 <link rel="stylesheet" href="layout.css">
 <link rel="stylesheet" href="components.css">
 <link rel="stylesheet" href="pages.css">
+<!-- Fallback: якщо CSS в папці css/ -->
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/pages.css">
 
 <!-- Firebase SDK (compat mode — працює з <script>, без bundler) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -80,7 +85,10 @@
 </div>
 
 <!-- Підключаємо модулі -->
-<script type="module" src="main.js"></script>
+<script type="module">
+  // Пробуємо завантажити main.js з кореня, якщо не знайде — з js/
+  import('./main.js').catch(() => import('./js/main.js'));
+</script>
 
 </body>
 </html>
