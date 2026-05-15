@@ -225,12 +225,15 @@ export async function apiPost(body) {
   if (!db) throw new Error('Firestore not initialized');
 
   switch (body.action) {
-    case 'addOp':        return addOperation(body);
-    case 'addTransfer':  return addTransfer(body);
-    case 'addReserve':   return addReserveOp(body);
-    case 'updateSettings': return updateSettings(body);
-    case 'addGoal':      return addGoal(body);
-    case 'updateGoal':   return updateGoal(body);
+    case 'addOp':           return addOperation(body);
+    case 'addOperation':    return addOperation(body);
+    case 'updateOperation': return updateOperation(body);
+    case 'deleteOperation': return deleteOperation(body);
+    case 'addTransfer':     return addTransfer(body);
+    case 'addReserve':      return addReserveOp(body);
+    case 'updateSettings':  return updateSettings(body);
+    case 'addGoal':         return addGoal(body);
+    case 'updateGoal':      return updateGoal(body);
     default:
       throw new Error('Unknown action: ' + body.action);
   }
@@ -254,6 +257,36 @@ async function addOperation(body) {
   const ref = await familyRef().collection('operations').add(op);
   log('operation added:', ref.id);
   return { ok: true, id: ref.id };
+}
+
+// ── Оновити операцію ─────────────────────────────────────────
+async function updateOperation(body) {
+  const id = body.row || body.id;
+  if (!id) throw new Error('Operation id required');
+  const updates = {};
+  if (body.date !== undefined) updates.date = body.date;
+  if (body.type !== undefined) updates.type = body.type;
+  if (body.category !== undefined) updates.category = body.category;
+  if (body.amount !== undefined) updates.amount = Number(body.amount);
+  if (body.currency !== undefined) updates.currency = body.currency;
+  if (body.amountUah !== undefined) updates.amountUah = Number(body.amountUah);
+  if (body.desc !== undefined) updates.desc = body.desc;
+  if (body.who !== undefined) updates.who = body.who;
+  if (body.card !== undefined) updates.card = body.card;
+  updates.updatedAt = new Date().toISOString();
+
+  await familyRef().collection('operations').doc(id).update(updates);
+  log('operation updated:', id);
+  return { ok: true };
+}
+
+// ── Видалити операцію ────────────────────────────────────────
+async function deleteOperation(body) {
+  const id = body.row || body.id;
+  if (!id) throw new Error('Operation id required');
+  await familyRef().collection('operations').doc(id).delete();
+  log('operation deleted:', id);
+  return { ok: true };
 }
 
 // ── Переказ ──────────────────────────────────────────────────
