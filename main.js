@@ -1,19 +1,19 @@
 // ═══════════════════════════════════════════════════════════════
-// MAIN — точка входу, ініціалізація
+// MAIN — точка входу, Firebase ініціалізація
 // ═══════════════════════════════════════════════════════════════
 
-import { state, FAMILY_MEMBERS, APP_CONFIG } from './config.js';
+import { state, FAMILY_MEMBERS, APP_CONFIG, FIREBASE_CONFIG } from './config.js';
 import { log, showToast, setText, esc } from './utils.js';
 import {
-  getFamilyName, getProfiles, getTheme, getScriptUrl,
+  getFamilyName, getProfiles, getTheme,
   getExpCats, getIncCats, getCards, getWalletTypes,
   setExpCats, setIncCats, setCards, setWalletTypes, setProfiles, setFamilyName,
   isDirty, clearDirty,
   getViewAsMember, setViewAsMember,
 } from './storage.js';
 import { initTheme, toggleTheme } from './theme.js';
-import { initGoogleAuth, restoreSession, whoAmI } from './auth.js';
-import { apiGet, syncSettingsToSheet } from './api.js';
+import { initAuth, signInWithGoogle, signOut, whoAmI } from './auth.js';
+import { initFirestore, apiGet, syncSettingsToSheet, loadSettingsFromFirestore } from './api.js';
 import { initFAB } from './fab.js';
 import { renderDashboard, loadDashboard } from './dashboard.js';
 import { renderWalletsPage } from './wallets.js';
@@ -49,17 +49,19 @@ export function navigateTo(page) {
     a.classList.toggle('active', a.dataset.navPage === page);
   });
 
-  switch (page) {
-    case 'dashboard':  renderDashboard(); break;
-    case 'wallets':    renderWalletsPage(); break;
-    case 'operations': renderOperationsPage(); break;
-    case 'analytics':  renderAnalyticsPage(); break;
-    case 'reserve':    renderReservePage(); break;
-    case 'goals':      renderGoalsPage(); break;
-    case 'settings':   renderSettingsPage(); break;
-  }
-
+  // Закрити sidebar на мобільному
   closeSidebar();
+
+  // Рендеримо сторінку
+  switch (page) {
+    case 'dashboard':   renderDashboard(); break;
+    case 'wallets':     renderWalletsPage(); break;
+    case 'operations':  renderOperationsPage(); break;
+    case 'analytics':   renderAnalyticsPage(); break;
+    case 'reserve':     renderReservePage(); break;
+    case 'goals':       renderGoalsPage(); break;
+    case 'settings':    renderSettingsPage(); break;
+  }
   loadPageData(page);
 }
 
@@ -72,7 +74,7 @@ function loadPageData(page) {
       if (!state.operations.length) loadOperations();
       break;
     case 'analytics':
-      loadAnalytics(); // завжди перезавантажуємо (з урахуванням обраного періоду)
+      loadAnalytics();
       break;
     case 'reserve':
       if (!state.reserve) loadReserve();
@@ -83,12 +85,11 @@ function loadPageData(page) {
   }
 }
 
-// ── Повна синхронізація ─────────────────────────────────────
+// ── Повний синк (з Firestore) ───────────────────────────────
 async function fullSync() {
   try {
-    // 1. Налаштування з сервера (з повагою до dirty-флагів)
-    const settings = await apiGet('settings');
-    applyServerSettings(settings);
+    // 1. Налаштування з Firestore → localStorage
+    await loadSettingsFromFirestore();
 
     // 2. Дашборд і операції паралельно
     await Promise.all([
@@ -104,112 +105,59 @@ async function fullSync() {
 
 window.fullSync = fullSync;
 
-// ── Застосовуємо налаштування з сервера ─────────────────────
-// КРИТИЧНО: не перезаписуємо локальні зміни які ще не доїхали до сервера!
-function applyServerSettings(s) {
-  if (!s) return;
-
-  // familyName
-  if (s.familyName && !isDirty(APP_CONFIG.FAMILY_KEY)) {
-    if (s.familyName !== getFamilyName()) {
-      setFamilyName(s.familyName);
-      clearDirty(APP_CONFIG.FAMILY_KEY); // тільки що ми ж і встановили
-      setText('sb-family-name', s.familyName);
+// ── Курси валют ─────────────────────────────────────────────
+async function refreshFx() {
+  try {
+    const fx = await apiGet('fx');
+    state.fx = fx;
+    // Показуємо курси в статус барі
+    const fxEl = document.getElementById('fx-bar');
+    if (fxEl && fx.USD && fx.EUR) {
+      fxEl.textContent = `us ${fx.USD.mid?.toFixed(2) || '?'} ₴ · eu ${fx.EUR.mid?.toFixed(2) || '?'} ₴`;
     }
-  }
-
-  // expCats
-  if (Array.isArray(s.expCats) && !isDirty(APP_CONFIG.EXP_CATS_KEY)) {
-    setExpCats(s.expCats);
-    clearDirty(APP_CONFIG.EXP_CATS_KEY);
-  }
-  // incCats
-  if (Array.isArray(s.incCats) && !isDirty(APP_CONFIG.INC_CATS_KEY)) {
-    setIncCats(s.incCats);
-    clearDirty(APP_CONFIG.INC_CATS_KEY);
-  }
-  // cardsEvgen
-  const keyE = APP_CONFIG.CARDS_KEY + '_Євген';
-  if (Array.isArray(s.cardsEvgen) && !isDirty(keyE)) {
-    setCards(s.cardsEvgen, 'Євген');
-    clearDirty(keyE);
-  }
-  // cardsMarina
-  const keyM = APP_CONFIG.CARDS_KEY + '_Марина';
-  if (Array.isArray(s.cardsMarina) && !isDirty(keyM)) {
-    setCards(s.cardsMarina, 'Марина');
-    clearDirty(keyM);
-  }
-  // walletTypes
-  if (Array.isArray(s.walletTypes) && s.walletTypes.length && !isDirty(APP_CONFIG.WALLET_TYPES_KEY)) {
-    setWalletTypes(s.walletTypes);
-    clearDirty(APP_CONFIG.WALLET_TYPES_KEY);
-  }
-  // profiles
-  if (s.profiles && typeof s.profiles === 'object' && !isDirty(APP_CONFIG.PROFILES_KEY)) {
-    setProfiles(s.profiles);
-    clearDirty(APP_CONFIG.PROFILES_KEY);
+  } catch (e) {
+    log('fx error:', e.message);
   }
 }
 
-// ── Sidebar (mobile) ────────────────────────────────────────
-function openSidebar() {
-  document.body.classList.add('sidebar-open');
-}
-function closeSidebar() {
-  document.body.classList.remove('sidebar-open');
-}
+// ═══════════════════════════════════════════════════════════════
+// SIDEBAR + TOPBAR + BOTTOM NAV
+// ═══════════════════════════════════════════════════════════════
 
-// ── Рендер sidebar ──────────────────────────────────────────
 function renderSidebar() {
   const sb = document.getElementById('sidebar');
   if (!sb) return;
-
-  const family = getFamilyName();
   const profiles = getProfiles();
   const me = whoAmI() || FAMILY_MEMBERS[0];
-  const myProfile = profiles[me] || { name: me };
+  const myProfile = profiles[me] || {};
 
   sb.innerHTML = `
-    <div class="sb-header">
-      <div class="sb-logo">
-        <div class="sb-logo-icon">
-          <i class="ti ti-home-2"></i>
-        </div>
-        <div class="sb-logo-info">
-          <div class="sb-logo-name" id="sb-family-name">${family}</div>
-          <div class="sb-logo-sub">Сімейний бюджет</div>
-        </div>
-      </div>
-      <div class="sb-user">
-        <div class="sb-user-avatar" style="background:var(--c-accent-soft);color:var(--c-accent)">
-          ${state.user?.avatar ? `<img src="${state.user.avatar}" alt="">` : (myProfile.name || me)[0]}
-        </div>
-        <div class="sb-user-info">
-          <div class="sb-user-name">${myProfile.name || me}</div>
-          <div class="sb-user-role">Активний</div>
-        </div>
+    <div class="sidebar-header">
+      <div class="sidebar-logo"><i class="ti ti-home-2"></i></div>
+      <div class="sidebar-brand">
+        <div class="sidebar-brand-name">${esc(getFamilyName() || 'Сімейний бюджет')}</div>
+        <div class="sidebar-brand-sub">Сімейний бюджет</div>
       </div>
     </div>
-
-    <nav class="sb-nav">
-      <div class="sb-section-label">Головне</div>
-      <a class="sb-item" data-nav-page="dashboard"><i class="ti ti-layout-dashboard"></i><span>Дашборд</span></a>
-      <a class="sb-item" data-nav-page="wallets"><i class="ti ti-wallet"></i><span>Кошельки</span></a>
-      <a class="sb-item" data-nav-page="operations"><i class="ti ti-list"></i><span>Операції</span></a>
-      <a class="sb-item" data-nav-page="analytics"><i class="ti ti-chart-pie"></i><span>Аналіз</span></a>
-
-      <div class="sb-section-label">Фінанси</div>
-      <a class="sb-item" data-nav-page="reserve"><i class="ti ti-coins"></i><span>Накопичення</span></a>
-      <a class="sb-item" data-nav-page="goals"><i class="ti ti-target"></i><span>Цілі</span></a>
-
-      <div class="sb-section-label">Система</div>
-      <a class="sb-item" data-nav-page="settings"><i class="ti ti-settings"></i><span>Налаштування</span></a>
+    <div class="sidebar-user">
+      <div class="sidebar-avatar">${(myProfile.name || me)[0]}</div>
+      <div class="sidebar-user-info">
+        <div class="sidebar-user-name">${esc(myProfile.name || me)}</div>
+        <div class="sidebar-user-role">Активний</div>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="sidebar-nav-label">Головне</div>
+      <a class="sidebar-nav-link active" data-nav-page="dashboard"><i class="ti ti-layout-dashboard"></i> Дашборд</a>
+      <a class="sidebar-nav-link" data-nav-page="wallets"><i class="ti ti-wallet"></i> Кошельки</a>
+      <a class="sidebar-nav-link" data-nav-page="operations"><i class="ti ti-list"></i> Операції</a>
+      <a class="sidebar-nav-link" data-nav-page="analytics"><i class="ti ti-chart-bar"></i> Аналіз</a>
+      <div class="sidebar-nav-label">Фінанси</div>
+      <a class="sidebar-nav-link" data-nav-page="reserve"><i class="ti ti-coins"></i> Накопичення</a>
+      <a class="sidebar-nav-link" data-nav-page="goals"><i class="ti ti-target"></i> Цілі</a>
+      <div class="sidebar-nav-label">Система</div>
+      <a class="sidebar-nav-link" data-nav-page="settings"><i class="ti ti-settings"></i> Налаштування</a>
     </nav>
-
-    <div class="sb-footer">
-      <div class="sb-fx" id="sb-fx">us — · eu —</div>
-    </div>
   `;
 
   sb.querySelectorAll('[data-nav-page]').forEach(a => {
@@ -228,7 +176,7 @@ function renderTopbar() {
   const viewAs = getViewAsMember();
   const profiles = getProfiles();
   const me = whoAmI() || FAMILY_MEMBERS[0];
-  const activeView = viewAs || me; // що зараз показуємо
+  const activeView = viewAs || me;
   const activeProf = profiles[activeView] || { name: activeView };
 
   tb.innerHTML = `
@@ -256,7 +204,6 @@ function renderTopbar() {
 
 // ── Меню вибору "Дивлюсь як" ────────────────────────────────
 function openViewAsMenu(anchor) {
-  // Закриваємо попереднє якщо є
   const old = document.getElementById('viewas-menu');
   if (old) { old.remove(); return; }
 
@@ -294,26 +241,22 @@ function openViewAsMenu(anchor) {
 
   document.body.appendChild(menu);
 
-  // Позиціонуємо біля кнопки
   const rect = anchor.getBoundingClientRect();
   menu.style.position = 'fixed';
   menu.style.top = (rect.bottom + 8) + 'px';
   menu.style.right = (window.innerWidth - rect.right) + 'px';
   menu.style.zIndex = '999';
 
-  // Слухачі
   menu.querySelectorAll('[data-viewas]').forEach(b => {
     b.addEventListener('click', () => {
       const val = b.dataset.viewas;
       setViewAsMember(val === 'all' ? null : val);
       menu.remove();
       renderTopbar();
-      // Перерендер поточної сторінки
       navigateTo(state.currentPage);
     });
   });
 
-  // Закриття по кліку поза
   setTimeout(() => {
     const onDoc = (e) => {
       if (!menu.contains(e.target)) {
@@ -325,16 +268,15 @@ function openViewAsMenu(anchor) {
   }, 50);
 }
 
-// ── Рендер bottom-nav (mobile) ──────────────────────────────
 function renderBottomNav() {
   const bn = document.getElementById('bottom-nav');
   if (!bn) return;
   bn.innerHTML = `
-    <a class="bn-item" data-nav-page="dashboard"><i class="ti ti-layout-dashboard"></i><span>Дашборд</span></a>
-    <a class="bn-item" data-nav-page="wallets"><i class="ti ti-wallet"></i><span>Кошельки</span></a>
-    <button class="bn-fab" id="fab-main"><i class="ti ti-plus"></i></button>
-    <a class="bn-item" data-nav-page="operations"><i class="ti ti-list"></i><span>Операції</span></a>
-    <a class="bn-item" data-nav-page="settings"><i class="ti ti-settings"></i><span>Ще</span></a>
+    <a class="bottom-nav-link active" data-nav-page="dashboard"><i class="ti ti-layout-dashboard"></i><span>Дашборд</span></a>
+    <a class="bottom-nav-link" data-nav-page="wallets"><i class="ti ti-wallet"></i><span>Кошельки</span></a>
+    <div class="bottom-nav-fab-gap"></div>
+    <a class="bottom-nav-link" data-nav-page="operations"><i class="ti ti-list"></i><span>Операції</span></a>
+    <a class="bottom-nav-link" data-nav-page="settings"><i class="ti ti-settings"></i><span>Ще</span></a>
   `;
   bn.querySelectorAll('[data-nav-page]').forEach(a => {
     a.addEventListener('click', (e) => {
@@ -344,32 +286,21 @@ function renderBottomNav() {
   });
 }
 
-async function refreshFx() {
-  try {
-    const fx = await apiGet('fx');
-    state.fx = fx;
-    const el = document.getElementById('sb-fx');
-    if (el && fx?.USD && fx?.EUR) {
-      el.textContent = `us ${fx.USD.mid.toFixed(2)} ₴ · eu ${fx.EUR.mid.toFixed(2)} ₴`;
-    }
-  } catch (e) { /* ignore */ }
+// ── Sidebar mobile ──────────────────────────────────────────
+function openSidebar() {
+  document.getElementById('sidebar')?.classList.add('open');
+  document.getElementById('sidebar-overlay')?.classList.add('visible');
+}
+function closeSidebar() {
+  document.getElementById('sidebar')?.classList.remove('open');
+  document.getElementById('sidebar-overlay')?.classList.remove('visible');
 }
 
-function showAuthScreen() {
-  const auth = document.getElementById('auth-screen');
-  const main = document.getElementById('app-main');
-  if (auth) auth.style.display = 'flex';
-  if (main) main.style.display = 'none';
-  initGoogleAuth(() => {
-    if (auth) auth.style.display = 'none';
-    if (main) main.style.display = '';
-    bootApp();
-  });
-}
+// ═══════════════════════════════════════════════════════════════
+// ІНІЦІАЛІЗАЦІЯ
+// ═══════════════════════════════════════════════════════════════
 
 async function bootApp() {
-  state.scriptUrl = getScriptUrl();
-
   renderSidebar();
   renderTopbar();
   renderBottomNav();
@@ -381,23 +312,38 @@ async function bootApp() {
   navigateTo('dashboard');
   refreshFx();
 
-  // Початковий синк один раз
-  setTimeout(() => fullSync(), 100);
+  // Початковий синк
+  setTimeout(() => fullSync(), 200);
 
-  // Авто-синк раз на 2 хвилини (тільки якщо вкладка активна і ми на дашборді)
+  // Авто-синк раз на 2 хвилини
   setInterval(() => {
     if (document.hidden) return;
     if (state.currentPage !== 'dashboard') return;
     log('auto-sync tick');
     loadDashboard();
-  }, 120000); // 2 хвилини замість 30 секунд
+  }, 120000);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
-  if (restoreSession()) {
+
+  // Ініціалізуємо Firebase
+  firebase.initializeApp(FIREBASE_CONFIG);
+  initFirestore();
+
+  // Firebase Auth — слухаємо стан входу
+  initAuth((user) => {
+    // Юзер увійшов — показуємо додаток
+    const loginScreen = document.getElementById('login-screen');
+    const appRoot = document.getElementById('app-root');
+    if (loginScreen) loginScreen.style.display = 'none';
+    if (appRoot) appRoot.style.display = '';
     bootApp();
-  } else {
-    showAuthScreen();
+  });
+
+  // Кнопка Google Sign In (на екрані логіну)
+  const signInBtn = document.getElementById('google-signin-btn');
+  if (signInBtn) {
+    signInBtn.addEventListener('click', () => signInWithGoogle());
   }
 });
