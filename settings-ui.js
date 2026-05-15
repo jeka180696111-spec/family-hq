@@ -137,10 +137,12 @@ export function renderSettingsPage() {
               <div class="settings-row-sub" style="font-weight:700;padding:10px 0 4px;font-size:13px;">${esc(profiles[m]?.name || m)}</div>
               <div class="cat-grid">
                 ${cards.map((c, idx) => `
-                  <div class="cat-item" data-wallet-owner="${esc(m)}" data-wallet-idx="${idx}">
-                    <div class="cat-icon" style="background:${c.bg}"><i class="ti ${c.icon}" style="color:${c.color}"></i></div>
-                    <div class="cat-name">${esc(c.id)}${c.currency && c.currency !== 'UAH' ? '<br><small>' + c.currency + '</small>' : ''}</div>
-                  </div>
+                  <button class="cat-card" data-wallet-owner="${esc(m)}" data-wallet-idx="${idx}">
+                    <div class="cat-card-icon" style="background:${c.bg}">
+                      <i class="ti ${c.icon}" style="color:${c.color}"></i>
+                    </div>
+                    <div class="cat-card-name">${esc(c.id)}${c.currency && c.currency !== 'UAH' ? '<br><small style="opacity:.6">' + c.currency + '</small>' : ''}</div>
+                  </button>
                 `).join('')}
               </div>
             `;
