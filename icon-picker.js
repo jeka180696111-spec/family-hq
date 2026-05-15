@@ -56,6 +56,9 @@ export function openIconPicker(opts) {
   if (showTypes && !selType) selType = opts.typesList[0].id;
 
   const showCurrency = opts.showCurrency;
+  const showCreditLimit = opts.showCreditLimit;
+  const creditLimitId = uid('ip-limit');
+  let selCreditLimit = opts.selectedCreditLimit || 0;
 
   const content = `
     ${opts.extraFields || ''}
@@ -77,6 +80,14 @@ export function openIconPicker(opts) {
           <span class="ip-cur-sym">€</span>
           <span class="ip-cur-name">Євро</span>
         </button>
+      </div>
+    ` : ''}
+
+    ${showCreditLimit ? `
+      <div id="${creditLimitId}-wrap" class="ip-credit-limit-wrap" style="display:none">
+        <label class="ip-label">Кредитний ліміт</label>
+        <input id="${creditLimitId}" class="ip-input" type="number" inputmode="numeric" value="${selCreditLimit || ''}" placeholder="Наприклад: 15000">
+        <div class="ip-hint" style="font-size:11px;color:var(--c-text-3);margin-top:4px;">Максимальний ліміт кредитної картки. 0 = без ліміту.</div>
       </div>
     ` : ''}
 
@@ -154,11 +165,15 @@ export function openIconPicker(opts) {
           typesEl.querySelectorAll('[data-tp]').forEach(b => {
             b.addEventListener('click', () => {
               selType = b.dataset.tp;
-              // Авто-підбір іконки і кольору з типу (якщо не редагуємо)
               const tp = opts.typesList.find(x => x.id === selType);
               if (tp && !opts.isEdit) {
                 if (tp.icon) selIcon = tp.icon;
                 if (tp.bg && tp.color) selColor = { bg: tp.bg, color: tp.color };
+              }
+              // Показати/сховати поле кредитного ліміту
+              const limitWrap = wrap.querySelector('#' + creditLimitId + '-wrap');
+              if (limitWrap) {
+                limitWrap.style.display = (selType === 'credit') ? '' : 'none';
               }
               render();
             });
@@ -166,6 +181,12 @@ export function openIconPicker(opts) {
         }
       }
       render();
+
+      // Показуємо поле ліміту якщо тип credit
+      if (showCreditLimit && selType === 'credit') {
+        const limitWrap = wrap.querySelector('#' + creditLimitId + '-wrap');
+        if (limitWrap) limitWrap.style.display = '';
+      }
 
       // Перемикач валюти
       wrap.querySelectorAll('[data-cur]').forEach(b => {
@@ -186,6 +207,11 @@ export function openIconPicker(opts) {
         const result = { name, icon: selIcon, color: selColor };
         if (showTypes) result.walletType = selType;
         if (showCurrency) result.currency = selCur;
+        if (showCreditLimit) {
+          const limitEl = wrap.querySelector('#' + creditLimitId);
+          const limitVal = limitEl ? parseFloat(limitEl.value) : 0;
+          if (limitVal > 0) result.creditLimit = limitVal;
+        }
         // extra fields
         wrap.querySelectorAll('[data-ip-extra]').forEach(el => {
           result[el.dataset.ipExtra] = el.value;
