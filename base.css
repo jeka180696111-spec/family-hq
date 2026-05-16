@@ -88,6 +88,10 @@ img { max-width: 100%; height: auto; display: block; }
   /* Sidebar */
   --c-sidebar:   #FFFFFF;
   --c-sidebar-active: #DFF1E7;
+
+  /* RGB values for glassmorphism */
+  --c-bg-rgb: 248,250,249;
+  --c-card-rgb: 255,255,255;
 }
 
 /* ── ТЕМА: ТЕМНА ───────────────────────────────────────────── */
@@ -123,6 +127,10 @@ img { max-width: 100%; height: auto; display: block; }
 
   --c-sidebar: #21223A;
   --c-sidebar-active: rgba(78, 205, 160, 0.15);
+
+  /* RGB values for glassmorphism */
+  --c-bg-rgb: 15,20,18;
+  --c-card-rgb: 28,35,32;
 }
 
 /* ── Плавний перехід при зміні теми ─────────────────────────── */
