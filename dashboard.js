@@ -66,11 +66,14 @@ export function renderDashboard() {
       <div class="dash-hero-v2">
         <div class="dash-hero-left">
           <div class="dash-greet">${greet}, ${esc(myName)}! 👋${viewAs ? ` <span class="dash-viewas-tag">дивлюсь як ${esc(profiles[viewAs]?.name || viewAs)}</span>` : ''}</div>
-          <div class="dash-hero-label">Вільні кошти</div>
+          <div class="dash-hero-label">Можна витратити</div>
           <div class="dash-hero-balance">${fmtMoney(freeBalance + creditAvail, 'UAH')}</div>
           <div class="dash-hero-meta">
             ${savingsBalance > 0 ? `<span class="dash-hero-pill pos"><i class="ti ti-coins"></i> Накопичення: ${fmtMoney(savingsBalance, 'UAH')}</span>` : ''}
-            ${creditAvail > 0 ? `<span class="dash-hero-pill"><i class="ti ti-credit-card"></i> Власні: ${fmtMoney(freeBalance, 'UAH')} · Кредит: ${fmtMoney(creditAvail, 'UAH')}</span>` : ''}
+            <span class="dash-hero-pill">
+              <i class="ti ti-cash"></i> Готівка: ${fmtMoney(freeBalance, 'UAH')}
+            </span>
+            ${creditAvail > 0 ? `<span class="dash-hero-pill"><i class="ti ti-credit-card"></i> Кредит вільно: ${fmtMoney(creditAvail, 'UAH')}</span>` : ''}
             <span class="dash-hero-pill ${savRate >= 0 ? 'pos' : 'neg'}">
               <i class="ti ${savRate >= 0 ? 'ti-trending-up' : 'ti-trending-down'}"></i>
               ${savRate}% накопичено
@@ -155,12 +158,12 @@ function calcBalanceSplit(viewAs) {
   let savingsBalance = 0;
 
   const savingsCards = new Set();
+  const creditCards = new Set();
   FAMILY_MEMBERS.forEach(m => {
     getCards(m).forEach(c => {
       const wt = getWalletTypeById(c.walletType);
-      if (wt && wt.id === 'savings') {
-        savingsCards.add(`${m}::${c.id}`);
-      }
+      if (wt && wt.id === 'savings') savingsCards.add(`${m}::${c.id}`);
+      if (Number(c.creditLimit) > 0) creditCards.add(`${m}::${c.id}`);
     });
   });
 
@@ -170,9 +173,10 @@ function calcBalanceSplit(viewAs) {
     const amt = o.amountUah || o.amount || 0;
     const key = `${o.who}::${o.card}`;
     const isSavings = savingsCards.has(key);
+    const isCredit = creditCards.has(key);
     const val = o.type === 'Дохід' ? amt : -amt;
     if (isSavings) savingsBalance += val;
-    else freeBalance += val;
+    else if (!isCredit) freeBalance += val;
   });
 
   return { freeBalance: Math.round(freeBalance), savingsBalance: Math.round(savingsBalance) };
