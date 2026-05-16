@@ -46,10 +46,37 @@ export function showOnboarding(onComplete) {
 
 function renderStep1(screen) {
   screen.innerHTML = `
-    <div class="auth-card" style="max-width:420px;text-align:left">
-      <div class="auth-logo" style="margin-left:0">🏡</div>
-      <h1 class="auth-title">Привіт!</h1>
-      <p class="auth-text">Розкажи трохи про себе, щоб ми могли налаштувати твій обліковий запис.</p>
+    <div class="auth-card animate-fade-in" style="max-width:420px;text-align:left">
+
+      <!-- Progress indicator -->
+      <div class="ob-step-indicator">
+        <div class="ob-step-dot active"></div>
+        <div class="ob-step-dot"></div>
+        <div class="ob-step-dot"></div>
+      </div>
+
+      <!-- Логотип і заголовок -->
+      <div style="text-align:center;margin-bottom:24px">
+        <div class="auth-logo" style="margin:0 auto 14px">💰</div>
+        <h1 style="font-size:22px;font-weight:800;color:var(--c-text);margin-bottom:4px;letter-spacing:-0.3px">Many Budget</h1>
+        <p style="font-size:13px;color:var(--c-text-2);font-weight:500">Розумний фінансовий менеджер</p>
+      </div>
+
+      <!-- Ключові фічі -->
+      <div class="ob-features">
+        <div class="ob-feature-row">
+          <div class="ob-feature-icon">🤖</div>
+          <div class="ob-feature-text"><strong>AI-аналітика</strong> — фінансовий радник Фінн допоможе контролювати витрати</div>
+        </div>
+        <div class="ob-feature-row">
+          <div class="ob-feature-icon">👨‍👩‍👧</div>
+          <div class="ob-feature-text"><strong>Сімейний бюджет</strong> — спільний облік для всієї родини в реальному часі</div>
+        </div>
+        <div class="ob-feature-row">
+          <div class="ob-feature-icon">📱</div>
+          <div class="ob-feature-text"><strong>Telegram-бот</strong> — додавай витрати де завгодно за лічені секунди</div>
+        </div>
+      </div>
 
       <div style="margin-bottom:20px">
         <label style="display:block;font-size:13px;font-weight:600;color:var(--c-text-2);margin-bottom:6px">Твоє ім'я</label>
@@ -77,7 +104,7 @@ function renderStep1(screen) {
         </div>
       </div>
 
-      <button id="ob-step1-next" class="btn-primary" style="width:100%">Далі →</button>
+      <button id="ob-step1-next" class="btn-primary" style="width:100%">Розпочати →</button>
     </div>
   `;
 

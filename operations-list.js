@@ -4,7 +4,7 @@
 
 import { FAMILY_MEMBERS, state } from './config.js';
 import { apiGet } from './api.js';
-import { esc, fmtMoney, fmtMoneyShort, fmtDate, monthKey } from './utils.js';
+import { esc, fmtMoney, fmtMoneyShort, fmtDate, monthKey, showToast } from './utils.js';
 import { openOperationDialog } from './operations.js';
 import { getProfiles, getViewAsMember, getExpCats, getIncCats } from './storage.js';
 import { addLongPress, addSwipeDelete } from './gestures.js';
@@ -30,8 +30,9 @@ export function renderOperationsPage() {
   if (!state.opsView) state.opsView = 'list';
 
   const profiles = getProfiles();
+  const allOps = state.operations || [];
   const ops = getFilteredOps();
-  const f = state.opFilter || { who: 'all', type: 'all' };
+  const f = state.opFilter || { who: 'all', type: 'all', cat: 'all', card: 'all' };
   const viewAs = getViewAsMember();
   const effectiveWho = f.who !== 'all' ? f.who : (viewAs || 'all');
   const searchQ = (state.opSearch || '').trim().toLowerCase();
@@ -98,6 +99,24 @@ export function renderOperationsPage() {
           <button class="chip ${f.type === 'Витрата' ? 'active' : ''}" data-filter-type="Витрата"><i class="ti ti-arrow-up-circle"></i> Витрата</button>
           <button class="chip ${f.type === 'Переказ' ? 'active' : ''}" data-filter-type="Переказ"><i class="ti ti-arrows-exchange"></i> Переказ</button>
         </div>
+        ${(() => {
+          const cats = [...new Set(allOps.map(o => o.category).filter(Boolean))].sort();
+          if (cats.length <= 3) return '';
+          const curCat = f.cat || 'all';
+          return `<div class="wallets-filter-chips" id="filter-cats-row">
+            <button class="chip ${curCat === 'all' ? 'active' : ''}" data-filter-cat="all">Всі</button>
+            ${cats.map(c => `<button class="chip ${curCat === c ? 'active' : ''}" data-filter-cat="${esc(c)}">${esc(c)}</button>`).join('')}
+          </div>`;
+        })()}
+        ${(() => {
+          const cards = [...new Set(allOps.map(o => o.card).filter(Boolean))].sort();
+          if (cards.length <= 3) return '';
+          const curCard = f.card || 'all';
+          return `<div class="wallets-filter-chips" id="filter-cards-row">
+            <button class="chip ${curCard === 'all' ? 'active' : ''}" data-filter-card="all">Всі</button>
+            ${cards.map(c => `<button class="chip ${curCard === c ? 'active' : ''}" data-filter-card="${esc(c)}">${esc(c)}</button>`).join('')}
+          </div>`;
+        })()}
       </div>
 
       <div id="ops-content">
@@ -117,9 +136,9 @@ function renderListView(ops) {
   if (!ops.length) {
     return `
       <div class="empty-state">
-        <i class="ti ti-list" style="font-size:48px;color:var(--c-text-3);opacity:.5;"></i>
-        <div class="empty-state-title">Жодної операції</div>
-        <div class="empty-state-text">Додай через "+"</div>
+        <div class="empty-state-illustration">📊</div>
+        <div class="empty-state-title">Немає операцій</div>
+        <div class="empty-state-text">Додай першу витрату або дохід через «+»</div>
       </div>
     `;
   }
@@ -294,11 +313,13 @@ function getFilteredOps() {
     if (dateA !== dateB) return dateB.localeCompare(dateA);
     return (b.createdAt || '').localeCompare(a.createdAt || '');
   });
-  const f = state.opFilter || { who: 'all', type: 'all' };
+  const f = state.opFilter || { who: 'all', type: 'all', cat: 'all', card: 'all' };
   const viewAs = getViewAsMember();
   const effectiveWho = f.who !== 'all' ? f.who : (viewAs || 'all');
   if (effectiveWho !== 'all') ops = ops.filter(o => o.who === effectiveWho);
   if (f.type !== 'all') ops = ops.filter(o => o.type === f.type);
+  if (f.cat && f.cat !== 'all') ops = ops.filter(o => o.category === f.cat);
+  if (f.card && f.card !== 'all') ops = ops.filter(o => o.card === f.card);
   const searchQ = (state.opSearch || '').trim().toLowerCase();
   if (searchQ) ops = ops.filter(o =>
     (o.category || '').toLowerCase().includes(searchQ) ||
@@ -407,15 +428,29 @@ function bindHandlers(el) {
   // Фільтри
   el.querySelectorAll('[data-filter-who]').forEach(b => {
     b.addEventListener('click', () => {
-      state.opFilter = state.opFilter || { who: 'all', type: 'all' };
+      state.opFilter = state.opFilter || { who: 'all', type: 'all', cat: 'all', card: 'all' };
       state.opFilter.who = b.dataset.filterWho;
       renderOperationsPage();
     });
   });
   el.querySelectorAll('[data-filter-type]').forEach(b => {
     b.addEventListener('click', () => {
-      state.opFilter = state.opFilter || { who: 'all', type: 'all' };
+      state.opFilter = state.opFilter || { who: 'all', type: 'all', cat: 'all', card: 'all' };
       state.opFilter.type = b.dataset.filterType;
+      renderOperationsPage();
+    });
+  });
+  el.querySelectorAll('[data-filter-cat]').forEach(b => {
+    b.addEventListener('click', () => {
+      state.opFilter = state.opFilter || { who: 'all', type: 'all', cat: 'all', card: 'all' };
+      state.opFilter.cat = b.dataset.filterCat;
+      renderOperationsPage();
+    });
+  });
+  el.querySelectorAll('[data-filter-card]').forEach(b => {
+    b.addEventListener('click', () => {
+      state.opFilter = state.opFilter || { who: 'all', type: 'all', cat: 'all', card: 'all' };
+      state.opFilter.card = b.dataset.filterCard;
       renderOperationsPage();
     });
   });

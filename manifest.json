@@ -1,6 +1,7 @@
 {
-  "name": "Сімейний бюджет",
-  "short_name": "Бюджет",
+  "name": "Many Budget",
+  "short_name": "Many",
+  "description": "Сімейний фінансовий менеджер з AI-аналітикою",
   "start_url": "/",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui"],
@@ -22,6 +23,13 @@
     }
   ],
   "shortcuts": [
+    {
+      "name": "Баланс",
+      "short_name": "Баланс",
+      "description": "Переглянути поточний баланс",
+      "url": "/?action=balance",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
+    },
     {
       "name": "Додати витрату",
       "short_name": "Витрата",

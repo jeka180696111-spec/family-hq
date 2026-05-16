@@ -160,7 +160,10 @@ export function setFamilyName(name) {
 
 // ── Тема ────────────────────────────────────────────────────
 export function getTheme() {
-  return localStorage.getItem(APP_CONFIG.THEME_KEY) || 'light';
+  return localStorage.getItem(APP_CONFIG.THEME_KEY) || null;
+}
+export function hasUserSetTheme() {
+  return localStorage.getItem(APP_CONFIG.THEME_KEY) !== null;
 }
 export function setTheme(theme) {
   localStorage.setItem(APP_CONFIG.THEME_KEY, theme);

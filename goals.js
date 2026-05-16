@@ -36,11 +36,9 @@ export function renderGoalsPage() {
 
       ${goals.length === 0 ? `
         <div class="empty-state">
-          <i class="ti ti-target" style="font-size:64px;color:var(--c-accent);opacity:.6;"></i>
-          <div class="empty-state-title">Жодної цілі</div>
-          <div class="empty-state-text">
-            Накопич на щось важливе! Наприклад, відпустка, новий ноутбук або депозит на квартиру.
-          </div>
+          <div class="empty-state-illustration">🎯</div>
+          <div class="empty-state-title">Немає цілей</div>
+          <div class="empty-state-text">Постав першу фінансову ціль і йди до неї крок за кроком</div>
         </div>
       ` : `
         <div class="goals-grid">

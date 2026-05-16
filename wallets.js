@@ -119,9 +119,9 @@ export function renderWalletsPage() {
       <div class="wallets-list">
         ${filtered.length === 0 ? `
           <div class="empty-state">
-            <i class="ti ti-wallet" style="font-size:48px;color:var(--c-text-3);opacity:.5;"></i>
-            <div class="empty-state-title">Жодного кошелька</div>
-            <div class="empty-state-text">Додай перший — натисни «+» внизу</div>
+            <div class="empty-state-illustration">💳</div>
+            <div class="empty-state-title">Немає кошельків</div>
+            <div class="empty-state-text">Додай перший кошельок — готівка, картка або рахунок</div>
           </div>
         ` : filtered.map(c => {
           const bal = cardBalance(c);

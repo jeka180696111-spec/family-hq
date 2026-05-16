@@ -2,21 +2,44 @@
 // THEME — перемикач світлої/темної теми
 // ═══════════════════════════════════════════════════════════════
 
-import { getTheme, setTheme } from './storage.js';
+import { getTheme, setTheme, hasUserSetTheme } from './storage.js';
 
 // Доступні теми
 export const THEMES = ['light', 'dark'];
 
+// Визначає поточну активну тему (з урахуванням системних налаштувань)
+function resolveTheme() {
+  const saved = getTheme();
+  if (saved !== null) return saved;
+  // Юзер не зафіксував тему — використовуємо системну
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    return 'dark';
+  }
+  return 'light';
+}
+
 // Застосовуємо тему при старті
 export function initTheme() {
-  const theme = getTheme();
+  const theme = resolveTheme();
   document.documentElement.setAttribute('data-theme', theme);
   updateThemeMeta(theme);
+
+  // Слухач на зміни системної теми — тільки якщо юзер не зафіксував тему
+  if (window.matchMedia) {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', (e) => {
+      if (!hasUserSetTheme()) {
+        const systemTheme = e.matches ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', systemTheme);
+        updateThemeMeta(systemTheme);
+      }
+    });
+  }
 }
 
 // Перемкнути тему
 export function toggleTheme() {
-  const cur = getTheme();
+  const cur = resolveTheme();
   const next = cur === 'light' ? 'dark' : 'light';
   setTheme(next);
   updateThemeMeta(next);

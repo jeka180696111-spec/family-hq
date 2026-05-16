@@ -200,3 +200,25 @@ body, .card, .sidebar, .topbar, .wallet-card, .modal {
 .toast-error { background: rgba(200,84,80,0.95); color: #fff; }
 .toast-warn { background: rgba(217,161,62,0.95); color: #fff; }
 [data-theme="light"] .toast { background: rgba(26,36,33,0.92); }
+
+/* ── Анімація fade-in ───────────────────────────────────────── */
+@keyframes fade-in { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+.animate-fade-in { animation: fade-in .3s ease; }
+
+/* ── Onboarding компоненти ──────────────────────────────────── */
+.ob-features { margin-bottom:20px; }
+.ob-feature-row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:.5px solid var(--c-border); }
+.ob-feature-row:last-child { border-bottom:none; }
+.ob-feature-icon { font-size:24px; width:36px; flex-shrink:0; text-align:center; }
+.ob-feature-text { font-size:13px; color:var(--c-text-2); line-height:1.4; }
+.ob-feature-text strong { color:var(--c-text); font-weight:600; }
+.ob-step-indicator { display:flex; gap:6px; justify-content:center; margin-bottom:20px; }
+.ob-step-dot { width:8px; height:8px; border-radius:50%; background:var(--c-border); transition:.2s; }
+.ob-step-dot.active { background:var(--c-accent); width:20px; border-radius:4px; }
+.ob-choice-cards { display:flex; flex-direction:column; gap:10px; margin-bottom:24px; }
+.ob-choice-card { display:flex; align-items:center; gap:14px; padding:14px 16px; border-radius:var(--radius); border:2px solid var(--c-border); background:var(--c-bg); cursor:pointer; transition:border-color .15s, background .15s; text-align:left; }
+.ob-choice-card:hover { border-color:var(--c-accent); background:var(--c-accent-soft); }
+.ob-choice-card.selected { border-color:var(--c-accent); background:var(--c-accent-soft); }
+.ob-choice-card-icon { font-size:28px; flex-shrink:0; width:40px; text-align:center; }
+.ob-choice-card-title { font-size:14px; font-weight:600; color:var(--c-text); margin-bottom:2px; }
+.ob-choice-card-desc { font-size:12px; color:var(--c-text-2); line-height:1.4; }

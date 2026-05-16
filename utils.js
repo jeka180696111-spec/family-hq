@@ -170,3 +170,54 @@ export function log(...args) {
 export function logError(...args) {
   if (typeof console !== 'undefined') console.error('[budget:error]', ...args);
 }
+
+// ── Експорт операцій у CSV ───────────────────────────────────
+export function exportOperationsToCSV(operations) {
+  if (!Array.isArray(operations) || operations.length === 0) {
+    showToast('Немає операцій для експорту', 'warn');
+    return;
+  }
+
+  const headers = ['Дата', 'Тип', 'Категорія', 'Сума', 'Валюта', 'Сума(UAH)', 'Кошельок', 'Хто', 'Коментар'];
+
+  function csvCell(val) {
+    const str = val === null || val === undefined ? '' : String(val);
+    // Якщо містить кому, лапки або перенос рядка — обгортаємо в лапки
+    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+      return '"' + str.replace(/"/g, '""') + '"';
+    }
+    return str;
+  }
+
+  const rows = operations.map(op => [
+    csvCell(op.date || op.createdAt || ''),
+    csvCell(op.type || ''),
+    csvCell(op.category || op.cat || ''),
+    csvCell(op.amount !== undefined ? op.amount : (op.sum !== undefined ? op.sum : '')),
+    csvCell(op.currency || 'UAH'),
+    csvCell(op.amountUah !== undefined ? op.amountUah : (op.sumUah !== undefined ? op.sumUah : '')),
+    csvCell(op.wallet || op.card || op.cardId || ''),
+    csvCell(op.member || op.who || op.owner || ''),
+    csvCell(op.comment || op.note || ''),
+  ]);
+
+  const csvContent = [headers.map(csvCell).join(','), ...rows.map(r => r.join(','))].join('\r\n');
+
+  // Визначаємо ім'я файлу: budget_export_YYYY-MM.csv
+  const now = new Date();
+  const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const filename = `budget_export_${yearMonth}.csv`;
+
+  // Тригеримо скачування
+  const blob = new Blob(['﻿' + csvContent, ''], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+
+  showToast(`Експортовано ${operations.length} операцій`);
+}

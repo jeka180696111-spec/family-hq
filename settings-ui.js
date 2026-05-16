@@ -17,9 +17,10 @@ import {
 } from './storage.js';
 import { syncSettingsToSheet, pingBackend, generateInviteCode } from './api.js';
 import { applyTheme, toggleTheme } from './theme.js';
-import { esc, showToast, uid } from './utils.js';
+import { esc, showToast, uid, exportOperationsToCSV } from './utils.js';
 import { openIconPicker } from './icon-picker.js';
 import { openBottomSheet, closeModal, confirmModal, promptModal } from './modals.js';
+import { showPaywall } from './paywall.js';
 import { signOut } from './auth.js';
 import { isLockEnabled, isBiometricAvailable, setupLock, disableLock } from './lock-screen.js';
 
@@ -358,6 +359,11 @@ function renderMainMenu() {
           <div class="settings-menu-label">Telegram сповіщення</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
+        <button class="settings-menu-item" data-sub="subscription">
+          <div class="settings-menu-icon" style="background:linear-gradient(135deg,#DCFCE7,#BBF7D0);color:#16A34A"><i class="ti ti-star-filled"></i></div>
+          <div class="settings-menu-label">Підписка</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
         <button class="settings-menu-item" data-sub="sync">
           <div class="settings-menu-icon" style="background:#F0FDF4;color:#15803D"><i class="ti ti-refresh"></i></div>
           <div class="settings-menu-label">Синхронізація</div>
@@ -443,6 +449,7 @@ const SUB_PAGE_TITLES = {
   'inc-cats':     'Категорії доходів',
   'wallet-types': 'Типи рахунків',
   wallets:        'Кошельки',
+  subscription:   'Підписка',
   privacy:        'Політика конфіденційності',
   terms:          'Угода користувача',
   about:          'Про додаток',
@@ -599,6 +606,14 @@ function renderSubPageBody(key) {
             </div>
             <button class="btn-ghost-sm" id="diag-btn">Запустити</button>
           </div>
+          <div class="settings-row">
+            <div class="settings-row-icon"><i class="ti ti-file-spreadsheet"></i></div>
+            <div class="settings-row-info">
+              <div class="settings-row-name">Експортувати CSV</div>
+              <div class="settings-row-sub">Завантажити всі операції у форматі CSV</div>
+            </div>
+            <button class="btn-ghost-sm" id="export-csv-btn"><i class="ti ti-download"></i> Експорт</button>
+          </div>
         </div>
       `;
 
@@ -737,6 +752,62 @@ function renderSubPageBody(key) {
         </div>
       `;
 
+    case 'subscription':
+      return `
+        <div class="sub-page-hero">
+          <div class="sub-page-hero-logo">✨</div>
+          <div class="sub-page-hero-title">Many Budget Pro</div>
+          <div class="sub-page-hero-sub">Усі можливості. Одна підписка.</div>
+        </div>
+
+        <div class="settings-card" style="margin-bottom:12px">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--c-text-3);margin-bottom:10px">Що входить до Pro</div>
+          ${[
+            ['ti-robot',          '#DBEAFE', '#2563EB', 'AI-аналітика (Фінн)',    'Персональний фінансовий радник на базі Claude AI'],
+            ['ti-users',          '#FEF3C7', '#D97706', 'Необмежена родина',       'Додавайте скількох завгодно членів родини'],
+            ['ti-brand-telegram', '#E0F2FE', '#0284C7', 'Telegram-бот',            'Додавайте операції прямо з месенджера'],
+            ['ti-scan',           '#F0FDF4', '#15803D', 'Сканер чеків',            'Фотографуйте чек — сума додається автоматично'],
+            ['ti-target',         '#EDE9FE', '#7C3AED', 'Цілі та резерв',          'Накопичуйте на мрії та будуйте фінансову подушку'],
+            ['ti-repeat',         '#FFF7ED', '#EA580C', 'Регулярні платежі',       'Автоматичний облік підписок та щомісячних витрат'],
+          ].map(([icon, bg, color, name, desc]) => `
+            <div style="display:flex;gap:12px;padding:10px 0;border-bottom:0.5px solid var(--c-border);align-items:flex-start">
+              <div style="width:36px;height:36px;border-radius:10px;background:${bg};color:${color};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                <i class="ti ${icon}"></i>
+              </div>
+              <div>
+                <div style="font-size:13px;font-weight:600">${name}</div>
+                <div style="font-size:12px;color:var(--c-text-3);margin-top:2px;line-height:1.4">${desc}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="settings-card" style="margin-bottom:12px">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--c-text-3);margin-bottom:10px">Поточний план</div>
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 0">
+            <div style="width:40px;height:40px;border-radius:12px;background:var(--c-bg-3);color:var(--c-text-3);display:flex;align-items:center;justify-content:center">
+              <i class="ti ti-package"></i>
+            </div>
+            <div style="flex:1">
+              <div style="font-size:15px;font-weight:700">Free</div>
+              <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">Базові можливості</div>
+            </div>
+            <div style="font-size:12px;font-weight:600;color:var(--c-text-3);background:var(--c-bg-3);padding:4px 10px;border-radius:20px">Активний</div>
+          </div>
+        </div>
+
+        <div class="pw-actions" style="padding:0 0 8px">
+          <button class="pw-btn-primary" id="sub-page-subscribe-btn">
+            <span class="pw-price">149 ₴</span>
+            <span class="pw-period">/ місяць</span>
+          </button>
+          <button class="pw-btn-trial" id="sub-page-trial-btn">
+            Спробувати 7 днів безкоштовно
+          </button>
+          <div class="pw-cancel-hint">Скасувати в будь-який час. Без прихованих платежів.</div>
+        </div>
+      `;
+
     case 'about':
       return `
         <div class="settings-card" style="margin-bottom:12px">
@@ -786,6 +857,18 @@ function renderSubPageBody(key) {
               </div>
             </div>
           `).join('')}
+        </div>
+        <div class="settings-card" style="margin-bottom:12px;background:linear-gradient(135deg,#2E7D5F 0%,#4CAF50 100%);color:#fff;border:none">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="font-size:28px">🚀</div>
+            <div style="flex:1">
+              <div style="font-size:15px;font-weight:700">Оновити до Pro</div>
+              <div style="font-size:12px;opacity:0.85;margin-top:2px">AI, Telegram-бот, сканер чеків та більше</div>
+            </div>
+            <button id="about-upgrade-btn" style="background:rgba(255,255,255,0.25);border:none;color:#fff;font-size:13px;font-weight:600;padding:8px 14px;border-radius:12px;cursor:pointer;white-space:nowrap">
+              149 ₴/міс
+            </button>
+          </div>
         </div>
         <div class="settings-card">
           <div class="settings-row" style="border-bottom:0.5px solid var(--c-border);padding-bottom:10px;margin-bottom:10px">
@@ -1075,6 +1158,11 @@ function bindSettingsHandlers(el) {
     }
   });
 
+  // CSV Export
+  el.querySelector('#export-csv-btn')?.addEventListener('click', () => {
+    exportOperationsToCSV(state.operations || []);
+  });
+
   // Diagnostics
   el.querySelector('#diag-btn')?.addEventListener('click', async () => {
     const { openBottomSheet } = await import('./modals.js');
@@ -1265,4 +1353,9 @@ function bindSettingsHandlers(el) {
       import('./main.js').then(m => m.navigateTo(b.dataset.go));
     });
   });
+
+  // Paywall / subscription buttons
+  el.querySelector('#about-upgrade-btn')?.addEventListener('click', () => showPaywall());
+  el.querySelector('#sub-page-subscribe-btn')?.addEventListener('click', () => showPaywall());
+  el.querySelector('#sub-page-trial-btn')?.addEventListener('click', () => showPaywall());
 }
