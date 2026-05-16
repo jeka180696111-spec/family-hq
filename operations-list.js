@@ -6,7 +6,7 @@ import { FAMILY_MEMBERS, state } from './config.js';
 import { apiGet } from './api.js';
 import { esc, fmtMoney, fmtMoneyShort, fmtDate, monthKey } from './utils.js';
 import { openOperationDialog } from './operations.js';
-import { getProfiles, getViewAsMember } from './storage.js';
+import { getProfiles, getViewAsMember, getExpCats, getIncCats } from './storage.js';
 
 export async function loadOperations() {
   try {
@@ -278,23 +278,35 @@ function renderCalendarView(ops, monthDate) {
   `;
 }
 
+function getCatStyle(op) {
+  const cats = op.type === 'Дохід' ? getIncCats() : getExpCats();
+  const cat = cats.find(c => (c.id || c.name || c) === op.category);
+  if (cat && cat.icon && cat.bg) return { icon: cat.icon, bg: cat.bg, color: cat.color };
+  if (op.type === 'Дохід') return { icon: 'ti-arrow-down', bg: 'var(--c-green-soft)', color: 'var(--c-green)' };
+  if (op.type === 'Переказ') return { icon: 'ti-arrows-exchange', bg: 'var(--c-blue-soft)', color: 'var(--c-blue)' };
+  return { icon: 'ti-arrow-up', bg: 'var(--c-red-soft)', color: 'var(--c-red)' };
+}
+
 function renderOpItem(op) {
   const isExp = op.type === 'Витрата';
   const isInc = op.type === 'Дохід';
-  const colorCls = isExp ? 'red' : isInc ? 'green' : 'blue';
-  const iconCls = isExp ? 'ti-arrow-up' : isInc ? 'ti-arrow-down' : 'ti-arrows-exchange';
   const sign = isExp ? '−' : isInc ? '+' : '';
+  const style = getCatStyle(op);
+  const amountDisplay = op.amountUah && op.currency !== 'UAH'
+    ? `${sign}${fmtMoney(op.amount, op.currency)} <small style="opacity:.6">(${fmtMoney(op.amountUah,'UAH')})</small>`
+    : `${sign}${fmtMoney(op.amount, op.currency)}`;
+  const amountColor = isExp ? 'var(--c-red)' : isInc ? 'var(--c-green)' : 'var(--c-blue)';
   return `
     <div class="op-item" data-op-row="${op.row}">
-      <div class="op-item-icon bg-${colorCls}">
-        <i class="ti ${iconCls}"></i>
+      <div class="op-item-icon" style="background:${style.bg}">
+        <i class="ti ${style.icon}" style="color:${style.color}"></i>
       </div>
       <div class="op-item-info">
         <div class="op-item-name">${esc(op.category || '—')}${op.desc ? ` · ${esc(op.desc)}` : ''}</div>
         <div class="op-item-meta">${esc(op.who || '')}${op.card ? ` · ${esc(op.card)}` : ''}</div>
       </div>
-      <div class="op-item-amount c-${colorCls === 'red' ? 'red' : 'green'}">
-        ${sign}${fmtMoney(op.amount, op.currency)}
+      <div class="op-item-amount" style="color:${amountColor}">
+        ${amountDisplay}
       </div>
     </div>
   `;

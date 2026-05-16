@@ -46,13 +46,13 @@
 .btn-danger:hover { background: var(--c-red); color: #fff; }
 
 .btn-ghost-sm {
-  background: var(--c-bg-3);
-  color: var(--c-text-2);
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
   padding: 6px 12px;
-  font-size: 12px;
-  border-radius: var(--radius-sm);
+  font-size: 12px; font-weight: 600;
+  transition: border-color .15s, color .15s, background .15s;
 }
-.btn-ghost-sm:hover { background: var(--c-border); }
+.btn-ghost-sm:hover { border-color: var(--c-accent); color: var(--c-accent); background: var(--c-accent-soft); }
 
 .btn-icon {
   width: 36px; height: 36px;
@@ -84,24 +84,23 @@
 
 /* ── CHIPS ──────────────────────────────────────────────────── */
 .chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 14px;
   border-radius: 20px;
-  background: var(--c-bg-3);
+  font-size: 12px; font-weight: 600;
+  border: 1.5px solid var(--c-border);
+  background: var(--c-bg-2);
   color: var(--c-text-2);
-  font-size: 12px;
-  font-weight: 600;
-  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all .15s;
   white-space: nowrap;
-  transition: all 0.15s;
 }
-.chip:hover { background: var(--c-border); }
+.chip:hover { border-color: var(--c-accent); color: var(--c-accent); background: var(--c-accent-soft); }
 .chip.active {
-  background: var(--c-accent-soft);
-  color: var(--c-accent);
+  background: var(--c-accent);
+  color: #fff;
   border-color: var(--c-accent);
+  box-shadow: 0 2px 8px rgba(46,125,95,0.25);
 }
 .chip i { font-size: 14px; }
 .chip.pos { background: var(--c-green-soft); color: var(--c-green); }
@@ -306,14 +305,15 @@
 
 .modal {
   background: var(--c-card);
-  border-radius: var(--radius-xl);
+  border-radius: 20px;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.16);
+  border: .5px solid var(--c-border);
   width: 100%;
   max-width: 500px;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: var(--shadow-xl);
   transform: translateY(20px);
   transition: transform 0.2s;
 }
@@ -332,6 +332,9 @@
   border-radius: 24px 24px 0 0;
   max-height: 90vh;
   transform: translateY(100%);
+}
+.modal-sheet {
+  border-radius: 24px 24px 0 0;
 }
 .modal-sheet.show .modal { transform: translateY(0); }
 

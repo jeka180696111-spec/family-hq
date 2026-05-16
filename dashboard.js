@@ -51,6 +51,15 @@ export function renderDashboard() {
   const el = document.getElementById('page-dashboard');
   if (!el) return;
 
+  if (!state.dashboard) {
+    el.innerHTML = `<div class="page-inner"><div class="dash-hero-v2" style="min-height:120px">
+      <div class="skeleton skeleton-line w-40" style="margin-bottom:12px"></div>
+      <div class="skeleton skeleton-line w-60" style="height:32px;margin-bottom:16px"></div>
+      <div class="skeleton skeleton-line w-80"></div>
+    </div></div>`;
+    return;
+  }
+
   const d = state.dashboard || { totalIncome: 0, totalExpense: 0, balance: 0, byMember: {}, byCategory: {}, byDay: {}, byDayIncome: {}, recent: [] };
   const profiles = getProfiles();
   const viewAs = getViewAsMember();
