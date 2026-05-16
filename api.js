@@ -152,7 +152,7 @@ async function getDashboard(period) {
     if (o.type === 'Витрата') cardBalances[key].expense += amt;
   });
 
-  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const month = `${kyivYear}-${String(kyivMonth).padStart(2, '0')}`;
 
   return {
     month, period,
