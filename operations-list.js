@@ -461,12 +461,34 @@ function bindHandlers(el) {
     });
   });
 
-  // Клік на операцію — редагування
+  // Клік на операцію — редагування + жести
   el.querySelectorAll('.op-item').forEach(item => {
     item.addEventListener('click', () => {
       const row = item.dataset.opRow;
       const op = state.operations.find(o => String(o.row) === String(row) || String(o.id) === String(row));
       if (op) openOperationDialog({ type: op.type, editing: op });
+    });
+
+    // Long press → edit
+    addLongPress(item, () => {
+      const row = item.dataset.opRow;
+      const op = (state.operations || []).find(o => String(o.row || o.id) === String(row));
+      if (op) openOperationDialog({ type: op.type, editing: op });
+    });
+
+    // Swipe left → delete
+    addSwipeDelete(item, async () => {
+      const row = item.dataset.opRow;
+      const op = (state.operations || []).find(o => String(o.row || o.id) === String(row));
+      if (!op) return;
+      const { confirmModal } = await import('./modals.js');
+      const ok = await confirmModal('Видалити операцію?', { danger: true, okText: 'Видалити' });
+      if (!ok) return;
+      const { apiPost } = await import('./api.js');
+      await apiPost({ action: 'deleteOperation', row: op.row || op.id });
+      state.operations = state.operations.filter(o => String(o.row || o.id) !== String(op.row || op.id));
+      refreshOpsContent();
+      if (window.refreshDashboard) window.refreshDashboard();
     });
   });
 }
