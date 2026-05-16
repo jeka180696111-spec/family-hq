@@ -5,7 +5,7 @@
 import { FAMILY_MEMBERS, state } from './config.js';
 import { getCards, getProfiles, getWalletTypeById, getFamilyName, getVisibleWallets, setVisibleWallets, getViewAsMember, getCategoryLimits, getSpendingPlan } from './storage.js';
 import { apiGet } from './api.js';
-import { esc, fmtMoney, fmtMoneyShort, fmtMoneyWithUah, setText, fmtDate, log } from './utils.js';
+import { esc, fmtMoney, fmtMoneyShort, fmtMoneyWithUah, setText, fmtDate, log, showToast } from './utils.js';
 import { openOperationDialog } from './operations.js';
 import { whoAmI } from './auth.js';
 // ── НОВІ ІМПОРТИ ────────────────────────────────────────────
@@ -13,14 +13,35 @@ import { renderCreditCardsBlock, getCreditAlerts } from './credit-cards.js';
 import { renderUpcomingPaymentsBlock } from './recurring-payments.js';
 
 export async function loadDashboard() {
+  const period = 'month';
+  const cacheKey = `budget_dash_cache_${state.familyId}_${period}`;
+  const cached = (() => { try { return JSON.parse(localStorage.getItem(cacheKey)); } catch { return null; } })();
+  if (cached && Date.now() - cached.ts < 5 * 60 * 1000) {
+    state.dashboard = cached.data;
+    renderDashboard();
+  }
   try {
-    const data = await apiGet('dashboard', { period: 'month' });
+    const data = await apiGet('dashboard', { period });
     state.dashboard = data;
     localStorage.setItem('budget_last_sync', new Date().toISOString());
+    localStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() }));
     renderDashboard();
+    checkAndShowPaymentReminders();
   } catch (e) {
     log('loadDashboard error:', e.message);
-    renderDashboard();
+    if (!cached) renderDashboard();
+  }
+}
+
+export function checkAndShowPaymentReminders() {
+  const payments = state.recurringPayments || [];
+  const today = new Date().getDate();
+  const dueToday = payments.filter(p => p.active !== false && p.dayOfMonth === today);
+  const dueTomorrow = payments.filter(p => p.active !== false && p.dayOfMonth === today + 1);
+  if (dueToday.length) {
+    showToast(`🔴 Сьогодні: ${dueToday.map(p => p.name).join(', ')}`, 'warn');
+  } else if (dueTomorrow.length) {
+    showToast(`🟡 Завтра: ${dueTomorrow.map(p => p.name).join(', ')}`, 'warn');
   }
 }
 
@@ -146,6 +167,17 @@ export function renderDashboard() {
   `;
 
   bindHandlers(el);
+
+  // Анімація балансу при оновленні
+  requestAnimationFrame(() => {
+    const balEl = document.querySelector('.dash-hero-balance');
+    if (balEl) {
+      balEl.classList.remove('dash-balance-pop');
+      void balEl.offsetWidth; // reflow
+      balEl.classList.add('dash-balance-pop');
+      setTimeout(() => balEl.classList.remove('dash-balance-pop'), 400);
+    }
+  });
 
   // Алерт по кредитках (один раз при завантаженні)
   const alerts = getCreditAlerts();

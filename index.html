@@ -102,5 +102,13 @@
 
 <script type="module" src="main.js"></script>
 
+<div id="offline-banner" style="display:none;position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:#1f2937;color:#fff;padding:8px 16px;border-radius:20px;font-size:13px;z-index:9998;pointer-events:none">
+  <i class="ti ti-wifi-off"></i> Офлайн режим
+</div>
+<script>
+  window.addEventListener('online',  () => document.getElementById('offline-banner').style.display = 'none');
+  window.addEventListener('offline', () => document.getElementById('offline-banner').style.display = 'block');
+  if (!navigator.onLine) document.getElementById('offline-banner').style.display = 'block';
+</script>
 </body>
 </html>

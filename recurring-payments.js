@@ -251,16 +251,22 @@ export function renderUpcomingPaymentsBlock(viewAs) {
         <span class="dash-card-title"><i class="ti ti-calendar-due"></i> Найближчі платежі</span>
         <a href="#" class="dash-card-action" data-go="recurring">Всі →</a>
       </div>
-      ${upcoming.map(p => `
-        <div class="rp-dash-item">
+      ${upcoming.map(p => {
+        const isToday = p.dayOfMonth === today;
+        const isTomorrow = p.dayOfMonth === today + 1;
+        const extraClass = isToday ? ' rp-dash-item--today' : isTomorrow ? ' rp-dash-item--tomorrow' : '';
+        const prefix = isToday ? '🔴 ' : isTomorrow ? '🟡 ' : '';
+        return `
+        <div class="rp-dash-item${extraClass}">
           <div class="rp-dash-day">${p.dayOfMonth}</div>
           <div class="rp-dash-info">
-            <div class="rp-dash-name">${esc(p.name)}</div>
+            <div class="rp-dash-name">${prefix}${esc(p.name)}</div>
             <div class="rp-dash-who">${esc(p.who)}</div>
           </div>
           <div class="rp-dash-amount">${fmtMoney(p.amount, 'UAH')}</div>
         </div>
-      `).join('')}
+        `;
+      }).join('')}
     </div>`;
 }
 
