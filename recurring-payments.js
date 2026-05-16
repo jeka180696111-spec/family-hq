@@ -113,7 +113,7 @@ export function openPaymentModal(existing = null) {
     </div>
   `;
 
-  openBottomSheet(modalId, html);
+  const sheetId = openBottomSheet({ content: html });
 
   document.getElementById('rp-save')?.addEventListener('click', async () => {
     const name = document.getElementById('rp-name')?.value?.trim();
@@ -136,7 +136,7 @@ export function openPaymentModal(existing = null) {
     try {
       if (isEdit) { await updatePayment(existing.id, data); showToast('✅ Оновлено'); }
       else { await addPayment(data); showToast('✅ Додано'); }
-      closeModal(modalId);
+      closeModal(sheetId);
       renderRecurringPage();
     } catch (e) { showToast('Помилка: ' + e.message, 'error'); }
   });
@@ -146,7 +146,7 @@ export function openPaymentModal(existing = null) {
     try {
       await deletePayment(existing.id);
       showToast('Видалено');
-      closeModal(modalId);
+      closeModal(sheetId);
       renderRecurringPage();
     } catch (e) { showToast('Помилка: ' + e.message, 'error'); }
   });
