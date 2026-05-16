@@ -2,7 +2,7 @@
 // RECURRING PAYMENTS — обов'язкові платежі + Telegram нагадування
 // ═══════════════════════════════════════════════════════════════
 
-import { state, FAMILY_ID, FAMILY_MEMBERS } from './config.js';
+import { state, FAMILY_MEMBERS } from './config.js';
 import { fmtMoney, esc, showToast } from './utils.js';
 import { getExpCats } from './storage.js';
 import { openBottomSheet, closeModal } from './modals.js';
@@ -10,7 +10,7 @@ import { openBottomSheet, closeModal } from './modals.js';
 // ── Firestore CRUD ───────────────────────────────────────────
 function ref() {
   return firebase.firestore()
-    .collection('families').doc(FAMILY_ID)
+    .collection('families').doc(state.familyId)
     .collection('recurringPayments');
 }
 
