@@ -332,7 +332,8 @@
 .ch-challenge-date { font-size: 11px; color: var(--c-text-3); margin-top: 4px; }
 
 /* ── AI Combined page ────────────────────────────────────── */
-#page-ai-chat { display: flex; flex-direction: column; }
+#page-ai-chat { flex-direction: column; }
+#page-ai-chat.active { display: flex; }
 .ai-combined-page {
   display: flex; flex-direction: column;
   height: calc(100vh - 64px - 60px); /* minus topbar + bottom nav */
