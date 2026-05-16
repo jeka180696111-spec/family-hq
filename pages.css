@@ -824,3 +824,63 @@
 @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
 .diag-item-name { font-size: 13px; font-weight: 600; }
 .diag-item-detail { font-size: 11px; color: var(--c-text-3); margin-top: 2px; word-break: break-word; }
+
+/* ─── SETTINGS iOS-STYLE MENU ────────────────────────────────── */
+.settings-menu-group {
+  background: var(--c-card);
+  border-radius: 16px;
+  border: .5px solid var(--c-border);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.settings-menu-item {
+  display: flex; align-items: center; gap: 14px;
+  width: 100%; padding: 14px 16px;
+  background: transparent; color: var(--c-text);
+  border-bottom: .5px solid var(--c-border);
+  text-align: left; cursor: pointer;
+  transition: background .12s;
+}
+.settings-menu-item:last-child { border-bottom: none; }
+.settings-menu-item:hover, .settings-menu-item:active { background: var(--c-bg-3); }
+.settings-menu-icon {
+  width: 34px; height: 34px;
+  border-radius: 9px;
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 17px; flex-shrink: 0;
+}
+.settings-menu-label { flex: 1; font-size: 15px; font-weight: 500; }
+.settings-menu-arrow { font-size: 16px; color: var(--c-text-3); }
+
+.settings-subpage { display: flex; flex-direction: column; }
+.settings-subpage-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 20px 16px 12px;
+  position: sticky; top: 0; background: var(--c-bg); z-index: 5;
+  border-bottom: .5px solid var(--c-border);
+}
+.settings-back-btn {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: var(--c-bg-3);
+  color: var(--c-text);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; flex-shrink: 0;
+}
+.settings-subpage-title { font-size: 18px; font-weight: 700; }
+.settings-subpage-body { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+
+.settings-wallet-owner-label {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13px; font-weight: 700;
+  padding: 12px 16px 6px; color: var(--c-text-2);
+}
+.settings-wallet-owner-avatar {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--c-accent-soft); color: var(--c-accent);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 13px;
+}

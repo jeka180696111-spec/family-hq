@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-// SETTINGS UI — сторінка налаштувань
+// SETTINGS UI — сторінка налаштувань (iOS-style sub-pages)
 // ═══════════════════════════════════════════════════════════════
 
 import { FAMILY_MEMBERS, state, getFamilyMembers, setFamilyMembers } from './config.js';
@@ -23,6 +23,10 @@ import { openBottomSheet, closeModal, confirmModal, promptModal } from './modals
 import { signOut } from './auth.js';
 import { isLockEnabled, isBiometricAvailable, setupLock, disableLock } from './lock-screen.js';
 
+// ── Sub-page state ───────────────────────────────────────────
+let settingsSubPage = null;
+
+// ── Helper functions ─────────────────────────────────────────
 function getCatMeta(key) {
   const cat = getExpCats().find(c => (c.id || c) === key);
   return cat || { icon: 'ti-dots', bg: '#f0f0f0', color: '#888' };
@@ -310,24 +314,143 @@ function renderLockSection() {
   `;
 }
 
-export function renderSettingsPage() {
-  const el = document.getElementById('page-settings');
-  if (!el) return;
-
-  const theme = getTheme();
-  const family = getFamilyName();
-  const profiles = getProfiles();
-  const lastSync = localStorage.getItem('budget_last_sync');
-
-  el.innerHTML = `
+// ── Main menu ─────────────────────────────────────────────────
+function renderMainMenu() {
+  return `
     <div class="page-inner">
       <div class="page-head">
         <h1 class="page-title">Налаштування</h1>
       </div>
 
-      <!-- Профіль -->
-      <div class="settings-section">
-        <div class="settings-label">Профіль</div>
+      <!-- Group 1: Personal -->
+      <div class="settings-menu-group">
+        <button class="settings-menu-item" data-sub="profile">
+          <div class="settings-menu-icon"><i class="ti ti-user"></i></div>
+          <div class="settings-menu-label">Профіль</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" data-sub="family">
+          <div class="settings-menu-icon"><i class="ti ti-users"></i></div>
+          <div class="settings-menu-label">Родина</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" data-sub="appearance">
+          <div class="settings-menu-icon"><i class="ti ti-palette"></i></div>
+          <div class="settings-menu-label">Зовнішній вигляд</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" data-sub="security">
+          <div class="settings-menu-icon"><i class="ti ti-lock"></i></div>
+          <div class="settings-menu-label">Безпека</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+      </div>
+
+      <!-- Group 2: Finance -->
+      <div class="settings-menu-group">
+        <button class="settings-menu-item" data-sub="default-wallet">
+          <div class="settings-menu-icon"><i class="ti ti-wallet"></i></div>
+          <div class="settings-menu-label">Кошельок за замовчуванням</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" data-sub="telegram">
+          <div class="settings-menu-icon"><i class="ti ti-brand-telegram"></i></div>
+          <div class="settings-menu-label">Telegram сповіщення</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" data-sub="sync">
+          <div class="settings-menu-icon"><i class="ti ti-refresh"></i></div>
+          <div class="settings-menu-label">Синхронізація</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+      </div>
+
+      <!-- Group 3: Data -->
+      <div class="settings-menu-group">
+        <button class="settings-menu-item" data-sub="plan">
+          <div class="settings-menu-icon"><i class="ti ti-list-check"></i></div>
+          <div class="settings-menu-label">План витрат</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" data-sub="limits">
+          <div class="settings-menu-icon"><i class="ti ti-gauge"></i></div>
+          <div class="settings-menu-label">Ліміти витрат</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" data-sub="exp-cats">
+          <div class="settings-menu-icon"><i class="ti ti-arrow-up-circle"></i></div>
+          <div class="settings-menu-label">Категорії витрат</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" data-sub="inc-cats">
+          <div class="settings-menu-icon"><i class="ti ti-arrow-down-circle"></i></div>
+          <div class="settings-menu-label">Категорії доходів</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" data-sub="wallet-types">
+          <div class="settings-menu-icon"><i class="ti ti-credit-card"></i></div>
+          <div class="settings-menu-label">Типи рахунків</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" data-sub="wallets">
+          <div class="settings-menu-icon"><i class="ti ti-building-bank"></i></div>
+          <div class="settings-menu-label">Кошельки</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+      </div>
+
+      <!-- Divider -->
+      <div style="height:4px"></div>
+
+      <!-- Group 4: Legal -->
+      <div class="settings-menu-group">
+        <button class="settings-menu-item" data-sub="privacy">
+          <div class="settings-menu-icon"><i class="ti ti-shield"></i></div>
+          <div class="settings-menu-label">Політика конфіденційності</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" data-sub="terms">
+          <div class="settings-menu-icon"><i class="ti ti-file-text"></i></div>
+          <div class="settings-menu-label">Угода користувача</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+      </div>
+
+      <div class="settings-footer">
+        <div>Сімейний бюджет v3.0</div>
+      </div>
+    </div>
+  `;
+}
+
+// ── Sub-page content builders ─────────────────────────────────
+const SUB_PAGE_TITLES = {
+  profile:        'Профіль',
+  family:         'Родина',
+  appearance:     'Зовнішній вигляд',
+  security:       'Безпека',
+  'default-wallet': 'Кошельок за замовчуванням',
+  telegram:       'Telegram сповіщення',
+  sync:           'Синхронізація',
+  plan:           'План витрат',
+  limits:         'Ліміти витрат',
+  'exp-cats':     'Категорії витрат',
+  'inc-cats':     'Категорії доходів',
+  'wallet-types': 'Типи рахунків',
+  wallets:        'Кошельки',
+  privacy:        'Політика конфіденційності',
+  terms:          'Угода користувача',
+};
+
+function renderSubPageBody(key) {
+  const theme = getTheme();
+  const family = getFamilyName();
+  const profiles = getProfiles();
+  const lastSync = localStorage.getItem('budget_last_sync');
+
+  switch (key) {
+    case 'profile':
+      return `
         <div class="settings-card">
           ${state.user ? `
             <div class="settings-row">
@@ -348,11 +471,10 @@ export function renderSettingsPage() {
             <button class="btn-ghost-sm" id="save-family-btn">Зберегти</button>
           </div>
         </div>
-      </div>
+      `;
 
-      <!-- Учасники та запрошення -->
-      <div class="settings-section">
-        <div class="settings-label">Учасники сім'ї</div>
+    case 'family':
+      return `
         <div class="settings-card">
           <div id="members-list">
             ${getFamilyMembers().map((m) => `
@@ -367,11 +489,10 @@ export function renderSettingsPage() {
           </div>
           <button class="settings-add-btn" id="invite-btn"><i class="ti ti-user-plus"></i> Запросити члена родини</button>
         </div>
-      </div>
+      `;
 
-      <!-- Тема -->
-      <div class="settings-section">
-        <div class="settings-label">Зовнішній вигляд</div>
+    case 'appearance':
+      return `
         <div class="settings-card">
           <div class="settings-row">
             <div class="settings-row-icon"><i class="ti ti-${theme === 'dark' ? 'moon' : 'sun'}"></i></div>
@@ -385,35 +506,31 @@ export function renderSettingsPage() {
             </div>
           </div>
         </div>
-      </div>
+      `;
 
-      <!-- Кошелек за замовчуванням -->
-      <div class="settings-section">
-        <div class="settings-label">Кошельок за замовчуванням</div>
-        <div class="settings-card" id="default-wallet-card">
-          ${renderDefaultWalletRows()}
-        </div>
-      </div>
-
-      <!-- Telegram сповіщення -->
-      <div class="settings-section">
-        <div class="settings-label">Telegram сповіщення</div>
-        <div class="settings-card">
-          ${renderTelegramPrefs()}
-        </div>
-      </div>
-
-      <!-- Блокування -->
-      <div class="settings-section">
-        <div class="settings-label">Безпека</div>
+    case 'security':
+      return `
         <div class="settings-card" id="lock-section-card">
           ${renderLockSection()}
         </div>
-      </div>
+      `;
 
-      <!-- Sync -->
-      <div class="settings-section">
-        <div class="settings-label">Firebase</div>
+    case 'default-wallet':
+      return `
+        <div class="settings-card" id="default-wallet-card">
+          ${renderDefaultWalletRows()}
+        </div>
+      `;
+
+    case 'telegram':
+      return `
+        <div class="settings-card">
+          ${renderTelegramPrefs()}
+        </div>
+      `;
+
+    case 'sync':
+      return `
         <div class="settings-card">
           <div class="settings-row">
             <div class="settings-row-icon green"><i class="ti ti-brand-firebase"></i></div>
@@ -432,60 +549,57 @@ export function renderSettingsPage() {
             <button class="btn-ghost-sm" id="diag-btn">Запустити</button>
           </div>
         </div>
-      </div>
+      `;
 
-      <!-- План витрат -->
-      <div class="settings-section">
-        <div class="settings-label">План витрат (грн/міс)</div>
+    case 'plan':
+      return `
         <div class="settings-card" id="plan-card">
           ${renderBudgetGrid('plan')}
         </div>
-      </div>
+      `;
 
-      <!-- Ліміти витрат -->
-      <div class="settings-section">
-        <div class="settings-label">Ліміти витрат (грн/міс)</div>
+    case 'limits':
+      return `
         <div class="settings-card" id="limits-card">
           ${renderBudgetGrid('limits')}
         </div>
-      </div>
+      `;
 
-      <!-- Категорії витрат -->
-      <div class="settings-section">
-        <div class="settings-label">Категорії витрат</div>
+    case 'exp-cats':
+      return `
         <div class="settings-card">
           <div class="cat-grid" id="exp-cats-grid"></div>
           <button class="settings-add-btn" id="add-exp-cat-btn"><i class="ti ti-plus"></i> Додати категорію</button>
         </div>
-      </div>
+      `;
 
-      <!-- Категорії доходів -->
-      <div class="settings-section">
-        <div class="settings-label">Категорії доходів</div>
+    case 'inc-cats':
+      return `
         <div class="settings-card">
           <div class="cat-grid" id="inc-cats-grid"></div>
           <button class="settings-add-btn" id="add-inc-cat-btn"><i class="ti ti-plus"></i> Додати категорію</button>
         </div>
-      </div>
+      `;
 
-      <!-- Типи рахунків -->
-      <div class="settings-section">
-        <div class="settings-label">Типи рахунків</div>
+    case 'wallet-types':
+      return `
         <div class="settings-card">
           <div class="settings-hint">Свої категорії для кошельків. Наприклад: «Криптогаманець», «Депозит», «Валюта в євро». Клік для редагування.</div>
           <div class="cat-grid" id="wallet-types-grid"></div>
           <button class="settings-add-btn" id="add-wallet-type-btn"><i class="ti ti-plus"></i> Додати тип</button>
         </div>
-      </div>
+      `;
 
-      <!-- Кошельки -->
-      <div class="settings-section">
-        <div class="settings-label">Кошельки</div>
+    case 'wallets':
+      return `
         <div class="settings-card">
           ${FAMILY_MEMBERS.map(m => {
             const cards = getCards(m);
             return `
-              <div class="settings-row-sub" style="font-weight:700;padding:10px 0 4px;font-size:13px;">${esc(profiles[m]?.name || m)}</div>
+              <div class="settings-wallet-owner-label">
+                <div class="settings-wallet-owner-avatar">${(profiles[m]?.name || m)[0]}</div>
+                ${esc(profiles[m]?.name || m)}
+              </div>
               <div class="cat-grid">
                 ${cards.map((c, idx) => `
                   <button class="cat-card" data-wallet-owner="${esc(m)}" data-wallet-idx="${idx}">
@@ -500,23 +614,66 @@ export function renderSettingsPage() {
           }).join('')}
           <button class="settings-add-btn" id="add-wallet-btn"><i class="ti ti-plus"></i> Додати кошельок</button>
         </div>
-      </div>
-      </div>
+      `;
 
-      <!-- Інфо -->
-      <div class="settings-footer">
-        <div>Сімейний бюджет v3.0</div>
+    case 'privacy':
+      return `
+        <div class="settings-card">
+          <div style="font-size:14px;line-height:1.6;color:var(--c-text-2);padding:4px 0">
+            Ми збираємо мінімум даних необхідних для роботи додатку: Google акаунт (ім'я, email), фінансові операції що ви вводите вручну. Дані зберігаються у Firebase (Google) і доступні тільки вам і членам вашої родини. Ми не продаємо і не передаємо ваші дані третім особам. Ви можете видалити свій акаунт і всі пов'язані дані у будь-який час через підтримку.
+          </div>
+        </div>
+      `;
+
+    case 'terms':
+      return `
+        <div class="settings-card">
+          <div style="font-size:14px;line-height:1.6;color:var(--c-text-2);padding:4px 0">
+            Використовуючи додаток ви погоджуєтесь з умовами використання. Додаток надається «як є». Ми не несемо відповідальності за фінансові рішення прийняті на основі даних в додатку. Заборонено використовувати додаток для незаконних цілей. Ми залишаємо за собою право змінювати функціонал додатку.
+          </div>
+        </div>
+      `;
+
+    default:
+      return `<div class="settings-hint">Невідома секція: ${esc(key)}</div>`;
+  }
+}
+
+function renderSubPage(key) {
+  const title = SUB_PAGE_TITLES[key] || key;
+  return `
+    <div class="settings-subpage">
+      <div class="settings-subpage-head">
+        <button class="settings-back-btn" id="settings-back"><i class="ti ti-arrow-left"></i></button>
+        <h2 class="settings-subpage-title">${esc(title)}</h2>
+      </div>
+      <div class="settings-subpage-body">
+        ${renderSubPageBody(key)}
       </div>
     </div>
   `;
-
-  renderCatGrid('exp-cats-grid', getExpCats(), 'exp');
-  renderCatGrid('inc-cats-grid', getIncCats(), 'inc');
-  renderTypesGrid('wallet-types-grid', getWalletTypes());
-
-  bindHandlers(el);
 }
 
+// ── Main render function ──────────────────────────────────────
+export function renderSettingsPage() {
+  const el = document.getElementById('page-settings');
+  if (!el) return;
+
+  el.innerHTML = settingsSubPage ? renderSubPage(settingsSubPage) : renderMainMenu();
+
+  // Render dynamic grids after HTML is set
+  if (settingsSubPage === 'exp-cats') {
+    renderCatGrid('exp-cats-grid', getExpCats(), 'exp');
+  } else if (settingsSubPage === 'inc-cats') {
+    renderCatGrid('inc-cats-grid', getIncCats(), 'inc');
+  } else if (settingsSubPage === 'wallet-types') {
+    renderTypesGrid('wallet-types-grid', getWalletTypes());
+  }
+
+  bindSettingsHandlers(el);
+}
+
+// ── Cat / type grids ──────────────────────────────────────────
 function renderCatGrid(containerId, cats, kind) {
   const el = document.getElementById(containerId);
   if (!el) return;
@@ -558,7 +715,7 @@ function renderTypesGrid(containerId, types) {
   });
 }
 
-// ── Редактор категорії ──────────────────────────────────────
+// ── Cat editor ────────────────────────────────────────────────
 function openCatEditor(kind, idx) {
   const isEdit = idx !== undefined && idx >= 0;
   const list = kind === 'exp' ? getExpCats() : getIncCats();
@@ -592,7 +749,7 @@ function openCatEditor(kind, idx) {
   });
 }
 
-// ── Редактор типу рахунку ───────────────────────────────────
+// ── Type editor ───────────────────────────────────────────────
 function openTypeEditor(idx) {
   const types = getWalletTypes();
   const isEdit = idx !== undefined && idx >= 0;
@@ -613,7 +770,6 @@ function openTypeEditor(idx) {
       if (isEdit) {
         types[idx] = item;
       } else {
-        // Унікальність
         if (types.find(x => x.id === id)) item.id = id + '_' + Date.now();
         types.push(item);
       }
@@ -632,9 +788,23 @@ function openTypeEditor(idx) {
   });
 }
 
-// ── Слухачі ─────────────────────────────────────────────────
-function bindHandlers(el) {
-  // Тема
+// ── Handlers ──────────────────────────────────────────────────
+function bindSettingsHandlers(el) {
+  // Back button
+  el.querySelector('#settings-back')?.addEventListener('click', () => {
+    settingsSubPage = null;
+    renderSettingsPage();
+  });
+
+  // Menu items
+  el.querySelectorAll('.settings-menu-item').forEach(b => {
+    b.addEventListener('click', () => {
+      settingsSubPage = b.dataset.sub;
+      renderSettingsPage();
+    });
+  });
+
+  // Theme
   el.querySelectorAll('[data-theme]').forEach(b => {
     b.addEventListener('click', () => {
       applyTheme(b.dataset.theme);
@@ -642,7 +812,7 @@ function bindHandlers(el) {
     });
   });
 
-  // Сім'я
+  // Family name
   el.querySelector('#save-family-btn')?.addEventListener('click', () => {
     const v = el.querySelector('#family-name-input').value.trim();
     if (!v) return;
@@ -653,13 +823,13 @@ function bindHandlers(el) {
     showToast('✅ Збережено');
   });
 
-  // Вихід
+  // Sign out
   el.querySelector('#signout-btn')?.addEventListener('click', async () => {
     const ok = await confirmModal('Точно вийти?', { danger: true, okText: 'Вийти' });
     if (ok) signOut();
   });
 
-  // Запросити учасника
+  // Invite member
   el.querySelector('#invite-btn')?.addEventListener('click', async () => {
     const btn = el.querySelector('#invite-btn');
     btn.disabled = true;
@@ -702,7 +872,7 @@ function bindHandlers(el) {
     }
   });
 
-  // Діагностика
+  // Diagnostics
   el.querySelector('#diag-btn')?.addEventListener('click', async () => {
     const { openBottomSheet } = await import('./modals.js');
     const { apiGet, pingBackend } = await import('./api.js');
@@ -731,17 +901,14 @@ function bindHandlers(el) {
       }).join('')}</div>`;
     }
 
-    // 1. Firebase ініціалізовано?
     const fbOk = typeof firebase !== 'undefined' && firebase.app();
     results.push({ name: 'Firebase SDK', status: fbOk ? 'ok' : 'fail', detail: fbOk ? 'Ініціалізовано' : 'НЕ завантажено' });
     update(results);
 
-    // 2. Auth
     const user = firebase.auth().currentUser;
     results.push({ name: 'Авторизація', status: user ? 'ok' : 'fail', detail: user ? user.email : 'Не залогінений' });
     update(results);
 
-    // 3. Firestore ping
     results.push({ name: 'Firestore', status: 'pending' });
     update(results);
     try {
@@ -754,7 +921,6 @@ function bindHandlers(el) {
     }
     update(results);
 
-    // 4. Читання settings
     results.push({ name: 'Налаштування', status: 'pending' });
     update(results);
     try {
@@ -769,7 +935,6 @@ function bindHandlers(el) {
     }
     update(results);
 
-    // 5. Запис
     results.push({ name: 'Запис в Firestore', status: 'pending' });
     update(results);
     try {
@@ -783,7 +948,6 @@ function bindHandlers(el) {
     }
     update(results);
 
-    // 6. localStorage
     let lsSize = 0;
     try {
       for (let k in localStorage) {
@@ -796,7 +960,7 @@ function bindHandlers(el) {
     update(results);
   });
 
-  // Кошельок за замовчуванням
+  // Default wallet
   el.querySelectorAll('.dw-select').forEach(sel => {
     sel.addEventListener('change', () => {
       setDefaultWallet(sel.dataset.dwMember, sel.value || null);
@@ -804,7 +968,7 @@ function bindHandlers(el) {
     });
   });
 
-  // Telegram прefs
+  // Telegram prefs
   el.querySelector('#save-tg-prefs-btn')?.addEventListener('click', () => {
     setTelegramPrefs({
       paymentReminders: el.querySelector('#tg-payments')?.checked ?? true,
@@ -815,7 +979,7 @@ function bindHandlers(el) {
     showToast('✅ Telegram налаштування збережено');
   });
 
-  // Блокування додатку
+  // Lock toggle
   const lockToggle = el.querySelector('#lock-toggle');
   if (lockToggle) {
     lockToggle.addEventListener('change', async () => {
@@ -851,7 +1015,7 @@ function bindHandlers(el) {
     });
   }
 
-  // Бюджет (план і ліміти) — делегування на document
+  // Budget delete/edit
   el.querySelectorAll('[data-budget-del]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const type = btn.dataset.budgetDel;
@@ -874,12 +1038,12 @@ function bindHandlers(el) {
   el.querySelector('#add-plan-btn')?.addEventListener('click', () => openAddBudgetItem('plan'));
   el.querySelector('#add-limits-btn')?.addEventListener('click', () => openAddBudgetItem('limits'));
 
-  // Додати
+  // Category buttons
   el.querySelector('#add-exp-cat-btn')?.addEventListener('click', () => openCatEditor('exp'));
   el.querySelector('#add-inc-cat-btn')?.addEventListener('click', () => openCatEditor('inc'));
   el.querySelector('#add-wallet-type-btn')?.addEventListener('click', () => openTypeEditor());
 
-  // Кошельки — клік для редагування
+  // Wallet edit
   el.querySelectorAll('[data-wallet-owner]').forEach(chip => {
     chip.addEventListener('click', () => {
       const owner = chip.dataset.walletOwner;
@@ -887,12 +1051,12 @@ function bindHandlers(el) {
       import('./wallets.js').then(m => m.openEditWallet(owner, idx));
     });
   });
-  // Додати кошельок
+
   el.querySelector('#add-wallet-btn')?.addEventListener('click', () => {
     import('./wallets.js').then(m => m.openCreateWallet());
   });
 
-  // Навігація
+  // Navigation
   el.querySelectorAll('[data-go]').forEach(b => {
     b.addEventListener('click', () => {
       import('./main.js').then(m => m.navigateTo(b.dataset.go));
