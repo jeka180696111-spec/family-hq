@@ -156,17 +156,23 @@ async function getDashboard(period) {
 
 // ── Операції ─────────────────────────────────────────────────
 async function getOperations(params) {
-  let q = familyRef().collection('operations');
+  let q = familyRef().collection('operations').orderBy('date', 'desc');
 
   if (params?.month) {
-    q = q.where('date', '>=', `${params.month}-01`)
-         .where('date', '<=', `${params.month}-31`);
+    // Одна нерівність — не потребує composite index
+    q = q.where('date', '>=', `${params.month}-01`);
   }
 
-  q = q.orderBy('date', 'desc').limit(Number(params?.limit) || 500);
+  q = q.limit(Number(params?.limit) || 500);
 
   const snapshot = await q.get();
-  const ops = snapshot.docs.map(doc => ({ id: doc.id, row: doc.id, ...doc.data() }));
+  let ops = snapshot.docs.map(doc => ({ id: doc.id, row: doc.id, ...doc.data() }));
+
+  // Точна фільтрація по місяцю на клієнті
+  if (params?.month) {
+    ops = ops.filter(o => o.date?.startsWith(params.month));
+  }
+
   return { operations: ops };
 }
 

@@ -40,6 +40,36 @@
 .credit-card-pct { font-size: 9px; font-weight: 700; color: var(--c-text-3); text-align: center; }
 .credit-card-used { font-size: 12px; font-weight: 800; color: var(--c-red); white-space: nowrap; min-width: 60px; text-align: right; }
 
+/* ── AI STATS BANNER ────────────────────────────────────────── */
+.ai-stats-banner {
+  background: linear-gradient(135deg, var(--c-accent) 0%, #059669 100%);
+  border-radius: var(--radius); padding: 16px 18px; margin-bottom: 16px; color: #fff;
+}
+.ai-stats-label { font-size: 11px; font-weight: 700; opacity: .8; margin-bottom: 10px; display: flex; align-items: center; gap: 5px; }
+.ai-stats-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; }
+.ai-stat-val { font-size: 15px; font-weight: 800; margin-bottom: 2px; }
+.ai-stat-lbl { font-size: 10px; opacity: .75; font-weight: 600; text-transform: uppercase; }
+.ai-section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--c-text-3); margin-bottom: 10px; }
+
+/* ── RECURRING PAYMENTS HERO ────────────────────────────────── */
+.rp-hero {
+  background: var(--c-card); border: .5px solid var(--c-border);
+  border-radius: var(--radius); padding: 16px 18px; margin-bottom: 14px;
+}
+.rp-hero-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 14px; gap: 10px; }
+.rp-hero-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--c-text-3); margin-bottom: 4px; }
+.rp-hero-amount { font-size: 24px; font-weight: 800; }
+.rp-hero-chips { display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
+.rp-hero-chip { font-size: 11px; font-weight: 700; padding: 4px 8px; border-radius: 8px; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.rp-chip-done { background: #ECFDF5; color: #059669; }
+.rp-chip-up { background: #FFF1F2; color: #E11D48; }
+[data-theme="dark"] .rp-chip-done { background: #052e16; color: #4ade80; }
+[data-theme="dark"] .rp-chip-up { background: #4c0519; color: #fb7185; }
+.rp-month-bar-wrap { }
+.rp-month-bar { height: 6px; background: var(--c-bg-3); border-radius: 3px; overflow: hidden; margin-bottom: 5px; }
+.rp-month-bar-fill { height: 100%; background: var(--c-accent); border-radius: 3px; transition: width .6s; }
+.rp-month-bar-label { font-size: 10px; color: var(--c-text-3); font-weight: 600; }
+
 /* ── RECURRING PAYMENTS ─────────────────────────────────────── */
 .rp-kpi-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-bottom: 16px; }
 .rp-kpi { background: var(--c-card); border: .5px solid var(--c-border); border-radius: var(--radius); padding: 14px; text-align: center; }

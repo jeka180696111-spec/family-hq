@@ -164,19 +164,43 @@ export function renderRecurringPage() {
   const passed = sorted.filter(p => p.dayOfMonth < today);
   const monthly = payments.filter(p => p.frequency !== 'yearly').reduce((s, p) => s + (p.amount || 0), 0);
 
+  const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+  const monthPct = Math.round((today / daysInMonth) * 100);
+  const paidAmt = passed.reduce((s, p) => s + (p.amount || 0), 0);
+  const upcomingAmt = upcoming.reduce((s, p) => s + (p.amount || 0), 0);
+
   el.innerHTML = `
     <div class="page-inner">
       <div class="page-head">
-        <h1 class="page-title">Обов'язкові платежі</h1>
+        <h1 class="page-title">Платежі</h1>
         <button class="btn-primary" id="add-rp-btn"><i class="ti ti-plus"></i> Додати</button>
       </div>
-      <div class="rp-kpi-row">
-        <div class="rp-kpi"><div class="rp-kpi-label">Щомісяця</div><div class="rp-kpi-val">${fmtMoney(monthly, 'UAH')}</div></div>
-        <div class="rp-kpi"><div class="rp-kpi-label">Платежів</div><div class="rp-kpi-val">${payments.length}</div></div>
-        <div class="rp-kpi"><div class="rp-kpi-label">Найближчий</div><div class="rp-kpi-val">${upcoming[0] ? upcoming[0].dayOfMonth + ' числа' : '—'}</div></div>
+
+      <div class="rp-hero">
+        <div class="rp-hero-top">
+          <div>
+            <div class="rp-hero-label">Щомісяця</div>
+            <div class="rp-hero-amount">${fmtMoney(monthly, 'UAH')}</div>
+          </div>
+          <div class="rp-hero-chips">
+            <div class="rp-hero-chip rp-chip-done"><i class="ti ti-check"></i> ${fmtMoney(paidAmt)} сплачено</div>
+            <div class="rp-hero-chip rp-chip-up"><i class="ti ti-clock"></i> ${fmtMoney(upcomingAmt)} очікується</div>
+          </div>
+        </div>
+        <div class="rp-month-bar-wrap">
+          <div class="rp-month-bar"><div class="rp-month-bar-fill" style="width:${monthPct}%"></div></div>
+          <div class="rp-month-bar-label">${today} з ${daysInMonth} дні місяця</div>
+        </div>
       </div>
+
+      <div class="rp-kpi-row">
+        <div class="rp-kpi"><div class="rp-kpi-label">Всього</div><div class="rp-kpi-val">${payments.length}</div></div>
+        <div class="rp-kpi"><div class="rp-kpi-label">Сплачено</div><div class="rp-kpi-val" style="color:var(--c-green)">${passed.length}</div></div>
+        <div class="rp-kpi"><div class="rp-kpi-label">Очікується</div><div class="rp-kpi-val" style="color:var(--c-red)">${upcoming.length}</div></div>
+      </div>
+
       ${upcoming.length ? `<div class="rp-section-label"><i class="ti ti-clock"></i> Найближчі</div>${upcoming.map(p => rpItem(p, today)).join('')}` : ''}
-      ${passed.length ? `<div class="rp-section-label"><i class="ti ti-check"></i> Оплачено</div>${passed.map(p => rpItem(p, today)).join('')}` : ''}
+      ${passed.length ? `<div class="rp-section-label"><i class="ti ti-check"></i> Цього місяця сплачено</div>${passed.map(p => rpItem(p, today)).join('')}` : ''}
       ${!payments.length ? `<div class="empty-state"><i class="ti ti-calendar-repeat" style="font-size:48px;color:var(--c-text-3)"></i><p style="margin-top:12px;font-weight:600;">Немає обов'язкових платежів</p><p style="font-size:12px;color:var(--c-text-3)">Додайте квартплату, інтернет, підписки</p></div>` : ''}
     </div>
   `;

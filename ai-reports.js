@@ -98,30 +98,68 @@ export function renderAIReportsPage() {
   const el = document.getElementById('page-ai-reports');
   if (!el) return;
 
+  const d = state.dashboard || {};
+  const inc = d.totalIncome || 0;
+  const exp = d.totalExpense || 0;
+  const sav = inc > 0 ? Math.round((inc - exp) / inc * 100) : 0;
+  const month = d.month ? new Date(d.month + '-01').toLocaleDateString('uk-UA', { month: 'long', year: 'numeric' }) : '';
+
   el.innerHTML = `
     <div class="page-inner">
       <div class="page-head"><h1 class="page-title">AI Аналітика</h1></div>
+
+      ${inc || exp ? `
+      <div class="ai-stats-banner">
+        <div class="ai-stats-label"><i class="ti ti-robot"></i> Дані для аналізу · ${esc(month)}</div>
+        <div class="ai-stats-row">
+          <div class="ai-stat">
+            <div class="ai-stat-val c-green">+${fmtMoney(inc)}</div>
+            <div class="ai-stat-lbl">Доходи</div>
+          </div>
+          <div class="ai-stat">
+            <div class="ai-stat-val c-red">−${fmtMoney(exp)}</div>
+            <div class="ai-stat-lbl">Витрати</div>
+          </div>
+          <div class="ai-stat">
+            <div class="ai-stat-val" style="color:var(--c-accent)">${sav}%</div>
+            <div class="ai-stat-lbl">Заощадження</div>
+          </div>
+        </div>
+      </div>` : ''}
+
+      <div class="ai-section-label">Оберіть тип звіту</div>
       <div class="ai-cards">
         <button class="ai-card" data-type="monthly">
-          <div class="ai-card-icon" style="background:var(--c-blue-soft);color:var(--c-blue)"><i class="ti ti-chart-bar"></i></div>
-          <div class="ai-card-info"><div class="ai-card-title">Місячний огляд</div><div class="ai-card-desc">Доходи, витрати, заощадження</div></div>
-          <i class="ti ti-sparkles" style="color:var(--c-accent)"></i>
+          <div class="ai-card-icon" style="background:#EEF2FF;color:#4F46E5"><i class="ti ti-chart-bar"></i></div>
+          <div class="ai-card-info">
+            <div class="ai-card-title">Місячний огляд</div>
+            <div class="ai-card-desc">Аналіз доходів, витрат і заощаджень за місяць</div>
+          </div>
+          <i class="ti ti-sparkles" style="color:#4F46E5;font-size:18px"></i>
         </button>
         <button class="ai-card" data-type="forecast">
-          <div class="ai-card-icon" style="background:var(--c-green-soft,#E1F5EE);color:var(--c-green)"><i class="ti ti-trending-up"></i></div>
-          <div class="ai-card-info"><div class="ai-card-title">Прогноз</div><div class="ai-card-desc">Прогноз + поради на наступний місяць</div></div>
-          <i class="ti ti-sparkles" style="color:var(--c-accent)"></i>
+          <div class="ai-card-icon" style="background:#ECFDF5;color:#059669"><i class="ti ti-trending-up"></i></div>
+          <div class="ai-card-info">
+            <div class="ai-card-title">Прогноз</div>
+            <div class="ai-card-desc">Прогноз наступного місяця + 3 конкретні поради</div>
+          </div>
+          <i class="ti ti-sparkles" style="color:#059669;font-size:18px"></i>
         </button>
         <button class="ai-card" data-type="roast">
-          <div class="ai-card-icon" style="background:#FBEAF0;color:var(--c-red)"><i class="ti ti-flame"></i></div>
-          <div class="ai-card-info"><div class="ai-card-title">Розбір 🔥</div><div class="ai-card-desc">Саркастичний аналіз: хто скільки витратив</div></div>
-          <i class="ti ti-sparkles" style="color:var(--c-accent)"></i>
+          <div class="ai-card-icon" style="background:#FFF1F2;color:#E11D48"><i class="ti ti-flame"></i></div>
+          <div class="ai-card-info">
+            <div class="ai-card-title">Розбір 🔥</div>
+            <div class="ai-card-desc">Саркастичний аналіз — хто і де витратив зайве</div>
+          </div>
+          <i class="ti ti-sparkles" style="color:#E11D48;font-size:18px"></i>
         </button>
       </div>
+
       <div id="ai-loading" class="ai-loading" style="display:none">
         <div class="ai-spinner"></div>
-        <div class="ai-loading-text">Claude аналізує ваші фінанси... 🤔</div>
+        <div class="ai-loading-text" id="ai-loading-text">Claude аналізує ваші фінанси...</div>
       </div>
+
       <div id="ai-result" class="ai-result" style="display:none">
         <div class="ai-result-head">
           <span id="ai-result-label"></span>
@@ -143,6 +181,14 @@ export function renderAIReportsPage() {
   });
 }
 
+const LOADING_MSGS = [
+  'Claude аналізує ваші фінанси...',
+  'Рахує доходи і витрати...',
+  'Порівнює з попередніми місяцями...',
+  'Формулює висновки...',
+  'Майже готово...',
+];
+
 async function runReport(type) {
   const loading = document.getElementById('ai-loading');
   const result = document.getElementById('ai-result');
@@ -152,18 +198,32 @@ async function runReport(type) {
   if (loading) loading.style.display = 'flex';
   if (result) result.style.display = 'none';
 
+  // Animated loading messages
+  let msgIdx = 0;
+  const msgEl = document.getElementById('ai-loading-text');
+  const msgInterval = setInterval(() => {
+    msgIdx = (msgIdx + 1) % LOADING_MSGS.length;
+    if (msgEl) msgEl.textContent = LOADING_MSGS[msgIdx];
+  }, 2000);
+
   try {
     const text = await generateReport(type);
+    clearInterval(msgInterval);
     if (loading) loading.style.display = 'none';
     if (result) {
       result.style.display = '';
       document.getElementById('ai-result-label').textContent = labels[type] || type;
+      // Render paragraphs, highlight numbers
       document.getElementById('ai-result-text').innerHTML = text
-        .split('\n').filter(l => l.trim()).map(l => `<p>${esc(l)}</p>`).join('');
+        .split('\n')
+        .filter(l => l.trim())
+        .map(l => `<p>${esc(l).replace(/(\d[\d\s]*[₴$€%]?)/g, '<b>$1</b>')}</p>`)
+        .join('');
       document.getElementById('ai-result-time').textContent =
         'Згенеровано: ' + new Date().toLocaleString('uk-UA');
     }
   } catch (e) {
+    clearInterval(msgInterval);
     if (loading) loading.style.display = 'none';
     showToast('AI помилка: ' + e.message, 'error');
   } finally {

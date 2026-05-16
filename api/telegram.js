@@ -197,7 +197,7 @@ async function saveOperation(op) {
   });
 }
 
-// Баланс по кошельках (лише ті де є операції)
+// Баланс по кошельках з урахуванням валюти
 async function getWalletBalances() {
   const snapshot = await db.collection('families').doc(FAMILY_ID)
     .collection('operations').get();
@@ -207,16 +207,34 @@ async function getWalletBalances() {
     const d = doc.data();
     if (d.category === 'Переказ') return;
     const card = d.card || 'Без рахунку';
-    if (!wallets[card]) wallets[card] = { income: 0, expense: 0 };
-    const amt = d.amountUah || d.amount || 0;
-    if (d.type === 'Дохід') wallets[card].income += amt;
-    if (d.type === 'Витрата') wallets[card].expense += amt;
+    if (!wallets[card]) wallets[card] = { incomeUah: 0, expenseUah: 0, currencies: {} };
+
+    const cur = d.currency || 'UAH';
+    const amt = d.amount || 0;
+    const amtUah = d.amountUah || d.amount || 0;
+
+    if (!wallets[card].currencies[cur]) wallets[card].currencies[cur] = { income: 0, expense: 0 };
+    if (d.type === 'Дохід') {
+      wallets[card].currencies[cur].income += amt;
+      wallets[card].incomeUah += amtUah;
+    }
+    if (d.type === 'Витрата') {
+      wallets[card].currencies[cur].expense += amt;
+      wallets[card].expenseUah += amtUah;
+    }
   });
 
   return Object.entries(wallets)
-    .map(([name, v]) => ({ name, income: Math.round(v.income), expense: Math.round(v.expense), balance: Math.round(v.income - v.expense) }))
-    .filter(w => w.income > 0 || w.expense > 0)
-    .sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance));
+    .map(([name, v]) => {
+      const balanceUah = Math.round(v.incomeUah - v.expenseUah);
+      // Показуємо рідну валюту якщо не UAH
+      const primaryCur = Object.keys(v.currencies).find(c => c !== 'UAH') || 'UAH';
+      const curData = v.currencies[primaryCur] || { income: 0, expense: 0 };
+      const balance = Math.round(curData.income - curData.expense);
+      return { name, balance, primaryCur, balanceUah };
+    })
+    .filter(w => w.balanceUah !== 0 || w.balance !== 0)
+    .sort((a, b) => Math.abs(b.balanceUah) - Math.abs(a.balanceUah));
 }
 
 async function getPeriodOps(from, to) {
@@ -497,13 +515,19 @@ async function handleCommand(cmd, chatId, userId, userName, who, res) {
         return res.status(200).json({ ok: true });
       }
       let txt = `💳 <b>Баланс по рахунках:</b>\n\n`;
-      let total = 0;
+      let totalUah = 0;
+      const SYM = { USD: '$', EUR: '€' };
       wallets.forEach(w => {
         const sign = w.balance >= 0 ? '+' : '';
-        txt += `💳 <b>${w.name}</b>: ${sign}${fmtMoney(w.balance)}\n`;
-        total += w.balance;
+        if (w.primaryCur !== 'UAH') {
+          const sym = SYM[w.primaryCur] || w.primaryCur;
+          txt += `💳 <b>${w.name}</b>: ${sign}${w.balance} ${sym} (≈ ${fmtMoney(Math.abs(w.balanceUah))})\n`;
+        } else {
+          txt += `💳 <b>${w.name}</b>: ${sign}${fmtMoney(w.balance)}\n`;
+        }
+        totalUah += w.balanceUah;
       });
-      txt += `━━━━━━━━━━━━━━━\n💎 Разом: <b>${total >= 0 ? '+' : ''}${fmtMoney(total)}</b>`;
+      txt += `━━━━━━━━━━━━━━━\n💎 Разом: <b>${totalUah >= 0 ? '+' : ''}${fmtMoney(totalUah)}</b>`;
       await sendMessage(chatId, txt);
       return res.status(200).json({ ok: true });
     }
