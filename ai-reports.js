@@ -62,22 +62,17 @@ function collectData() {
 }
 
 async function callClaude(prompt) {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetch('/api/ai-report', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1000,
-      system: SYSTEM,
-      messages: [{ role: 'user', content: prompt }],
-    }),
+    body: JSON.stringify({ prompt }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || `API ${res.status}`);
+    throw new Error(err.error || `API ${res.status}`);
   }
   const data = await res.json();
-  return data.content?.filter(c => c.type === 'text').map(c => c.text).join('\n') || '';
+  return data.text || '';
 }
 
 export async function generateReport(type = 'monthly') {
