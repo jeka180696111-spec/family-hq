@@ -30,13 +30,13 @@
 
 /* Компактний hero (v2) — менший за висотою */
 .dash-hero-v2 {
-  background: linear-gradient(135deg, var(--c-accent) 0%, #5BA88A 100%);
+  background: linear-gradient(135deg, #1a6b4a 0%, #2E7D5F 45%, #3d9b78 100%);
   border-radius: var(--radius-xl);
-  padding: 20px 24px;
+  padding: 24px 22px 20px;
   color: #fff;
   position: relative;
   overflow: hidden;
-  box-shadow: var(--shadow);
+  box-shadow: 0 8px 32px rgba(46,125,95,0.25);
 }
 .dash-hero-v2::after {
   content: '';
@@ -46,9 +46,17 @@
   background: rgba(255,255,255,0.08);
   border-radius: 50%;
 }
-.dash-greet { font-size: 13px; opacity: 0.85; margin-bottom: 8px; }
-.dash-hero-label { font-size: 11px; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.06em; }
-.dash-hero-balance { font-size: 32px; font-weight: 700; margin: 2px 0 8px; line-height: 1.1; }
+.dash-hero-v2::before {
+  content: '';
+  position: absolute;
+  bottom: -40px; right: -20px;
+  width: 140px; height: 140px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 50%;
+}
+.dash-greet { font-size: 13px; opacity: 0.8; font-weight: 500; margin-bottom: 4px; }
+.dash-hero-label { font-size: 10px; opacity: 0.65; letter-spacing: 0.08em; margin-bottom: 2px; }
+.dash-hero-balance { font-size: 38px; font-weight: 800; margin: 4px 0 12px; line-height: 1; letter-spacing: -0.02em; }
 .dash-hero-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .dash-hero-pill {
   display: inline-flex; align-items: center; gap: 4px;
@@ -303,20 +311,22 @@
 .ops-list { display: flex; flex-direction: column; gap: 16px; }
 .ops-group-date {
   font-size: 11px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.06em;
+  text-transform: uppercase; letter-spacing: 0.05em;
   color: var(--c-text-3);
-  margin: 0 0 8px 4px;
+  padding: 16px 0 6px;
 }
+.ops-group:first-child .ops-group-date { padding-top: 4px; }
 .op-item {
   display: flex; align-items: center; gap: 12px;
-  padding: 12px;
+  padding: 12px 14px;
   background: var(--c-card);
-  border-radius: var(--radius);
-  margin-bottom: 6px;
+  border-radius: 12px;
+  border: .5px solid var(--c-border);
+  margin-bottom: 4px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: border-color .15s, box-shadow .15s;
 }
-.op-item:hover { background: var(--c-bg-3); }
+.op-item:hover { border-color: var(--c-accent); box-shadow: var(--shadow-sm); }
 .op-item-icon {
   width: 40px; height: 40px;
   border-radius: 12px;
