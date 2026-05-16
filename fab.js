@@ -4,6 +4,7 @@
 
 import { openOperationDialog } from './operations.js';
 import { openTransferDialog } from './transfer.js';
+import { openScannerChoice } from './receipt-scanner.js';
 
 let fabOpen = false;
 
@@ -61,6 +62,12 @@ function openFabMenu() {
       </div>
       <span class="fab-item-label">Обмін</span>
     </button>
+    <button class="fab-item" data-act="scanner">
+      <div class="fab-item-icon" style="background:var(--c-accent-soft);color:var(--c-accent)">
+        <i class="ti ti-scan"></i>
+      </div>
+      <span class="fab-item-label">Сканер</span>
+    </button>
   `;
   document.body.appendChild(menu);
   // Анімація появи
@@ -104,8 +111,10 @@ function handleFabAction(act) {
       openTransferDialog();
       break;
     case 'exchange':
-      // Обмін — це особливий випадок переказу між валютами
       openTransferDialog({ exchange: true });
+      break;
+    case 'scanner':
+      openScannerChoice();
       break;
   }
 }

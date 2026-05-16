@@ -323,11 +323,18 @@ function closeSidebar() {
 // ІНІЦІАЛІЗАЦІЯ
 // ═══════════════════════════════════════════════════════════════
 
+function initAIFab() {
+  const btn = document.getElementById('ai-fab-btn');
+  if (!btn) return;
+  btn.addEventListener('click', () => navigateTo('ai-chat'));
+}
+
 async function bootApp() {
   renderSidebar();
   renderTopbar();
   renderBottomNav();
   initFAB();
+  initAIFab();
 
   const overlay = document.getElementById('sidebar-overlay');
   if (overlay) overlay.addEventListener('click', closeSidebar);

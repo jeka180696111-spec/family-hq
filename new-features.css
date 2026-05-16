@@ -219,3 +219,29 @@
 .scanner-choice-btn:hover { border-color: var(--c-accent); }
 .scanner-choice-btn i { font-size: 24px; color: var(--c-accent); }
 .scanner-choice-desc { font-size: 12px; font-weight: 500; color: var(--c-text-3); margin-top: 2px; }
+
+/* ── AI FAB button (bottom-right corner) ─────────────────── */
+.ai-fab-btn {
+  position: fixed;
+  bottom: 80px;
+  right: 16px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--c-accent);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.18);
+  z-index: 90;
+  transition: transform .15s, box-shadow .15s;
+}
+.ai-fab-btn:hover { transform: scale(1.08); box-shadow: 0 6px 20px rgba(0,0,0,.22); }
+/* На десктопі де немає bottom-nav — ставимо нижче */
+@media (min-width: 768px) {
+  .ai-fab-btn { bottom: 24px; right: 24px; width: 52px; height: 52px; font-size: 24px; }
+}

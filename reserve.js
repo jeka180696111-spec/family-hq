@@ -65,6 +65,10 @@ export function renderReservePage() {
   // Загальний резерв у UAH
   const totalSavings = cardsWithBal.reduce((s, c) => s + toUah(c.balance, c.currency || 'UAH', state.fx), 0);
 
+  // ── Скільки місяців можна прожити без доходів ─────────────
+  const avgMonthlyExpense = calcAvgMonthlyExpense(ops);
+  const survivalMonths = avgMonthlyExpense > 0 ? totalSavings / avgMonthlyExpense : 0;
+
   // ── Старий резерв (з листа Резерв у таблиці) ──
   const r = state.reserve || {};
   const oldReserveTotal = r.totalUah || 0;
@@ -86,6 +90,8 @@ export function renderReservePage() {
           ${r.monthsCoverage > 0 ? `<span class="chip">🛡 На ${r.monthsCoverage} міс.</span>` : ''}
         </div>
       </div>
+
+      ${survivalMonths > 0 ? renderSurvivalBadge(survivalMonths, avgMonthlyExpense) : ''}
 
       <!-- Кошельки накопичень (нова логіка) -->
       ${cardsWithBal.length > 0 ? `
@@ -177,6 +183,59 @@ export function renderReservePage() {
 
   el.querySelector('#add-reserve-btn')?.addEventListener('click', () => openReserveDialog('Поповнення'));
   el.querySelector('#withdraw-reserve-btn')?.addEventListener('click', () => openReserveDialog('Зняття'));
+}
+
+// ── Розрахунок середніх місячних витрат ─────────────────────
+function calcAvgMonthlyExpense(ops) {
+  const byMonth = {};
+  ops.forEach(o => {
+    if (o.type !== 'Витрата') return;
+    const month = (o.date || '').substring(0, 7); // YYYY-MM
+    if (!month) return;
+    byMonth[month] = (byMonth[month] || 0) + (o.amountUah || o.amount || 0);
+  });
+  const months = Object.values(byMonth);
+  if (!months.length) return 0;
+  return months.reduce((s, v) => s + v, 0) / months.length;
+}
+
+function renderSurvivalBadge(months, avgExpense) {
+  let level, color, icon, label;
+  if (months < 1) {
+    level = 'Критично'; color = '#d93025'; icon = '🚨';
+    label = 'Менше місяця запасу — фінансова подушка потрібна терміново!';
+  } else if (months < 3) {
+    level = 'Мало'; color = '#f29900'; icon = '⚠️';
+    label = `${months.toFixed(1)} міс. — краще мати хоча б 3`;
+  } else if (months < 5) {
+    level = 'Середньо'; color = '#1a73e8'; icon = '👍';
+    label = `${months.toFixed(1)} міс. — непогано, ціль — 6+`;
+  } else if (months < 7) {
+    level = 'Прийнятно'; color = '#188038'; icon = '✅';
+    label = `${months.toFixed(1)} міс. — хороший рівень безпеки`;
+  } else {
+    level = 'Відмінно'; color = '#188038'; icon = '🏆';
+    label = `${months.toFixed(1)} міс. — фінансова подушка на висоті!`;
+  }
+
+  const pct = Math.min(100, (months / 12) * 100);
+  return `
+    <div class="dash-card" style="margin-bottom:14px">
+      <div class="dash-card-head">
+        <span class="dash-card-title">${icon} Подушка безпеки</span>
+        <span style="font-size:12px;font-weight:600;color:${color}">${level}</span>
+      </div>
+      <div style="font-size:28px;font-weight:700;color:${color};margin:4px 0 2px">${months >= 1 ? months.toFixed(1) : '<1'} міс.</div>
+      <div style="font-size:13px;color:var(--c-text-2);margin-bottom:10px">${label}</div>
+      <div style="height:6px;border-radius:3px;background:var(--c-border);overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:${color};border-radius:3px;transition:width .4s"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--c-text-3);margin-top:4px">
+        <span>0</span><span>3 міс.</span><span>6 міс.</span><span>12 міс.</span>
+      </div>
+      ${avgExpense > 0 ? `<div style="font-size:12px;color:var(--c-text-3);margin-top:6px">Середні витрати: ${fmtMoney(Math.round(avgExpense), 'UAH')} / міс.</div>` : ''}
+    </div>
+  `;
 }
 
 function openReserveDialog(type) {
