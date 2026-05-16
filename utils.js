@@ -31,17 +31,19 @@ export function toUah(amount, currency, fx) {
 }
 
 // Формат із UAH в дужках для валютних кошельків
-// USD/EUR → "$200 (≈ 8 798 ₴)"
-// UAH → "40 077 ₴" (без дужок)
+// USD/EUR → "$200 (≈ 8 798 ₴)" або "−$200 (≈ −8 798 ₴)"
+// UAH → "40 077 ₴" або "−40 077 ₴" (без дужок)
 export function fmtMoneyWithUah(amount, currency, fx) {
   if (amount === null || amount === undefined || isNaN(amount)) return '0 ₴';
+  const sign = amount < 0 ? '−' : '';
+  const abs = Math.abs(amount);
   if (!currency || currency === 'UAH') {
-    return fmtMoney(amount, 'UAH');
+    return sign + fmtMoney(abs, 'UAH');
   }
   // Валютний — показуємо в його валюті + UAH в дужках
-  const main = fmtMoney(amount, currency);
-  const uahEquiv = toUah(amount, currency, fx);
-  return `${main} <span class="cur-uah">(≈ ${fmtMoney(uahEquiv, 'UAH')})</span>`;
+  const main = fmtMoney(abs, currency);
+  const uahEquiv = toUah(abs, currency, fx);
+  return `${sign}${main} <span class="cur-uah">(≈ ${sign}${fmtMoney(uahEquiv, 'UAH')})</span>`;
 }
 
 // Знак суми зі вставкою UAH

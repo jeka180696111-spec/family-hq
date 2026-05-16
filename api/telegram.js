@@ -522,16 +522,20 @@ async function handleCommand(cmd, chatId, userId, userName, who, res) {
       let totalUah = 0;
       const SYM = { USD: '$', EUR: '€' };
       wallets.forEach(w => {
-        const sign = w.balance >= 0 ? '+' : '';
+        const pos = w.balance >= 0;
+        const sign = pos ? '+' : '−';
+        const absNative = Math.abs(w.balance);
+        const absUah = Math.abs(w.balanceUah);
         if (w.primaryCur !== 'UAH') {
           const sym = SYM[w.primaryCur] || w.primaryCur;
-          txt += `💳 <b>${w.name}</b>: ${sign}${w.balance} ${sym} (≈ ${fmtMoney(Math.abs(w.balanceUah))})\n`;
+          txt += `💳 <b>${w.name}</b>: ${sign}${absNative} ${sym} (≈ ${sign === '−' ? '−' : ''}${fmtMoney(absUah)})\n`;
         } else {
-          txt += `💳 <b>${w.name}</b>: ${sign}${fmtMoney(w.balance)}\n`;
+          txt += `💳 <b>${w.name}</b>: ${sign}${fmtMoney(absNative)}\n`;
         }
         totalUah += w.balanceUah;
       });
-      txt += `━━━━━━━━━━━━━━━\n💎 Разом: <b>${totalUah >= 0 ? '+' : ''}${fmtMoney(totalUah)}</b>`;
+      const totalSign = totalUah >= 0 ? '+' : '−';
+      txt += `━━━━━━━━━━━━━━━\n💎 Разом: <b>${totalSign}${fmtMoney(Math.abs(totalUah))}</b>`;
       await sendMessage(chatId, txt);
       return res.status(200).json({ ok: true });
     }
