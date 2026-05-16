@@ -270,11 +270,17 @@
   background: var(--c-accent); opacity: 0.6; border-radius: 1px;
 }
 .dash-cat-bar-fill.over-limit { background: var(--c-red) !important; }
+.dash-cat-bar-fill.over-plan { background: #f59e0b !important; }
+.dash-cat-plan-line {
+  position: absolute; top: 0; bottom: 0; width: 2px;
+  background: #f59e0b; opacity: 0.7; border-radius: 1px;
+}
 .dash-cat-limit-badge {
   font-size: 10px; font-weight: 600; margin-left: 4px;
   color: var(--c-text-3); vertical-align: middle;
 }
 .dash-cat-limit-badge.over { color: var(--c-red); }
+.dash-cat-limit-badge.plan { color: #f59e0b; }
 
 /* ── Settings limits ───────────────────────────────────────── */
 .settings-limit-input {

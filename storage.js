@@ -259,3 +259,10 @@ export function getCategoryLimits() {
 export function setCategoryLimits(limits) {
   writeJson('budget_cat_limits', limits);
 }
+
+export function getSpendingPlan() {
+  return readJson('budget_spending_plan', {});
+}
+export function setSpendingPlan(plan) {
+  writeJson('budget_spending_plan', plan);
+}

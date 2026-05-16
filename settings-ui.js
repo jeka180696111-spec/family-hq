@@ -11,6 +11,7 @@ import {
   getCards,
   getTheme,
   getCategoryLimits, setCategoryLimits,
+  getSpendingPlan, setSpendingPlan,
 } from './storage.js';
 import { syncSettingsToSheet, pingBackend, generateInviteCode } from './api.js';
 import { applyTheme, toggleTheme } from './theme.js';
@@ -19,28 +20,133 @@ import { openIconPicker } from './icon-picker.js';
 import { openBottomSheet, closeModal, confirmModal, promptModal } from './modals.js';
 import { signOut } from './auth.js';
 
-function renderLimitsRows() {
-  const cats = getExpCats();
-  const limits = getCategoryLimits();
+function getCatMeta(key) {
+  const cat = getExpCats().find(c => (c.id || c) === key);
+  return cat || { icon: 'ti-dots', bg: '#f0f0f0', color: '#888' };
+}
+
+function renderBudgetGrid(type) {
+  const data = type === 'plan' ? getSpendingPlan() : getCategoryLimits();
+  const entries = Object.entries(data);
+  const noun = type === 'plan' ? 'план' : 'ліміт';
+
+  const cards = entries.map(([key, amount]) => {
+    const m = getCatMeta(key);
+    return `
+      <div class="limits-card">
+        <button class="limits-card-del" data-budget-del="${type}" data-key="${esc(key)}" title="Видалити">
+          <i class="ti ti-x"></i>
+        </button>
+        <div class="limits-card-icon" style="background:${m.bg}">
+          <i class="ti ${m.icon}" style="color:${m.color}"></i>
+        </div>
+        <div class="limits-card-name">${esc(key)}</div>
+        <button class="limits-card-amount-btn" data-budget-edit="${type}" data-key="${esc(key)}" data-amount="${amount}">
+          ${Math.round(amount).toLocaleString('uk-UA')} ₴
+        </button>
+      </div>
+    `;
+  }).join('');
+
   return `
-    <div class="limits-grid">
-      ${cats.map(cat => {
-        const key = cat.id || cat;
-        return `
-          <div class="limits-card">
-            <div class="limits-card-icon" style="background:${cat.bg || '#eee'}">
-              <i class="ti ${cat.icon || 'ti-dots'}" style="color:${cat.color || '#555'}"></i>
-            </div>
-            <div class="limits-card-name">${esc(key)}</div>
-            <input class="settings-limit-input limits-card-input" data-cat="${esc(key)}"
-              type="number" min="0" step="100" placeholder="∞"
-              value="${limits[key] || ''}">
-          </div>
-        `;
-      }).join('')}
+    <div class="limits-grid" id="${type}-grid">
+      ${cards || `<div class="settings-hint" style="grid-column:1/-1">Не встановлено. Натисни «Додати ${noun}».</div>`}
     </div>
-    <button class="btn-primary" style="width:100%;margin-top:14px" id="save-limits-btn">Зберегти ліміти</button>
+    <button class="settings-add-btn" id="add-${type}-btn">
+      <i class="ti ti-plus"></i> Додати ${noun}
+    </button>
   `;
+}
+
+function openAddBudgetItem(type) {
+  const data = type === 'plan' ? getSpendingPlan() : getCategoryLimits();
+  const cats = getExpCats();
+  const noun = type === 'plan' ? 'план' : 'ліміт';
+
+  const catsHtml = cats.map(c => {
+    const key = c.id || c;
+    const already = !!data[key];
+    return `
+      <button class="limits-card add-budget-pick ${already ? 'already' : ''}" data-pick="${esc(key)}" ${already ? 'disabled' : ''}>
+        <div class="limits-card-icon" style="background:${c.bg}">
+          <i class="ti ${c.icon}" style="color:${c.color}"></i>
+        </div>
+        <div class="limits-card-name">${esc(key)}</div>
+        ${already ? '<div class="limits-card-name" style="font-size:9px;color:var(--c-text-3)">вже є</div>' : ''}
+      </button>
+    `;
+  }).join('') + `
+    <button class="limits-card add-budget-pick" data-pick="__custom__">
+      <div class="limits-card-icon" style="background:#f0f0f0"><i class="ti ti-pencil" style="color:#888"></i></div>
+      <div class="limits-card-name">Своя</div>
+    </button>
+  `;
+
+  let selectedKey = null;
+  let modalId;
+
+  modalId = openBottomSheet({
+    title: `Додати ${noun}`,
+    content: `
+      <div style="margin-bottom:12px;font-size:13px;color:var(--c-text-2)">Виберіть категорію та вкажіть суму</div>
+      <div class="limits-grid">${catsHtml}</div>
+      <div id="add-budget-amount-row" style="display:none;margin-top:14px;align-items:center;gap:10px">
+        <div id="add-budget-selected-name" style="font-weight:700;font-size:14px;flex:1"></div>
+        <input id="add-budget-amount" class="settings-row-input" type="number" min="0" step="100" placeholder="Сума (₴)" style="max-width:130px">
+      </div>
+    `,
+    footer: `
+      <button class="btn-ghost flex-1" data-modal-close>Скасувати</button>
+      <button class="btn-primary flex-1" id="confirm-add-budget" disabled>Додати ${noun}</button>
+    `,
+    onOpen: (modal) => {
+      modal.querySelectorAll('.add-budget-pick:not([disabled])').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (btn.dataset.pick === '__custom__') {
+            const name = await promptModal('Назва категорії', '', { placeholder: 'Наприклад: Кафе', okText: 'Далі' });
+            if (!name) return;
+            selectedKey = name.trim();
+          } else {
+            selectedKey = btn.dataset.pick;
+          }
+          modal.querySelectorAll('.add-budget-pick').forEach(b => b.classList.remove('selected'));
+          btn.classList.add('selected');
+          modal.querySelector('#add-budget-selected-name').textContent = selectedKey;
+          modal.querySelector('#add-budget-amount-row').style.display = 'flex';
+          modal.querySelector('#add-budget-amount').focus();
+          modal.querySelector('#confirm-add-budget').disabled = false;
+        });
+      });
+
+      modal.querySelector('#confirm-add-budget').addEventListener('click', () => {
+        const amt = parseFloat(modal.querySelector('#add-budget-amount').value);
+        if (!selectedKey || !(amt > 0)) { showToast('Вкажіть суму', 'error'); return; }
+        const d = type === 'plan' ? getSpendingPlan() : getCategoryLimits();
+        d[selectedKey] = amt;
+        if (type === 'plan') setSpendingPlan(d); else setCategoryLimits(d);
+        closeModal(modalId);
+        renderSettingsPage();
+        showToast('✅ Додано');
+      });
+    },
+  });
+}
+
+function openEditBudgetItem(type, key, currentAmount) {
+  const noun = type === 'plan' ? 'план' : 'ліміт';
+  promptModal(`${noun === 'план' ? 'План' : 'Ліміт'} для «${key}» (₴)`, String(currentAmount), {
+    placeholder: 'Сума ₴',
+    okText: 'Зберегти',
+  }).then(val => {
+    if (val === null) return;
+    const amt = parseFloat(val);
+    if (!(amt > 0)) return;
+    const d = type === 'plan' ? getSpendingPlan() : getCategoryLimits();
+    d[key] = amt;
+    if (type === 'plan') setSpendingPlan(d); else setCategoryLimits(d);
+    renderSettingsPage();
+    showToast('✅ Збережено');
+  });
 }
 
 export function renderSettingsPage() {
@@ -120,14 +226,6 @@ export function renderSettingsPage() {
         </div>
       </div>
 
-      <!-- Ліміти по категоріях -->
-      <div class="settings-section">
-        <div class="settings-label">Ліміти витрат (грн/міс)</div>
-        <div class="settings-card" id="limits-card">
-          ${renderLimitsRows()}
-        </div>
-      </div>
-
       <!-- Sync -->
       <div class="settings-section">
         <div class="settings-label">Firebase</div>
@@ -148,6 +246,22 @@ export function renderSettingsPage() {
             </div>
             <button class="btn-ghost-sm" id="diag-btn">Запустити</button>
           </div>
+        </div>
+      </div>
+
+      <!-- План витрат -->
+      <div class="settings-section">
+        <div class="settings-label">План витрат (грн/міс)</div>
+        <div class="settings-card" id="plan-card">
+          ${renderBudgetGrid('plan')}
+        </div>
+      </div>
+
+      <!-- Ліміти витрат -->
+      <div class="settings-section">
+        <div class="settings-label">Ліміти витрат (грн/міс)</div>
+        <div class="settings-card" id="limits-card">
+          ${renderBudgetGrid('limits')}
         </div>
       </div>
 
@@ -497,16 +611,28 @@ function bindHandlers(el) {
     update(results);
   });
 
-  // Ліміти
-  el.querySelector('#save-limits-btn')?.addEventListener('click', () => {
-    const newLimits = {};
-    el.querySelectorAll('.settings-limit-input').forEach(inp => {
-      const val = parseFloat(inp.value);
-      if (val > 0) newLimits[inp.dataset.cat] = val;
+  // Бюджет (план і ліміти) — делегування на document
+  el.querySelectorAll('[data-budget-del]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const type = btn.dataset.budgetDel;
+      const key = btn.dataset.key;
+      const ok = await confirmModal(`Видалити ${type === 'plan' ? 'план' : 'ліміт'} для «${key}»?`, { danger: true, okText: 'Видалити' });
+      if (!ok) return;
+      const d = type === 'plan' ? getSpendingPlan() : getCategoryLimits();
+      delete d[key];
+      if (type === 'plan') setSpendingPlan(d); else setCategoryLimits(d);
+      renderSettingsPage();
     });
-    setCategoryLimits(newLimits);
-    showToast('✅ Ліміти збережено');
   });
+
+  el.querySelectorAll('[data-budget-edit]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      openEditBudgetItem(btn.dataset.budgetEdit, btn.dataset.key, parseFloat(btn.dataset.amount));
+    });
+  });
+
+  el.querySelector('#add-plan-btn')?.addEventListener('click', () => openAddBudgetItem('plan'));
+  el.querySelector('#add-limits-btn')?.addEventListener('click', () => openAddBudgetItem('limits'));
 
   // Додати
   el.querySelector('#add-exp-cat-btn')?.addEventListener('click', () => openCatEditor('exp'));

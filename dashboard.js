@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { FAMILY_MEMBERS, state } from './config.js';
-import { getCards, getProfiles, getWalletTypeById, getFamilyName, getVisibleWallets, setVisibleWallets, getViewAsMember, getCategoryLimits } from './storage.js';
+import { getCards, getProfiles, getWalletTypeById, getFamilyName, getVisibleWallets, setVisibleWallets, getViewAsMember, getCategoryLimits, getSpendingPlan } from './storage.js';
 import { apiGet } from './api.js';
 import { esc, fmtMoney, fmtMoneyShort, fmtMoneyWithUah, setText, fmtDate, log } from './utils.js';
 import { openOperationDialog } from './operations.js';
@@ -418,6 +418,7 @@ function renderCategoriesBlock(d, byCat, total) {
   total = total || d.totalExpense || entries.reduce((s, [, v]) => s + v, 0) || 1;
   if (!entries.length) return '';
   const limits = getCategoryLimits();
+  const plan = getSpendingPlan();
 
   return `
     <div class="dash-card">
@@ -429,16 +430,26 @@ function renderCategoriesBlock(d, byCat, total) {
         ${entries.map(([cat, val]) => {
           const pct = (val / total * 100).toFixed(0);
           const limit = limits[cat];
-          const limitPct = limit ? Math.min(100, Math.round((val / limit) * 100)) : null;
+          const planned = plan[cat];
+          const ref = limit || planned;
+          const refPct = ref ? Math.min(100, Math.round((val / ref) * 100)) : null;
           const overLimit = limit && val > limit;
+          const overPlan = !overLimit && planned && val > planned;
+          const barClass = overLimit ? 'over-limit' : (overPlan ? 'over-plan' : '');
+          const badge = limit
+            ? `<span class="dash-cat-limit-badge ${overLimit ? 'over' : ''}">${refPct}% ліміт</span>`
+            : planned
+              ? `<span class="dash-cat-limit-badge ${overPlan ? 'over' : 'plan'}">${refPct}% план</span>`
+              : '';
           return `
             <div class="dash-cat-row">
-              <div class="dash-cat-name">${esc(cat)}${overLimit ? ' ⚠️' : ''}</div>
+              <div class="dash-cat-name">${esc(cat)}${overLimit ? ' ⚠️' : overPlan ? ' 📋' : ''}</div>
               <div class="dash-cat-bar">
-                <div class="dash-cat-bar-fill ${overLimit ? 'over-limit' : ''}" style="width:${pct}%"></div>
-                ${limit ? `<div class="dash-cat-limit-line" style="left:${Math.min(100, (limit/total*100)).toFixed(0)}%"></div>` : ''}
+                <div class="dash-cat-bar-fill ${barClass}" style="width:${pct}%"></div>
+                ${limit ? `<div class="dash-cat-limit-line" style="left:${Math.min(100,(limit/total*100)).toFixed(0)}%" title="Ліміт: ${fmtMoneyShort(limit)}"></div>` : ''}
+                ${planned && !limit ? `<div class="dash-cat-plan-line" style="left:${Math.min(100,(planned/total*100)).toFixed(0)}%" title="План: ${fmtMoneyShort(planned)}"></div>` : ''}
               </div>
-              <div class="dash-cat-amount">${fmtMoney(val, 'UAH')}${limit ? `<span class="dash-cat-limit-badge ${overLimit ? 'over' : ''}">${limitPct}%</span>` : ''}</div>
+              <div class="dash-cat-amount">${fmtMoney(val, 'UAH')}${badge}</div>
             </div>
           `;
         }).join('')}
@@ -544,49 +555,49 @@ function openWalletsVisibilityDialog() {
       }).join('');
     }
 
-    const wrap = document.createElement('div');
-    wrap.innerHTML = `
-      <div style="margin-bottom:10px;display:flex;gap:8px;justify-content:flex-end">
-        <button class="btn-ghost-sm" data-act="all">Обрати всі</button>
-        <button class="btn-ghost-sm" data-act="none">Зняти всі</button>
-      </div>
-      <div class="vis-grid" id="vis-list">${renderGrid()}</div>
-      <button class="btn-primary" style="width:100%;margin-top:14px" data-act="save">Зберегти</button>
-    `;
-
-    modalId = openBottomSheet({ title: 'Кошельки на дашборді', contentEl: wrap });
-
-    function rerender() {
-      const listEl = wrap.querySelector('#vis-list');
-      if (listEl) { listEl.innerHTML = renderGrid(); bindGrid(); }
+    function bodyHtml() {
+      return `
+        <div style="margin-bottom:10px;display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn-ghost-sm" data-act="all">Обрати всі</button>
+          <button class="btn-ghost-sm" data-act="none">Зняти всі</button>
+        </div>
+        <div class="vis-grid" id="vis-list">${renderGrid()}</div>
+        <button class="btn-primary" style="width:100%;margin-top:14px" data-act="save">Зберегти</button>
+      `;
     }
 
-    function bindGrid() {
-      wrap.querySelectorAll('.vis-card').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const key = btn.dataset.key;
-          if (selectedSet.has(key)) selectedSet.delete(key);
-          else selectedSet.add(key);
-          rerender();
+    modalId = openBottomSheet({
+      title: 'Кошельки на дашборді',
+      content: bodyHtml(),
+      onOpen: (modal) => {
+        function rerender() {
+          const listEl = modal.querySelector('#vis-list');
+          if (listEl) { listEl.innerHTML = renderGrid(); bindGrid(modal); }
+        }
+        function bindGrid(root) {
+          root.querySelectorAll('.vis-card').forEach(btn => {
+            btn.addEventListener('click', () => {
+              if (selectedSet.has(btn.dataset.key)) selectedSet.delete(btn.dataset.key);
+              else selectedSet.add(btn.dataset.key);
+              rerender();
+            });
+          });
+        }
+        bindGrid(modal);
+        modal.querySelector('[data-act="all"]').addEventListener('click', () => {
+          allCards.forEach(c => selectedSet.add(c.key)); rerender();
         });
-      });
-    }
-    bindGrid();
-
-    wrap.querySelector('[data-act="all"]').addEventListener('click', () => {
-      allCards.forEach(c => selectedSet.add(c.key));
-      rerender();
-    });
-    wrap.querySelector('[data-act="none"]').addEventListener('click', () => {
-      selectedSet.clear();
-      rerender();
-    });
-    wrap.querySelector('[data-act="save"]').addEventListener('click', () => {
-      if (selectedSet.size === allCards.length) setVisibleWallets(null);
-      else setVisibleWallets(Array.from(selectedSet));
-      closeModal(modalId);
-      renderDashboard();
-      import('./utils.js').then(u => u.showToast('✅ Налаштовано'));
+        modal.querySelector('[data-act="none"]').addEventListener('click', () => {
+          selectedSet.clear(); rerender();
+        });
+        modal.querySelector('[data-act="save"]').addEventListener('click', () => {
+          if (selectedSet.size === allCards.length) setVisibleWallets(null);
+          else setVisibleWallets(Array.from(selectedSet));
+          closeModal(modalId);
+          renderDashboard();
+          import('./utils.js').then(u => u.showToast('✅ Налаштовано'));
+        });
+      },
     });
   });
 }
