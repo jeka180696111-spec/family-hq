@@ -1,4 +1,4 @@
-const CACHE = 'budget-v2';
+const CACHE = 'budget-v3';
 const STATIC = [
   '/', '/index.html',
   '/base.css', '/layout.css', '/components.css', '/pages.css', '/new-features.css',
@@ -30,6 +30,9 @@ self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
 
   const url = new URL(e.request.url);
+
+  // Only handle http/https — skip chrome-extension://, data:, etc.
+  if (!url.protocol.startsWith('http')) return;
 
   // API calls: network-first, fallback to cache
   if (url.pathname.startsWith('/api/')) {
