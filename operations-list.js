@@ -11,10 +11,12 @@ import { getProfiles, getViewAsMember } from './storage.js';
 export async function loadOperations() {
   try {
     const cur = state.currentMonth instanceof Date ? state.currentMonth : new Date();
-    const data = await apiGet('operations', { month: monthKey(cur), limit: 500 });
+    const data = await apiGet('operations', { month: monthKey(cur), limit: 50 });
     state.operations = data.operations || [];
+    state.opsAllLoaded = (data.operations || []).length < 50;
   } catch (e) {
     state.operations = [];
+    state.opsAllLoaded = true;
   }
   renderOperationsPage();
 }
@@ -48,6 +50,17 @@ export function renderOperationsPage() {
 
   if (effectiveWho !== 'all') ops = ops.filter(o => o.who === effectiveWho);
   if (f.type !== 'all') ops = ops.filter(o => o.type === f.type);
+
+  // Текстовий пошук по категорії, опису, хто, картка
+  const searchQ = (state.opSearch || '').trim().toLowerCase();
+  if (searchQ) {
+    ops = ops.filter(o =>
+      (o.category || '').toLowerCase().includes(searchQ) ||
+      (o.desc     || '').toLowerCase().includes(searchQ) ||
+      (o.who      || '').toLowerCase().includes(searchQ) ||
+      (o.card     || '').toLowerCase().includes(searchQ)
+    );
+  }
 
   const cur = state.currentMonth instanceof Date ? state.currentMonth : new Date();
   const monthLabel = cur.toLocaleDateString('uk-UA', { month: 'long', year: 'numeric' });
@@ -94,6 +107,9 @@ export function renderOperationsPage() {
         </button>
       </div>
 
+      <!-- Пошук -->
+      <input class="ops-search-input" id="ops-search" type="search" placeholder="Пошук операцій..." value="${esc(state.opSearch || '')}">
+
       <!-- Фільтри -->
       <div class="ops-filters">
         <div class="wallets-filter-chips">
@@ -112,6 +128,9 @@ export function renderOperationsPage() {
 
       <div id="ops-content">
         ${state.opsView === 'calendar' ? renderCalendarView(ops, cur) : renderListView(ops)}
+        ${state.opsView === 'list' && !state.opsAllLoaded && !searchQ
+          ? `<button class="btn-ghost ops-load-more">Завантажити ще...</button>`
+          : ''}
       </div>
     </div>
   `;
@@ -282,6 +301,12 @@ function renderOpItem(op) {
 }
 
 function bindHandlers(el) {
+  // Пошук
+  el.querySelector('#ops-search')?.addEventListener('input', e => {
+    state.opSearch = e.target.value;
+    renderOperationsPage();
+  });
+
   // Перемикач Список / Календар
   el.querySelectorAll('[data-view]').forEach(b => {
     b.addEventListener('click', () => {
@@ -312,13 +337,32 @@ function bindHandlers(el) {
     const d = state.currentMonth instanceof Date ? state.currentMonth : new Date();
     state.currentMonth = new Date(d.getFullYear(), d.getMonth() - 1, 1);
     state.selectedCalDay = null;
+    state.opsAllLoaded = false;
     loadOperations();
   });
   el.querySelector('[data-month="next"]')?.addEventListener('click', () => {
     const d = state.currentMonth instanceof Date ? state.currentMonth : new Date();
     state.currentMonth = new Date(d.getFullYear(), d.getMonth() + 1, 1);
     state.selectedCalDay = null;
+    state.opsAllLoaded = false;
     loadOperations();
+  });
+
+  // Завантажити ще
+  el.querySelector('.ops-load-more')?.addEventListener('click', async () => {
+    const btn = el.querySelector('.ops-load-more');
+    if (btn) { btn.disabled = true; btn.textContent = 'Завантаження...'; }
+    try {
+      const cur = state.currentMonth instanceof Date ? state.currentMonth : new Date();
+      const data = await apiGet('operations', { month: monthKey(cur), limit: 50, offset: state.operations.length });
+      const newOps = data.operations || [];
+      state.operations = [...state.operations, ...newOps];
+      if (newOps.length === 0) state.opsAllLoaded = true;
+      else if (newOps.length < 50) state.opsAllLoaded = true;
+    } catch (e) {
+      state.opsAllLoaded = true;
+    }
+    renderOperationsPage();
   });
 
   // Клік на день календаря

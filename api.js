@@ -196,6 +196,10 @@ async function getOperations(params) {
 
   q = q.limit(Number(params?.limit) || 500);
 
+  if (params?.offset && Number(params.offset) > 0) {
+    q = q.offset(Number(params.offset));
+  }
+
   const snapshot = await q.get();
   let ops = snapshot.docs.map(doc => ({ id: doc.id, row: doc.id, ...doc.data() }));
 

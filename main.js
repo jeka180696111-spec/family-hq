@@ -344,6 +344,15 @@ async function bootApp() {
   if (overlay) overlay.addEventListener('click', closeSidebar);
 
   navigateTo('dashboard');
+
+  // Handle PWA shortcuts
+  const urlAction = new URLSearchParams(location.search).get('action');
+  if (urlAction === 'add-expense') {
+    setTimeout(() => import('./operations.js').then(m => m.openOperationDialog({ type: 'Витрата' })), 500);
+  } else if (urlAction === 'add-income') {
+    setTimeout(() => import('./operations.js').then(m => m.openOperationDialog({ type: 'Дохід' })), 500);
+  }
+
   refreshFx();
 
   // Початковий синк
@@ -364,6 +373,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Ініціалізуємо Firebase
   firebase.initializeApp(FIREBASE_CONFIG);
   initFirestore();
+
+  // Register service worker for offline support
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
 
   // Firebase Auth — слухаємо стан входу
   initAuth(async (user) => {

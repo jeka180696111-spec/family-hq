@@ -3,6 +3,7 @@
   "short_name": "Бюджет",
   "start_url": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "background_color": "#F8FAF9",
   "theme_color": "#2E7D5F",
   "orientation": "portrait",
@@ -18,6 +19,22 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Додати витрату",
+      "short_name": "Витрата",
+      "description": "Швидко додати витрату",
+      "url": "/?action=add-expense",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Додати дохід",
+      "short_name": "Дохід",
+      "description": "Швидко додати дохід",
+      "url": "/?action=add-income",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
     }
   ]
 }
