@@ -59,6 +59,9 @@ export function renderDashboard() {
   const { freeBalance, savingsBalance } = calcBalanceSplit(viewAs);
   const creditAvail = calcCreditAvailable(viewAs);
   const savRate = totalIncome > 0 ? Math.round((totalIncome - totalExpense) / totalIncome * 100) : 0;
+  const recurringTotal = (state.recurringPayments || [])
+    .filter(p => p.active !== false && (!viewAs || p.who === viewAs || p.who === 'Загальний'))
+    .reduce((s, p) => s + (p.amount || 0), 0);
 
   el.innerHTML = `
     <div class="dashboard">
@@ -74,6 +77,7 @@ export function renderDashboard() {
               <i class="ti ti-cash"></i> Готівка: ${fmtMoney(freeBalance, 'UAH')}
             </span>
             ${creditAvail > 0 ? `<span class="dash-hero-pill"><i class="ti ti-credit-card"></i> Кредит вільно: ${fmtMoney(creditAvail, 'UAH')}</span>` : ''}
+            ${recurringTotal > 0 ? `<span class="dash-hero-pill warn" data-go="recurring"><i class="ti ti-calendar-repeat"></i> Платежі: ${fmtMoney(recurringTotal, 'UAH')}</span>` : ''}
             <span class="dash-hero-pill ${savRate >= 0 ? 'pos' : 'neg'}">
               <i class="ti ${savRate >= 0 ? 'ti-trending-up' : 'ti-trending-down'}"></i>
               ${savRate}% накопичено
