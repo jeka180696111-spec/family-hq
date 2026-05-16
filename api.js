@@ -116,22 +116,36 @@ async function getDashboard(period) {
     if (m.byCard) Object.values(m.byCard).forEach(c => c.balance = c.income - c.expense);
   });
 
-  // По категоріях
+  // По категоріях (загальне + по членах)
   const byCategory = {};
+  const byCategoryMember = {};
   realOps.filter(o => o.type === 'Витрата').forEach(o => {
     const cat = o.category || 'Інше';
+    const who = o.who || 'Інше';
     byCategory[cat] = (byCategory[cat] || 0) + (o.amountUah || o.amount || 0);
+    if (!byCategoryMember[who]) byCategoryMember[who] = {};
+    byCategoryMember[who][cat] = (byCategoryMember[who][cat] || 0) + (o.amountUah || o.amount || 0);
   });
 
-  // По днях
+  // По днях (загальне + по членах)
   const byDay = {};
   const byDayIncome = {};
+  const byDayMember = {};
+  const byDayIncomeMember = {};
   realOps.forEach(o => {
-    // Беремо день напряму з рядка дати (YYYY-MM-DD), не через Date щоб уникнути UTC зсуву
     const day = parseInt((o.date || '').split('-')[2] || '0', 10);
     if (!day) return;
-    if (o.type === 'Витрата') byDay[day] = (byDay[day] || 0) + (o.amountUah || o.amount || 0);
-    if (o.type === 'Дохід') byDayIncome[day] = (byDayIncome[day] || 0) + (o.amountUah || o.amount || 0);
+    const who = o.who || 'Інше';
+    if (o.type === 'Витрата') {
+      byDay[day] = (byDay[day] || 0) + (o.amountUah || o.amount || 0);
+      if (!byDayMember[who]) byDayMember[who] = {};
+      byDayMember[who][day] = (byDayMember[who][day] || 0) + (o.amountUah || o.amount || 0);
+    }
+    if (o.type === 'Дохід') {
+      byDayIncome[day] = (byDayIncome[day] || 0) + (o.amountUah || o.amount || 0);
+      if (!byDayIncomeMember[who]) byDayIncomeMember[who] = {};
+      byDayIncomeMember[who][day] = (byDayIncomeMember[who][day] || 0) + (o.amountUah || o.amount || 0);
+    }
   });
 
   // Останні 8 + всі операції по картках (для реального залишку кредиток)
@@ -160,7 +174,7 @@ async function getDashboard(period) {
     totalExpense: Math.round(totalExpense),
     balance: Math.round(totalIncome - totalExpense),
     savingsRate: totalIncome > 0 ? (totalIncome - totalExpense) / totalIncome * 100 : 0,
-    byMember, byCategory, byDay, byDayIncome, recent, cardBalances,
+    byMember, byCategory, byCategoryMember, byDay, byDayIncome, byDayMember, byDayIncomeMember, recent, cardBalances,
     fx: state.fx || {},
   };
 }
