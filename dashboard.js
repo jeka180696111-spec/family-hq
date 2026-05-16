@@ -319,14 +319,17 @@ function renderWalletsBlock(viewAs) {
                   <div class="wallet-credit-fill ${c.credit.status}" style="width:${c.credit.pct}%"></div>
                 </div>
                 <span class="wallet-credit-label ${c.credit.creditUsed > 0 ? 'used' : ''}">
-                  ${c.credit.creditUsed > 0
-                    ? `${fmtMoney(c.credit.creditUsed)} / ${fmtMoney(c.credit.limit)}`
-                    : `ліміт ${fmtMoney(c.credit.limit)}`}
+                  використано ${fmtMoney(c.credit.creditUsed)} з ${fmtMoney(c.credit.limit)}
                 </span>
               </div>
             ` : ''}
           </div>
-          <div class="dash-wallet-balance ${c.balance >= 0 ? 'pos' : 'neg'}">${fmtMoneyWithUah(c.balance, c.currency || 'UAH', state.fx)}</div>
+          <div class="dash-wallet-balance ${c.credit ? 'pos' : (c.balance >= 0 ? 'pos' : 'neg')}">
+            ${c.credit
+              ? `${fmtMoney(c.credit.creditAvail)} <span style="font-size:11px;font-weight:500;opacity:.7">вільно</span>`
+              : fmtMoneyWithUah(c.balance, c.currency || 'UAH', state.fx)
+            }
+          </div>
         </div>
       `).join('')}
     </div>
