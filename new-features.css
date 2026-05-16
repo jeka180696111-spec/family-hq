@@ -451,3 +451,61 @@
 
 /* ── Achievement date ─────────────────────────────────────── */
 .ch-achievement-date { font-size: 9px; color: var(--c-text-3); margin-top: 2px; }
+
+/* ── Lock Screen ─────────────────────────────────────────── */
+#lock-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--c-bg);
+}
+#lock-overlay.unlocking { opacity: 0; transition: opacity .25s; }
+.lock-screen {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 18px; padding: 32px 24px 40px; width: 100%; max-width: 320px;
+}
+.lock-icon {
+  width: 64px; height: 64px; border-radius: 50%;
+  background: var(--c-accent-soft); color: var(--c-accent);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 30px;
+}
+.lock-title { font-size: 18px; font-weight: 600; color: var(--c-text); }
+.lock-dots {
+  display: flex; gap: 14px; padding: 6px 0;
+  transition: transform .1s;
+}
+.lock-dots span {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--c-accent);
+  background: transparent; transition: background .15s;
+}
+.lock-dots span.filled { background: var(--c-accent); }
+.lock-dots.shake { animation: lock-shake .3s; }
+@keyframes lock-shake {
+  0%,100% { transform: translateX(0); }
+  20%      { transform: translateX(-8px); }
+  60%      { transform: translateX(8px); }
+}
+.lock-error {
+  font-size: 13px; color: var(--c-red); height: 16px;
+  opacity: 0; transition: opacity .2s;
+}
+.lock-pad {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 10px; width: 100%;
+}
+.lock-key {
+  height: 62px; border-radius: 14px; font-size: 22px; font-weight: 500;
+  background: var(--c-bg-2); border: 1px solid var(--c-border);
+  color: var(--c-text); cursor: pointer; transition: background .12s, transform .08s;
+  display: flex; align-items: center; justify-content: center;
+}
+.lock-key:active { background: var(--c-accent-soft); transform: scale(.94); }
+.lock-key-empty { background: transparent; border-color: transparent; pointer-events: none; }
+.lock-biom-btn {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 20px; border-radius: 24px;
+  background: var(--c-bg-2); border: 1px solid var(--c-border);
+  color: var(--c-accent); font-size: 14px; font-weight: 500; cursor: pointer;
+}
+.lock-biom-btn:active { opacity: .7; }

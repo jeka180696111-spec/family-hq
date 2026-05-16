@@ -14,6 +14,7 @@ import {
 } from './storage.js';
 import { initTheme, toggleTheme } from './theme.js';
 import { initAuth, signInWithGoogle, signOut, whoAmI } from './auth.js';
+import { checkAndLock, startActivityTracking } from './lock-screen.js';
 import { initFirestore, apiGet, syncSettingsToSheet, loadSettingsFromFirestore, loadFamilyData } from './api.js';
 import { initFAB } from './fab.js';
 import { renderDashboard, loadDashboard } from './dashboard.js';
@@ -376,7 +377,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (loginScreen) loginScreen.style.display = 'none';
     if (onboardingScreen) onboardingScreen.style.display = 'none';
     if (appRoot) appRoot.style.display = '';
-    bootApp();
+
+    const locked = checkAndLock(() => {
+      startActivityTracking();
+      bootApp();
+    });
+    if (!locked) {
+      startActivityTracking();
+      bootApp();
+    }
   });
 
   const signInBtn = document.getElementById('google-signin-btn');

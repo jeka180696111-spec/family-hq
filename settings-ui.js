@@ -21,6 +21,7 @@ import { esc, showToast, uid } from './utils.js';
 import { openIconPicker } from './icon-picker.js';
 import { openBottomSheet, closeModal, confirmModal, promptModal } from './modals.js';
 import { signOut } from './auth.js';
+import { isLockEnabled, isBiometricAvailable, setupLock, disableLock } from './lock-screen.js';
 
 function getCatMeta(key) {
   const cat = getExpCats().find(c => (c.id || c) === key);
@@ -58,6 +59,85 @@ function renderBudgetGrid(type) {
       <i class="ti ti-plus"></i> Додати ${noun}
     </button>
   `;
+}
+
+function openPinSetupSheet(onDone, changeOnly = false) {
+  let step = 'enter'; // 'enter' | 'confirm'
+  let pin1 = '';
+
+  function buildContent() {
+    return `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:16px 0 8px">
+        <div class="lock-icon" style="width:48px;height:48px;font-size:22px;background:var(--c-accent-soft);color:var(--c-accent);border-radius:50%;display:flex;align-items:center;justify-content:center">
+          <i class="ti ti-keyframe"></i>
+        </div>
+        <div style="font-size:16px;font-weight:600;color:var(--c-text)" id="pin-setup-title">
+          ${step === 'enter' ? 'Введіть новий PIN' : 'Повторіть PIN'}
+        </div>
+        <div class="lock-dots" id="pin-setup-dots">
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <div class="lock-error" id="pin-setup-error" style="height:14px;opacity:0"></div>
+        <div class="lock-pad" style="width:260px">
+          ${[1,2,3,4,5,6,7,8,9,'',0,'⌫'].map(k => `
+            <button class="lock-key${k===''?' lock-key-empty':''}" data-pin-key="${k}" style="height:52px;font-size:20px">${k}</button>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  let modalId;
+  modalId = openBottomSheet({
+    title: changeOnly ? 'Змінити PIN' : 'Встановити PIN',
+    content: buildContent(),
+    onOpen(modal) {
+      let cur = '';
+
+      function updateDots() {
+        modal.querySelectorAll('#pin-setup-dots span').forEach((d, i) => {
+          d.classList.toggle('filled', i < cur.length);
+        });
+      }
+
+      function showErr(msg) {
+        const e = modal.querySelector('#pin-setup-error');
+        if (e) { e.textContent = msg; e.style.opacity = '1'; }
+        const dots = modal.querySelector('#pin-setup-dots');
+        if (dots) { dots.classList.add('shake'); setTimeout(() => dots.classList.remove('shake'), 400); }
+        setTimeout(() => { if (e) e.style.opacity = '0'; }, 1200);
+        cur = '';
+        updateDots();
+      }
+
+      modal.querySelectorAll('[data-pin-key]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const k = btn.dataset.pinKey;
+          if (k === '⌫') { cur = cur.slice(0, -1); updateDots(); return; }
+          if (k === '' || cur.length >= 4) return;
+          cur += k;
+          updateDots();
+          if (cur.length === 4) {
+            setTimeout(async () => {
+              if (step === 'enter') {
+                pin1 = cur; cur = ''; step = 'confirm';
+                modal.querySelector('#pin-setup-title').textContent = 'Повторіть PIN';
+                updateDots();
+              } else {
+                if (cur !== pin1) { showErr('PIN не збігається'); step = 'enter'; pin1 = ''; return; }
+                try {
+                  await setupLock({ pin: cur, timeout: 5 });
+                  closeModal(modalId);
+                  showToast('✅ PIN встановлено');
+                  if (onDone) onDone();
+                } catch (e) { showErr('Помилка: ' + e.message); }
+              }
+            }, 80);
+          }
+        });
+      });
+    },
+  });
 }
 
 function openAddBudgetItem(type) {
@@ -195,6 +275,41 @@ function renderTelegramPrefs() {
   `;
 }
 
+function renderLockSection() {
+  const enabled = isLockEnabled();
+  return `
+    <div class="settings-row">
+      <div class="settings-row-icon"><i class="ti ti-lock"></i></div>
+      <div class="settings-row-info">
+        <div class="settings-row-name">Блокування додатку</div>
+        <div class="settings-row-sub">${enabled ? 'Увімкнено (PIN / біометрія)' : 'Вимкнено'}</div>
+      </div>
+      <label class="settings-toggle">
+        <input type="checkbox" id="lock-toggle" ${enabled ? 'checked' : ''}>
+        <span></span>
+      </label>
+    </div>
+    ${enabled ? `
+    <div class="settings-row" id="lock-change-pin-row">
+      <div class="settings-row-icon"><i class="ti ti-keyframe"></i></div>
+      <div class="settings-row-info">
+        <div class="settings-row-name">Змінити PIN</div>
+        <div class="settings-row-sub">4-значний код</div>
+      </div>
+      <button class="btn-ghost-sm" id="lock-change-pin-btn">Змінити</button>
+    </div>
+    <div class="settings-row" id="lock-biom-row">
+      <div class="settings-row-icon"><i class="ti ti-fingerprint"></i></div>
+      <div class="settings-row-info">
+        <div class="settings-row-name">Face ID / відбиток</div>
+        <div class="settings-row-sub" id="lock-biom-status">Перевірка...</div>
+      </div>
+      <button class="btn-ghost-sm" id="lock-biom-btn">Налаштувати</button>
+    </div>
+    ` : ''}
+  `;
+}
+
 export function renderSettingsPage() {
   const el = document.getElementById('page-settings');
   if (!el) return;
@@ -285,6 +400,14 @@ export function renderSettingsPage() {
         <div class="settings-label">Telegram сповіщення</div>
         <div class="settings-card">
           ${renderTelegramPrefs()}
+        </div>
+      </div>
+
+      <!-- Блокування -->
+      <div class="settings-section">
+        <div class="settings-label">Безпека</div>
+        <div class="settings-card" id="lock-section-card">
+          ${renderLockSection()}
         </div>
       </div>
 
@@ -691,6 +814,42 @@ function bindHandlers(el) {
     });
     showToast('✅ Telegram налаштування збережено');
   });
+
+  // Блокування додатку
+  const lockToggle = el.querySelector('#lock-toggle');
+  if (lockToggle) {
+    lockToggle.addEventListener('change', async () => {
+      if (lockToggle.checked) {
+        openPinSetupSheet(() => renderSettingsPage());
+      } else {
+        const ok = await confirmModal('Вимкнути блокування?', { okText: 'Вимкнути', danger: true });
+        if (ok) { disableLock(); renderSettingsPage(); }
+        else lockToggle.checked = true;
+      }
+    });
+  }
+
+  el.querySelector('#lock-change-pin-btn')?.addEventListener('click', () => {
+    openPinSetupSheet(() => renderSettingsPage(), true);
+  });
+
+  const biomBtn = el.querySelector('#lock-biom-btn');
+  const biomStatus = el.querySelector('#lock-biom-status');
+  if (biomBtn && biomStatus) {
+    isBiometricAvailable().then(available => {
+      biomStatus.textContent = available ? 'Доступна на цьому пристрої' : 'Недоступна на цьому пристрої';
+      if (!available) biomBtn.disabled = true;
+    });
+    biomBtn.addEventListener('click', async () => {
+      try {
+        await setupLock({ useBiometric: true });
+        showToast('✅ Біометрія налаштована');
+        renderSettingsPage();
+      } catch (e) {
+        showToast('Помилка: ' + e.message, 'error');
+      }
+    });
+  }
 
   // Бюджет (план і ліміти) — делегування на document
   el.querySelectorAll('[data-budget-del]').forEach(btn => {
