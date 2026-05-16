@@ -343,10 +343,8 @@ function renderFxCard() {
   const eur = fx.EUR || {};
   if (!usd.buy && !usd.mid) return '';
 
-  const usdBuy = (usd.buy || usd.mid || 0).toFixed(2);
-  const usdSale = (usd.sale || usd.mid || 0).toFixed(2);
-  const eurBuy = (eur.buy || eur.mid || 0).toFixed(2);
-  const eurSale = (eur.sale || eur.mid || 0).toFixed(2);
+  const usdRate = (usd.mid || usd.buy || 0).toFixed(2);
+  const eurRate = (eur.mid || eur.buy || 0).toFixed(2);
   const updTime = fx._updated ? new Date(fx._updated).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' }) : '';
 
   return `
@@ -359,21 +357,17 @@ function renderFxCard() {
         <div class="dash-fx-item">
           <span class="dash-fx-flag">🇺🇸</span>
           <span class="dash-fx-name">USD</span>
-          <span class="dash-fx-buy">${usdBuy}</span>
-          <span class="dash-fx-sep">/</span>
-          <span class="dash-fx-sale">${usdSale}</span>
+          <span class="dash-fx-buy">${usdRate}</span>
           <span class="dash-fx-unit">₴</span>
         </div>
         <div class="dash-fx-item">
           <span class="dash-fx-flag">🇪🇺</span>
           <span class="dash-fx-name">EUR</span>
-          <span class="dash-fx-buy">${eurBuy}</span>
-          <span class="dash-fx-sep">/</span>
-          <span class="dash-fx-sale">${eurSale}</span>
+          <span class="dash-fx-buy">${eurRate}</span>
           <span class="dash-fx-unit">₴</span>
         </div>
       </div>
-      <div style="font-size:11px;color:var(--c-text-3);margin-top:4px">купівля / продаж</div>
+      <div style="font-size:11px;color:var(--c-text-3);margin-top:4px">офіційний курс НБУ</div>
     </div>
   `;
 }
