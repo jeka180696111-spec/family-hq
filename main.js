@@ -28,6 +28,7 @@ import { renderSettingsPage } from './settings-ui.js';
 import { renderRecurringPage, loadRecurringPayments } from './recurring-payments.js';
 import { renderAIChatPage } from './ai-chat.js';
 import { renderChallengesPage, loadChallenges } from './challenges.js';
+import { initEdgeSwipe } from './gestures.js';
 
 const PAGE_TITLES = {
   dashboard: 'Головна',
@@ -55,6 +56,9 @@ export function navigateTo(page) {
   setText('topbar-title', PAGE_TITLES[page]);
 
   document.querySelectorAll('.sb-item[data-nav-page]').forEach(a => {
+    a.classList.toggle('active', a.dataset.navPage === page);
+  });
+  document.querySelectorAll('.bn-item[data-nav-page]').forEach(a => {
     a.classList.toggle('active', a.dataset.navPage === page);
   });
 
@@ -301,11 +305,11 @@ function renderBottomNav() {
   const bn = document.getElementById('bottom-nav');
   if (!bn) return;
   bn.innerHTML = `
-    <a class="bn-item active" data-nav-page="dashboard"><i class="ti ti-layout-dashboard"></i><span>Дашборд</span></a>
-    <a class="bn-item" data-nav-page="wallets"><i class="ti ti-wallet"></i><span>Кошельки</span></a>
+    <a class="bn-item ${state.currentPage==='dashboard'?'active':''}" data-nav-page="dashboard"><i class="ti ti-layout-dashboard"></i><span>Дашборд</span></a>
+    <a class="bn-item ${state.currentPage==='wallets'?'active':''}" data-nav-page="wallets"><i class="ti ti-wallet"></i><span>Кошельки</span></a>
     <button class="bn-fab" id="bn-fab-btn"><i class="ti ti-plus"></i></button>
-    <a class="bn-item" data-nav-page="operations"><i class="ti ti-list"></i><span>Операції</span></a>
-    <a class="bn-item" data-nav-page="settings"><i class="ti ti-settings"></i><span>Ще</span></a>
+    <a class="bn-item ${state.currentPage==='operations'?'active':''}" data-nav-page="operations"><i class="ti ti-list"></i><span>Операції</span></a>
+    <a class="bn-item ${state.currentPage==='settings'?'active':''}" data-nav-page="settings"><i class="ti ti-settings"></i><span>Ще</span></a>
   `;
   bn.querySelectorAll('[data-nav-page]').forEach(a => {
     a.addEventListener('click', (e) => {

@@ -343,11 +343,31 @@ function refreshOpsContent() {
   }
 }
 
+function filterOpsInPlace(q) {
+  q = (q || '').trim().toLowerCase();
+  document.querySelectorAll('#ops-content .op-item').forEach(item => {
+    if (!q) { item.style.display = ''; return; }
+    const row = item.dataset.opRow;
+    const op = (state.operations || []).find(o => String(o.row || o.id) === String(row));
+    const matches = op && (
+      (op.category || '').toLowerCase().includes(q) ||
+      (op.desc     || '').toLowerCase().includes(q) ||
+      (op.who      || '').toLowerCase().includes(q) ||
+      (op.card     || '').toLowerCase().includes(q)
+    );
+    item.style.display = (matches || !op) ? '' : 'none';
+  });
+  document.querySelectorAll('#ops-content .ops-group').forEach(group => {
+    const anyVisible = [...group.querySelectorAll('.op-item')].some(i => i.style.display !== 'none');
+    group.style.display = anyVisible ? '' : 'none';
+  });
+}
+
 function bindHandlers(el) {
-  // Пошук — оновлює тільки контент без перемалювання всієї сторінки (зберігає фокус клавіатури)
+  // Пошук — тільки CSS show/hide, DOM не змінюється → клавіатура не ховається
   el.querySelector('#ops-search')?.addEventListener('input', e => {
     state.opSearch = e.target.value;
-    refreshOpsContent();
+    filterOpsInPlace(e.target.value);
   });
 
   // Перемикач Список / Календар
