@@ -58,8 +58,8 @@ export function renderAIChatPage() {
   if (!el) return;
 
   el.innerHTML = `
-    <div class="page-inner ai-combined-page">
-      <div class="page-head">
+    <div class="ai-combined-page">
+      <div class="ai-combined-head">
         <h1 class="page-title">✨ AI · Фінн</h1>
       </div>
 
@@ -73,7 +73,7 @@ export function renderAIChatPage() {
       </div>
 
       <div id="ai-tab-analytics" class="ai-tab-panel ${activeTab === 'analytics' ? 'active' : ''}">
-        ${renderAnalyticsTab()}
+        <div class="ai-analytics-scroll">${renderAnalyticsTab()}</div>
       </div>
       <div id="ai-tab-chat" class="ai-tab-panel ${activeTab === 'chat' ? 'active' : ''}">
         ${renderChatTab()}
