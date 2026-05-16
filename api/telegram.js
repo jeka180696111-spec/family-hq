@@ -199,41 +199,45 @@ async function saveOperation(op) {
 
 // Баланс по кошельках з урахуванням валюти
 async function getWalletBalances() {
-  const snapshot = await db.collection('families').doc(FAMILY_ID)
-    .collection('operations').get();
+  const [snapshot, rates] = await Promise.all([
+    db.collection('families').doc(FAMILY_ID).collection('operations').get(),
+    getExchangeRates(),
+  ]);
 
   const wallets = {};
   snapshot.docs.forEach(doc => {
     const d = doc.data();
     if (d.category === 'Переказ') return;
     const card = d.card || 'Без рахунку';
-    if (!wallets[card]) wallets[card] = { incomeUah: 0, expenseUah: 0, currencies: {} };
+    if (!wallets[card]) wallets[card] = { currencies: {} };
 
     const cur = d.currency || 'UAH';
     const amt = d.amount || 0;
-    const amtUah = d.amountUah || d.amount || 0;
 
     if (!wallets[card].currencies[cur]) wallets[card].currencies[cur] = { income: 0, expense: 0 };
-    if (d.type === 'Дохід') {
-      wallets[card].currencies[cur].income += amt;
-      wallets[card].incomeUah += amtUah;
-    }
-    if (d.type === 'Витрата') {
-      wallets[card].currencies[cur].expense += amt;
-      wallets[card].expenseUah += amtUah;
-    }
+    if (d.type === 'Дохід') wallets[card].currencies[cur].income += amt;
+    if (d.type === 'Витрата') wallets[card].currencies[cur].expense += amt;
   });
 
   return Object.entries(wallets)
     .map(([name, v]) => {
-      const balanceUah = Math.round(v.incomeUah - v.expenseUah);
-      // Показуємо рідну валюту якщо не UAH
+      // Рідна валюта — перша не-UAH, або UAH
       const primaryCur = Object.keys(v.currencies).find(c => c !== 'UAH') || 'UAH';
       const curData = v.currencies[primaryCur] || { income: 0, expense: 0 };
       const balance = Math.round(curData.income - curData.expense);
+
+      // UAH-еквівалент за ПОТОЧНИМ курсом (не за збереженим amountUah)
+      let balanceUah;
+      if (primaryCur === 'UAH') {
+        balanceUah = balance;
+      } else {
+        const rate = rates[primaryCur] || 1;
+        balanceUah = Math.round(balance * rate);
+      }
+
       return { name, balance, primaryCur, balanceUah };
     })
-    .filter(w => w.balanceUah !== 0 || w.balance !== 0)
+    .filter(w => w.balance !== 0)
     .sort((a, b) => Math.abs(b.balanceUah) - Math.abs(a.balanceUah));
 }
 
