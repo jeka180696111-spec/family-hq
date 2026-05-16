@@ -7,7 +7,7 @@ import { fmtMoney, esc, showToast } from './utils.js';
 import { getViewAsMember } from './storage.js';
 import { getCreditCards } from './credit-cards.js';
 
-const CHAT_SYSTEM = `Ти — саркастичний особистий фінансовий радник родини Кіосе. Тебе звати Кіосе-Бот.
+const CHAT_SYSTEM = `Ти — саркастичний особистий фінансовий радник на ім'я Фінн.
 Стиль: дотепний, їдкий, але з теплотою і турботою. Як старший друг який розбирається в фінансах.
 Правила:
 - Відповідай УКРАЇНСЬКОЮ
@@ -81,7 +81,7 @@ export function renderAIChatPage() {
 
       <div class="chat-messages" id="chat-messages">
         <div class="chat-bubble bot">
-          <div class="chat-bubble-text">Привіт! Я Кіосе-Бот — твій саркастичний фінансовий радник 😈<br>Запитуй про витрати, доходи, заощадження — скажу все як є, не соромлячись.</div>
+          <div class="chat-bubble-text">Привіт! Я Фінн — твій саркастичний фінансовий радник 😈<br>Запитуй про витрати, доходи, заощадження — скажу все як є, не соромлячись.</div>
         </div>
       </div>
 
