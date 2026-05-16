@@ -67,20 +67,22 @@ export async function apiGet(action, params) {
 
 // ── Дашборд ──────────────────────────────────────────────────
 async function getDashboard(period) {
-  const now = new Date();
-  let startDate;
+  // Використовуємо Київський часовий пояс для дат (не UTC)
+  const kyivNow = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Kyiv' });
+  const [kyivYear, kyivMonth] = kyivNow.split('-').map(Number);
+  let startDateStr;
 
   if (period === 'year') {
-    startDate = new Date(now.getFullYear(), 0, 1);
+    startDateStr = `${kyivYear}-01-01`;
   } else if (period === 'quarter') {
-    const q = Math.floor(now.getMonth() / 3);
-    startDate = new Date(now.getFullYear(), q * 3, 1);
+    const q = Math.floor((kyivMonth - 1) / 3);
+    startDateStr = `${kyivYear}-${String(q * 3 + 1).padStart(2, '0')}-01`;
   } else {
-    startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    startDateStr = `${kyivYear}-${String(kyivMonth).padStart(2, '0')}-01`;
   }
 
   const snapshot = await familyRef().collection('operations')
-    .where('date', '>=', startDate.toISOString().split('T')[0])
+    .where('date', '>=', startDateStr)
     .orderBy('date', 'desc')
     .get();
 
@@ -125,8 +127,9 @@ async function getDashboard(period) {
   const byDay = {};
   const byDayIncome = {};
   realOps.forEach(o => {
-    const d = new Date(o.date);
-    const day = d.getDate();
+    // Беремо день напряму з рядка дати (YYYY-MM-DD), не через Date щоб уникнути UTC зсуву
+    const day = parseInt((o.date || '').split('-')[2] || '0', 10);
+    if (!day) return;
     if (o.type === 'Витрата') byDay[day] = (byDay[day] || 0) + (o.amountUah || o.amount || 0);
     if (o.type === 'Дохід') byDayIncome[day] = (byDayIncome[day] || 0) + (o.amountUah || o.amount || 0);
   });
@@ -153,9 +156,14 @@ async function getDashboard(period) {
 
 // ── Операції ─────────────────────────────────────────────────
 async function getOperations(params) {
-  let q = familyRef().collection('operations').orderBy('date', 'desc');
-  if (params?.limit) q = q.limit(Number(params.limit));
-  else q = q.limit(500);
+  let q = familyRef().collection('operations');
+
+  if (params?.month) {
+    q = q.where('date', '>=', `${params.month}-01`)
+         .where('date', '<=', `${params.month}-31`);
+  }
+
+  q = q.orderBy('date', 'desc').limit(Number(params?.limit) || 500);
 
   const snapshot = await q.get();
   const ops = snapshot.docs.map(doc => ({ id: doc.id, row: doc.id, ...doc.data() }));

@@ -75,10 +75,10 @@ export function navigateTo(page) {
 function loadPageData(page) {
   switch (page) {
     case 'dashboard':
-      if (!state.dashboard) loadDashboard();
+      loadDashboard();
       break;
     case 'operations':
-      if (!state.operations.length) loadOperations();
+      loadOperations();
       break;
     case 'analytics':
       loadAnalytics();
