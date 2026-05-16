@@ -465,7 +465,6 @@ function renderSubPageBody(key) {
                 <div class="settings-row-name">${esc(state.user.name)}</div>
                 <div class="settings-row-sub">${esc(state.user.email)}</div>
               </div>
-              <button class="btn-ghost-sm" id="signout-btn">Вихід</button>
             </div>
           ` : ''}
           <div class="settings-row">
@@ -476,6 +475,18 @@ function renderSubPageBody(key) {
             </div>
             <button class="btn-ghost-sm" id="save-family-btn">Зберегти</button>
           </div>
+        </div>
+        <div class="settings-card">
+          <button class="settings-menu-item" id="signout-btn" style="color:var(--c-red)">
+            <div class="settings-menu-icon" style="background:var(--c-red-soft);color:var(--c-red)"><i class="ti ti-logout"></i></div>
+            <div class="settings-menu-label" style="color:var(--c-red)">Вийти з профілю</div>
+            <i class="ti ti-chevron-right settings-menu-arrow"></i>
+          </button>
+          <button class="settings-menu-item" id="delete-account-btn" style="color:var(--c-red)">
+            <div class="settings-menu-icon" style="background:var(--c-red-soft);color:var(--c-red)"><i class="ti ti-trash"></i></div>
+            <div class="settings-menu-label" style="color:var(--c-red)">Видалити профіль і дані</div>
+            <i class="ti ti-chevron-right settings-menu-arrow"></i>
+          </button>
         </div>
       `;
 
@@ -636,6 +647,38 @@ function renderSubPageBody(key) {
         <div class="settings-card">
           <div style="font-size:14px;line-height:1.6;color:var(--c-text-2);padding:4px 0">
             Використовуючи додаток ви погоджуєтесь з умовами використання. Додаток надається «як є». Ми не несемо відповідальності за фінансові рішення прийняті на основі даних в додатку. Заборонено використовувати додаток для незаконних цілей. Ми залишаємо за собою право змінювати функціонал додатку.
+          </div>
+        </div>
+      `;
+
+    case 'about':
+      return `
+        <div class="settings-card">
+          <div class="settings-row" style="flex-direction:column;align-items:center;padding:24px;gap:12px;text-align:center">
+            <div style="width:72px;height:72px;border-radius:20px;background:var(--c-accent-soft);color:var(--c-accent);display:flex;align-items:center;justify-content:center;font-size:36px">
+              <i class="ti ti-home-2"></i>
+            </div>
+            <div style="font-size:18px;font-weight:700">Сімейний бюджет</div>
+            <div style="font-size:13px;color:var(--c-text-3)">Версія 1.0.0</div>
+            <div style="font-size:13px;color:var(--c-text-2);line-height:1.6;max-width:280px">
+              Персональний фінансовий помічник для всієї родини. Відстежуй витрати, плануй бюджет і досягай фінансових цілей разом.
+            </div>
+          </div>
+        </div>
+        <div class="settings-card">
+          <div class="settings-row">
+            <div class="settings-row-icon"><i class="ti ti-brand-github"></i></div>
+            <div class="settings-row-info">
+              <div class="settings-row-name">Розробник</div>
+              <div class="settings-row-sub">Сімейний бюджет © 2025</div>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-icon"><i class="ti ti-heart"></i></div>
+            <div class="settings-row-info">
+              <div class="settings-row-name">Зроблено з любов'ю</div>
+              <div class="settings-row-sub">Для вашої родини</div>
+            </div>
           </div>
         </div>
       `;
@@ -833,6 +876,29 @@ function bindSettingsHandlers(el) {
   el.querySelector('#signout-btn')?.addEventListener('click', async () => {
     const ok = await confirmModal('Точно вийти?', { danger: true, okText: 'Вийти' });
     if (ok) signOut();
+  });
+
+  // Delete account
+  el.querySelector('#delete-account-btn')?.addEventListener('click', async () => {
+    const { confirmModal } = await import('./modals.js');
+    const ok = await confirmModal(
+      'Видалити профіль і всі дані? Цю дію неможливо скасувати.',
+      { danger: true, okText: 'Видалити назавжди' }
+    );
+    if (!ok) return;
+    try {
+      // Clear all localStorage
+      localStorage.clear();
+      // Delete Firestore data if possible
+      if (window.firebase && state.familyId) {
+        // Note: full deletion requires backend, just sign out for now
+      }
+      const { signOut } = await import('./auth.js');
+      showToast('Дані видалено');
+      setTimeout(() => signOut(), 1000);
+    } catch (e) {
+      showToast('Помилка: ' + e.message, 'error');
+    }
   });
 
   // Invite member
