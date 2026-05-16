@@ -48,9 +48,9 @@ export function renderDashboard() {
   let byDayView = d.byDay || {};
   let byDayIncomeView = d.byDayIncome || {};
 
-  if (viewAs && d.byMember && d.byMember[viewAs]) {
-    totalIncome = d.byMember[viewAs].income || 0;
-    totalExpense = d.byMember[viewAs].expense || 0;
+  if (viewAs) {
+    totalIncome = d.byMember?.[viewAs]?.income || 0;
+    totalExpense = d.byMember?.[viewAs]?.expense || 0;
     byCategoryView = d.byCategoryMember?.[viewAs] || {};
     byDayView = d.byDayMember?.[viewAs] || {};
     byDayIncomeView = d.byDayIncomeMember?.[viewAs] || {};
