@@ -414,6 +414,11 @@ function renderMainMenu() {
           <div class="settings-menu-label">Угода користувача</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
+        <button class="settings-menu-item" data-sub="about">
+          <div class="settings-menu-icon" style="background:#EEF2FF;color:#4F46E5"><i class="ti ti-info-circle"></i></div>
+          <div class="settings-menu-label">Про додаток</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
       </div>
 
       <div class="settings-footer">
@@ -440,6 +445,7 @@ const SUB_PAGE_TITLES = {
   wallets:        'Кошельки',
   privacy:        'Політика конфіденційності',
   terms:          'Угода користувача',
+  about:          'Про додаток',
 };
 
 function renderSubPageBody(key) {

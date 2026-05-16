@@ -7,6 +7,7 @@ import { apiGet } from './api.js';
 import { esc, fmtMoney, fmtMoneyShort, fmtDate, monthKey } from './utils.js';
 import { openOperationDialog } from './operations.js';
 import { getProfiles, getViewAsMember, getExpCats, getIncCats } from './storage.js';
+import { addLongPress, addSwipeDelete } from './gestures.js';
 
 export async function loadOperations() {
   try {
@@ -318,6 +319,28 @@ function refreshOpsContent() {
       const row = item.dataset.opRow;
       const op = state.operations.find(o => String(o.row) === String(row) || String(o.id) === String(row));
       if (op) openOperationDialog({ type: op.type, editing: op });
+    });
+
+    // Long press → edit
+    addLongPress(item, () => {
+      const row = item.dataset.opRow;
+      const op = (state.operations || []).find(o => String(o.row || o.id) === String(row));
+      if (op) openOperationDialog({ type: op.type, editing: op });
+    });
+
+    // Swipe left → delete
+    addSwipeDelete(item, async () => {
+      const row = item.dataset.opRow;
+      const op = (state.operations || []).find(o => String(o.row || o.id) === String(row));
+      if (!op) return;
+      const { confirmModal } = await import('./modals.js');
+      const ok = await confirmModal('Видалити операцію?', { danger: true, okText: 'Видалити' });
+      if (!ok) return;
+      const { apiPost } = await import('./api.js');
+      await apiPost({ action: 'deleteOperation', row: op.row || op.id });
+      state.operations = state.operations.filter(o => String(o.row || o.id) !== String(op.row || op.id));
+      refreshOpsContent();
+      if (window.refreshDashboard) window.refreshDashboard();
     });
   });
   content.querySelectorAll('.cal-cell[data-day]').forEach(cell => {

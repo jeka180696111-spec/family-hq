@@ -357,6 +357,8 @@ async function bootApp() {
     setTimeout(() => import('./operations.js').then(m => m.openOperationDialog({ type: 'Дохід' })), 500);
   }
 
+  initEdgeSwipe(openSidebar);
+
   refreshFx();
 
   // Початковий синк
