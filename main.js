@@ -25,7 +25,6 @@ import { renderGoalsPage, loadGoals } from './goals.js';
 import { renderSettingsPage } from './settings-ui.js';
 // ── НОВІ МОДУЛІ ─────────────────────────────────────────────
 import { renderRecurringPage, loadRecurringPayments } from './recurring-payments.js';
-import { renderAIReportsPage } from './ai-reports.js';
 import { renderAIChatPage } from './ai-chat.js';
 import { renderChallengesPage, loadChallenges } from './challenges.js';
 
@@ -37,8 +36,7 @@ const PAGE_TITLES = {
   reserve: 'Накопичення',
   goals: 'Цілі',
   recurring: 'Платежі',
-  'ai-reports': 'AI Аналітика',
-  'ai-chat': 'AI Чат',
+  'ai-chat': 'AI · Фінн',
   challenges: 'Гра та досягнення',
   settings: 'Налаштування',
 };
@@ -71,7 +69,6 @@ export function navigateTo(page) {
     case 'reserve':     renderReservePage(); break;
     case 'goals':       renderGoalsPage(); break;
     case 'recurring':   renderRecurringPage(); break;
-    case 'ai-reports':  renderAIReportsPage(); break;
     case 'ai-chat':     renderAIChatPage(); break;
     case 'challenges':  renderChallengesPage(); break;
     case 'settings':    renderSettingsPage(); break;
@@ -185,8 +182,7 @@ function renderSidebar() {
       <a class="sb-item" data-nav-page="goals"><i class="ti ti-target"></i> Цілі</a>
       <a class="sb-item" data-nav-page="recurring"><i class="ti ti-calendar-repeat"></i> Платежі</a>
       <div class="sb-section-label">Система</div>
-      <a class="sb-item" data-nav-page="ai-reports"><i class="ti ti-sparkles"></i> AI Аналітика</a>
-      <a class="sb-item" data-nav-page="ai-chat"><i class="ti ti-message-chatbot"></i> AI Чат</a>
+      <a class="sb-item" data-nav-page="ai-chat"><i class="ti ti-sparkles"></i> AI · Фінн</a>
       <a class="sb-item" data-nav-page="challenges"><i class="ti ti-trophy"></i> Гра</a>
       <a class="sb-item" data-nav-page="settings"><i class="ti ti-settings"></i> Налаштування</a>
     </nav>
