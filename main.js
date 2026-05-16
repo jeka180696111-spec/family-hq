@@ -3,6 +3,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { state, FAMILY_MEMBERS, APP_CONFIG, FIREBASE_CONFIG } from './config.js';
+import { showOnboarding } from './onboarding.js';
 import { log, showToast, setText, esc } from './utils.js';
 import {
   getFamilyName, getProfiles, getTheme,
@@ -13,7 +14,7 @@ import {
 } from './storage.js';
 import { initTheme, toggleTheme } from './theme.js';
 import { initAuth, signInWithGoogle, signOut, whoAmI } from './auth.js';
-import { initFirestore, apiGet, syncSettingsToSheet, loadSettingsFromFirestore } from './api.js';
+import { initFirestore, apiGet, syncSettingsToSheet, loadSettingsFromFirestore, loadFamilyData } from './api.js';
 import { initFAB } from './fab.js';
 import { renderDashboard, loadDashboard } from './dashboard.js';
 import { renderWalletsPage } from './wallets.js';
@@ -354,10 +355,16 @@ document.addEventListener('DOMContentLoaded', () => {
   initFirestore();
 
   // Firebase Auth — слухаємо стан входу
-  initAuth((user) => {
+  initAuth(async (user) => {
+    // Завантажуємо членів родини з Firestore перед запуском
+    if (state.familyId) {
+      try { await loadFamilyData(state.familyId); } catch(e) { log('loadFamilyData error:', e.message); }
+    }
     const loginScreen = document.getElementById('login-screen');
+    const onboardingScreen = document.getElementById('onboarding-screen');
     const appRoot = document.getElementById('app-root');
     if (loginScreen) loginScreen.style.display = 'none';
+    if (onboardingScreen) onboardingScreen.style.display = 'none';
     if (appRoot) appRoot.style.display = '';
     bootApp();
   });

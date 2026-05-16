@@ -2,7 +2,10 @@
 // API — Firestore (замість Google Apps Script)
 // ═══════════════════════════════════════════════════════════════
 
-import { state, syncState, FAMILY_ID, FAMILY_MEMBERS, APP_CONFIG } from './config.js';
+import { state, syncState, APP_CONFIG,
+         getFamilyMembers, setFamilyMembers, FAMILY_MEMBERS,
+         DEFAULT_EXP_CATS, DEFAULT_INC_CATS, DEFAULT_WALLET_TYPES, DEFAULT_CARDS,
+} from './config.js';
 import {
   getExpCats, getIncCats, getCards, getProfiles,
   getWalletTypes, getFamilyName,
@@ -24,7 +27,7 @@ export function initFirestore() {
 
 // ── Хелпер: колекція родини ──────────────────────────────────
 function familyRef() {
-  return db.collection('families').doc(FAMILY_ID);
+  return db.collection('families').doc(state.familyId);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -552,4 +555,189 @@ export async function loadSettingsFromFirestore() {
   } catch (e) {
     logError('loadSettingsFromFirestore', e.message);
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// КОРИСТУВАЧ І РОДИНА
+// ═══════════════════════════════════════════════════════════════
+
+// ── Читання документа користувача ───────────────────────────
+export async function getUserDoc(uid) {
+  if (!db) throw new Error('Firestore not initialized');
+  const doc = await db.collection('users').doc(uid).get();
+  return doc.exists ? doc.data() : null;
+}
+
+// ── Міграція існуючих користувачів ──────────────────────────
+// Для користувачів які вже мали дані до переходу на multi-family
+export async function migrateExistingUser(uid, { name, familyId, familyName }) {
+  if (!db) throw new Error('Firestore not initialized');
+  const now = new Date().toISOString();
+
+  // Створюємо users/{uid} — якщо вже є, не перезаписуємо
+  await db.collection('users').doc(uid).set({
+    name,
+    familyId,
+    role: 'owner',
+    migratedAt: now,
+  }, { merge: true });
+
+  // Оновлюємо families/{familyId} новими полями, не чіпаючи існуючі дані
+  await db.collection('families').doc(familyId).set({
+    name: familyName,
+    ownerId: uid,
+    members: [{ uid, name, joinedAt: now }],
+    migratedAt: now,
+  }, { merge: true });
+
+  state.familyId = familyId;
+  state.member = name;
+  setFamilyMembers([name]);
+
+  log('migrated existing user:', name, '→ family:', familyId);
+  return { familyId, name };
+}
+
+// ── Генератор випадкового рядка ──────────────────────────────
+function randomAlphanumeric(length) {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  while (result.length < length) {
+    result += Math.random().toString(36).slice(2);
+  }
+  return result.slice(0, length);
+}
+
+// ── Створити користувача і нову родину ───────────────────────
+export async function createUserAndFamily(uid, { userName, userAvatar, familyName, familyAvatar }) {
+  if (!db) throw new Error('Firestore not initialized');
+
+  const familyId = randomAlphanumeric(8);
+  const now = new Date().toISOString();
+
+  // Документ користувача
+  await db.collection('users').doc(uid).set({
+    name: userName,
+    avatar: userAvatar,
+    familyId,
+    role: 'owner',
+    createdAt: now,
+  });
+
+  // Документ родини
+  await db.collection('families').doc(familyId).set({
+    name: familyName,
+    avatar: familyAvatar,
+    ownerId: uid,
+    members: [{ uid, name: userName, avatar: userAvatar, joinedAt: now }],
+    expCats: DEFAULT_EXP_CATS,
+    incCats: DEFAULT_INC_CATS,
+    walletTypes: DEFAULT_WALLET_TYPES,
+    cards: { [uid]: DEFAULT_CARDS },
+    createdAt: now,
+  });
+
+  state.familyId = familyId;
+  state.member = userName;
+  setFamilyMembers([userName]);
+
+  log('family created:', familyId, 'owner:', userName);
+  return { familyId, userName };
+}
+
+// ── Приєднатися до родини за кодом запрошення ────────────────
+export async function joinFamilyWithCode(uid, { userName, userAvatar, code }) {
+  if (!db) throw new Error('Firestore not initialized');
+
+  const inviteRef = db.collection('invites').doc(code.toUpperCase());
+  const inviteDoc = await inviteRef.get();
+
+  if (!inviteDoc.exists) {
+    throw new Error('Невірний або застарілий код запрошення');
+  }
+
+  const invite = inviteDoc.data();
+  const now = new Date().toISOString();
+
+  if (invite.used || (invite.expiresAt && invite.expiresAt < now)) {
+    throw new Error('Невірний або застарілий код запрошення');
+  }
+
+  const { familyId } = invite;
+
+  // Читаємо родину
+  const familyDoc = await db.collection('families').doc(familyId).get();
+  if (!familyDoc.exists) throw new Error('Родину не знайдено');
+
+  const familyData = familyDoc.data();
+  const members = Array.isArray(familyData.members) ? familyData.members : [];
+  const newMember = { uid, name: userName, avatar: userAvatar, joinedAt: now };
+
+  // Оновлюємо родину — додаємо нового члена
+  await db.collection('families').doc(familyId).update({
+    members: [...members, newMember],
+  });
+
+  // Документ користувача
+  await db.collection('users').doc(uid).set({
+    name: userName,
+    avatar: userAvatar,
+    familyId,
+    role: 'member',
+    createdAt: now,
+  });
+
+  // Позначаємо запрошення як використане
+  await inviteRef.update({ used: true, usedBy: uid, usedAt: now });
+
+  const memberNames = [...members.map(m => m.name), userName];
+  state.familyId = familyId;
+  state.member = userName;
+  setFamilyMembers(memberNames);
+
+  log('joined family:', familyId, 'as:', userName);
+  return { familyId, userName };
+}
+
+// ── Генерувати код запрошення ────────────────────────────────
+export async function generateInviteCode(familyId, createdByUid) {
+  if (!db) throw new Error('Firestore not initialized');
+
+  const code = randomAlphanumeric(6).toUpperCase();
+  const now = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const inviteData = {
+    familyId,
+    createdBy: createdByUid,
+    createdAt: now,
+    expiresAt,
+    used: false,
+  };
+
+  // Зберігаємо в колекції верхнього рівня для пошуку при join
+  await db.collection('invites').doc(code).set(inviteData);
+
+  // Зберігаємо також у підколекції родини для довідки
+  await db.collection('families').doc(familyId).collection('invites').doc(code).set(inviteData);
+
+  log('invite code generated:', code, 'for family:', familyId);
+  return code;
+}
+
+// ── Завантажити дані родини ──────────────────────────────────
+export async function loadFamilyData(familyId) {
+  if (!db) throw new Error('Firestore not initialized');
+
+  const doc = await db.collection('families').doc(familyId).get();
+  if (!doc.exists) throw new Error('Родину не знайдено: ' + familyId);
+
+  const data = doc.data();
+  const memberNames = Array.isArray(data.members) ? data.members.map(m => m.name) : [];
+
+  state.familyMembers = memberNames;
+  setFamilyMembers(memberNames);
+
+  log('family data loaded:', familyId, 'members:', memberNames);
+  return data;
 }

@@ -14,21 +14,6 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const FAMILY_ID = process.env.FAMILY_ID || 'koval';
-
-// Дозволені Telegram user ID: "123456,789012" в env
-const ALLOWED_USERS = process.env.TELEGRAM_ALLOWED_USERS
-  ? process.env.TELEGRAM_ALLOWED_USERS.split(',').map(Number)
-  : [];
-
-// Fallback маппінг ID → ім'я: "123456:Євген,789012:Марина" в env
-const USER_MAP = {};
-if (process.env.TELEGRAM_USER_MAP) {
-  for (const pair of process.env.TELEGRAM_USER_MAP.split(',')) {
-    const [id, name] = pair.split(':');
-    if (id && name) USER_MAP[Number(id.trim())] = name.trim();
-  }
-}
 
 // ── Категорії ────────────────────────────────────────────────
 const EXPENSE_CATS = ['Продукти', 'Ресторани', 'Транспорт', 'Комунальні', "Здоров'я", 'Одяг', 'Розваги', 'Дім', 'Дитячі', 'Інше'];
@@ -108,58 +93,90 @@ function weekRange() {
   return { from, to };
 }
 
-// ── User management ──────────────────────────────────────────
-async function getWho(userId, fallbackName) {
-  if (USER_MAP[userId]) return USER_MAP[userId];
+// ── User management (multi-family) ──────────────────────────
+// Telegram user → {name, familyId} or null (if not registered)
+async function getTelegramUser(telegramUserId) {
   try {
-    const doc = await db.collection('families').doc(FAMILY_ID)
-      .collection('telegramUsers').doc(String(userId)).get();
-    if (doc.exists) return doc.data().name;
+    const doc = await db.collection('telegramLinks').doc(String(telegramUserId)).get();
+    if (doc.exists) return doc.data(); // {name, familyId, registeredAt}
   } catch (e) {}
-  return fallbackName || 'Невідомий';
+  return null;
 }
 
-async function registerUser(userId, name) {
-  await db.collection('families').doc(FAMILY_ID)
-    .collection('telegramUsers').doc(String(userId)).set({ name, updatedAt: new Date().toISOString() });
+// Register after collecting name + invite code
+async function registerTelegramUser(telegramUserId, { name, familyId }) {
+  await db.collection('telegramLinks').doc(String(telegramUserId)).set({
+    name, familyId, registeredAt: new Date().toISOString(),
+  });
+  // Add to family members list if not already there
+  try {
+    const familyRef = db.collection('families').doc(familyId);
+    const familyDoc = await familyRef.get();
+    if (familyDoc.exists) {
+      const members = familyDoc.data().members || [];
+      if (!members.find(m => m.name === name)) {
+        members.push({ name, source: 'telegram', joinedAt: new Date().toISOString() });
+        await familyRef.update({ members });
+      }
+    }
+  } catch (e) { console.error('registerTelegramUser family update error:', e); }
 }
 
-async function setPendingReg(userId) {
-  await db.collection('families').doc(FAMILY_ID)
-    .collection('pendingReg').doc(String(userId)).set({ createdAt: new Date().toISOString() });
+// Multi-step registration state: step='name' or step='code', pending name stored
+async function setPendingReg(userId, data = {}) {
+  await db.collection('telegramPending').doc(String(userId)).set({
+    createdAt: new Date().toISOString(),
+    step: 'name',
+    ...data,
+  });
 }
 
-async function checkPendingReg(userId) {
-  const doc = await db.collection('families').doc(FAMILY_ID)
-    .collection('pendingReg').doc(String(userId)).get();
-  return doc.exists;
+async function getPendingReg(userId) {
+  const doc = await db.collection('telegramPending').doc(String(userId)).get();
+  return doc.exists ? doc.data() : null;
+}
+
+async function updatePendingReg(userId, data) {
+  await db.collection('telegramPending').doc(String(userId)).update(data);
 }
 
 async function clearPendingReg(userId) {
-  await db.collection('families').doc(FAMILY_ID)
-    .collection('pendingReg').doc(String(userId)).delete();
+  await db.collection('telegramPending').doc(String(userId)).delete();
+}
+
+// Validate invite code → returns familyId or null
+async function validateInviteCode(code) {
+  try {
+    const doc = await db.collection('invites').doc(code.toUpperCase()).get();
+    if (!doc.exists) return null;
+    const d = doc.data();
+    if (d.used) return null;
+    if (d.expiresAt && new Date(d.expiresAt) < new Date()) return null;
+    return d.familyId;
+  } catch (e) { return null; }
 }
 
 // ── Pending operations ───────────────────────────────────────
 async function savePending(op, userId) {
-  const ref = db.collection('families').doc(FAMILY_ID).collection('pendingOps');
+  const familyId = op.familyId;
+  const ref = db.collection('families').doc(familyId).collection('pendingOps');
   const doc = await ref.add({ ...op, userId: String(userId), createdAt: new Date().toISOString() });
   return doc.id;
 }
 
-async function getPending(id) {
-  const doc = await db.collection('families').doc(FAMILY_ID)
+async function getPending(id, familyId) {
+  const doc = await db.collection('families').doc(familyId)
     .collection('pendingOps').doc(id).get();
-  return doc.exists ? doc.data() : null;
+  return doc.exists ? { ...doc.data(), _docFamilyId: familyId } : null;
 }
 
-async function updatePending(id, data) {
-  await db.collection('families').doc(FAMILY_ID)
+async function updatePending(id, familyId, data) {
+  await db.collection('families').doc(familyId)
     .collection('pendingOps').doc(id).update(data);
 }
 
-async function deletePending(id) {
-  await db.collection('families').doc(FAMILY_ID)
+async function deletePending(id, familyId) {
+  await db.collection('families').doc(familyId)
     .collection('pendingOps').doc(id).delete();
 }
 
@@ -250,7 +267,7 @@ async function downloadTelegramPhoto(fileId) {
 }
 
 // ── Обробка фото чека ────────────────────────────────────────
-async function handleReceiptPhoto(chatId, who, msg, res) {
+async function handleReceiptPhoto(chatId, who, familyId, msg, res) {
   try {
     // Беремо найбільше фото
     const photos = [...msg.photo].sort((a, b) => (b.file_size || 0) - (a.file_size || 0));
@@ -281,6 +298,7 @@ async function handleReceiptPhoto(chatId, who, msg, res) {
       desc: result.store || '',
       card: '',
       who,
+      familyId,
       date: result.date || todayKyiv(),
     };
 
@@ -315,16 +333,17 @@ async function handleReceiptPhoto(chatId, who, msg, res) {
 }
 
 async function saveOperation(op) {
-  const ref = db.collection('families').doc(FAMILY_ID).collection('operations');
+  const familyId = op.familyId;
+  const ref = db.collection('families').doc(familyId).collection('operations');
   await ref.add({
-    date: todayKyiv(),
+    date: op.date || todayKyiv(),
     type: op.type,
     category: op.category,
     amount: op.amount,
     currency: op.currency || 'UAH',
     amountUah: op.amountUah || op.amount,
     desc: op.desc || '',
-    who: op.who || 'Євген',
+    who: op.who || '',
     card: op.card || '',
     source: 'Telegram',
     createdAt: new Date().toISOString(),
@@ -332,17 +351,23 @@ async function saveOperation(op) {
 }
 
 // Баланс по кошельках з урахуванням валюти та кредитних лімітів
-async function getWalletBalances() {
+async function getWalletBalances(familyId) {
   const [snapshot, rates, settingsDoc] = await Promise.all([
-    db.collection('families').doc(FAMILY_ID).collection('operations').get(),
+    db.collection('families').doc(familyId).collection('operations').get(),
     getExchangeRates(),
-    db.collection('families').doc(FAMILY_ID).get(),
+    db.collection('families').doc(familyId).get(),
   ]);
 
-  // Збираємо кредитні ліміти з налаштувань карток
   const creditLimits = {};
   if (settingsDoc.exists) {
     const s = settingsDoc.data();
+    const cards = s.cards || {};
+    Object.values(cards).forEach(memberCards => {
+      (Array.isArray(memberCards) ? memberCards : []).forEach(c => {
+        if (c.creditLimit) creditLimits[c.id] = Number(c.creditLimit);
+      });
+    });
+    // Backwards compat with old cardsEvgen/cardsMarina format
     ['cardsEvgen', 'cardsMarina'].forEach(key => {
       (s[key] || []).forEach(c => {
         if (c.creditLimit) creditLimits[c.id] = Number(c.creditLimit);
@@ -389,8 +414,8 @@ async function getWalletBalances() {
     .sort((a, b) => Math.abs(b.balanceUah) - Math.abs(a.balanceUah));
 }
 
-async function getPeriodOps(from, to) {
-  const snapshot = await db.collection('families').doc(FAMILY_ID)
+async function getPeriodOps(familyId, from, to) {
+  const snapshot = await db.collection('families').doc(familyId)
     .collection('operations')
     .where('date', '>=', from)
     .where('date', '<=', to)
@@ -399,8 +424,8 @@ async function getPeriodOps(from, to) {
   return snapshot.docs.map(d => d.data()).filter(o => o.category !== 'Переказ');
 }
 
-async function getLastOps(n = 5) {
-  const snapshot = await db.collection('families').doc(FAMILY_ID)
+async function getLastOps(familyId, n = 5) {
+  const snapshot = await db.collection('families').doc(familyId)
     .collection('operations')
     .orderBy('createdAt', 'desc')
     .limit(n)
@@ -410,9 +435,21 @@ async function getLastOps(n = 5) {
     .filter(o => o.category !== 'Переказ');
 }
 
-async function deleteOperation(id) {
-  await db.collection('families').doc(FAMILY_ID)
+async function deleteOperation(familyId, id) {
+  await db.collection('families').doc(familyId)
     .collection('operations').doc(id).delete();
+}
+
+async function getTodaySameCategoryOps(familyId, who, category) {
+  const today = todayKyiv();
+  const snapshot = await db.collection('families').doc(familyId)
+    .collection('operations')
+    .where('date', '==', today)
+    .where('who', '==', who)
+    .where('category', '==', category)
+    .where('type', '==', 'Витрата')
+    .get();
+  return snapshot.docs.map(d => d.data());
 }
 
 // ── Keyboards ────────────────────────────────────────────────
@@ -563,18 +600,27 @@ async function handleCallback(cb, res) {
   const data = cb.data || '';
   const chatId = cb.message.chat.id;
   const messageId = cb.message.message_id;
+  const userId = cb.from.id;
   const [action, id, ...rest] = data.split(':');
-  const newCat = rest.join(':'); // category names don't contain ':' but safe regardless
+  const newCat = rest.join(':');
+
+  // familyId stored in pending op
+  const tgUser = await getTelegramUser(userId);
+  const familyId = tgUser?.familyId;
+  if (!familyId) {
+    await answerCallback(cb.id, '⚠️ Спочатку зареєструйся');
+    return res.status(200).json({ ok: true });
+  }
 
   if (action === 'sv') {
-    const op = await getPending(id);
+    const op = await getPending(id, familyId);
     if (!op) {
       await answerCallback(cb.id, '⚠️ Операція застаріла');
       await editMessage(chatId, messageId, '⚠️ Операція застаріла. Введи знову.');
       return res.status(200).json({ ok: true });
     }
     await saveOperation(op);
-    await deletePending(id);
+    await deletePending(id, familyId);
 
     const emoji = op.type === 'Дохід' ? '💰' : (CAT_EMOJI[op.category] || '💸');
     const sign = op.type === 'Дохід' ? '+' : '-';
@@ -588,23 +634,35 @@ async function handleCallback(cb, res) {
     txt += `\n\n✅ Збережено!`;
     await editMessage(chatId, messageId, txt);
     await answerCallback(cb.id, '✅ Збережено!');
+
+    // Проактивний саркастичний коментар при дублікаті категорії за день
+    if (op.type === 'Витрата') {
+      try {
+        const todayOps = await getTodaySameCategoryOps(familyId, op.who, op.category);
+        if (todayOps.length >= 2) {
+          const comment = await generateSarcasticComment(op, todayOps);
+          if (comment) await sendMessage(chatId, comment);
+        }
+      } catch (e) {}
+    }
+
     return res.status(200).json({ ok: true });
   }
 
   if (action === 'cl') {
-    await deletePending(id).catch(() => {});
+    await deletePending(id, familyId).catch(() => {});
     await editMessage(chatId, messageId, '❌ Скасовано.');
     await answerCallback(cb.id, 'Скасовано');
     return res.status(200).json({ ok: true });
   }
 
   if (action === 'ct') {
-    const op = await getPending(id);
+    const op = await getPending(id, familyId);
     if (!op) {
       await answerCallback(cb.id, '⚠️ Операція застаріла');
       return res.status(200).json({ ok: true });
     }
-    await updatePending(id, { category: newCat });
+    await updatePending(id, familyId, { category: newCat });
     const updated = { ...op, category: newCat };
     await editMessage(chatId, messageId, pendingPreviewText(updated), {
       reply_markup: buildConfirmKeyboard(id, op.type),
@@ -614,7 +672,7 @@ async function handleCallback(cb, res) {
   }
 
   if (action === 'dl') {
-    await deleteOperation(id);
+    await deleteOperation(familyId, id);
     await editMessage(chatId, messageId, '🗑 Операцію видалено.');
     await answerCallback(cb.id, 'Видалено');
     return res.status(200).json({ ok: true });
@@ -625,24 +683,8 @@ async function handleCallback(cb, res) {
 }
 
 // ── Command handler ──────────────────────────────────────────
-async function handleCommand(cmd, chatId, userId, userName, who, res) {
+async function handleCommand(cmd, chatId, userId, userName, who, familyId, res) {
   switch (cmd) {
-    case '/start': {
-      const existing = await getWho(userId, null);
-      const isNew = !existing || existing === 'Невідомий';
-      if (isNew) {
-        await setPendingReg(userId);
-        await sendMessage(chatId, `👋 Привіт! Я бот <b>Сімейного бюджету</b>.\n\nЯк тебе звати?`);
-      } else {
-        await sendMessage(chatId,
-          `👋 Привіт, <b>${existing}</b>!\n\n` +
-          `Надсилай витрати або доходи, або натисни кнопку:`,
-          { reply_markup: MAIN_KEYBOARD }
-        );
-      }
-      return res.status(200).json({ ok: true });
-    }
-
     case '/help':
       await sendMessage(chatId,
         `📝 Просто напиши що купив і суму:\n` +
@@ -661,7 +703,7 @@ async function handleCommand(cmd, chatId, userId, userName, who, res) {
       return res.status(200).json({ ok: true });
 
     case '/balance': {
-      const wallets = await getWalletBalances();
+      const wallets = await getWalletBalances(familyId);
       if (!wallets.length) {
         await sendMessage(chatId, '💳 Ще жодних операцій.');
         return res.status(200).json({ ok: true });
@@ -700,7 +742,7 @@ async function handleCommand(cmd, chatId, userId, userName, who, res) {
 
     case '/today': {
       const today = todayKyiv();
-      const ops = await getPeriodOps(today, today);
+      const ops = await getPeriodOps(familyId, today, today);
       const totalExp = ops.filter(o => o.type === 'Витрата').reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
       const totalInc = ops.filter(o => o.type === 'Дохід').reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
 
@@ -722,27 +764,27 @@ async function handleCommand(cmd, chatId, userId, userName, who, res) {
 
     case '/month': {
       const { from, to, label } = currentMonthRange();
-      const ops = await getPeriodOps(from, to);
+      const ops = await getPeriodOps(familyId, from, to);
       await sendMessage(chatId, formatPeriodStats(ops, `місяць ${label}`));
       return res.status(200).json({ ok: true });
     }
 
     case '/week': {
       const { from, to } = weekRange();
-      const ops = await getPeriodOps(from, to);
+      const ops = await getPeriodOps(familyId, from, to);
       await sendMessage(chatId, formatPeriodStats(ops, 'тиждень'));
       return res.status(200).json({ ok: true });
     }
 
     case '/stats': {
       const { from, to, label } = currentMonthRange();
-      const ops = await getPeriodOps(from, to);
+      const ops = await getPeriodOps(familyId, from, to);
       await sendMessage(chatId, formatStats(ops, label));
       return res.status(200).json({ ok: true });
     }
 
     case '/last': {
-      const ops = await getLastOps(5);
+      const ops = await getLastOps(familyId, 5);
       if (!ops.length) {
         await sendMessage(chatId, '📋 Ще жодних операцій.');
         return res.status(200).json({ ok: true });
@@ -764,6 +806,35 @@ async function handleCommand(cmd, chatId, userId, userName, who, res) {
   }
 }
 
+// ── Проактивні саркастичні коментарі ────────────────────────
+async function generateSarcasticComment(op, todayOps) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return null;
+
+  const totalToday = todayOps.reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
+  const count = todayOps.length;
+  const stores = todayOps.map(o => o.desc).filter(Boolean).join(', ');
+  const context = `${op.who} щойно зробив ${count}-у витрату сьогодні в категорії "${op.category}": ${op.amount} ₴${op.desc ? ` (${op.desc})` : ''}. Всього сьогодні в цій категорії: ${fmtMoney(totalToday)}${stores ? `. Місця: ${stores}` : ''}.`;
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 120,
+        system: `Ти — саркастичний фінансовий радник родини Кіосе. Стиль: їдкий гумор, але з теплотою.
+Правила: УКРАЇНСЬКА, ДУЖЕ коротко (1-2 речення), один дотепний коментар про повторну витрату за день у тій самій категорії. 1-2 емодзі максимум. Не запитуй питань. Не повторюй факти дослівно.`,
+        messages: [{ role: 'user', content: context }],
+      }),
+    });
+    const data = await response.json();
+    return data.content?.filter(c => c.type === 'text').map(c => c.text).join('') || null;
+  } catch (e) {
+    return null;
+  }
+}
+
 // ── AI Чат ───────────────────────────────────────────────────
 function isConversational(text) {
   if (text.length < 4) return false;
@@ -773,12 +844,11 @@ function isConversational(text) {
   return triggers.some(t => lower.startsWith(t) || lower.includes(' ' + t));
 }
 
-async function handleAIChat(chatId, userText, who, res) {
+async function handleAIChat(chatId, userText, who, familyId, res) {
   try {
-    // Збираємо контекст
     const [wallets, recentOps] = await Promise.all([
-      getWalletBalances(),
-      getLastOps(10),
+      getWalletBalances(familyId),
+      getLastOps(familyId, 10),
     ]);
     const totalUah = wallets.reduce((s, w) => s + w.balanceUah, 0);
     const recentExp = recentOps.filter(o => o.type === 'Витрата').slice(0, 5)
@@ -841,25 +911,79 @@ module.exports = async function handler(req, res) {
     const userName = msg.from.first_name || 'User';
     const text = msg.text || '';
 
-    // Перевірка доступу
-    if (ALLOWED_USERS.length > 0 && !ALLOWED_USERS.includes(userId)) {
-      await sendMessage(chatId, '⛔ У вас немає доступу до цього бота.');
+    // ── Багатокрокова реєстрація ─────────────────────────────
+    const pending = !text.startsWith('/') ? await getPendingReg(userId) : null;
+    if (pending) {
+      if (pending.step === 'name') {
+        const name = text.trim().substring(0, 30);
+        if (name.length < 2) {
+          await sendMessage(chatId, '❌ Ім\'я має бути щонайменше 2 символи. Спробуй ще раз:');
+          return res.status(200).json({ ok: true });
+        }
+        await updatePendingReg(userId, { step: 'code', pendingName: name });
+        await sendMessage(chatId,
+          `👋 Привіт, <b>${name}</b>!\n\n` +
+          `Тепер введи <b>код запрошення</b> від члена своєї родини (6 символів).\n\n` +
+          `Якщо у тебе немає коду — попроси того, хто вже користується додатком, ` +
+          `згенерувати його в Налаштуваннях → "Запросити члена родини".`
+        );
+        return res.status(200).json({ ok: true });
+      }
+
+      if (pending.step === 'code') {
+        const code = text.trim().toUpperCase();
+        const familyIdFromCode = await validateInviteCode(code);
+        if (!familyIdFromCode) {
+          await sendMessage(chatId, '❌ Невірний або застарілий код. Попроси новий і спробуй ще раз:');
+          return res.status(200).json({ ok: true });
+        }
+        const name = pending.pendingName || userName;
+        await registerTelegramUser(userId, { name, familyId: familyIdFromCode });
+        await clearPendingReg(userId);
+        await sendMessage(chatId,
+          `✅ <b>Готово, ${name}!</b> Ти приєднався до родини.\n\nТепер можеш надсилати витрати та доходи:`,
+          { reply_markup: MAIN_KEYBOARD }
+        );
+        return res.status(200).json({ ok: true });
+      }
+    }
+
+    // ── Перевіряємо чи є зареєстрований Telegram-акаунт ─────
+    const tgUser = await getTelegramUser(userId);
+
+    // /start — завжди доступний, запускає реєстрацію якщо потрібно
+    if (text === '/start') {
+      if (tgUser) {
+        await sendMessage(chatId,
+          `👋 Привіт, <b>${tgUser.name}</b>! З поверненням 💪\n\nНадсилай витрати або доходи:`,
+          { reply_markup: MAIN_KEYBOARD }
+        );
+      } else {
+        await setPendingReg(userId, { step: 'name' });
+        await sendMessage(chatId,
+          `👋 Привіт! Я бот для сімейного бюджету.\n\n` +
+          `Щоб почати, мені потрібно тебе зареєструвати.\n\n` +
+          `<b>Як тебе звати?</b> (введи своє ім\'я)`
+        );
+      }
       return res.status(200).json({ ok: true });
     }
 
-    // Реєстрація імені (якщо чекаємо відповіді після /start)
-    if (!text.startsWith('/') && await checkPendingReg(userId)) {
-      const name = text.trim().substring(0, 30);
-      await registerUser(userId, name);
-      await clearPendingReg(userId);
+    // Незареєстрований — просимо пройти реєстрацію
+    if (!tgUser) {
       await sendMessage(chatId,
-        `✅ Відмінно, <b>${name}</b>! Тепер ти зареєстрований.\n\nНадсилай витрати або доходи:`,
-        { reply_markup: MAIN_KEYBOARD }
+        `⚠️ Ти ще не зареєстрований.\n\nНатисни /start щоб почати реєстрацію.`
       );
       return res.status(200).json({ ok: true });
     }
 
-    const who = await getWho(userId, userName);
+    const who = tgUser.name;
+    const familyId = tgUser.familyId;
+
+    // Фото чека
+    if (msg.photo && msg.photo.length > 0) {
+      return handleReceiptPhoto(chatId, who, familyId, msg, res);
+    }
 
     // Фото чека
     if (msg.photo && msg.photo.length > 0) {
@@ -868,7 +992,7 @@ module.exports = async function handler(req, res) {
 
     // Команди
     if (text.startsWith('/')) {
-      return handleCommand(text.split(' ')[0].toLowerCase(), chatId, userId, userName, who, res);
+      return handleCommand(text.split(' ')[0].toLowerCase(), chatId, userId, userName, who, familyId, res);
     }
 
     // Reply keyboard кнопки
@@ -883,7 +1007,7 @@ module.exports = async function handler(req, res) {
     };
 
     if (BTN_MAP[text]) {
-      return handleCommand(BTN_MAP[text], chatId, userId, userName, who, res);
+      return handleCommand(BTN_MAP[text], chatId, userId, userName, who, familyId, res);
     }
 
     if (text === '➕ Витрата') {
@@ -898,9 +1022,8 @@ module.exports = async function handler(req, res) {
     // Парсимо операцію і показуємо для підтвердження
     const parsed = parseMessage(text);
     if (!parsed) {
-      // Якщо схоже на питання — відповідає AI
       if (isConversational(text)) {
-        return handleAIChat(chatId, text, who, res);
+        return handleAIChat(chatId, text, who, familyId, res);
       }
       await sendMessage(chatId,
         `🤔 Не зрозумів. Напиши суму і опис:\n<code>каву 85</code>\n<code>зп 40000</code>\n\nАбо постав питання — я відповім 😏`
@@ -913,7 +1036,7 @@ module.exports = async function handler(req, res) {
       ? Math.round(parsed.amount * (rates[parsed.currency] || 1))
       : parsed.amount;
 
-    const opData = { type: parsed.type, amount: parsed.amount, currency: parsed.currency, amountUah, category: parsed.category, card: parsed.card, desc: parsed.desc, who };
+    const opData = { type: parsed.type, amount: parsed.amount, currency: parsed.currency, amountUah, category: parsed.category, card: parsed.card, desc: parsed.desc, who, familyId };
     const pendingId = await savePending(opData, userId);
 
     await sendMessage(chatId, pendingPreviewText(opData), {

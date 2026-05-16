@@ -2,7 +2,7 @@
 // SETTINGS UI — сторінка налаштувань
 // ═══════════════════════════════════════════════════════════════
 
-import { FAMILY_MEMBERS, state, getFamilyMembers, setFamilyMembers, getEmailToMember } from './config.js';
+import { FAMILY_MEMBERS, state, getFamilyMembers, setFamilyMembers } from './config.js';
 import {
   getExpCats, setExpCats, getIncCats, setIncCats,
   getWalletTypes, setWalletTypes,
@@ -11,7 +11,7 @@ import {
   getCards,
   getTheme,
 } from './storage.js';
-import { syncSettingsToSheet, pingBackend } from './api.js';
+import { syncSettingsToSheet, pingBackend, generateInviteCode } from './api.js';
 import { applyTheme, toggleTheme } from './theme.js';
 import { esc, showToast, uid } from './utils.js';
 import { openIconPicker } from './icon-picker.js';
@@ -58,23 +58,22 @@ export function renderSettingsPage() {
         </div>
       </div>
 
-      <!-- Тема -->
+      <!-- Учасники та запрошення -->
       <div class="settings-section">
         <div class="settings-label">Учасники сім'ї</div>
         <div class="settings-card">
-          <div class="settings-hint" style="font-size:12px;padding:0 0 8px;">Імена які використовуються скрізь у додатку. Клікни щоб змінити.</div>
           <div id="members-list">
-            ${getFamilyMembers().map((m, i) => `
+            ${getFamilyMembers().map((m) => `
               <div class="settings-row">
                 <div class="settings-row-icon" style="background:var(--c-accent-soft);color:var(--c-accent)"><b>${m[0]}</b></div>
                 <div class="settings-row-info">
-                  <input class="settings-row-input member-name-input" data-member-idx="${i}" value="${esc(m)}" placeholder="Ім'я">
+                  <div class="settings-row-name">${esc(m)}</div>
+                  <div class="settings-row-sub">${esc(m) === esc(state.member) ? 'Це ви' : 'Учасник'}</div>
                 </div>
-                <div class="settings-row-sub" style="font-size:11px;color:var(--c-text-3)">${esc((Object.entries(getEmailToMember()).find(([e, n]) => n === m) || [])[0] || 'не прив\'язано')}</div>
               </div>
             `).join('')}
           </div>
-          <button class="settings-add-btn" id="save-members-btn"><i class="ti ti-check"></i> Зберегти імена</button>
+          <button class="settings-add-btn" id="invite-btn"><i class="ti ti-user-plus"></i> Запросити члена родини</button>
         </div>
       </div>
 
@@ -328,22 +327,34 @@ function bindHandlers(el) {
     if (ok) signOut();
   });
 
-  // Зберегти імена учасників
-  el.querySelector('#save-members-btn')?.addEventListener('click', async () => {
-    const inputs = el.querySelectorAll('.member-name-input');
-    const names = [];
-    inputs.forEach(inp => {
-      const name = inp.value.trim();
-      if (name) names.push(name);
-    });
-    if (names.length === 0) { showToast('Додай хоча б одне ім\'я', 'error'); return; }
-    setFamilyMembers(names);
-    showToast('✅ Імена збережено');
+  // Запросити учасника
+  el.querySelector('#invite-btn')?.addEventListener('click', async () => {
+    const btn = el.querySelector('#invite-btn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Генерую код...';
     try {
-      const { syncSettingsToSheet } = await import('./api.js');
-      await syncSettingsToSheet();
-    } catch(e) {}
-    renderSettingsPage();
+      const code = await generateInviteCode(state.familyId, state.user?.uid);
+      openBottomSheet({
+        title: '📨 Запрошення до родини',
+        content: `
+          <div style="text-align:center;padding:16px 0">
+            <div style="font-size:13px;color:var(--c-text-2);margin-bottom:12px">Поділися цим кодом з тим, кого хочеш додати до родини</div>
+            <div style="font-size:36px;font-weight:700;letter-spacing:8px;color:var(--c-accent);margin:16px 0;padding:16px;background:var(--c-accent-soft);border-radius:12px">${esc(code)}</div>
+            <div style="font-size:12px;color:var(--c-text-3);margin-bottom:16px">Код дійсний 7 днів</div>
+            <p style="font-size:13px;color:var(--c-text-2)">Людина вводить цей код під час реєстрації або в налаштуваннях → "Приєднатись до родини"</p>
+          </div>
+        `,
+        footer: `
+          <button class="btn-primary flex-1" onclick="navigator.clipboard?.writeText('${esc(code)}');this.textContent='✅ Скопійовано!'">
+            <i class="ti ti-copy"></i> Скопіювати код
+          </button>
+        `,
+      });
+    } catch (e) {
+      showToast('Помилка: ' + e.message, 'error');
+    }
+    btn.disabled = false;
+    btn.innerHTML = '<i class="ti ti-user-plus"></i> Запросити члена родини';
   });
 
   // Sync

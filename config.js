@@ -12,9 +12,6 @@ export const FIREBASE_CONFIG = {
   appId: "1:391938954609:web:d22a868a85070821cd92d0",
 };
 
-// Родина — динамічні імена (завантажуються з Firestore/localStorage)
-export const FAMILY_ID = 'koval';
-
 // Дефолтні імена (перевизначаються через налаштування)
 let _familyMembers = null;
 export function getFamilyMembers() {
@@ -55,27 +52,6 @@ export const FAMILY_MEMBERS = new Proxy([], {
     if (typeof prop === 'string' && !isNaN(prop)) return members[Number(prop)];
     return members[prop];
   }
-});
-
-// Дозволені email (порожній = всі дозволені)
-export const ALLOWED_EMAILS = [];
-
-// Маппінг email → ім'я (завантажується з налаштувань)
-export function getEmailToMember() {
-  try {
-    const saved = localStorage.getItem('budget_email_map');
-    if (saved) return JSON.parse(saved);
-  } catch(e) {}
-  return {
-    'jeka180696111@gmail.com': 'Євген',
-  };
-}
-export function setEmailToMember(map) {
-  localStorage.setItem('budget_email_map', JSON.stringify(map));
-}
-// Сумісність
-export const EMAIL_TO_MEMBER = new Proxy({}, {
-  get(target, prop) { return getEmailToMember()[prop]; }
 });
 
 // localStorage ключі
@@ -147,6 +123,8 @@ export const state = {
   member: null,     // 'Євген' | 'Марина'
   token: null,      // сумісність зі старим кодом
   scriptUrl: '',    // не використовується, для сумісності
+  familyId: null,   // поточний ID родини (замість FAMILY_ID константи)
+  familyMembers: [], // список імен членів родини
   dashboard: null,
   operations: [],
   reserve: null,

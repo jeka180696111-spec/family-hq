@@ -1,54 +1,76 @@
 // ═══════════════════════════════════════════════════════════════
-// AUTH — Firebase Google Authentication
+// AUTH — Firebase Google Authentication (multi-tenant)
 // ═══════════════════════════════════════════════════════════════
 
-import { state, EMAIL_TO_MEMBER, ALLOWED_EMAILS, FAMILY_MEMBERS } from './config.js';
+import { state } from './config.js';
 import { log, logError } from './utils.js';
+import { getUserDoc, migrateExistingUser } from './api.js';
+import { showOnboarding } from './onboarding.js';
+
+// Відомі існуючі користувачі — автоматично мігруються без онбордингу
+const MIGRATION_MAP = {
+  'jeka180696111@gmail.com': { name: 'Євген', familyId: 'koval', familyName: 'Кіосе' },
+};
 
 let firebaseAuth = null;
 let googleProvider = null;
+let _onSignIn = null;
 
 // ── Ініціалізація Firebase Auth ─────────────────────────────
 export function initAuth(onSignIn) {
+  _onSignIn = onSignIn;
   firebaseAuth = firebase.auth();
   googleProvider = new firebase.auth.GoogleAuthProvider();
 
-  // Слухаємо зміну стану авторизації
-  firebaseAuth.onAuthStateChanged((user) => {
+  firebaseAuth.onAuthStateChanged(async (user) => {
     if (user) {
-      // Перевіряємо чи дозволений email
-      if (ALLOWED_EMAILS.length > 0 && !ALLOWED_EMAILS.includes(user.email)) {
-        log('Unauthorized email:', user.email);
-        firebaseAuth.signOut();
-        showLoginError('Цей акаунт не має доступу. Зверніться до адміністратора.');
-        return;
-      }
-
       state.user = {
         uid: user.uid,
         email: user.email,
         name: user.displayName || user.email.split('@')[0],
         avatar: user.photoURL || null,
       };
-      state.member = EMAIL_TO_MEMBER[user.email] || FAMILY_MEMBERS[0];
 
-      log('Firebase auth:', state.user.email, '→', state.member);
+      try {
+        const userDoc = await getUserDoc(user.uid);
 
-      // Ховаємо екран логіну, показуємо додаток
-      if (onSignIn) onSignIn(state.user);
+        if (userDoc) {
+          state.member = userDoc.name;
+          state.familyId = userDoc.familyId;
+          log('Auth: existing user', state.member, 'family', state.familyId);
+          if (_onSignIn) _onSignIn(state.user);
+        } else if (MIGRATION_MAP[user.email]) {
+          // Автоматична міграція існуючого користувача
+          log('Auth: migrating existing user', user.email);
+          const m = MIGRATION_MAP[user.email];
+          await migrateExistingUser(user.uid, m);
+          if (_onSignIn) _onSignIn(state.user);
+        } else {
+          log('Auth: new user, showing onboarding');
+          showOnboarding();
+        }
+      } catch (e) {
+        logError('initAuth: getUserDoc failed', e.message);
+        showLoginError('Помилка завантаження профілю: ' + e.message);
+      }
     } else {
-      // Не залогінений — показуємо екран логіну
       state.user = null;
       state.member = null;
+      state.familyId = null;
       showLoginScreen();
     }
   });
 }
 
+// ── Завершення онбордингу ────────────────────────────────────
+// Викликається з onboarding.js після успішного створення/приєднання родини
+export function completeOnboarding() {
+  log('Onboarding complete, booting app for', state.member);
+  if (_onSignIn) _onSignIn(state.user);
+}
+
 // ── Відновлення сесії ────────────────────────────────────────
 export function restoreSession() {
-  // Firebase зберігає сесію автоматично (IndexedDB)
-  // onAuthStateChanged спрацює сам
   return firebaseAuth && firebaseAuth.currentUser !== null;
 }
 
@@ -70,20 +92,22 @@ export function signOut() {
   }
   state.user = null;
   state.member = null;
+  state.familyId = null;
   location.reload();
 }
 
 // ── Хто я в сім'ї ───────────────────────────────────────────
 export function whoAmI() {
-  if (!state.user) return null;
-  return state.member || EMAIL_TO_MEMBER[state.user.email] || FAMILY_MEMBERS[0];
+  return state.member || null;
 }
 
 // ── Показати екран логіну ───────────────────────────────────
 function showLoginScreen() {
   const app = document.getElementById('app-root');
   const login = document.getElementById('login-screen');
+  const onboarding = document.getElementById('onboarding-screen');
   if (app) app.style.display = 'none';
+  if (onboarding) onboarding.style.display = 'none';
   if (login) login.style.display = 'flex';
 }
 
@@ -95,8 +119,7 @@ function showLoginError(msg) {
   }
 }
 
-// ── Ініціалізація Google Sign-In кнопки ─────────────────────
-// Для сумісності зі старим initGoogleAuth
+// ── Сумісність зі старим initGoogleAuth ─────────────────────
 export function initGoogleAuth(onSignIn) {
   initAuth(onSignIn);
 }
