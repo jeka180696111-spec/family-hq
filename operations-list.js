@@ -6,7 +6,7 @@ import { FAMILY_MEMBERS, state } from './config.js';
 import { apiGet } from './api.js';
 import { esc, fmtMoney, fmtMoneyShort, fmtDate, monthKey } from './utils.js';
 import { openOperationDialog } from './operations.js';
-import { getProfiles } from './storage.js';
+import { getProfiles, getViewAsMember } from './storage.js';
 
 export async function loadOperations() {
   try {
@@ -42,7 +42,11 @@ export function renderOperationsPage() {
   });
 
   const f = state.opFilter || { who: 'all', type: 'all' };
-  if (f.who !== 'all') ops = ops.filter(o => o.who === f.who);
+  // viewAs — перемикач члена сім'ї у хедері; якщо не вибрано вручну — застосовуємо його
+  const viewAs = getViewAsMember();
+  const effectiveWho = f.who !== 'all' ? f.who : (viewAs || 'all');
+
+  if (effectiveWho !== 'all') ops = ops.filter(o => o.who === effectiveWho);
   if (f.type !== 'all') ops = ops.filter(o => o.type === f.type);
 
   const cur = state.currentMonth instanceof Date ? state.currentMonth : new Date();
@@ -93,9 +97,9 @@ export function renderOperationsPage() {
       <!-- Фільтри -->
       <div class="ops-filters">
         <div class="wallets-filter-chips">
-          <button class="chip ${f.who === 'all' ? 'active' : ''}" data-filter-who="all">Усі</button>
+          <button class="chip ${effectiveWho === 'all' ? 'active' : ''}" data-filter-who="all">Усі</button>
           ${FAMILY_MEMBERS.map(m => `
-            <button class="chip ${f.who === m ? 'active' : ''}" data-filter-who="${esc(m)}">${esc(profiles[m]?.name || m)}</button>
+            <button class="chip ${effectiveWho === m ? 'active' : ''}" data-filter-who="${esc(m)}">${esc(profiles[m]?.name || m)}</button>
           `).join('')}
         </div>
         <div class="wallets-filter-chips">

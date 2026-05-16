@@ -156,9 +156,14 @@ async function getDashboard(period) {
 
 // ── Операції ─────────────────────────────────────────────────
 async function getOperations(params) {
-  let q = familyRef().collection('operations').orderBy('date', 'desc');
-  if (params?.limit) q = q.limit(Number(params.limit));
-  else q = q.limit(500);
+  let q = familyRef().collection('operations');
+
+  if (params?.month) {
+    q = q.where('date', '>=', `${params.month}-01`)
+         .where('date', '<=', `${params.month}-31`);
+  }
+
+  q = q.orderBy('date', 'desc').limit(Number(params?.limit) || 500);
 
   const snapshot = await q.get();
   const ops = snapshot.docs.map(doc => ({ id: doc.id, row: doc.id, ...doc.data() }));
