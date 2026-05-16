@@ -266,9 +266,10 @@ function renderOpItem(op) {
   const isInc = op.type === 'Дохід';
   const sign = isExp ? '−' : isInc ? '+' : '';
   const style = getCatStyle(op);
-  const amountDisplay = op.amountUah && op.currency !== 'UAH'
-    ? `${sign}${fmtMoney(op.amount, op.currency)} <small style="opacity:.6">(${fmtMoney(op.amountUah,'UAH')})</small>`
-    : `${sign}${fmtMoney(op.amount, op.currency)}`;
+  const mainAmount = `${sign}${fmtMoney(op.amount, op.currency)}`;
+  const subAmount = op.amountUah && op.currency !== 'UAH'
+    ? `≈ ${fmtMoney(op.amountUah, 'UAH')}`
+    : '';
   const amountColor = isExp ? 'var(--c-red)' : isInc ? 'var(--c-green)' : 'var(--c-blue)';
   return `
     <div class="op-item" data-op-row="${op.row}">
@@ -279,8 +280,9 @@ function renderOpItem(op) {
         <div class="op-item-name">${esc(op.category || '—')}${op.desc ? ` · ${esc(op.desc)}` : ''}</div>
         <div class="op-item-meta">${esc(op.who || '')}${op.card ? ` · ${esc(op.card)}` : ''}</div>
       </div>
-      <div class="op-item-amount" style="color:${amountColor}">
-        ${amountDisplay}
+      <div class="op-item-right">
+        <div class="op-item-amount" style="color:${amountColor}">${mainAmount}</div>
+        ${subAmount ? `<div class="op-item-amount-sub">${subAmount}</div>` : ''}
       </div>
     </div>
   `;

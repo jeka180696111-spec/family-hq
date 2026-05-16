@@ -177,20 +177,26 @@ body, .card, .sidebar, .topbar, .wallet-card, .modal {
 /* ── Toast ──────────────────────────────────────────────────── */
 .toast {
   position: fixed;
-  bottom: 100px;
+  bottom: 104px;
   left: 50%;
-  transform: translateX(-50%) translateY(20px);
-  background: var(--c-text);
-  color: var(--c-bg-2);
-  padding: 12px 24px;
-  border-radius: 24px;
+  transform: translateX(-50%) translateY(16px);
+  background: rgba(26,36,33,0.92);
+  color: #fff;
+  padding: 11px 22px;
+  border-radius: 28px;
   font-size: 13px;
   font-weight: 600;
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   opacity: 0;
-  transition: all 0.2s ease;
+  transition: all 0.22s cubic-bezier(.34,1.56,.64,1);
   z-index: 9999;
   pointer-events: none;
+  white-space: nowrap;
+  max-width: 90vw;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-.toast-error { background: var(--c-red); color: #fff; }
+.toast-error { background: rgba(200,84,80,0.95); color: #fff; }
+.toast-warn { background: rgba(217,161,62,0.95); color: #fff; }
+[data-theme="light"] .toast { background: rgba(26,36,33,0.92); }

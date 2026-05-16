@@ -109,13 +109,14 @@
 /* ── CARDS ──────────────────────────────────────────────────── */
 .dash-card {
   background: var(--c-card);
-  border-radius: 16px;
-  border: .5px solid var(--c-border);
-  padding: 16px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-  transition: box-shadow .2s;
+  border-radius: 18px;
+  border: 1px solid var(--c-border);
+  padding: 18px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04), 0 0 0 0 transparent;
+  transition: box-shadow .25s, border-color .25s;
 }
-.dash-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.07); }
+.dash-card:hover { box-shadow: 0 6px 20px rgba(0,0,0,0.07); border-color: var(--c-border-2); }
+[data-theme="dark"] .dash-card:hover { box-shadow: 0 6px 24px rgba(0,0,0,0.3); }
 .dash-card-head {
   display: flex;
   align-items: center;
@@ -123,11 +124,11 @@
   margin-bottom: 14px;
 }
 .dash-card-title {
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--c-text-2);
+  letter-spacing: 0.07em;
+  color: var(--c-text-3);
 }
 .dash-card-amount {
   font-size: 20px;

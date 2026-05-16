@@ -36,10 +36,11 @@
 .sb-logo-icon {
   width: 40px; height: 40px;
   border-radius: 12px;
-  background: var(--c-accent-soft);
-  color: var(--c-accent);
+  background: linear-gradient(135deg, #1a6b4a, #3d9b78);
+  color: #fff;
   display: flex; align-items: center; justify-content: center;
   font-size: 20px;
+  box-shadow: 0 4px 12px rgba(46,125,95,0.3);
 }
 .sb-logo-info { flex: 1; min-width: 0; }
 .sb-logo-name {
@@ -111,7 +112,9 @@
   align-items: center;
   justify-content: space-between;
   padding: 0 20px;
-  background: var(--c-bg);
+  background: rgba(var(--c-bg-rgb, 248,250,249), 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--c-border);
   position: sticky; top: 0;
   z-index: 40;
@@ -237,7 +240,7 @@
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 20px;
 }
-.page-title { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+.page-title { font-size: 24px; font-weight: 800; letter-spacing: -0.03em; }
 
 /* ── BOTTOM NAV (mobile) ────────────────────────────────────── */
 .bottom-nav {
@@ -255,23 +258,19 @@
   justify-content: space-around;
 }
 .bn-item {
-  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 6px;
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 6px 4px;
   color: var(--c-text-3);
   font-size: 10px; font-weight: 600;
-  position: relative; border-radius: 12px; transition: color .2s;
+  position: relative; border-radius: 16px; transition: color .2s, background .2s;
 }
-.bn-item.active { color: var(--c-accent); }
-.bn-item.active::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 50%; transform: translateX(-50%);
-  width: 36px; height: 3px;
-  background: var(--c-accent);
-  border-radius: 0 0 4px 4px;
+.bn-item.active {
+  color: var(--c-accent);
+  background: var(--c-accent-soft);
 }
-.bn-item i { font-size: 22px; transition: transform .2s; }
-.bn-item.active i { transform: scale(1.1); }
+.bn-item.active::before { display: none; }
+.bn-item i { font-size: 22px; transition: transform .25s cubic-bezier(.34,1.56,.64,1); }
+.bn-item.active i { transform: scale(1.18); }
 .bn-fab {
   width: 56px; height: 56px;
   border-radius: 50%;

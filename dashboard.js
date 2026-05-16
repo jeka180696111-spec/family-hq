@@ -119,11 +119,11 @@ export function renderDashboard() {
 
       <!-- Швидкі дії -->
       <div class="dash-quick-actions">
-        <button class="quick-action" data-quick="income"><i class="ti ti-arrow-down-circle"></i><span>Дохід</span></button>
-        <button class="quick-action" data-quick="expense"><i class="ti ti-arrow-up-circle"></i><span>Витрата</span></button>
-        <button class="quick-action" data-quick="transfer"><i class="ti ti-arrows-exchange"></i><span>Переказ</span></button>
-        <button class="quick-action" data-quick="exchange"><i class="ti ti-currency-dollar"></i><span>Обмін</span></button>
-        <button class="quick-action" data-quick="scanner"><i class="ti ti-scan"></i><span>Сканер</span></button>
+        <button class="quick-action" data-quick="income"><div class="qa-icon"><i class="ti ti-arrow-down-circle"></i></div><span>Дохід</span></button>
+        <button class="quick-action" data-quick="expense"><div class="qa-icon"><i class="ti ti-arrow-up-circle"></i></div><span>Витрата</span></button>
+        <button class="quick-action" data-quick="transfer"><div class="qa-icon"><i class="ti ti-arrows-exchange"></i></div><span>Переказ</span></button>
+        <button class="quick-action" data-quick="exchange"><div class="qa-icon"><i class="ti ti-currency-dollar"></i></div><span>Обмін</span></button>
+        <button class="quick-action" data-quick="scanner"><div class="qa-icon"><i class="ti ti-scan"></i></div><span>Сканер</span></button>
       </div>
 
       <!-- Грід -->
