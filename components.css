@@ -153,49 +153,76 @@
   color: var(--c-accent);
 }
 
-/* ── Vis dialog (видимість кошельків) ───────────────────── */
-.vis-group { margin-bottom: 14px; }
-.vis-group:last-child { margin-bottom: 0; }
-.vis-group-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 4px;
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--c-text-3);
-  border-bottom: 1px solid var(--c-border);
-  margin-bottom: 6px;
+/* ── Vis dialog (видимість кошельків) — grid ────────────── */
+.vis-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 10px;
 }
-.vis-toggle-all {
+.vis-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px 8px;
+  border-radius: var(--radius);
+  background: var(--c-bg-3);
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  text-align: center;
+}
+.vis-card.selected {
+  border-color: var(--c-accent);
+  background: var(--c-accent-soft);
+}
+.vis-card-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.vis-card-name {
   font-size: 11px;
   font-weight: 600;
+  line-height: 1.2;
+  word-break: break-word;
+}
+.vis-card-owner {
+  font-size: 10px;
+  color: var(--c-text-3);
+}
+.vis-card-check {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  font-size: 12px;
   color: var(--c-accent);
-  text-transform: none;
-  letter-spacing: 0;
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
+  font-weight: 700;
 }
-.vis-toggle-all:hover { background: var(--c-accent-soft); }
-.vis-row {
+
+/* ── Limits grid (налаштування лімітів) ─────────────────── */
+.limits-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 10px;
+}
+.limits-card {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: 10px 8px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: background 0.15s;
+  gap: 5px;
+  padding: 10px 6px 8px;
+  border-radius: var(--radius);
+  background: var(--c-bg-3);
+  text-align: center;
 }
-.vis-row:hover { background: var(--c-bg-3); }
-.vis-row input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  cursor: pointer;
-  accent-color: var(--c-accent);
-}
-.vis-row-icon {
+.limits-card-icon {
   width: 36px;
   height: 36px;
   border-radius: 10px;
@@ -205,9 +232,21 @@
   font-size: 16px;
   flex-shrink: 0;
 }
-.vis-row-name {
-  font-size: 14px;
-  font-weight: 500;
+.limits-card-name {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.limits-card-input {
+  width: 100%;
+  font-size: 12px;
+  text-align: center;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--c-border);
+  background: var(--c-bg);
+  color: var(--c-text);
+  margin-top: 2px;
 }
 
 /* ── MODALS ─────────────────────────────────────────────────── */

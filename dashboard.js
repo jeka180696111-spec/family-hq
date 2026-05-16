@@ -355,13 +355,11 @@ function renderFxCard() {
       </div>
       <div class="dash-fx-row">
         <div class="dash-fx-item">
-          <span class="dash-fx-flag">🇺🇸</span>
           <span class="dash-fx-name">USD</span>
           <span class="dash-fx-buy">${usdRate}</span>
           <span class="dash-fx-unit">₴</span>
         </div>
         <div class="dash-fx-item">
-          <span class="dash-fx-flag">🇪🇺</span>
           <span class="dash-fx-name">EUR</span>
           <span class="dash-fx-buy">${eurRate}</span>
           <span class="dash-fx-unit">₴</span>
@@ -531,71 +529,56 @@ function openWalletsVisibilityDialog() {
     const selectedSet = new Set(visible || allCards.map(c => c.key));
     let modalId;
 
-    function renderList() {
+    function renderGrid() {
       const profiles = getProfiles();
-      const byOwner = {};
-      allCards.forEach(c => { if (!byOwner[c.owner]) byOwner[c.owner] = []; byOwner[c.owner].push(c); });
-
-      return Object.entries(byOwner).map(([owner, cards]) => `
-        <div class="vis-group">
-          <div class="vis-group-head">
-            <span>${esc(profiles[owner]?.name || owner)}</span>
-            <button class="vis-toggle-all" data-toggle-owner="${esc(owner)}">
-              ${cards.every(c => selectedSet.has(c.key)) ? 'Зняти всі' : 'Обрати всі'}
-            </button>
-          </div>
-          ${cards.map(c => `
-            <label class="vis-item">
-              <input type="checkbox" data-key="${esc(c.key)}" ${selectedSet.has(c.key) ? 'checked' : ''}>
-              <div class="vis-icon" style="background:${c.bg}"><i class="ti ${c.icon}" style="color:${c.color}"></i></div>
-              <span>${esc(c.id)}</span>
-            </label>
-          `).join('')}
-        </div>
-      `).join('');
+      return allCards.map(c => {
+        const sel = selectedSet.has(c.key);
+        return `
+          <button class="vis-card ${sel ? 'selected' : ''}" data-key="${esc(c.key)}">
+            <div class="vis-card-icon" style="background:${c.bg}"><i class="ti ${c.icon}" style="color:${c.color}"></i></div>
+            <div class="vis-card-name">${esc(c.id)}</div>
+            <div class="vis-card-owner">${esc(profiles[c.owner]?.name || c.owner)}</div>
+            ${sel ? '<i class="ti ti-check vis-card-check"></i>' : ''}
+          </button>
+        `;
+      }).join('');
     }
 
     const wrap = document.createElement('div');
     wrap.innerHTML = `
-      <div class="vis-header">
-        <span style="font-weight:700">Видимі кошельки</span>
-        <div><button class="btn-ghost-sm" data-act="all">Усі</button> <button class="btn-ghost-sm" data-act="save" style="background:var(--c-accent);color:#fff">Зберегти</button></div>
+      <div style="margin-bottom:10px;display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn-ghost-sm" data-act="all">Обрати всі</button>
+        <button class="btn-ghost-sm" data-act="none">Зняти всі</button>
       </div>
-      <div id="vis-list">${renderList()}</div>
+      <div class="vis-grid" id="vis-list">${renderGrid()}</div>
+      <button class="btn-primary" style="width:100%;margin-top:14px" data-act="save">Зберегти</button>
     `;
 
     modalId = openBottomSheet({ title: 'Кошельки на дашборді', contentEl: wrap });
 
     function rerender() {
       const listEl = wrap.querySelector('#vis-list');
-      if (listEl) { listEl.innerHTML = renderList(); bindList(); }
+      if (listEl) { listEl.innerHTML = renderGrid(); bindGrid(); }
     }
 
-    function bindList() {
-      const listEl = wrap.querySelector('#vis-list');
-      listEl.querySelectorAll('input[data-key]').forEach(cb => {
-        cb.addEventListener('change', () => {
-          if (cb.checked) selectedSet.add(cb.dataset.key);
-          else selectedSet.delete(cb.dataset.key);
-          rerender();
-        });
-      });
-      listEl.querySelectorAll('.vis-toggle-all').forEach(b => {
-        b.addEventListener('click', () => {
-          const ow = b.dataset.toggleOwner;
-          const ownerCards = allCards.filter(c => c.owner === ow);
-          const allChecked = ownerCards.every(c => selectedSet.has(c.key));
-          if (allChecked) ownerCards.forEach(c => selectedSet.delete(c.key));
-          else ownerCards.forEach(c => selectedSet.add(c.key));
+    function bindGrid() {
+      wrap.querySelectorAll('.vis-card').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const key = btn.dataset.key;
+          if (selectedSet.has(key)) selectedSet.delete(key);
+          else selectedSet.add(key);
           rerender();
         });
       });
     }
-    bindList();
+    bindGrid();
 
     wrap.querySelector('[data-act="all"]').addEventListener('click', () => {
-      selectedSet.clear();
       allCards.forEach(c => selectedSet.add(c.key));
+      rerender();
+    });
+    wrap.querySelector('[data-act="none"]').addEventListener('click', () => {
+      selectedSet.clear();
       rerender();
     });
     wrap.querySelector('[data-act="save"]').addEventListener('click', () => {

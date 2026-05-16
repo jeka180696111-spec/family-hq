@@ -22,16 +22,25 @@ import { signOut } from './auth.js';
 function renderLimitsRows() {
   const cats = getExpCats();
   const limits = getCategoryLimits();
-  return cats.map(cat => `
-    <div class="settings-row">
-      <div class="settings-row-info">
-        <div class="settings-row-name">${esc(cat.id || cat)}</div>
-      </div>
-      <input class="settings-limit-input" data-cat="${esc(cat.id || cat)}"
-        type="number" min="0" step="100" placeholder="без ліміту"
-        value="${limits[cat.id || cat] || ''}">
+  return `
+    <div class="limits-grid">
+      ${cats.map(cat => {
+        const key = cat.id || cat;
+        return `
+          <div class="limits-card">
+            <div class="limits-card-icon" style="background:${cat.bg || '#eee'}">
+              <i class="ti ${cat.icon || 'ti-dots'}" style="color:${cat.color || '#555'}"></i>
+            </div>
+            <div class="limits-card-name">${esc(key)}</div>
+            <input class="settings-limit-input limits-card-input" data-cat="${esc(key)}"
+              type="number" min="0" step="100" placeholder="∞"
+              value="${limits[key] || ''}">
+          </div>
+        `;
+      }).join('')}
     </div>
-  `).join('') + `<button class="btn-primary" style="width:100%;margin-top:12px" id="save-limits-btn">Зберегти ліміти</button>`;
+    <button class="btn-primary" style="width:100%;margin-top:14px" id="save-limits-btn">Зберегти ліміти</button>
+  `;
 }
 
 export function renderSettingsPage() {
