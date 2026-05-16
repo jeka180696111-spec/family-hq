@@ -54,6 +54,7 @@ export function renderDashboard() {
   }
 
   const { freeBalance, savingsBalance } = calcBalanceSplit(viewAs);
+  const creditAvail = calcCreditAvailable(viewAs);
   const savRate = totalIncome > 0 ? Math.round((totalIncome - totalExpense) / totalIncome * 100) : 0;
 
   el.innerHTML = `
@@ -63,9 +64,10 @@ export function renderDashboard() {
         <div class="dash-hero-left">
           <div class="dash-greet">${greet}, ${esc(myName)}! 👋${viewAs ? ` <span class="dash-viewas-tag">дивлюсь як ${esc(profiles[viewAs]?.name || viewAs)}</span>` : ''}</div>
           <div class="dash-hero-label">Вільні кошти</div>
-          <div class="dash-hero-balance">${fmtMoney(freeBalance, 'UAH')}</div>
+          <div class="dash-hero-balance">${fmtMoney(freeBalance + creditAvail, 'UAH')}</div>
           <div class="dash-hero-meta">
             ${savingsBalance > 0 ? `<span class="dash-hero-pill pos"><i class="ti ti-coins"></i> Накопичення: ${fmtMoney(savingsBalance, 'UAH')}</span>` : ''}
+            ${creditAvail > 0 ? `<span class="dash-hero-pill"><i class="ti ti-credit-card"></i> Власні: ${fmtMoney(freeBalance, 'UAH')} · Кредит: ${fmtMoney(creditAvail, 'UAH')}</span>` : ''}
             <span class="dash-hero-pill ${savRate >= 0 ? 'pos' : 'neg'}">
               <i class="ti ${savRate >= 0 ? 'ti-trending-up' : 'ti-trending-down'}"></i>
               ${savRate}% накопичено
@@ -168,6 +170,24 @@ function calcBalanceSplit(viewAs) {
   });
 
   return { freeBalance: Math.round(freeBalance), savingsBalance: Math.round(savingsBalance) };
+}
+
+// ── Доступний кредитний ліміт по всіх кредитних картках ──────
+function calcCreditAvailable(viewAs) {
+  let total = 0;
+  FAMILY_MEMBERS.forEach(m => {
+    if (viewAs && m !== viewAs) return;
+    getCards(m).forEach(c => {
+      const limit = Number(c.creditLimit) || 0;
+      if (!limit) return;
+      const key = `${m}:${c.id}`;
+      const b = state.dashboard?.cardBalances?.[key];
+      const balance = b ? Math.round(b.income - b.expense) : 0;
+      const used = Math.max(0, -balance);
+      total += Math.max(0, limit - used);
+    });
+  });
+  return total;
 }
 
 // ── Sparkline ───────────────────────────────────────────────
