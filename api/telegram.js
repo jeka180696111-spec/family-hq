@@ -460,6 +460,7 @@ const MAIN_KEYBOARD = {
     [{ text: '📊 Статистика' }, { text: '📋 Останні' }],
     [{ text: '➕ Витрата' },    { text: '💵 Дохід' }],
     [{ text: '📸 Фото чека' },  { text: '❓ Допомога' }],
+    [{ text: '📊 Звіт місяця' }],
   ],
   resize_keyboard: true,
   is_persistent: true,
@@ -808,6 +809,55 @@ async function handleCommand(cmd, chatId, userId, userName, who, familyId, res) 
       return res.status(200).json({ ok: true });
     }
 
+    case '/report': {
+      const { from, to, label } = currentMonthRange();
+      const [ops, wallets] = await Promise.all([
+        getPeriodOps(familyId, from, to),
+        getWalletBalances(familyId),
+      ]);
+
+      const expenses = ops.filter(o => o.type === 'Витрата');
+      const incomes = ops.filter(o => o.type === 'Дохід');
+      const totalExp = expenses.reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
+      const totalInc = incomes.reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
+      const saved = totalInc - totalExp;
+      const savRate = totalInc > 0 ? Math.round((saved / totalInc) * 100) : 0;
+
+      const byCat = {};
+      expenses.forEach(o => {
+        const cat = o.category || 'Інше';
+        byCat[cat] = (byCat[cat] || 0) + (o.amountUah || o.amount || 0);
+      });
+      const topCats = Object.entries(byCat).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+      const totalBal = wallets.reduce((s, w) => s + w.balanceUah, 0);
+
+      let txt = `📊 <b>Місячний звіт · ${label}</b>\n`;
+      txt += `━━━━━━━━━━━━━━━\n`;
+      txt += `💰 Доходи:  <b>+${fmtMoney(totalInc)}</b>\n`;
+      txt += `💸 Витрати: <b>-${fmtMoney(totalExp)}</b>\n`;
+      txt += `${saved >= 0 ? '✅' : '⚠️'} Баланс:   <b>${saved >= 0 ? '+' : ''}${fmtMoney(Math.abs(saved))}</b>\n`;
+      txt += `📈 Ощадність: <b>${savRate}%</b>\n`;
+      txt += `━━━━━━━━━━━━━━━\n`;
+
+      if (topCats.length) {
+        txt += `\n<b>Топ витрат:</b>\n`;
+        topCats.forEach(([cat, amt]) => {
+          const pct = totalExp > 0 ? Math.round((amt / totalExp) * 100) : 0;
+          txt += `${CAT_EMOJI[cat] || '📌'} ${cat}: ${fmtMoney(amt)} <i>(${pct}%)</i>\n`;
+        });
+      }
+
+      txt += `\n💳 Загальний баланс: <b>${fmtMoney(totalBal)}</b>\n`;
+
+      if (savRate >= 20) txt += `\n🏆 <i>Відмінний місяць — ощадність ${savRate}%!</i>`;
+      else if (savRate < 0) txt += `\n⚠️ <i>Витрати перевищили доходи. Фінн незадоволений.</i>`;
+      else txt += `\n💡 <i>Ціль — ощаджувати 20%+ щомісяця.</i>`;
+
+      await sendMessage(chatId, txt);
+      return res.status(200).json({ ok: true });
+    }
+
     default:
       await sendMessage(chatId, `❓ Невідома команда. Натисни кнопку нижче або напиши витрату.`, { reply_markup: MAIN_KEYBOARD });
       return res.status(200).json({ ok: true });
@@ -1019,13 +1069,14 @@ module.exports = async function handler(req, res) {
 
     // Reply keyboard кнопки
     const BTN_MAP = {
-      '💰 Баланс':     '/balance',
-      '📅 Сьогодні':   '/today',
-      '📆 Місяць':     '/month',
-      '⏱ Тиждень':    '/week',
-      '📊 Статистика': '/stats',
-      '📋 Останні':    '/last',
-      '❓ Допомога':   '/help',
+      '💰 Баланс':      '/balance',
+      '📅 Сьогодні':    '/today',
+      '📆 Місяць':      '/month',
+      '⏱ Тиждень':     '/week',
+      '📊 Статистика':  '/stats',
+      '📋 Останні':     '/last',
+      '❓ Допомога':    '/help',
+      '📊 Звіт місяця': '/report',
     };
 
     if (BTN_MAP[text]) {

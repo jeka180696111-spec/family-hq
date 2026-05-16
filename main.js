@@ -27,6 +27,7 @@ import { renderSettingsPage } from './settings-ui.js';
 import { renderRecurringPage, loadRecurringPayments } from './recurring-payments.js';
 import { renderAIReportsPage } from './ai-reports.js';
 import { renderAIChatPage } from './ai-chat.js';
+import { renderChallengesPage, loadChallenges } from './challenges.js';
 
 const PAGE_TITLES = {
   dashboard: 'Головна',
@@ -38,6 +39,7 @@ const PAGE_TITLES = {
   recurring: 'Платежі',
   'ai-reports': 'AI Аналітика',
   'ai-chat': 'AI Чат',
+  challenges: 'Гра та досягнення',
   settings: 'Налаштування',
 };
 
@@ -71,6 +73,7 @@ export function navigateTo(page) {
     case 'recurring':   renderRecurringPage(); break;
     case 'ai-reports':  renderAIReportsPage(); break;
     case 'ai-chat':     renderAIChatPage(); break;
+    case 'challenges':  renderChallengesPage(); break;
     case 'settings':    renderSettingsPage(); break;
   }
   loadPageData(page);
@@ -95,6 +98,9 @@ function loadPageData(page) {
       break;
     case 'recurring':
       if (!state.recurringPayments) loadRecurringPayments().then(() => renderRecurringPage());
+      break;
+    case 'challenges':
+      loadChallenges();
       break;
   }
 }
@@ -181,6 +187,7 @@ function renderSidebar() {
       <div class="sb-section-label">Система</div>
       <a class="sb-item" data-nav-page="ai-reports"><i class="ti ti-sparkles"></i> AI Аналітика</a>
       <a class="sb-item" data-nav-page="ai-chat"><i class="ti ti-message-chatbot"></i> AI Чат</a>
+      <a class="sb-item" data-nav-page="challenges"><i class="ti ti-trophy"></i> Гра</a>
       <a class="sb-item" data-nav-page="settings"><i class="ti ti-settings"></i> Налаштування</a>
     </nav>
   `;

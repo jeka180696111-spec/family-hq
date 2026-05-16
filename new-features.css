@@ -245,3 +245,82 @@
 @media (min-width: 768px) {
   .ai-fab-btn { bottom: 24px; right: 24px; width: 52px; height: 52px; font-size: 24px; }
 }
+
+/* ── FX Rate card ──────────────────────────────────────────── */
+.dash-fx-card { padding-bottom: 10px; }
+.dash-fx-row { display: flex; gap: 20px; margin-top: 8px; flex-wrap: wrap; }
+.dash-fx-item { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+.dash-fx-flag { font-size: 18px; }
+.dash-fx-name { font-weight: 700; color: var(--c-text-2); min-width: 32px; }
+.dash-fx-buy { font-weight: 700; color: var(--c-green); }
+.dash-fx-sale { font-weight: 700; color: var(--c-red); }
+.dash-fx-sep { color: var(--c-text-3); }
+.dash-fx-unit { color: var(--c-text-3); font-size: 12px; }
+
+/* ── Forecast ──────────────────────────────────────────────── */
+.dash-forecast-row { display: flex; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+.dash-forecast-item { flex: 1; min-width: 80px; }
+.dash-forecast-label { font-size: 11px; color: var(--c-text-3); margin-bottom: 2px; }
+.dash-forecast-val { font-size: 15px; font-weight: 700; }
+
+/* ── Category limit line ───────────────────────────────────── */
+.dash-cat-bar { position: relative; }
+.dash-cat-limit-line {
+  position: absolute; top: 0; bottom: 0; width: 2px;
+  background: var(--c-accent); opacity: 0.6; border-radius: 1px;
+}
+.dash-cat-bar-fill.over-limit { background: var(--c-red) !important; }
+.dash-cat-limit-badge {
+  font-size: 10px; font-weight: 600; margin-left: 4px;
+  color: var(--c-text-3); vertical-align: middle;
+}
+.dash-cat-limit-badge.over { color: var(--c-red); }
+
+/* ── Settings limits ───────────────────────────────────────── */
+.settings-limit-input {
+  width: 90px; padding: 4px 8px; border: 1px solid var(--c-border);
+  border-radius: 6px; font-size: 13px; text-align: right;
+  background: var(--c-bg); color: var(--c-text);
+}
+
+/* ── Challenges page ───────────────────────────────────────── */
+.ch-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.ch-tab {
+  flex: 1; padding: 10px; border-radius: var(--radius);
+  border: 1.5px solid var(--c-border); background: var(--c-card);
+  cursor: pointer; font-size: 13px; font-weight: 600; color: var(--c-text-2);
+  transition: .15s;
+}
+.ch-tab.active { border-color: var(--c-accent); color: var(--c-accent); background: var(--c-accent-soft); }
+.ch-tab-badge {
+  display: inline-block; background: var(--c-accent); color: #fff;
+  border-radius: 10px; font-size: 10px; padding: 1px 6px; margin-left: 4px;
+}
+.ch-tab:not(.active) .ch-tab-badge { background: var(--c-border); color: var(--c-text-3); }
+.ch-section-label { font-size: 12px; font-weight: 700; color: var(--c-text-3); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
+.ch-achievements-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-bottom: 8px; }
+.ch-achievement {
+  background: var(--c-card); border: 1.5px solid var(--c-border);
+  border-radius: 14px; padding: 14px 10px; text-align: center;
+  transition: .15s;
+}
+.ch-achievement.earned { border-color: var(--c-accent); background: var(--c-accent-soft); }
+.ch-achievement-icon { font-size: 32px; margin-bottom: 6px; }
+.ch-achievement-icon.locked { filter: grayscale(1); opacity: .5; }
+.ch-achievement-title { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+.ch-achievement-desc { font-size: 11px; color: var(--c-text-3); line-height: 1.3; }
+.ch-progress-bar { height: 4px; border-radius: 2px; background: var(--c-border); overflow: hidden; margin-top: 8px; }
+.ch-progress-fill { height: 100%; background: var(--c-accent); border-radius: 2px; transition: width .3s; }
+.ch-progress-fill.done { background: var(--c-green); }
+.ch-progress-label { font-size: 10px; color: var(--c-text-3); margin-top: 2px; }
+.ch-empty-state { text-align: center; padding: 40px 20px; color: var(--c-text-2); }
+.ch-challenge-card {
+  background: var(--c-card); border: 1.5px solid var(--c-border);
+  border-radius: 14px; padding: 16px; margin-bottom: 12px;
+}
+.ch-challenge-card.completed { opacity: .7; }
+.ch-challenge-header { display: flex; gap: 12px; align-items: flex-start; }
+.ch-challenge-prize { font-size: 36px; }
+.ch-challenge-title { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+.ch-challenge-desc { font-size: 13px; color: var(--c-text-2); }
+.ch-challenge-date { font-size: 11px; color: var(--c-text-3); margin-top: 4px; }
