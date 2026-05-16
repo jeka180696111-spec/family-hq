@@ -22,6 +22,14 @@ export function initAuth(onSignIn) {
   firebaseAuth = firebase.auth();
   googleProvider = new firebase.auth.GoogleAuthProvider();
 
+  // Обробляємо результат redirect-логіну (якщо popup був заблокований)
+  firebaseAuth.getRedirectResult().catch(e => {
+    if (e.code && e.code !== 'auth/no-auth-event') {
+      logError('getRedirectResult', e.message);
+      showLoginError('Помилка входу: ' + e.message);
+    }
+  });
+
   firebaseAuth.onAuthStateChanged(async (user) => {
     if (user) {
       state.user = {
@@ -79,7 +87,12 @@ export async function signInWithGoogle() {
   try {
     await firebaseAuth.signInWithPopup(googleProvider);
   } catch (e) {
-    if (e.code === 'auth/popup-closed-by-user') return;
+    if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') return;
+    if (e.code === 'auth/popup-blocked') {
+      // Popup заблоковано браузером — переходимо на redirect-flow
+      firebaseAuth.signInWithRedirect(googleProvider);
+      return;
+    }
     logError('signInWithGoogle', e.message);
     showLoginError('Помилка входу: ' + e.message);
   }

@@ -178,20 +178,34 @@ export function exportOperationsToCSV(operations) {
     return;
   }
 
-  const headers = ['Дата', 'Тип', 'Категорія', 'Сума', 'Валюта', 'Сума(UAH)', 'Кошельок', 'Хто', 'Коментар'];
+  const SEP = ';';
+  const headers = ['Дата', 'Тип', 'Категорія', 'Сума', 'Валюта', 'Сума (UAH)', 'Кошельок', 'Хто', 'Коментар'];
+
+  function fmtDate(raw) {
+    if (!raw) return '';
+    const d = new Date(raw);
+    if (isNaN(d)) return String(raw);
+    const pad = n => String(n).padStart(2, '0');
+    return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function fmtType(t) {
+    if (!t) return '';
+    const map = { income: 'Дохід', expense: 'Витрата', transfer: 'Переказ' };
+    return map[t.toLowerCase()] || t;
+  }
 
   function csvCell(val) {
     const str = val === null || val === undefined ? '' : String(val);
-    // Якщо містить кому, лапки або перенос рядка — обгортаємо в лапки
-    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    if (str.includes(SEP) || str.includes('"') || str.includes('\n')) {
       return '"' + str.replace(/"/g, '""') + '"';
     }
     return str;
   }
 
   const rows = operations.map(op => [
-    csvCell(op.date || op.createdAt || ''),
-    csvCell(op.type || ''),
+    csvCell(fmtDate(op.date || op.createdAt || '')),
+    csvCell(fmtType(op.type || '')),
     csvCell(op.category || op.cat || ''),
     csvCell(op.amount !== undefined ? op.amount : (op.sum !== undefined ? op.sum : '')),
     csvCell(op.currency || 'UAH'),
@@ -201,7 +215,7 @@ export function exportOperationsToCSV(operations) {
     csvCell(op.comment || op.note || ''),
   ]);
 
-  const csvContent = [headers.map(csvCell).join(','), ...rows.map(r => r.join(','))].join('\r\n');
+  const csvContent = [`sep=${SEP}`, headers.map(csvCell).join(SEP), ...rows.map(r => r.join(SEP))].join('\r\n');
 
   // Визначаємо ім'я файлу: budget_export_YYYY-MM.csv
   const now = new Date();
