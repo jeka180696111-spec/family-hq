@@ -8,10 +8,12 @@ import { apiGet } from './api.js';
 import { esc, fmtMoney, fmtMoneyShort, fmtMoneyWithUah, setText, fmtDate, log } from './utils.js';
 import { openOperationDialog } from './operations.js';
 import { whoAmI } from './auth.js';
+// ── НОВІ ІМПОРТИ ────────────────────────────────────────────
+import { renderCreditCardsBlock, getCreditAlerts } from './credit-cards.js';
+import { renderUpcomingPaymentsBlock } from './recurring-payments.js';
 
 export async function loadDashboard() {
   try {
-    // Дашборд завжди показує поточний місяць
     const data = await apiGet('dashboard', { period: 'month' });
     state.dashboard = data;
     localStorage.setItem('budget_last_sync', new Date().toISOString());
@@ -24,19 +26,12 @@ export async function loadDashboard() {
 
 window.refreshDashboard = loadDashboard;
 
-const PERIOD_LABELS = {
-  month: 'Цей місяць',
-  quarter: 'Квартал',
-  year: 'Рік',
-};
-
 export function renderDashboard() {
   const el = document.getElementById('page-dashboard');
   if (!el) return;
 
   const d = state.dashboard || { totalIncome: 0, totalExpense: 0, balance: 0, byMember: {}, byCategory: {}, byDay: {}, byDayIncome: {}, recent: [] };
   const profiles = getProfiles();
-  const period = 'month'; // дашборд завжди — поточний місяць
   const viewAs = getViewAsMember();
 
   const hour = new Date().getHours();
@@ -44,19 +39,9 @@ export function renderDashboard() {
   const me = whoAmI() || FAMILY_MEMBERS[0];
   const myName = profiles[me]?.name || me;
 
-  // Заголовок періоду
   const now = new Date();
-  let periodLabel = '';
-  if (period === 'month') {
-    periodLabel = now.toLocaleDateString('uk-UA', { month: 'long', year: 'numeric' });
-  } else if (period === 'quarter') {
-    const q = Math.floor(now.getMonth() / 3) + 1;
-    periodLabel = `Q${q} ${now.getFullYear()}`;
-  } else {
-    periodLabel = String(now.getFullYear());
-  }
+  const periodLabel = now.toLocaleDateString('uk-UA', { month: 'long', year: 'numeric' });
 
-  // Фільтр "viewAs" — якщо обрано конкретного, рахуємо лише його дані
   let totalIncome = d.totalIncome || 0;
   let totalExpense = d.totalExpense || 0;
   let byCategoryView = d.byCategory || {};
@@ -66,12 +51,9 @@ export function renderDashboard() {
   if (viewAs && d.byMember && d.byMember[viewAs]) {
     totalIncome = d.byMember[viewAs].income || 0;
     totalExpense = d.byMember[viewAs].expense || 0;
-    // (для byCategory і byDay у нас нема breakdown по члену з бекенду,
-    //  тому показуємо те що є — повний)
   }
 
   const { freeBalance, savingsBalance } = calcBalanceSplit(viewAs);
-  const totalBalance = freeBalance + savingsBalance;
   const savRate = totalIncome > 0 ? Math.round((totalIncome - totalExpense) / totalIncome * 100) : 0;
 
   el.innerHTML = `
@@ -124,6 +106,7 @@ export function renderDashboard() {
         </div>
 
         <div class="dash-col">
+          <!-- Кошельки -->
           <div class="dash-card dash-wallets-card">
             <div class="dash-card-head">
               <span class="dash-card-title">Кошельки${viewAs ? ' · ' + esc(profiles[viewAs]?.name || viewAs) : ''}</span>
@@ -135,6 +118,12 @@ export function renderDashboard() {
             ${renderWalletsBlock(viewAs)}
           </div>
 
+          <!-- НОВЕ: Кредитні картки -->
+          ${renderCreditCardsBlock(viewAs)}
+
+          <!-- НОВЕ: Найближчі платежі -->
+          ${renderUpcomingPaymentsBlock(viewAs)}
+
           ${renderRecentBlock(d.recent || [], viewAs)}
         </div>
       </div>
@@ -142,6 +131,13 @@ export function renderDashboard() {
   `;
 
   bindHandlers(el);
+
+  // Алерт по кредитках (один раз при завантаженні)
+  const alerts = getCreditAlerts();
+  if (alerts.length && !state._creditAlertShown) {
+    state._creditAlertShown = true;
+    setTimeout(() => showToast(alerts[0].message, 'error'), 1000);
+  }
 }
 
 // ── Баланс з розділенням: вільні vs накопичення ──────────────
@@ -150,7 +146,6 @@ function calcBalanceSplit(viewAs) {
   let freeBalance = 0;
   let savingsBalance = 0;
 
-  // Збираємо кошельки типу savings
   const savingsCards = new Set();
   FAMILY_MEMBERS.forEach(m => {
     getCards(m).forEach(c => {
@@ -168,46 +163,35 @@ function calcBalanceSplit(viewAs) {
     const key = `${o.who}::${o.card}`;
     const isSavings = savingsCards.has(key);
     const val = o.type === 'Дохід' ? amt : -amt;
-
-    if (isSavings) {
-      savingsBalance += val;
-    } else {
-      freeBalance += val;
-    }
+    if (isSavings) savingsBalance += val;
+    else freeBalance += val;
   });
 
   return { freeBalance: Math.round(freeBalance), savingsBalance: Math.round(savingsBalance) };
 }
 
-// ── Sparkline (мікро-графік) ────────────────────────────────
+// ── Sparkline ───────────────────────────────────────────────
 function renderSparkline(byDay, color) {
   const days = Object.keys(byDay).map(Number).sort((a, b) => a - b);
-  if (!days.length) {
-    return `<div class="sparkline-empty">Немає даних</div>`;
-  }
+  if (!days.length) return `<div class="sparkline-empty">Немає даних</div>`;
   const w = 280, h = 60;
   const max = Math.max(...days.map(d => byDay[d]), 1);
-  const minDay = days[0];
-  const maxDay = days[days.length - 1];
+  const minDay = days[0], maxDay = days[days.length - 1];
   const range = Math.max(1, maxDay - minDay);
 
-  // Точки лінії
   const points = days.map(d => {
     const x = ((d - minDay) / range) * w;
     const y = h - (byDay[d] / max) * h * 0.85 - 5;
     return [x, y];
   });
 
-  // SVG path
   let path = `M ${points[0][0]} ${points[0][1]}`;
   for (let i = 1; i < points.length; i++) {
     const [x1, y1] = points[i - 1];
     const [x2, y2] = points[i];
-    const cx = (x1 + x2) / 2;
-    path += ` Q ${cx} ${y1}, ${x2} ${y2}`;
+    path += ` Q ${(x1 + x2) / 2} ${y1}, ${x2} ${y2}`;
   }
 
-  // Площа під лінією (для заливки)
   const areaPath = path + ` L ${points[points.length - 1][0]} ${h} L ${points[0][0]} ${h} Z`;
   const lineColor = color === 'green' ? 'var(--c-green)' : color === 'red' ? 'var(--c-red)' : 'var(--c-accent)';
   const fillColor = color === 'green' ? 'var(--c-green-soft)' : color === 'red' ? 'var(--c-red-soft)' : 'var(--c-accent-soft)';
@@ -227,27 +211,19 @@ function renderSparkline(byDay, color) {
 function renderWalletsBlock(viewAs) {
   const allCards = [];
   FAMILY_MEMBERS.forEach(m => {
-    // Якщо viewAs — показуємо тільки його
     if (viewAs && m !== viewAs) return;
     getCards(m).forEach((c, idx) => allCards.push({ ...c, owner: m, ownerIdx: idx }));
   });
 
   function cardBal(c) {
-    const ops = state.operations || [];
     let bal = 0;
     const cardCur = c.currency || 'UAH';
-    ops.forEach(o => {
+    (state.operations || []).forEach(o => {
       if (o.who === c.owner && o.card === c.id) {
         const opCur = o.currency || 'UAH';
-        let val = 0;
-        if (opCur === cardCur) {
-          val = o.amount || 0;
-        } else {
-          val = o.amountUah || o.amount || 0;
-          if (cardCur !== 'UAH' && state.fx && state.fx[cardCur]) {
-            const rate = state.fx[cardCur].mid || 1;
-            val = val / rate;
-          }
+        let val = opCur === cardCur ? (o.amount || 0) : (o.amountUah || o.amount || 0);
+        if (opCur !== cardCur && cardCur !== 'UAH' && state.fx?.[cardCur]) {
+          val = val / (state.fx[cardCur].mid || 1);
         }
         if (o.type === 'Дохід') bal += val;
         if (o.type === 'Витрата') bal -= val;
@@ -256,13 +232,9 @@ function renderWalletsBlock(viewAs) {
     return bal;
   }
 
-  // Фільтр видимих кошельків
   const visible = getVisibleWallets();
-
   let filtered = allCards;
-  if (visible !== null) {
-    filtered = allCards.filter(c => visible.includes(`${c.owner}::${c.id}`));
-  }
+  if (visible !== null) filtered = allCards.filter(c => visible.includes(`${c.owner}::${c.id}`));
 
   const cardsWithBal = filtered.map(c => ({ ...c, balance: cardBal(c) }))
     .sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance));
@@ -296,7 +268,6 @@ function renderCategoriesBlock(d, byCat, total) {
   byCat = byCat || d.byCategory || {};
   const entries = Object.entries(byCat).sort((a, b) => b[1] - a[1]).slice(0, 5);
   total = total || d.totalExpense || entries.reduce((s, [, v]) => s + v, 0) || 1;
-
   if (!entries.length) return '';
 
   return `
@@ -322,13 +293,10 @@ function renderCategoriesBlock(d, byCat, total) {
 }
 
 function renderRecentBlock(recent, viewAs) {
-  if (!recent || !recent.length) return '';
-  // Фільтр по viewAs
-  let filtered = recent;
-  if (viewAs) {
-    filtered = recent.filter(o => o.who === viewAs);
-  }
+  if (!recent?.length) return '';
+  let filtered = viewAs ? recent.filter(o => o.who === viewAs) : recent;
   if (!filtered.length) return '';
+
   return `
     <div class="dash-card">
       <div class="dash-card-head">
@@ -374,7 +342,6 @@ function bindHandlers(el) {
     });
   });
 
-  // Кнопка "налаштувати" (поки тільки для кошельків)
   el.querySelectorAll('[data-config="wallets"]').forEach(b => {
     b.addEventListener('click', () => openWalletsVisibilityDialog());
   });
@@ -402,18 +369,14 @@ function openWalletsVisibilityDialog() {
       getCards(m).forEach(c => allCards.push({ ...c, owner: m, key: `${m}::${c.id}` }));
     });
 
-    const visible = getVisibleWallets(); // null = всі
+    const visible = getVisibleWallets();
     const selectedSet = new Set(visible || allCards.map(c => c.key));
-
     let modalId;
 
     function renderList() {
       const profiles = getProfiles();
       const byOwner = {};
-      allCards.forEach(c => {
-        if (!byOwner[c.owner]) byOwner[c.owner] = [];
-        byOwner[c.owner].push(c);
-      });
+      allCards.forEach(c => { if (!byOwner[c.owner]) byOwner[c.owner] = []; byOwner[c.owner].push(c); });
 
       return Object.entries(byOwner).map(([owner, cards]) => `
         <div class="vis-group">
@@ -424,86 +387,65 @@ function openWalletsVisibilityDialog() {
             </button>
           </div>
           ${cards.map(c => `
-            <label class="vis-row">
-              <input type="checkbox" data-wallet-key="${esc(c.key)}" ${selectedSet.has(c.key) ? 'checked' : ''}>
-              <div class="vis-row-icon" style="background:${c.bg}">
-                <i class="ti ${c.icon}" style="color:${c.color}"></i>
-              </div>
-              <span class="vis-row-name">${esc(c.id)}</span>
+            <label class="vis-item">
+              <input type="checkbox" data-key="${esc(c.key)}" ${selectedSet.has(c.key) ? 'checked' : ''}>
+              <div class="vis-icon" style="background:${c.bg}"><i class="ti ${c.icon}" style="color:${c.color}"></i></div>
+              <span>${esc(c.id)}</span>
             </label>
           `).join('')}
         </div>
       `).join('');
     }
 
-    modalId = openBottomSheet({
-      title: 'Які кошельки показувати на дашборді',
-      content: `
-        <div class="settings-hint" style="padding:0 0 14px;border:none;">
-          Обери ті кошельки які хочеш бачити на головній сторінці. Всі інші сховаються.
-        </div>
-        <div id="vis-list">${renderList()}</div>
-      `,
-      footer: `
-        <button class="btn-ghost" data-act="all">Усі</button>
-        <button class="btn-primary flex-1" data-act="save">Зберегти</button>
-      `,
-      onOpen: (wrap) => {
-        const listEl = wrap.querySelector('#vis-list');
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `
+      <div class="vis-header">
+        <span style="font-weight:700">Видимі кошельки</span>
+        <div><button class="btn-ghost-sm" data-act="all">Усі</button> <button class="btn-ghost-sm" data-act="save" style="background:var(--c-accent);color:#fff">Зберегти</button></div>
+      </div>
+      <div id="vis-list">${renderList()}</div>
+    `;
 
-        function rerender() {
-          listEl.innerHTML = renderList();
-          bindList();
-        }
+    modalId = openBottomSheet({ title: 'Кошельки на дашборді', contentEl: wrap });
 
-        function bindList() {
-          // Чекбокси
-          listEl.querySelectorAll('[data-wallet-key]').forEach(cb => {
-            cb.addEventListener('change', (e) => {
-              if (e.target.checked) selectedSet.add(e.target.dataset.walletKey);
-              else selectedSet.delete(e.target.dataset.walletKey);
-              // Перерендер головок груп
-              listEl.querySelectorAll('.vis-toggle-all').forEach(b => {
-                const ow = b.dataset.toggleOwner;
-                const ownerCards = allCards.filter(c => c.owner === ow);
-                b.textContent = ownerCards.every(c => selectedSet.has(c.key)) ? 'Зняти всі' : 'Обрати всі';
-              });
-            });
-          });
-          // Toggle всех в группе
-          listEl.querySelectorAll('.vis-toggle-all').forEach(b => {
-            b.addEventListener('click', () => {
-              const ow = b.dataset.toggleOwner;
-              const ownerCards = allCards.filter(c => c.owner === ow);
-              const allChecked = ownerCards.every(c => selectedSet.has(c.key));
-              if (allChecked) {
-                ownerCards.forEach(c => selectedSet.delete(c.key));
-              } else {
-                ownerCards.forEach(c => selectedSet.add(c.key));
-              }
-              rerender();
-            });
-          });
-        }
-        bindList();
+    function rerender() {
+      const listEl = wrap.querySelector('#vis-list');
+      if (listEl) { listEl.innerHTML = renderList(); bindList(); }
+    }
 
-        wrap.querySelector('[data-act="all"]').addEventListener('click', () => {
-          selectedSet.clear();
-          allCards.forEach(c => selectedSet.add(c.key));
+    function bindList() {
+      const listEl = wrap.querySelector('#vis-list');
+      listEl.querySelectorAll('input[data-key]').forEach(cb => {
+        cb.addEventListener('change', () => {
+          if (cb.checked) selectedSet.add(cb.dataset.key);
+          else selectedSet.delete(cb.dataset.key);
           rerender();
         });
-        wrap.querySelector('[data-act="save"]').addEventListener('click', () => {
-          // Якщо обрано всі — зберігаємо null (показувати всі)
-          if (selectedSet.size === allCards.length) {
-            setVisibleWallets(null);
-          } else {
-            setVisibleWallets(Array.from(selectedSet));
-          }
-          closeModal(modalId);
-          renderDashboard();
-          import('./utils.js').then(u => u.showToast('✅ Налаштовано'));
+      });
+      listEl.querySelectorAll('.vis-toggle-all').forEach(b => {
+        b.addEventListener('click', () => {
+          const ow = b.dataset.toggleOwner;
+          const ownerCards = allCards.filter(c => c.owner === ow);
+          const allChecked = ownerCards.every(c => selectedSet.has(c.key));
+          if (allChecked) ownerCards.forEach(c => selectedSet.delete(c.key));
+          else ownerCards.forEach(c => selectedSet.add(c.key));
+          rerender();
         });
-      }
+      });
+    }
+    bindList();
+
+    wrap.querySelector('[data-act="all"]').addEventListener('click', () => {
+      selectedSet.clear();
+      allCards.forEach(c => selectedSet.add(c.key));
+      rerender();
+    });
+    wrap.querySelector('[data-act="save"]').addEventListener('click', () => {
+      if (selectedSet.size === allCards.length) setVisibleWallets(null);
+      else setVisibleWallets(Array.from(selectedSet));
+      closeModal(modalId);
+      renderDashboard();
+      import('./utils.js').then(u => u.showToast('✅ Налаштовано'));
     });
   });
 }
