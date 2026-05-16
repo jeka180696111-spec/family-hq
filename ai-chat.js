@@ -60,7 +60,13 @@ export function renderAIChatPage() {
   el.innerHTML = `
     <div class="ai-combined-page">
       <div class="ai-combined-head">
-        <h1 class="page-title">✨ AI · Фінн</h1>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,#4F46E5,#7C3AED);display:flex;align-items:center;justify-content:center;font-size:20px">🤖</div>
+          <div>
+            <div style="font-size:18px;font-weight:800;line-height:1.2">AI · Фінн</div>
+            <div style="font-size:12px;color:var(--c-text-3)">Фінансовий радник</div>
+          </div>
+        </div>
       </div>
 
       <div class="ai-tabs">
@@ -68,7 +74,7 @@ export function renderAIChatPage() {
           <i class="ti ti-chart-bar"></i> Аналітика
         </button>
         <button class="ai-tab ${activeTab === 'chat' ? 'active' : ''}" data-tab="chat">
-          <i class="ti ti-message-chatbot"></i> Чат
+          <i class="ti ti-message-chatbot"></i> Чат з Фінном
         </button>
       </div>
 

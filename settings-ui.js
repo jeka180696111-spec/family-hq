@@ -541,7 +541,41 @@ function renderSubPageBody(key) {
 
     case 'telegram':
       return `
+        <div class="settings-card" style="margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:14px;padding:4px 0 12px;border-bottom:1px solid var(--c-border);margin-bottom:12px">
+            <div style="width:52px;height:52px;border-radius:14px;background:#E0F2FE;color:#0284C7;display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0">
+              <i class="ti ti-brand-telegram"></i>
+            </div>
+            <div>
+              <div style="font-size:16px;font-weight:700;margin-bottom:2px">Many Budget Bot</div>
+              <div style="font-size:13px;color:var(--c-text-3)">Ваш фінансовий асистент у Telegram</div>
+            </div>
+          </div>
+          <a href="https://t.me/ManyBudgetBot" target="_blank" rel="noopener"
+            style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:12px;background:#0284C7;color:#fff;border-radius:var(--radius);font-size:14px;font-weight:700;text-decoration:none;margin-bottom:14px">
+            <i class="ti ti-brand-telegram" style="font-size:18px"></i> Відкрити бота
+          </a>
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--c-text-3);margin-bottom:8px">Що вміє бот</div>
+          ${[
+            ['ti-plus-circle','Додавати витрати та доходи','Надішліть боту суму і категорію — операція одразу з\'явиться в додатку'],
+            ['ti-calendar-due','Нагадування про платежі','Бот нагадає про регулярні платежі та підписки вчасно'],
+            ['ti-chart-bar','Щоденний підсумок','Отримуйте зведення витрат за день у зручний для вас час'],
+            ['ti-alert-triangle','Попередження про ліміти','Сповіщення коли витрати наближаються до встановленого ліміту'],
+            ['ti-camera','Сканування чеків','Надішліть фото чека — бот розпізнає суму і категорію автоматично'],
+          ].map(([icon, name, desc]) => `
+            <div style="display:flex;gap:12px;padding:10px 0;border-bottom:0.5px solid var(--c-border)">
+              <div style="width:36px;height:36px;border-radius:10px;background:#E0F2FE;color:#0284C7;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                <i class="ti ${icon}" style="font-size:16px"></i>
+              </div>
+              <div>
+                <div style="font-size:13px;font-weight:600">${name}</div>
+                <div style="font-size:12px;color:var(--c-text-3);margin-top:2px;line-height:1.4">${desc}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
         <div class="settings-card">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--c-text-3);margin-bottom:10px">Налаштування сповіщень</div>
           ${renderTelegramPrefs()}
         </div>
       `;
@@ -635,49 +669,146 @@ function renderSubPageBody(key) {
 
     case 'privacy':
       return `
+        <div class="settings-card" style="margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:12px;padding-bottom:14px;border-bottom:1px solid var(--c-border);margin-bottom:14px">
+            <div style="width:44px;height:44px;border-radius:12px;background:#F0FDF4;color:#16A34A;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0"><i class="ti ti-shield-check"></i></div>
+            <div>
+              <div style="font-size:15px;font-weight:700">Політика конфіденційності</div>
+              <div style="font-size:12px;color:var(--c-text-3)">Редакція від 1 травня 2025 р.</div>
+            </div>
+          </div>
+          ${[
+            ['Які дані ми збираємо', 'Ми збираємо мінімум інформації: ім\'я та email вашого Google-акаунта для авторизації, а також фінансові операції, кошельки та цілі, які ви вводите вручну. Ми не збираємо геолокацію, контакти, або будь-які інші персональні дані.'],
+            ['Де зберігаються дані', 'Усі дані зберігаються у хмарній базі Firebase (Google Cloud) із шифруванням у стані спокою (AES-256) та під час передачі (TLS). Сервери розташовані в Євросоюзі.'],
+            ['Хто має доступ', 'Виключно ви та члени вашої родини, яких ви самостійно запросили до облікового запису. Ми — команда розробників — не переглядаємо ваші фінансові дані. Жодна третя сторона не має доступу.'],
+            ['Продаж даних', 'Ми не продаємо, не передаємо і не обмінюємо ваші персональні або фінансові дані з рекламодавцями, партнерами або будь-якими іншими організаціями.'],
+            ['Видалення даних', 'Ви можете видалити свій акаунт і всі пов\'язані дані в будь-який момент у розділі Налаштування → Акаунт → Видалити акаунт. Після видалення дані стираються повністю протягом 30 днів.'],
+            ['Зміни в політиці', 'Ми повідомляємо про суттєві зміни в цій політиці через сповіщення в додатку не менше ніж за 7 днів до набрання чинності. Актуальна версія завжди доступна в налаштуваннях.'],
+          ].map(([title, text]) => `
+            <div style="margin-bottom:14px">
+              <div style="font-size:13px;font-weight:700;color:var(--c-text);margin-bottom:4px">${title}</div>
+              <div style="font-size:13px;line-height:1.6;color:var(--c-text-2)">${text}</div>
+            </div>
+          `).join('')}
+        </div>
         <div class="settings-card">
-          <div style="font-size:14px;line-height:1.6;color:var(--c-text-2);padding:4px 0">
-            Ми збираємо мінімум даних необхідних для роботи додатку: Google акаунт (ім'я, email), фінансові операції що ви вводите вручну. Дані зберігаються у Firebase (Google) і доступні тільки вам і членам вашої родини. Ми не продаємо і не передаємо ваші дані третім особам. Ви можете видалити свій акаунт і всі пов'язані дані у будь-який час через підтримку.
+          <div style="display:flex;gap:12px;align-items:flex-start">
+            <i class="ti ti-mail" style="font-size:18px;color:var(--c-text-3);margin-top:2px"></i>
+            <div>
+              <div style="font-size:13px;font-weight:600">Питання щодо конфіденційності</div>
+              <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">Напишіть нам: <a href="mailto:privacy@many.app" style="color:var(--c-accent)">privacy@many.app</a></div>
+            </div>
           </div>
         </div>
       `;
 
     case 'terms':
       return `
+        <div class="settings-card" style="margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:12px;padding-bottom:14px;border-bottom:1px solid var(--c-border);margin-bottom:14px">
+            <div style="width:44px;height:44px;border-radius:12px;background:#FFF7ED;color:#EA580C;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0"><i class="ti ti-file-text"></i></div>
+            <div>
+              <div style="font-size:15px;font-weight:700">Угода користувача</div>
+              <div style="font-size:12px;color:var(--c-text-3)">Редакція від 1 травня 2025 р.</div>
+            </div>
+          </div>
+          ${[
+            ['Прийняття умов', 'Використовуючи додаток Many Budget, ви підтверджуєте, що ознайомились із цією угодою та погоджуєтесь з її умовами. Якщо ви не згодні — будь ласка, припиніть використання додатку.'],
+            ['Підписка та оплата', 'Доступ до повного функціоналу надається за платною підпискою. Підписка автоматично поновлюється. Ви можете скасувати її в будь-який момент у налаштуваннях App Store або Google Play. Повернення коштів здійснюється відповідно до правил магазину застосунків.'],
+            ['Обмеження відповідальності', 'Many Budget є інструментом для особистого фінансового обліку. Додаток не є фінансовим радником. Ми не несемо відповідальності за фінансові рішення, прийняті на основі даних у додатку. Завжди консультуйтесь із кваліфікованим фінансистом у важливих питаннях.'],
+            ['Права та обов\'язки', 'Ви зобов\'язуєтесь не використовувати додаток для незаконних цілей, не намагатися отримати несанкціонований доступ до чужих даних, не розповсюджувати шкідливий вміст через функції спільного доступу.'],
+            ['Зміни у функціоналі', 'Ми залишаємо за собою право змінювати, оновлювати або припиняти окремі функції додатку. Про суттєві зміни ми повідомляємо заздалегідь. Ми прагнемо вдосконалювати продукт та цінуємо ваш зворотний зв\'язок.'],
+            ['Припинення доступу', 'Ми залишаємо за собою право призупинити або припинити доступ до акаунта у разі порушення умов цієї угоди. Ви можете самостійно видалити акаунт у будь-який час.'],
+          ].map(([title, text]) => `
+            <div style="margin-bottom:14px">
+              <div style="font-size:13px;font-weight:700;color:var(--c-text);margin-bottom:4px">${title}</div>
+              <div style="font-size:13px;line-height:1.6;color:var(--c-text-2)">${text}</div>
+            </div>
+          `).join('')}
+        </div>
         <div class="settings-card">
-          <div style="font-size:14px;line-height:1.6;color:var(--c-text-2);padding:4px 0">
-            Використовуючи додаток ви погоджуєтесь з умовами використання. Додаток надається «як є». Ми не несемо відповідальності за фінансові рішення прийняті на основі даних в додатку. Заборонено використовувати додаток для незаконних цілей. Ми залишаємо за собою право змінювати функціонал додатку.
+          <div style="display:flex;gap:12px;align-items:flex-start">
+            <i class="ti ti-mail" style="font-size:18px;color:var(--c-text-3);margin-top:2px"></i>
+            <div>
+              <div style="font-size:13px;font-weight:600">Запитання щодо угоди</div>
+              <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">Напишіть нам: <a href="mailto:support@many.app" style="color:var(--c-accent)">support@many.app</a></div>
+            </div>
           </div>
         </div>
       `;
 
     case 'about':
       return `
-        <div class="settings-card">
-          <div class="settings-row" style="flex-direction:column;align-items:center;padding:24px;gap:12px;text-align:center">
-            <div style="width:72px;height:72px;border-radius:20px;background:var(--c-accent-soft);color:var(--c-accent);display:flex;align-items:center;justify-content:center;font-size:36px">
-              <i class="ti ti-home-2"></i>
+        <div class="settings-card" style="margin-bottom:12px">
+          <div style="display:flex;flex-direction:column;align-items:center;padding:24px 16px 20px;text-align:center">
+            <div style="width:80px;height:80px;border-radius:22px;background:linear-gradient(135deg,#2E7D5F,#4CAF50);display:flex;align-items:center;justify-content:center;font-size:40px;margin-bottom:14px;box-shadow:0 8px 24px rgba(46,125,95,0.35)">
+              💰
             </div>
-            <div style="font-size:18px;font-weight:700">Сімейний бюджет</div>
-            <div style="font-size:13px;color:var(--c-text-3)">Версія 1.0.0</div>
-            <div style="font-size:13px;color:var(--c-text-2);line-height:1.6;max-width:280px">
-              Персональний фінансовий помічник для всієї родини. Відстежуй витрати, плануй бюджет і досягай фінансових цілей разом.
+            <div style="font-size:22px;font-weight:800;letter-spacing:-0.02em;margin-bottom:4px">Many Budget</div>
+            <div style="font-size:13px;color:var(--c-text-3);margin-bottom:16px">Версія 2.0.0 · Травень 2025</div>
+            <div style="font-size:14px;color:var(--c-text-2);line-height:1.7;max-width:300px">
+              Розумний фінансовий менеджер для всієї родини з AI-аналітикою, синхронізацією та Telegram-ботом.
             </div>
+          </div>
+          <div style="border-top:1px solid var(--c-border);padding-top:16px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center">
+            ${[
+              ['🤝','Сімейний','доступ'],
+              ['🤖','AI','аналітика'],
+              ['📱','Telegram','бот'],
+            ].map(([em, t1, t2]) => `
+              <div style="padding:10px 4px">
+                <div style="font-size:22px;margin-bottom:4px">${em}</div>
+                <div style="font-size:12px;font-weight:700;color:var(--c-text)">${t1}</div>
+                <div style="font-size:11px;color:var(--c-text-3)">${t2}</div>
+              </div>
+            `).join('')}
           </div>
         </div>
-        <div class="settings-card">
-          <div class="settings-row">
-            <div class="settings-row-icon"><i class="ti ti-brand-github"></i></div>
-            <div class="settings-row-info">
-              <div class="settings-row-name">Розробник</div>
-              <div class="settings-row-sub">Сімейний бюджет © 2025</div>
+        <div class="settings-card" style="margin-bottom:12px">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--c-text-3);margin-bottom:10px">Можливості</div>
+          ${[
+            ['ti-wallet','Кілька кошельків','Готівка, банківські картки, валютні рахунки — все в одному місці'],
+            ['ti-users','Спільний бюджет','Додайте членів родини та відстежуйте витрати разом'],
+            ['ti-robot','AI · Фінн','Персональний фінансовий радник на базі Claude AI'],
+            ['ti-brand-telegram','Telegram-бот','Додавайте операції голосом або текстом прямо з месенджера'],
+            ['ti-target','Цілі та резерв','Накопичуйте на мрії та формуйте фінансову подушку'],
+            ['ti-chart-bar','Аналітика','Детальна статистика витрат по категоріях і членах родини'],
+            ['ti-repeat','Регулярні платежі','Автоматичний облік підписок та щомісячних витрат'],
+            ['ti-scan','Сканер чеків','Фотографуйте чек — додаток розпізнає суму автоматично'],
+          ].map(([icon, name, desc]) => `
+            <div style="display:flex;gap:12px;padding:10px 0;border-bottom:0.5px solid var(--c-border)">
+              <div style="width:36px;height:36px;border-radius:10px;background:var(--c-accent-soft);color:var(--c-accent);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                <i class="ti ${icon}"></i>
+              </div>
+              <div>
+                <div style="font-size:13px;font-weight:600">${name}</div>
+                <div style="font-size:12px;color:var(--c-text-3);margin-top:2px;line-height:1.4">${desc}</div>
+              </div>
             </div>
+          `).join('')}
+        </div>
+        <div class="settings-card">
+          <div class="settings-row" style="border-bottom:0.5px solid var(--c-border);padding-bottom:10px;margin-bottom:10px">
+            <div class="settings-row-icon" style="background:#FEF3C7;color:#D97706"><i class="ti ti-star-filled"></i></div>
+            <div class="settings-row-info">
+              <div class="settings-row-name">Оцінити додаток</div>
+              <div class="settings-row-sub">Допоможіть нам стати кращими</div>
+            </div>
+            <i class="ti ti-chevron-right" style="color:var(--c-text-3)"></i>
+          </div>
+          <div class="settings-row" style="border-bottom:0.5px solid var(--c-border);padding-bottom:10px;margin-bottom:10px">
+            <div class="settings-row-icon" style="background:#EDE9FE;color:#7C3AED"><i class="ti ti-share"></i></div>
+            <div class="settings-row-info">
+              <div class="settings-row-name">Поділитися</div>
+              <div class="settings-row-sub">Розкажіть друзям про Many Budget</div>
+            </div>
+            <i class="ti ti-chevron-right" style="color:var(--c-text-3)"></i>
           </div>
           <div class="settings-row">
-            <div class="settings-row-icon"><i class="ti ti-heart"></i></div>
+            <div class="settings-row-icon" style="background:#FEE2E2;color:#DC2626"><i class="ti ti-heart-filled"></i></div>
             <div class="settings-row-info">
-              <div class="settings-row-name">Зроблено з любов'ю</div>
-              <div class="settings-row-sub">Для вашої родини</div>
+              <div class="settings-row-name">Many Budget © 2025</div>
+              <div class="settings-row-sub">Зроблено з ❤️ для вашої родини</div>
             </div>
           </div>
         </div>

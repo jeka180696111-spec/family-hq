@@ -26,6 +26,9 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+  // Cache API does not support non-GET requests
+  if (e.request.method !== 'GET') return;
+
   const url = new URL(e.request.url);
 
   // API calls: network-first, fallback to cache

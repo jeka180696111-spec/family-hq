@@ -71,11 +71,11 @@ export function openOperationDialog(opts = {}) {
       ${curType === 'Переказ' ? renderTransferForm() : `
         <div class="op-amount-row">
           <input id="${amtId}" class="op-amount-input" type="number" inputmode="decimal" step="0.01" placeholder="0" value="${esc(String(curAmount))}">
-          <select id="op-cur-sel" class="op-cur-select">
-            <option value="UAH" ${curCur==='UAH'?'selected':''}>₴</option>
-            <option value="USD" ${curCur==='USD'?'selected':''}>$</option>
-            <option value="EUR" ${curCur==='EUR'?'selected':''}>€</option>
-          </select>
+          <div class="op-cur-pills">
+            <button type="button" class="op-cur-pill ${curCur==='UAH'?'active':''}" data-op-cur="UAH">₴ UAH</button>
+            <button type="button" class="op-cur-pill ${curCur==='USD'?'active':''}" data-op-cur="USD">$ USD</button>
+            <button type="button" class="op-cur-pill ${curCur==='EUR'?'active':''}" data-op-cur="EUR">€ EUR</button>
+          </div>
         </div>
 
         ${curCur !== 'UAH' ? `
@@ -96,12 +96,17 @@ export function openOperationDialog(opts = {}) {
         </div>
 
         <label class="ip-label">Кошельок</label>
-        <div class="op-chips op-chips-cards">
+        <div class="op-wallet-grid">
           ${myCards.map(c => `
-            <button type="button" class="chip op-chip-card ${c.id===curCard?'active':''}" data-op-card="${esc(c.id)}"
-              data-card-cur="${esc(c.currency||'UAH')}"
-              style="${c.id===curCard?`background:${c.bg};color:${c.color};border-color:${c.color}`:''}">
-              <i class="ti ${c.icon}"></i> ${esc(c.id)}${c.currency&&c.currency!=='UAH'?` <small>${c.currency}</small>`:''}
+            <button type="button" class="op-wallet-card ${c.id===curCard?'active':''}" data-op-card="${esc(c.id)}"
+              data-card-cur="${esc(c.currency||'UAH')}">
+              <div class="op-wallet-card-icon" style="background:${c.bg};color:${c.color}">
+                <i class="ti ${c.icon}"></i>
+              </div>
+              <div class="op-wallet-card-info">
+                <div class="op-wallet-card-name">${esc(c.id)}</div>
+                ${c.currency && c.currency !== 'UAH' ? `<div class="op-wallet-card-cur">${c.currency}</div>` : ''}
+              </div>
             </button>
           `).join('')}
           ${!myCards.length ? '<div class="empty-mini">Спочатку додай кошельок</div>' : ''}
@@ -148,12 +153,15 @@ export function openOperationDialog(opts = {}) {
             `).join('')}
           </div>
           <label class="ip-label">З кошелька</label>
-          <div class="op-chips op-chips-cards">
+          <div class="op-wallet-grid">
             ${fromCards.map(c => `
-              <button type="button" class="chip op-chip-from-card ${c.id===curCard?'active':''}" data-from-card="${esc(c.id)}"
-                data-card-cur="${esc(c.currency||'UAH')}"
-                style="${c.id===curCard?`background:${c.bg};color:${c.color};border-color:${c.color}`:''}">
-                <i class="ti ${c.icon}"></i> ${esc(c.id)}
+              <button type="button" class="op-wallet-card ${c.id===curCard?'active':''}" data-from-card="${esc(c.id)}"
+                data-card-cur="${esc(c.currency||'UAH')}">
+                <div class="op-wallet-card-icon" style="background:${c.bg};color:${c.color}"><i class="ti ${c.icon}"></i></div>
+                <div class="op-wallet-card-info">
+                  <div class="op-wallet-card-name">${esc(c.id)}</div>
+                  ${c.currency && c.currency !== 'UAH' ? `<div class="op-wallet-card-cur">${c.currency}</div>` : ''}
+                </div>
               </button>
             `).join('')}
           </div>
@@ -171,11 +179,14 @@ export function openOperationDialog(opts = {}) {
             `).join('')}
           </div>
           <label class="ip-label">На кошельок</label>
-          <div class="op-chips op-chips-cards">
+          <div class="op-wallet-grid">
             ${toCards.map(c => `
-              <button type="button" class="chip op-chip-to-card ${c.id===curToCard?'active':''}" data-to-card="${esc(c.id)}"
-                style="${c.id===curToCard?`background:${c.bg};color:${c.color};border-color:${c.color}`:''}">
-                <i class="ti ${c.icon}"></i> ${esc(c.id)}
+              <button type="button" class="op-wallet-card ${c.id===curToCard?'active':''}" data-to-card="${esc(c.id)}">
+                <div class="op-wallet-card-icon" style="background:${c.bg};color:${c.color}"><i class="ti ${c.icon}"></i></div>
+                <div class="op-wallet-card-info">
+                  <div class="op-wallet-card-name">${esc(c.id)}</div>
+                  ${c.currency && c.currency !== 'UAH' ? `<div class="op-wallet-card-cur">${c.currency}</div>` : ''}
+                </div>
               </button>
             `).join('')}
           </div>
@@ -184,11 +195,11 @@ export function openOperationDialog(opts = {}) {
 
       <div class="op-amount-row" style="margin-top:12px">
         <input id="${amtId}" class="op-amount-input" type="number" inputmode="decimal" step="0.01" placeholder="0" value="${esc(String(curAmount))}">
-        <select id="op-cur-sel" class="op-cur-select">
-          <option value="UAH" ${curCur==='UAH'?'selected':''}>₴</option>
-          <option value="USD" ${curCur==='USD'?'selected':''}>$</option>
-          <option value="EUR" ${curCur==='EUR'?'selected':''}>€</option>
-        </select>
+        <div class="op-cur-pills">
+          <button type="button" class="op-cur-pill ${curCur==='UAH'?'active':''}" data-op-cur="UAH">₴ UAH</button>
+          <button type="button" class="op-cur-pill ${curCur==='USD'?'active':''}" data-op-cur="USD">$ USD</button>
+          <button type="button" class="op-cur-pill ${curCur==='EUR'?'active':''}" data-op-cur="EUR">€ EUR</button>
+        </div>
       </div>
 
       ${curCur !== 'UAH' ? `
@@ -280,14 +291,13 @@ export function openOperationDialog(opts = {}) {
     });
 
     // Currency manual change
-    const curSel = wrap.querySelector('#op-cur-sel');
-    if (curSel) {
-      curSel.addEventListener('change', () => {
-        curCur = curSel.value;
+    wrap.querySelectorAll('[data-op-cur]').forEach(b => {
+      b.addEventListener('click', () => {
+        curCur = b.dataset.opCur;
         curRate = state.fx?.[curCur]?.mid?.toFixed(2) || '';
         rerender(wrap);
       });
-    }
+    });
 
     // Rate input — update hint
     const rateInp = wrap.querySelector('#' + rateId);
