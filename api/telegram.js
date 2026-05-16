@@ -180,6 +180,140 @@ async function getExchangeRates() {
   return { USD: 41.5, EUR: 45.0 };
 }
 
+// ── Claude vision — аналіз фото чека ───────────────────────
+async function analyzeReceiptWithClaude(base64Image) {
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 256,
+        system: 'Ти помічник для розпізнавання чеків. Повертай тільки валідний JSON без пояснень.',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: 'image/jpeg',
+                  data: base64Image,
+                },
+              },
+              {
+                type: 'text',
+                text: 'Це фото чека або квитанції. Витягни дані та поверни ТІЛЬКИ JSON без пояснень:\n{"amount": <число без валюти>, "store": "<назва магазину>", "date": "<YYYY-MM-DD або null>", "category": "<одна з: Продукти, Ресторани, Транспорт, Комунальні, Здоров\'я, Одяг, Розваги, Дім, Дитячі, Інше>"}\nЯкщо не можеш прочитати - поверни {"error": "не вдалося розпізнати"}',
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const text = (data.content?.[0]?.text || '').trim();
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      const match = text.match(/\{[\s\S]*\}/);
+      if (match) return JSON.parse(match[0]);
+      return null;
+    }
+  } catch (e) {
+    console.error('analyzeReceiptWithClaude error:', e);
+    return null;
+  }
+}
+
+// ── Завантаження фото з Telegram ────────────────────────────
+async function downloadTelegramPhoto(fileId) {
+  const fileRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`);
+  const fileData = await fileRes.json();
+  const filePath = fileData.result?.file_path;
+  if (!filePath) throw new Error('Cannot get file path');
+
+  const imgRes = await fetch(`https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`);
+  const buffer = await imgRes.arrayBuffer();
+  return {
+    base64: Buffer.from(buffer).toString('base64'),
+    mediaType: 'image/jpeg',
+  };
+}
+
+// ── Обробка фото чека ────────────────────────────────────────
+async function handleReceiptPhoto(chatId, who, msg, res) {
+  try {
+    // Беремо найбільше фото
+    const photos = [...msg.photo].sort((a, b) => (b.file_size || 0) - (a.file_size || 0));
+    const fileId = photos[0].file_id;
+
+    await sendMessage(chatId, '🔍 Аналізую чек...');
+
+    const { base64 } = await downloadTelegramPhoto(fileId);
+    const result = await analyzeReceiptWithClaude(base64);
+
+    if (!result || result.error) {
+      await sendMessage(chatId, 'Не вдалося розпізнати чек 😕\nСпробуй зробити чіткіше фото.');
+      return res.status(200).json({ ok: true });
+    }
+
+    const amount = parseFloat(result.amount) || 0;
+    if (!amount) {
+      await sendMessage(chatId, 'Не вдалося розпізнати суму чека 😕');
+      return res.status(200).json({ ok: true });
+    }
+
+    const opData = {
+      type: 'Витрата',
+      amount,
+      currency: 'UAH',
+      amountUah: amount,
+      category: result.category || 'Інше',
+      desc: result.store || '',
+      card: '',
+      who,
+      date: result.date || todayKyiv(),
+    };
+
+    const pendingId = await savePending(opData, msg.from.id);
+
+    const emoji = CAT_EMOJI[opData.category] || '💸';
+    let txt = `🧾 <b>Чек розпізнано:</b>\n\n`;
+    txt += `${emoji} <b>${opData.category}</b>\n`;
+    txt += `💰 Сума: <b>${fmtMoney(amount)}</b>\n`;
+    if (opData.desc) txt += `🏪 Магазин: ${opData.desc}\n`;
+    if (result.date) txt += `📅 Дата: ${result.date}\n`;
+    txt += `👤 ${who}\n`;
+    txt += `\n<i>Перевір та збережи операцію:</i>`;
+
+    await sendMessage(chatId, txt, {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '✅ Зберегти',   callback_data: `sv:${pendingId}` },
+            { text: '❌ Скасувати', callback_data: `cl:${pendingId}` },
+          ],
+        ],
+      },
+    });
+
+    return res.status(200).json({ ok: true });
+  } catch (e) {
+    console.error('handleReceiptPhoto error:', e);
+    await sendMessage(chatId, 'Не вдалося розпізнати чек 😕');
+    return res.status(200).json({ ok: true });
+  }
+}
+
 async function saveOperation(op) {
   const ref = db.collection('families').doc(FAMILY_ID).collection('operations');
   await ref.add({
@@ -675,6 +809,11 @@ module.exports = async function handler(req, res) {
     }
 
     const who = await getWho(userId, userName);
+
+    // Фото чека
+    if (msg.photo && msg.photo.length > 0) {
+      return handleReceiptPhoto(chatId, who, msg, res);
+    }
 
     // Команди
     if (text.startsWith('/')) {

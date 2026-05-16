@@ -22,9 +22,9 @@ export function openOperationDialog(opts = {}) {
   let curCard   = editing.card || opts.presetCard || '';
   let curCat    = editing.category || opts.presetCategory || '';
   let curCur    = editing.currency || 'UAH';
-  let curAmount = editing.amount || '';
-  let curDesc   = editing.desc || '';
-  let curDate   = editing.date ? new Date(editing.date) : new Date();
+  let curAmount = editing.amount || opts.presetAmount || '';
+  let curDesc   = editing.desc || opts.presetDesc || '';
+  let curDate   = editing.date ? new Date(editing.date) : (opts.presetDate ? new Date(opts.presetDate) : new Date());
 
   const amtId  = uid('op-amt');
   const curId  = uid('op-cur');

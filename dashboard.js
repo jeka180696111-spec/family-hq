@@ -83,6 +83,7 @@ export function renderDashboard() {
         <button class="quick-action" data-quick="expense"><i class="ti ti-arrow-up-circle"></i><span>Витрата</span></button>
         <button class="quick-action" data-quick="transfer"><i class="ti ti-arrows-exchange"></i><span>Переказ</span></button>
         <button class="quick-action" data-quick="exchange"><i class="ti ti-currency-dollar"></i><span>Обмін</span></button>
+        <button class="quick-action" data-quick="scanner"><i class="ti ti-scan"></i><span>Сканер</span></button>
       </div>
 
       <!-- Грід -->
@@ -386,6 +387,7 @@ function bindHandlers(el) {
       else if (act === 'expense')  openOperationDialog({ type: 'Витрата' });
       else if (act === 'transfer') import('./transfer.js').then(t => t.openTransferDialog());
       else if (act === 'exchange') import('./transfer.js').then(t => t.openTransferDialog({ exchange: true }));
+      else if (act === 'scanner') import('./receipt-scanner.js').then(s => s.openScannerChoice());
     });
   });
 
