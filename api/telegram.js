@@ -180,6 +180,140 @@ async function getExchangeRates() {
   return { USD: 41.5, EUR: 45.0 };
 }
 
+// ── Claude vision — аналіз фото чека ───────────────────────
+async function analyzeReceiptWithClaude(base64Image) {
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 256,
+        system: 'Ти помічник для розпізнавання чеків. Повертай тільки валідний JSON без пояснень.',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: 'image/jpeg',
+                  data: base64Image,
+                },
+              },
+              {
+                type: 'text',
+                text: 'Це фото чека або квитанції. Витягни дані та поверни ТІЛЬКИ JSON без пояснень:\n{"amount": <число без валюти>, "store": "<назва магазину>", "date": "<YYYY-MM-DD або null>", "category": "<одна з: Продукти, Ресторани, Транспорт, Комунальні, Здоров\'я, Одяг, Розваги, Дім, Дитячі, Інше>"}\nЯкщо не можеш прочитати - поверни {"error": "не вдалося розпізнати"}',
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const text = (data.content?.[0]?.text || '').trim();
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      const match = text.match(/\{[\s\S]*\}/);
+      if (match) return JSON.parse(match[0]);
+      return null;
+    }
+  } catch (e) {
+    console.error('analyzeReceiptWithClaude error:', e);
+    return null;
+  }
+}
+
+// ── Завантаження фото з Telegram ────────────────────────────
+async function downloadTelegramPhoto(fileId) {
+  const fileRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`);
+  const fileData = await fileRes.json();
+  const filePath = fileData.result?.file_path;
+  if (!filePath) throw new Error('Cannot get file path');
+
+  const imgRes = await fetch(`https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`);
+  const buffer = await imgRes.arrayBuffer();
+  return {
+    base64: Buffer.from(buffer).toString('base64'),
+    mediaType: 'image/jpeg',
+  };
+}
+
+// ── Обробка фото чека ────────────────────────────────────────
+async function handleReceiptPhoto(chatId, who, msg, res) {
+  try {
+    // Беремо найбільше фото
+    const photos = [...msg.photo].sort((a, b) => (b.file_size || 0) - (a.file_size || 0));
+    const fileId = photos[0].file_id;
+
+    await sendMessage(chatId, '🔍 Аналізую чек...');
+
+    const { base64 } = await downloadTelegramPhoto(fileId);
+    const result = await analyzeReceiptWithClaude(base64);
+
+    if (!result || result.error) {
+      await sendMessage(chatId, 'Не вдалося розпізнати чек 😕\nСпробуй зробити чіткіше фото.');
+      return res.status(200).json({ ok: true });
+    }
+
+    const amount = parseFloat(result.amount) || 0;
+    if (!amount) {
+      await sendMessage(chatId, 'Не вдалося розпізнати суму чека 😕');
+      return res.status(200).json({ ok: true });
+    }
+
+    const opData = {
+      type: 'Витрата',
+      amount,
+      currency: 'UAH',
+      amountUah: amount,
+      category: result.category || 'Інше',
+      desc: result.store || '',
+      card: '',
+      who,
+      date: result.date || todayKyiv(),
+    };
+
+    const pendingId = await savePending(opData, msg.from.id);
+
+    const emoji = CAT_EMOJI[opData.category] || '💸';
+    let txt = `🧾 <b>Чек розпізнано:</b>\n\n`;
+    txt += `${emoji} <b>${opData.category}</b>\n`;
+    txt += `💰 Сума: <b>${fmtMoney(amount)}</b>\n`;
+    if (opData.desc) txt += `🏪 Магазин: ${opData.desc}\n`;
+    if (result.date) txt += `📅 Дата: ${result.date}\n`;
+    txt += `👤 ${who}\n`;
+    txt += `\n<i>Перевір та збережи операцію:</i>`;
+
+    await sendMessage(chatId, txt, {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '✅ Зберегти',   callback_data: `sv:${pendingId}` },
+            { text: '❌ Скасувати', callback_data: `cl:${pendingId}` },
+          ],
+        ],
+      },
+    });
+
+    return res.status(200).json({ ok: true });
+  } catch (e) {
+    console.error('handleReceiptPhoto error:', e);
+    await sendMessage(chatId, 'Не вдалося розпізнати чек 😕');
+    return res.status(200).json({ ok: true });
+  }
+}
+
 async function saveOperation(op) {
   const ref = db.collection('families').doc(FAMILY_ID).collection('operations');
   await ref.add({
@@ -197,26 +331,62 @@ async function saveOperation(op) {
   });
 }
 
-// Баланс по кошельках (лише ті де є операції)
+// Баланс по кошельках з урахуванням валюти та кредитних лімітів
 async function getWalletBalances() {
-  const snapshot = await db.collection('families').doc(FAMILY_ID)
-    .collection('operations').get();
+  const [snapshot, rates, settingsDoc] = await Promise.all([
+    db.collection('families').doc(FAMILY_ID).collection('operations').get(),
+    getExchangeRates(),
+    db.collection('families').doc(FAMILY_ID).get(),
+  ]);
+
+  // Збираємо кредитні ліміти з налаштувань карток
+  const creditLimits = {};
+  if (settingsDoc.exists) {
+    const s = settingsDoc.data();
+    ['cardsEvgen', 'cardsMarina'].forEach(key => {
+      (s[key] || []).forEach(c => {
+        if (c.creditLimit) creditLimits[c.id] = Number(c.creditLimit);
+      });
+    });
+  }
 
   const wallets = {};
   snapshot.docs.forEach(doc => {
     const d = doc.data();
     if (d.category === 'Переказ') return;
     const card = d.card || 'Без рахунку';
-    if (!wallets[card]) wallets[card] = { income: 0, expense: 0 };
-    const amt = d.amountUah || d.amount || 0;
-    if (d.type === 'Дохід') wallets[card].income += amt;
-    if (d.type === 'Витрата') wallets[card].expense += amt;
+    if (!wallets[card]) wallets[card] = { currencies: {} };
+
+    const cur = d.currency || 'UAH';
+    const amt = d.amount || 0;
+
+    if (!wallets[card].currencies[cur]) wallets[card].currencies[cur] = { income: 0, expense: 0 };
+    if (d.type === 'Дохід') wallets[card].currencies[cur].income += amt;
+    if (d.type === 'Витрата') wallets[card].currencies[cur].expense += amt;
   });
 
   return Object.entries(wallets)
-    .map(([name, v]) => ({ name, income: Math.round(v.income), expense: Math.round(v.expense), balance: Math.round(v.income - v.expense) }))
-    .filter(w => w.income > 0 || w.expense > 0)
-    .sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance));
+    .map(([name, v]) => {
+      const primaryCur = Object.keys(v.currencies).find(c => c !== 'UAH') || 'UAH';
+      const curData = v.currencies[primaryCur] || { income: 0, expense: 0 };
+      const balance = Math.round(curData.income - curData.expense);
+
+      let balanceUah;
+      if (primaryCur === 'UAH') {
+        balanceUah = balance;
+      } else {
+        const rate = rates[primaryCur] || 1;
+        balanceUah = Math.round(balance * rate);
+      }
+
+      const creditLimit = creditLimits[name] || 0;
+      const creditUsed = creditLimit > 0 ? Math.max(0, -balance) : 0;
+      const creditAvail = creditLimit > 0 ? Math.max(0, creditLimit - creditUsed) : 0;
+
+      return { name, balance, primaryCur, balanceUah, creditLimit, creditUsed, creditAvail };
+    })
+    .filter(w => w.balance !== 0 || w.creditLimit > 0)
+    .sort((a, b) => Math.abs(b.balanceUah) - Math.abs(a.balanceUah));
 }
 
 async function getPeriodOps(from, to) {
@@ -418,6 +588,20 @@ async function handleCallback(cb, res) {
     txt += `\n\n✅ Збережено!`;
     await editMessage(chatId, messageId, txt);
     await answerCallback(cb.id, '✅ Збережено!');
+
+    // Проактивний саркастичний коментар при дублікаті категорії за день
+    if (op.type === 'Витрата') {
+      try {
+        const todayOps = await getTodaySameCategoryOps(op.who, op.category);
+        if (todayOps.length >= 2) {
+          const comment = await generateSarcasticComment(op, todayOps);
+          if (comment) await sendMessage(chatId, comment);
+        }
+      } catch (e) {
+        // ігноруємо помилки проактивного коментаря
+      }
+    }
+
     return res.status(200).json({ ok: true });
   }
 
@@ -497,13 +681,33 @@ async function handleCommand(cmd, chatId, userId, userName, who, res) {
         return res.status(200).json({ ok: true });
       }
       let txt = `💳 <b>Баланс по рахунках:</b>\n\n`;
-      let total = 0;
+      let totalUah = 0;
+      const SYM = { USD: '$', EUR: '€' };
       wallets.forEach(w => {
-        const sign = w.balance >= 0 ? '+' : '';
-        txt += `💳 <b>${w.name}</b>: ${sign}${fmtMoney(w.balance)}\n`;
-        total += w.balance;
+        const pos = w.balance >= 0;
+        const sign = pos ? '+' : '−';
+        const absNative = Math.abs(w.balance);
+        const absUah = Math.abs(w.balanceUah);
+        if (w.primaryCur !== 'UAH') {
+          const sym = SYM[w.primaryCur] || w.primaryCur;
+          txt += `💳 <b>${w.name}</b>: ${sign}${absNative} ${sym} (≈ ${sign === '−' ? '−' : ''}${fmtMoney(absUah)})\n`;
+        } else if (w.creditLimit > 0) {
+          // Кредитна картка: показуємо власні кошти і кредит окремо
+          const ownFunds = Math.max(0, w.balance);
+          if (w.creditUsed > 0) {
+            txt += `💳 <b>${w.name}</b>: −${fmtMoney(w.creditUsed)} <i>(кредит)</i>\n`;
+            txt += `   └ вільно: ${fmtMoney(w.creditAvail)} / ${fmtMoney(w.creditLimit)}\n`;
+          } else {
+            txt += `💳 <b>${w.name}</b>: +${fmtMoney(ownFunds)}\n`;
+            txt += `   └ кредит вільний · ліміт ${fmtMoney(w.creditLimit)}\n`;
+          }
+        } else {
+          txt += `💳 <b>${w.name}</b>: ${sign}${fmtMoney(absNative)}\n`;
+        }
+        totalUah += w.balanceUah;
       });
-      txt += `━━━━━━━━━━━━━━━\n💎 Разом: <b>${total >= 0 ? '+' : ''}${fmtMoney(total)}</b>`;
+      const totalSign = totalUah >= 0 ? '+' : '−';
+      txt += `━━━━━━━━━━━━━━━\n💎 Разом: <b>${totalSign}${fmtMoney(Math.abs(totalUah))}</b>`;
       await sendMessage(chatId, txt);
       return res.status(200).json({ ok: true });
     }
@@ -574,6 +778,98 @@ async function handleCommand(cmd, chatId, userId, userName, who, res) {
   }
 }
 
+// ── Проактивні саркастичні коментарі ────────────────────────
+async function getTodaySameCategoryOps(who, category) {
+  const today = todayKyiv();
+  const snapshot = await db.collection('families').doc(FAMILY_ID)
+    .collection('operations')
+    .where('date', '==', today)
+    .where('who', '==', who)
+    .where('category', '==', category)
+    .where('type', '==', 'Витрата')
+    .get();
+  return snapshot.docs.map(d => d.data());
+}
+
+async function generateSarcasticComment(op, todayOps) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return null;
+
+  const totalToday = todayOps.reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
+  const count = todayOps.length;
+  const stores = todayOps.map(o => o.desc).filter(Boolean).join(', ');
+  const context = `${op.who} щойно зробив ${count}-у витрату сьогодні в категорії "${op.category}": ${op.amount} ₴${op.desc ? ` (${op.desc})` : ''}. Всього сьогодні в цій категорії: ${fmtMoney(totalToday)}${stores ? `. Місця: ${stores}` : ''}.`;
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 120,
+        system: `Ти — саркастичний фінансовий радник родини Кіосе. Стиль: їдкий гумор, але з теплотою.
+Правила: УКРАЇНСЬКА, ДУЖЕ коротко (1-2 речення), один дотепний коментар про повторну витрату за день у тій самій категорії. 1-2 емодзі максимум. Не запитуй питань. Не повторюй факти дослівно.`,
+        messages: [{ role: 'user', content: context }],
+      }),
+    });
+    const data = await response.json();
+    return data.content?.filter(c => c.type === 'text').map(c => c.text).join('') || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// ── AI Чат ───────────────────────────────────────────────────
+function isConversational(text) {
+  if (text.length < 4) return false;
+  if (text.includes('?') || text.includes('?')) return true;
+  const triggers = ['як', 'що', 'де', 'чому', 'скільки', 'коли', 'чи', 'поради', 'порада', 'допоможи', 'розкажи', 'поясни', 'аналіз', 'звіт', 'прогноз', 'розбір', 'критикуй', 'оціни', 'думаєш'];
+  const lower = text.toLowerCase();
+  return triggers.some(t => lower.startsWith(t) || lower.includes(' ' + t));
+}
+
+async function handleAIChat(chatId, userText, who, res) {
+  try {
+    // Збираємо контекст
+    const [wallets, recentOps] = await Promise.all([
+      getWalletBalances(),
+      getLastOps(10),
+    ]);
+    const totalUah = wallets.reduce((s, w) => s + w.balanceUah, 0);
+    const recentExp = recentOps.filter(o => o.type === 'Витрата').slice(0, 5)
+      .map(o => `${o.desc || o.category} ${o.amount}₴`).join(', ');
+    const context = `Користувач: ${who}. Загальний баланс: ${fmtMoney(totalUah)}. Останні витрати: ${recentExp || 'немає'}.`;
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      await sendMessage(chatId, '❌ AI ключ не налаштований.');
+      return res.status(200).json({ ok: true });
+    }
+
+    const systemPrompt = `Ти — саркастичний фінансовий радник родини Кіосе. Стиль: дотепний, їдкий, але з турботою.
+Правила: відповідай УКРАЇНСЬКОЮ, коротко (2-4 речення), використовуй конкретні цифри якщо є, емодзі помірно.
+${context}`;
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 400,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userText }],
+      }),
+    });
+
+    const data = await response.json();
+    const reply = data.content?.filter(c => c.type === 'text').map(c => c.text).join('\n') || 'Щось пішло не так 🤷';
+    await sendMessage(chatId, reply);
+  } catch (e) {
+    await sendMessage(chatId, '❌ Помилка AI: ' + e.message);
+  }
+  return res.status(200).json({ ok: true });
+}
+
 // ═══════════════════════════════════════════════════════════════
 // WEBHOOK HANDLER
 // ═══════════════════════════════════════════════════════════════
@@ -620,6 +916,11 @@ module.exports = async function handler(req, res) {
 
     const who = await getWho(userId, userName);
 
+    // Фото чека
+    if (msg.photo && msg.photo.length > 0) {
+      return handleReceiptPhoto(chatId, who, msg, res);
+    }
+
     // Команди
     if (text.startsWith('/')) {
       return handleCommand(text.split(' ')[0].toLowerCase(), chatId, userId, userName, who, res);
@@ -652,8 +953,12 @@ module.exports = async function handler(req, res) {
     // Парсимо операцію і показуємо для підтвердження
     const parsed = parseMessage(text);
     if (!parsed) {
+      // Якщо схоже на питання — відповідає AI
+      if (isConversational(text)) {
+        return handleAIChat(chatId, text, who, res);
+      }
       await sendMessage(chatId,
-        `🤔 Не зрозумів. Напиши суму і опис:\n<code>каву 85</code>\n<code>зп 40000</code>`
+        `🤔 Не зрозумів. Напиши суму і опис:\n<code>каву 85</code>\n<code>зп 40000</code>\n\nАбо постав питання — я відповім 😏`
       );
       return res.status(200).json({ ok: true });
     }
