@@ -52,7 +52,6 @@ function renderStep1(screen) {
       <div class="ob-step-indicator">
         <div class="ob-step-dot active"></div>
         <div class="ob-step-dot"></div>
-        <div class="ob-step-dot"></div>
       </div>
 
       <!-- Логотип і заголовок -->
@@ -153,7 +152,13 @@ function renderStep2(screen) {
   let selectedFamilyAvatar = familyAvatar;
 
   screen.innerHTML = `
-    <div class="auth-card" style="max-width:420px;text-align:left">
+    <div class="auth-card animate-fade-in" style="max-width:420px;text-align:left">
+      <!-- Progress indicator -->
+      <div class="ob-step-indicator">
+        <div class="ob-step-dot"></div>
+        <div class="ob-step-dot active"></div>
+      </div>
+
       <button id="ob-back" style="background:none;border:none;cursor:pointer;color:var(--c-text-2);font-size:13px;padding:0;margin-bottom:16px;display:flex;align-items:center;gap:4px">
         <i class="ti ti-arrow-left"></i> Назад
       </button>
@@ -167,9 +172,22 @@ function renderStep2(screen) {
       </div>
       <p class="auth-text" style="margin-top:12px">Створи нову родину або приєднайся до існуючої за кодом запрошення.</p>
 
-      <div style="display:flex;border-radius:var(--radius);overflow:hidden;border:1.5px solid var(--c-border);margin-bottom:24px">
-        <button id="ob-tab-create" class="ob-tab active-tab" data-tab="create" style="${tabStyle(true)}">Нова родина</button>
-        <button id="ob-tab-join"   class="ob-tab"             data-tab="join"   style="${tabStyle(false)}">Маю запрошення</button>
+      <!-- Вибір у вигляді карток -->
+      <div class="ob-choice-cards">
+        <button class="ob-choice-card${ob.activeTab === 'create' ? ' selected' : ''}" data-tab="create">
+          <div class="ob-choice-card-icon">🏠</div>
+          <div>
+            <div class="ob-choice-card-title">Створити нову родину</div>
+            <div class="ob-choice-card-desc">Ти станеш адміністратором і зможеш запросити інших</div>
+          </div>
+        </button>
+        <button class="ob-choice-card${ob.activeTab === 'join' ? ' selected' : ''}" data-tab="join">
+          <div class="ob-choice-card-icon">🔗</div>
+          <div>
+            <div class="ob-choice-card-title">Приєднатись до існуючої</div>
+            <div class="ob-choice-card-desc">Потрібен 6-символьний invite-код від адміністратора родини</div>
+          </div>
+        </button>
       </div>
 
       <div id="ob-tab-content"></div>
@@ -180,14 +198,12 @@ function renderStep2(screen) {
 
   renderTabContent(screen, selectedFamilyAvatar, (av) => { selectedFamilyAvatar = av; });
 
-  // Переключення вкладок
-  screen.querySelectorAll('.ob-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      ob.activeTab = tab.dataset.tab;
-      screen.querySelectorAll('.ob-tab').forEach(t => {
-        const active = t.dataset.tab === ob.activeTab;
-        t.style.cssText = tabStyle(active);
-        t.classList.toggle('active-tab', active);
+  // Переключення карток вибору
+  screen.querySelectorAll('.ob-choice-card').forEach(card => {
+    card.addEventListener('click', () => {
+      ob.activeTab = card.dataset.tab;
+      screen.querySelectorAll('.ob-choice-card').forEach(c => {
+        c.classList.toggle('selected', c.dataset.tab === ob.activeTab);
       });
       screen.querySelector('#ob-error').style.display = 'none';
       renderTabContent(screen, selectedFamilyAvatar, (av) => { selectedFamilyAvatar = av; });
@@ -197,14 +213,12 @@ function renderStep2(screen) {
   screen.querySelector('#ob-back').addEventListener('click', () => renderStep1(screen));
 }
 
-function tabStyle(active) {
-  return active
-    ? 'flex:1;padding:9px;border:none;cursor:pointer;font-size:13px;font-weight:600;font-family:inherit;background:var(--c-accent);color:#fff;transition:background 0.15s'
-    : 'flex:1;padding:9px;border:none;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit;background:var(--c-bg);color:var(--c-text-2);transition:background 0.15s';
-}
 
 function renderTabContent(screen, selectedFamilyAvatar, onFamilyAvatarChange) {
   const content = screen.querySelector('#ob-tab-content');
+  content.classList.add('animate-fade-in');
+  // Re-trigger animation on tab switch
+  void content.offsetWidth;
   if (ob.activeTab === 'create') {
     renderCreateTab(screen, content, selectedFamilyAvatar, onFamilyAvatarChange);
   } else {
@@ -296,7 +310,7 @@ function renderCreateTab(screen, content, selectedFamilyAvatar, onFamilyAvatarCh
 // ── Вкладка "Маю запрошення" ─────────────────────────────────
 function renderJoinTab(screen, content) {
   content.innerHTML = `
-    <div style="margin-bottom:28px">
+    <div style="margin-bottom:20px">
       <label style="display:block;font-size:13px;font-weight:600;color:var(--c-text-2);margin-bottom:6px">Код запрошення</label>
       <input
         id="ob-invite-code"
@@ -307,9 +321,10 @@ function renderJoinTab(screen, content) {
         style="width:100%;box-sizing:border-box;padding:10px 14px;border:1.5px solid var(--c-border);border-radius:var(--radius);font-size:20px;font-weight:600;letter-spacing:4px;text-transform:uppercase;text-align:center;font-family:inherit;background:var(--c-bg);color:var(--c-text);outline:none;transition:border-color 0.2s"
       />
       <div id="ob-code-err" style="display:none;color:var(--c-red,#d93025);font-size:12px;margin-top:4px">Введіть 6-символьний код</div>
+      <p style="font-size:12px;color:var(--c-text-3);margin-top:8px">Попроси адміністратора родини надіслати тобі 6-символьний invite-код з розділу «Налаштування».</p>
     </div>
 
-    <button id="ob-join-submit" class="btn-primary" style="width:100%">Приєднатись</button>
+    <button id="ob-join-submit" class="btn-primary" style="width:100%">Приєднатись до родини</button>
   `;
 
   const codeInput = content.querySelector('#ob-invite-code');

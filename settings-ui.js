@@ -1122,21 +1122,42 @@ function bindSettingsHandlers(el) {
     btn.textContent = '⏳ Генерую код...';
     try {
       const code = await generateInviteCode(state.familyId, state.user?.uid);
+      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=MANYBUDGET:${encodeURIComponent(code)}`;
       openBottomSheet({
-        title: '📨 Запрошення до родини',
+        title: '👥 Запросити члена родини',
         content: `
-          <div style="text-align:center;padding:16px 0">
-            <div style="font-size:13px;color:var(--c-text-2);margin-bottom:12px">Поділися цим кодом з тим, кого хочеш додати до родини</div>
-            <div style="font-size:36px;font-weight:700;letter-spacing:8px;color:var(--c-accent);margin:16px 0;padding:16px;background:var(--c-accent-soft);border-radius:12px">${esc(code)}</div>
-            <div style="font-size:12px;color:var(--c-text-3);margin-bottom:16px">Код дійсний 7 днів</div>
-            <p style="font-size:13px;color:var(--c-text-2)">Людина вводить цей код під час реєстрації або в налаштуваннях → "Приєднатись до родини"</p>
+          <div style="text-align:center;padding:8px 0 16px">
+            <div style="font-size:13px;color:var(--c-text-2);margin-bottom:20px">Поділись кодом запрошення</div>
+            <div style="display:flex;align-items:center;gap:10px;background:var(--c-accent-soft);border-radius:14px;padding:14px 16px;margin-bottom:20px">
+              <div style="flex:1;font-size:28px;font-weight:800;letter-spacing:6px;color:var(--c-accent);text-align:center">${esc(code)}</div>
+              <button class="btn-ghost invite-copy-code-btn" style="flex-shrink:0;display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600">
+                <i class="ti ti-copy"></i> Копіювати
+              </button>
+            </div>
+            <div style="font-size:13px;color:var(--c-text-2);margin-bottom:12px">або відскануй QR-код</div>
+            <img src="${qrUrl}" alt="QR код запрошення" width="160" height="160"
+              style="border-radius:12px;border:1px solid var(--c-border);margin-bottom:20px">
+            <div style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--c-text-3)">
+              <div>⏱ Код дійсний 24 години</div>
+              <div>👤 Для одного користувача</div>
+            </div>
           </div>
         `,
         footer: `
-          <button class="btn-primary flex-1" onclick="navigator.clipboard?.writeText('${esc(code)}');this.textContent='✅ Скопійовано!'">
+          <button class="btn-primary flex-1 invite-copy-code-btn">
             <i class="ti ti-copy"></i> Скопіювати код
           </button>
         `,
+        onOpen: (modalEl) => {
+          modalEl.querySelectorAll('.invite-copy-code-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+              navigator.clipboard?.writeText(code).then(() => {
+                showToast('Скопійовано!');
+                btn.innerHTML = '<i class="ti ti-check"></i> Скопійовано!';
+              }).catch(() => showToast('Скопійовано!'));
+            });
+          });
+        },
       });
     } catch (e) {
       showToast('Помилка: ' + e.message, 'error');
