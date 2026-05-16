@@ -7,34 +7,38 @@ import { showToast } from './utils.js';
 
 // ── Вибір способу сканування ────────────────────────────────
 export function openScannerChoice() {
-  const wrap = document.createElement('div');
-  wrap.className = 'scanner-choice';
-  wrap.innerHTML = `
-    <button class="scanner-choice-btn" id="sc-photo">
-      <i class="ti ti-camera"></i>
-      <div>
-        <div>📷 Фото чека</div>
-        <div class="scanner-choice-desc">Сфотографуй чек — AI розпізнає суму</div>
-      </div>
-    </button>
-    <button class="scanner-choice-btn" id="sc-qr">
-      <i class="ti ti-qrcode"></i>
-      <div>
-        <div>🔲 QR код</div>
-        <div class="scanner-choice-desc">Відскануй QR-код з чека</div>
-      </div>
-    </button>
+  const content = `
+    <div class="scanner-choice">
+      <button class="scanner-choice-btn" id="sc-photo">
+        <i class="ti ti-camera"></i>
+        <div>
+          <div>📷 Фото чека</div>
+          <div class="scanner-choice-desc">Сфотографуй чек — AI розпізнає суму</div>
+        </div>
+      </button>
+      <button class="scanner-choice-btn" id="sc-qr">
+        <i class="ti ti-qrcode"></i>
+        <div>
+          <div>🔲 QR код</div>
+          <div class="scanner-choice-desc">Відскануй QR-код з чека</div>
+        </div>
+      </button>
+    </div>
   `;
 
-  const modalId = openBottomSheet({ title: 'Сканер чека', contentEl: wrap });
-
-  wrap.querySelector('#sc-photo').addEventListener('click', () => {
-    closeModal(modalId);
-    openReceiptPhoto();
-  });
-  wrap.querySelector('#sc-qr').addEventListener('click', () => {
-    closeModal(modalId);
-    openQRScanner();
+  const modalId = openBottomSheet({
+    title: 'Сканер чека',
+    content,
+    onOpen: (wrap) => {
+      wrap.querySelector('#sc-photo').addEventListener('click', () => {
+        closeModal(modalId);
+        openReceiptPhoto();
+      });
+      wrap.querySelector('#sc-qr').addEventListener('click', () => {
+        closeModal(modalId);
+        openQRScanner();
+      });
+    },
   });
 }
 
