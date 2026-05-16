@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { FAMILY_MEMBERS, state } from './config.js';
-import { getCards, getProfiles, getWalletTypeById, getFamilyName, getVisibleWallets, setVisibleWallets, getViewAsMember } from './storage.js';
+import { getCards, getProfiles, getWalletTypeById, getFamilyName, getVisibleWallets, setVisibleWallets, getViewAsMember, getCategoryLimits } from './storage.js';
 import { apiGet } from './api.js';
 import { esc, fmtMoney, fmtMoneyShort, fmtMoneyWithUah, setText, fmtDate, log } from './utils.js';
 import { openOperationDialog } from './operations.js';
@@ -108,6 +108,8 @@ export function renderDashboard() {
             ${renderSparkline(byDayIncomeView, 'green')}
           </div>
 
+          ${renderFxCard()}
+          ${renderForecastCard(totalExpense, totalIncome)}
           ${renderCategoriesBlock(d, byCategoryView, totalExpense)}
         </div>
 
@@ -321,12 +323,96 @@ function renderWalletsBlock(viewAs) {
   `;
 }
 
+// ── FX Rate card ────────────────────────────────────────────
+function renderFxCard() {
+  const fx = state.fx || {};
+  const usd = fx.USD || {};
+  const eur = fx.EUR || {};
+  if (!usd.buy && !usd.mid) return '';
+
+  const usdBuy = (usd.buy || usd.mid || 0).toFixed(2);
+  const usdSale = (usd.sale || usd.mid || 0).toFixed(2);
+  const eurBuy = (eur.buy || eur.mid || 0).toFixed(2);
+  const eurSale = (eur.sale || eur.mid || 0).toFixed(2);
+  const updTime = fx._updated ? new Date(fx._updated).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' }) : '';
+
+  return `
+    <div class="dash-card dash-fx-card">
+      <div class="dash-card-head">
+        <span class="dash-card-title">💱 Курси НБУ</span>
+        ${updTime ? `<span style="font-size:11px;color:var(--c-text-3)">оновлено ${updTime}</span>` : ''}
+      </div>
+      <div class="dash-fx-row">
+        <div class="dash-fx-item">
+          <span class="dash-fx-flag">🇺🇸</span>
+          <span class="dash-fx-name">USD</span>
+          <span class="dash-fx-buy">${usdBuy}</span>
+          <span class="dash-fx-sep">/</span>
+          <span class="dash-fx-sale">${usdSale}</span>
+          <span class="dash-fx-unit">₴</span>
+        </div>
+        <div class="dash-fx-item">
+          <span class="dash-fx-flag">🇪🇺</span>
+          <span class="dash-fx-name">EUR</span>
+          <span class="dash-fx-buy">${eurBuy}</span>
+          <span class="dash-fx-sep">/</span>
+          <span class="dash-fx-sale">${eurSale}</span>
+          <span class="dash-fx-unit">₴</span>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--c-text-3);margin-top:4px">купівля / продаж</div>
+    </div>
+  `;
+}
+
+function renderForecastCard(totalExpense, totalIncome) {
+  const now = new Date();
+  const day = now.getDate();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const daysLeft = daysInMonth - day;
+  if (day < 3) return ''; // not enough data
+
+  const dailyRate = totalExpense / day;
+  const projected = Math.round(dailyRate * daysInMonth);
+  const projectedBalance = Math.round(totalIncome - projected);
+  const pct = Math.min(100, Math.round((day / daysInMonth) * 100));
+  const overBudget = projected > totalIncome && totalIncome > 0;
+
+  return `
+    <div class="dash-card">
+      <div class="dash-card-head">
+        <span class="dash-card-title">📈 Прогноз на місяць</span>
+        <span style="font-size:12px;color:var(--c-text-2)">${day} з ${daysInMonth} днів</span>
+      </div>
+      <div style="height:6px;border-radius:3px;background:var(--c-border);margin:8px 0 4px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:var(--c-accent);border-radius:3px"></div>
+      </div>
+      <div class="dash-forecast-row">
+        <div class="dash-forecast-item">
+          <div class="dash-forecast-label">Витрачено</div>
+          <div class="dash-forecast-val c-red">${fmtMoney(totalExpense, 'UAH')}</div>
+        </div>
+        <div class="dash-forecast-item">
+          <div class="dash-forecast-label">Прогноз витрат</div>
+          <div class="dash-forecast-val ${overBudget ? 'c-red' : ''}">${fmtMoney(projected, 'UAH')}</div>
+        </div>
+        <div class="dash-forecast-item">
+          <div class="dash-forecast-label">Залишок</div>
+          <div class="dash-forecast-val ${projectedBalance >= 0 ? 'c-green' : 'c-red'}">${projectedBalance >= 0 ? '+' : ''}${fmtMoney(projectedBalance, 'UAH')}</div>
+        </div>
+      </div>
+      ${overBudget ? `<div style="font-size:12px;color:var(--c-red);margin-top:6px">⚠️ При такому темпі витрати перевищать доходи на ${fmtMoney(projected - totalIncome, 'UAH')}</div>` : `<div style="font-size:12px;color:var(--c-text-3);margin-top:6px">Залишилось ${daysLeft} днів · в середньому ${fmtMoney(Math.round(dailyRate), 'UAH')}/день</div>`}
+    </div>
+  `;
+}
+
 // ── Блок категорій ──────────────────────────────────────────
 function renderCategoriesBlock(d, byCat, total) {
   byCat = byCat || d.byCategory || {};
   const entries = Object.entries(byCat).sort((a, b) => b[1] - a[1]).slice(0, 5);
   total = total || d.totalExpense || entries.reduce((s, [, v]) => s + v, 0) || 1;
   if (!entries.length) return '';
+  const limits = getCategoryLimits();
 
   return `
     <div class="dash-card">
@@ -337,11 +423,17 @@ function renderCategoriesBlock(d, byCat, total) {
       <div class="dash-cats-list">
         ${entries.map(([cat, val]) => {
           const pct = (val / total * 100).toFixed(0);
+          const limit = limits[cat];
+          const limitPct = limit ? Math.min(100, Math.round((val / limit) * 100)) : null;
+          const overLimit = limit && val > limit;
           return `
             <div class="dash-cat-row">
-              <div class="dash-cat-name">${esc(cat)}</div>
-              <div class="dash-cat-bar"><div class="dash-cat-bar-fill" style="width:${pct}%"></div></div>
-              <div class="dash-cat-amount">${fmtMoney(val, 'UAH')}</div>
+              <div class="dash-cat-name">${esc(cat)}${overLimit ? ' ⚠️' : ''}</div>
+              <div class="dash-cat-bar">
+                <div class="dash-cat-bar-fill ${overLimit ? 'over-limit' : ''}" style="width:${pct}%"></div>
+                ${limit ? `<div class="dash-cat-limit-line" style="left:${Math.min(100, (limit/total*100)).toFixed(0)}%"></div>` : ''}
+              </div>
+              <div class="dash-cat-amount">${fmtMoney(val, 'UAH')}${limit ? `<span class="dash-cat-limit-badge ${overLimit ? 'over' : ''}">${limitPct}%</span>` : ''}</div>
             </div>
           `;
         }).join('')}

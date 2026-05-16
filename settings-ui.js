@@ -10,6 +10,7 @@ import {
   getProfiles, setProfiles,
   getCards,
   getTheme,
+  getCategoryLimits, setCategoryLimits,
 } from './storage.js';
 import { syncSettingsToSheet, pingBackend, generateInviteCode } from './api.js';
 import { applyTheme, toggleTheme } from './theme.js';
@@ -17,6 +18,21 @@ import { esc, showToast, uid } from './utils.js';
 import { openIconPicker } from './icon-picker.js';
 import { openBottomSheet, closeModal, confirmModal, promptModal } from './modals.js';
 import { signOut } from './auth.js';
+
+function renderLimitsRows() {
+  const cats = getExpCats();
+  const limits = getCategoryLimits();
+  return cats.map(cat => `
+    <div class="settings-row">
+      <div class="settings-row-info">
+        <div class="settings-row-name">${esc(cat.id || cat)}</div>
+      </div>
+      <input class="settings-limit-input" data-cat="${esc(cat.id || cat)}"
+        type="number" min="0" step="100" placeholder="без ліміту"
+        value="${limits[cat.id || cat] || ''}">
+    </div>
+  `).join('') + `<button class="btn-primary" style="width:100%;margin-top:12px" id="save-limits-btn">Зберегти ліміти</button>`;
+}
 
 export function renderSettingsPage() {
   const el = document.getElementById('page-settings');
@@ -92,6 +108,14 @@ export function renderSettingsPage() {
               <button class="theme-btn ${theme === 'dark' ? 'active' : ''}" data-theme="dark"><i class="ti ti-moon"></i></button>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Ліміти по категоріях -->
+      <div class="settings-section">
+        <div class="settings-label">Ліміти витрат (грн/міс)</div>
+        <div class="settings-card" id="limits-card">
+          ${renderLimitsRows()}
         </div>
       </div>
 
@@ -462,6 +486,17 @@ function bindHandlers(el) {
       results.push({ name: 'localStorage', status: 'fail', detail: e.message });
     }
     update(results);
+  });
+
+  // Ліміти
+  el.querySelector('#save-limits-btn')?.addEventListener('click', () => {
+    const newLimits = {};
+    el.querySelectorAll('.settings-limit-input').forEach(inp => {
+      const val = parseFloat(inp.value);
+      if (val > 0) newLimits[inp.dataset.cat] = val;
+    });
+    setCategoryLimits(newLimits);
+    showToast('✅ Ліміти збережено');
   });
 
   // Додати

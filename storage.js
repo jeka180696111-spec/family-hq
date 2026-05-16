@@ -252,3 +252,10 @@ export function getScriptUrl() {
 export function setScriptUrl(url) {
   localStorage.setItem(APP_CONFIG.SCRIPT_URL_KEY, url);
 }
+
+export function getCategoryLimits() {
+  return readJson('budget_cat_limits', {});
+}
+export function setCategoryLimits(limits) {
+  writeJson('budget_cat_limits', limits);
+}
