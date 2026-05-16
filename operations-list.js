@@ -29,38 +29,11 @@ export function renderOperationsPage() {
   if (!state.opsView) state.opsView = 'list';
 
   const profiles = getProfiles();
-  let ops = state.operations || [];
-
-  // Сортуємо: нові зверху (за датою, потім за часом створення)
-  ops = [...ops].sort((a, b) => {
-    // Спочатку по даті (DESC)
-    const dateA = a.date || '';
-    const dateB = b.date || '';
-    if (dateA !== dateB) return dateB.localeCompare(dateA);
-    // Якщо дата однакова — по часу створення (DESC)
-    const timeA = a.createdAt || '';
-    const timeB = b.createdAt || '';
-    return timeB.localeCompare(timeA);
-  });
-
+  const ops = getFilteredOps();
   const f = state.opFilter || { who: 'all', type: 'all' };
-  // viewAs — перемикач члена сім'ї у хедері; якщо не вибрано вручну — застосовуємо його
   const viewAs = getViewAsMember();
   const effectiveWho = f.who !== 'all' ? f.who : (viewAs || 'all');
-
-  if (effectiveWho !== 'all') ops = ops.filter(o => o.who === effectiveWho);
-  if (f.type !== 'all') ops = ops.filter(o => o.type === f.type);
-
-  // Текстовий пошук по категорії, опису, хто, картка
   const searchQ = (state.opSearch || '').trim().toLowerCase();
-  if (searchQ) {
-    ops = ops.filter(o =>
-      (o.category || '').toLowerCase().includes(searchQ) ||
-      (o.desc     || '').toLowerCase().includes(searchQ) ||
-      (o.who      || '').toLowerCase().includes(searchQ) ||
-      (o.card     || '').toLowerCase().includes(searchQ)
-    );
-  }
 
   const cur = state.currentMonth instanceof Date ? state.currentMonth : new Date();
   const monthLabel = cur.toLocaleDateString('uk-UA', { month: 'long', year: 'numeric' });
@@ -312,11 +285,69 @@ function renderOpItem(op) {
   `;
 }
 
+function getFilteredOps() {
+  let ops = [...(state.operations || [])].sort((a, b) => {
+    const dateA = a.date || '', dateB = b.date || '';
+    if (dateA !== dateB) return dateB.localeCompare(dateA);
+    return (b.createdAt || '').localeCompare(a.createdAt || '');
+  });
+  const f = state.opFilter || { who: 'all', type: 'all' };
+  const viewAs = getViewAsMember();
+  const effectiveWho = f.who !== 'all' ? f.who : (viewAs || 'all');
+  if (effectiveWho !== 'all') ops = ops.filter(o => o.who === effectiveWho);
+  if (f.type !== 'all') ops = ops.filter(o => o.type === f.type);
+  const searchQ = (state.opSearch || '').trim().toLowerCase();
+  if (searchQ) ops = ops.filter(o =>
+    (o.category || '').toLowerCase().includes(searchQ) ||
+    (o.desc     || '').toLowerCase().includes(searchQ) ||
+    (o.who      || '').toLowerCase().includes(searchQ) ||
+    (o.card     || '').toLowerCase().includes(searchQ)
+  );
+  return ops;
+}
+
+function refreshOpsContent() {
+  const content = document.getElementById('ops-content');
+  if (!content) return;
+  const ops = getFilteredOps();
+  const cur = state.currentMonth instanceof Date ? state.currentMonth : new Date();
+  content.innerHTML = state.opsView === 'calendar' ? renderCalendarView(ops, cur) : renderListView(ops);
+  // re-bind op clicks and calendar day clicks
+  content.querySelectorAll('.op-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const row = item.dataset.opRow;
+      const op = state.operations.find(o => String(o.row) === String(row) || String(o.id) === String(row));
+      if (op) openOperationDialog({ type: op.type, editing: op });
+    });
+  });
+  content.querySelectorAll('.cal-cell[data-day]').forEach(cell => {
+    cell.addEventListener('click', () => {
+      const day = parseInt(cell.dataset.day);
+      state.selectedCalDay = state.selectedCalDay === day ? null : day;
+      refreshOpsContent();
+    });
+  });
+  const loadMoreBtn = content.querySelector('#ops-load-more');
+  if (loadMoreBtn) {
+    loadMoreBtn.addEventListener('click', async () => {
+      loadMoreBtn.disabled = true;
+      loadMoreBtn.textContent = 'Завантаження...';
+      const monthKey2 = (() => { const d = state.currentMonth instanceof Date ? state.currentMonth : new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'); })();
+      const more = await import('./api.js').then(m => m.apiGet('operations', { month: monthKey2, limit: 50, offset: state.operations.length }));
+      if (more.operations?.length) {
+        state.operations = [...state.operations, ...more.operations];
+        if (more.operations.length < 50) state.opsAllLoaded = true;
+      } else { state.opsAllLoaded = true; }
+      refreshOpsContent();
+    });
+  }
+}
+
 function bindHandlers(el) {
-  // Пошук
+  // Пошук — оновлює тільки контент без перемалювання всієї сторінки (зберігає фокус клавіатури)
   el.querySelector('#ops-search')?.addEventListener('input', e => {
     state.opSearch = e.target.value;
-    renderOperationsPage();
+    refreshOpsContent();
   });
 
   // Перемикач Список / Календар

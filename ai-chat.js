@@ -108,15 +108,15 @@ function renderAnalyticsTab() {
       <div class="ai-stats-label"><i class="ti ti-robot"></i> Дані для аналізу${month ? ' · ' + esc(month) : ''}</div>
       <div class="ai-stats-row">
         <div class="ai-stat">
-          <div class="ai-stat-val c-green">+${fmtMoney(inc)}</div>
+          <div class="ai-stat-val" style="color:#fff">+${fmtMoney(inc)}</div>
           <div class="ai-stat-lbl">Доходи</div>
         </div>
         <div class="ai-stat">
-          <div class="ai-stat-val c-red">−${fmtMoney(exp)}</div>
+          <div class="ai-stat-val" style="color:rgba(255,255,255,0.85)">−${fmtMoney(exp)}</div>
           <div class="ai-stat-lbl">Витрати</div>
         </div>
         <div class="ai-stat">
-          <div class="ai-stat-val" style="color:var(--c-accent)">${sav}%</div>
+          <div class="ai-stat-val" style="color:#fff">${sav}%</div>
           <div class="ai-stat-lbl">Заощадження</div>
         </div>
       </div>
