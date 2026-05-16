@@ -47,7 +47,7 @@ export function initAuth(onSignIn) {
           if (_onSignIn) _onSignIn(state.user);
         } else {
           log('Auth: new user, showing onboarding');
-          showOnboarding();
+          showOnboarding(completeOnboarding);
         }
       } catch (e) {
         logError('initAuth: getUserDoc failed', e.message);

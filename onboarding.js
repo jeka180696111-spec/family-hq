@@ -5,7 +5,8 @@
 import { state } from './config.js';
 import { log, logError } from './utils.js';
 import { createUserAndFamily, joinFamilyWithCode } from './api.js';
-import { completeOnboarding } from './auth.js';
+
+let _onComplete = null;
 
 const USER_AVATARS = [
   '👤', '🧑', '👨', '👩', '🧔', '👱', '🧑‍💼', '👨‍💼',
@@ -26,7 +27,8 @@ const ob = {
 };
 
 // ── Публічна функція ─────────────────────────────────────────
-export function showOnboarding() {
+export function showOnboarding(onComplete) {
+  _onComplete = onComplete || null;
   const screen = document.getElementById('onboarding-screen');
   const login = document.getElementById('login-screen');
   const app = document.getElementById('app-root');
@@ -254,7 +256,7 @@ function renderCreateTab(screen, content, selectedFamilyAvatar, onFamilyAvatarCh
         familyAvatar: currentFamilyAvatar,
       });
       log('Family created, completing onboarding');
-      completeOnboarding();
+      if (_onComplete) _onComplete();
     } catch (e) {
       logError('createUserAndFamily', e.message);
       errEl.textContent = 'Помилка: ' + e.message;
@@ -312,7 +314,7 @@ function renderJoinTab(screen, content) {
         code,
       });
       log('Joined family, completing onboarding');
-      completeOnboarding();
+      if (_onComplete) _onComplete();
     } catch (e) {
       logError('joinFamilyWithCode', e.message);
       errEl.textContent = 'Помилка: ' + e.message;
