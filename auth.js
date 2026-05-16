@@ -4,8 +4,13 @@
 
 import { state } from './config.js';
 import { log, logError } from './utils.js';
-import { getUserDoc } from './api.js';
+import { getUserDoc, migrateExistingUser } from './api.js';
 import { showOnboarding } from './onboarding.js';
+
+// Відомі існуючі користувачі — автоматично мігруються без онбордингу
+const MIGRATION_MAP = {
+  'jeka180696111@gmail.com': { name: 'Євген', familyId: 'koval', familyName: 'Кіосе' },
+};
 
 let firebaseAuth = null;
 let googleProvider = null;
@@ -33,6 +38,12 @@ export function initAuth(onSignIn) {
           state.member = userDoc.name;
           state.familyId = userDoc.familyId;
           log('Auth: existing user', state.member, 'family', state.familyId);
+          if (_onSignIn) _onSignIn(state.user);
+        } else if (MIGRATION_MAP[user.email]) {
+          // Автоматична міграція існуючого користувача
+          log('Auth: migrating existing user', user.email);
+          const m = MIGRATION_MAP[user.email];
+          await migrateExistingUser(user.uid, m);
           if (_onSignIn) _onSignIn(state.user);
         } else {
           log('Auth: new user, showing onboarding');

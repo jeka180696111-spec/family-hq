@@ -537,6 +537,36 @@ export async function getUserDoc(uid) {
   return doc.exists ? doc.data() : null;
 }
 
+// ── Міграція існуючих користувачів ──────────────────────────
+// Для користувачів які вже мали дані до переходу на multi-family
+export async function migrateExistingUser(uid, { name, familyId, familyName }) {
+  if (!db) throw new Error('Firestore not initialized');
+  const now = new Date().toISOString();
+
+  // Створюємо users/{uid} — якщо вже є, не перезаписуємо
+  await db.collection('users').doc(uid).set({
+    name,
+    familyId,
+    role: 'owner',
+    migratedAt: now,
+  }, { merge: true });
+
+  // Оновлюємо families/{familyId} новими полями, не чіпаючи існуючі дані
+  await db.collection('families').doc(familyId).set({
+    name: familyName,
+    ownerId: uid,
+    members: [{ uid, name, joinedAt: now }],
+    migratedAt: now,
+  }, { merge: true });
+
+  state.familyId = familyId;
+  state.member = name;
+  setFamilyMembers([name]);
+
+  log('migrated existing user:', name, '→ family:', familyId);
+  return { familyId, name };
+}
+
 // ── Генератор випадкового рядка ──────────────────────────────
 function randomAlphanumeric(length) {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
