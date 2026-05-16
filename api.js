@@ -60,6 +60,9 @@ export async function apiGet(action, params) {
     case 'fx':
       return getFxRates();
 
+    case 'trend':
+      return getTrend();
+
     case 'transfers':
       return getTransfers();
 
@@ -223,6 +226,40 @@ async function getGoals() {
   const snapshot = await familyRef().collection('goals').get();
   const goals = snapshot.docs.map(doc => ({ id: doc.id, row: doc.id, ...doc.data() }));
   return { goals };
+}
+
+// ── Тренд по місяцях (останні 6 місяців) ────────────────────
+async function getTrend() {
+  const kyivNow = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Kyiv' });
+  const [year, month] = kyivNow.split('-').map(Number);
+
+  // Build array of last 6 months
+  const months = [];
+  for (let i = 5; i >= 0; i--) {
+    let m = month - i, y = year;
+    while (m <= 0) { m += 12; y--; }
+    months.push({ year: y, month: m, key: `${y}-${String(m).padStart(2,'0')}` });
+  }
+  const startDate = months[0].key + '-01';
+
+  const snapshot = await familyRef().collection('operations')
+    .where('date', '>=', startDate)
+    .get();
+
+  const byMonth = {};
+  months.forEach(({ key }) => { byMonth[key] = { month: key, income: 0, expense: 0 }; });
+
+  snapshot.docs.forEach(doc => {
+    const o = doc.data();
+    if (o.category === 'Переказ') return;
+    const key = (o.date || '').substring(0, 7);
+    if (!byMonth[key]) return;
+    const amt = o.amountUah || o.amount || 0;
+    if (o.type === 'Дохід')    byMonth[key].income  += amt;
+    if (o.type === 'Витрата')  byMonth[key].expense += amt;
+  });
+
+  return { trend: Object.values(byMonth) };
 }
 
 // ── Перекази ─────────────────────────────────────────────────

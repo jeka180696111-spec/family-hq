@@ -4,7 +4,7 @@
 
 import { state } from './config.js';
 import { esc, fmtMoney, showToast, uid } from './utils.js';
-import { getCategoryLimits } from './storage.js';
+import { getCategoryLimits, getEarnedAchievements, setEarnedAchievements } from './storage.js';
 import { openBottomSheet, closeModal } from './modals.js';
 import { apiGet, apiPost } from './api.js';
 import { whoAmI } from './auth.js';
@@ -124,9 +124,23 @@ export function renderChallengesPage() {
 
   const d = state.dashboard || {};
   const limits = getCategoryLimits();
+  const savedEarned = getEarnedAchievements();
 
-  const earned = ACHIEVEMENTS.filter(a => a.check(d, limits));
-  const inProgress = ACHIEVEMENTS.filter(a => !a.check(d, limits));
+  // Check newly earned achievements and persist with timestamp
+  const nowEarned = {};
+  ACHIEVEMENTS.forEach(a => {
+    if (a.check(d, limits)) {
+      nowEarned[a.id] = savedEarned[a.id] || new Date().toLocaleDateString('uk-UA');
+    }
+  });
+  // Save if any new achievements earned
+  if (Object.keys(nowEarned).some(id => !savedEarned[id])) {
+    setEarnedAchievements({ ...savedEarned, ...nowEarned });
+  }
+  const allEarned = { ...savedEarned, ...nowEarned };
+
+  const earned = ACHIEVEMENTS.filter(a => allEarned[a.id]);
+  const inProgress = ACHIEVEMENTS.filter(a => !allEarned[a.id]);
 
   el.innerHTML = `
     <div class="page-inner">
@@ -173,18 +187,18 @@ export function renderChallengesPage() {
 }
 
 function renderAchievementsTab(earned, inProgress, d, limits) {
-  const now = new Date();
-  const month = now.toLocaleDateString('uk-UA', { month: 'long', year: 'numeric' });
+  const allEarned = getEarnedAchievements();
 
   return `
     ${earned.length > 0 ? `
-      <div class="ch-section-label">✅ Отримано цього місяця (${month})</div>
+      <div class="ch-section-label">✅ Отримані (${earned.length}/${earned.length + inProgress.length})</div>
       <div class="ch-achievements-grid">
         ${earned.map(a => `
           <div class="ch-achievement earned">
             <div class="ch-achievement-icon">${a.icon}</div>
             <div class="ch-achievement-title">${esc(a.title)}</div>
             <div class="ch-achievement-desc">${esc(a.desc)}</div>
+            ${allEarned[a.id] ? `<div class="ch-achievement-date">${esc(allEarned[a.id])}</div>` : ''}
           </div>
         `).join('')}
       </div>

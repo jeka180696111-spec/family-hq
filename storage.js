@@ -266,3 +266,29 @@ export function getSpendingPlan() {
 export function setSpendingPlan(plan) {
   writeJson('budget_spending_plan', plan);
 }
+
+export function getDefaultWallet() {
+  return readJson('budget_default_wallet', { member: null, cardId: null });
+}
+export function setDefaultWallet(member, cardId) {
+  writeJson('budget_default_wallet', { member, cardId });
+}
+
+export function getTelegramPrefs() {
+  return readJson('budget_tg_prefs', {
+    paymentReminders: true,
+    limitAlerts: true,
+    dailySummary: true,
+    summaryHour: 19,
+  });
+}
+export function setTelegramPrefs(prefs) {
+  writeJson('budget_tg_prefs', prefs);
+}
+
+export function getEarnedAchievements() {
+  return readJson('budget_achievements_earned', {});
+}
+export function setEarnedAchievements(obj) {
+  writeJson('budget_achievements_earned', obj);
+}

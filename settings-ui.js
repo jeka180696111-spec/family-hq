@@ -12,6 +12,8 @@ import {
   getTheme,
   getCategoryLimits, setCategoryLimits,
   getSpendingPlan, setSpendingPlan,
+  getDefaultWallet, setDefaultWallet,
+  getTelegramPrefs, setTelegramPrefs,
 } from './storage.js';
 import { syncSettingsToSheet, pingBackend, generateInviteCode } from './api.js';
 import { applyTheme, toggleTheme } from './theme.js';
@@ -149,6 +151,50 @@ function openEditBudgetItem(type, key, currentAmount) {
   });
 }
 
+function renderDefaultWalletRows() {
+  const dw = getDefaultWallet();
+  const profiles = getProfiles();
+  return FAMILY_MEMBERS.map(m => {
+    const cards = getCards(m);
+    const selected = dw.member === m ? dw.cardId : '';
+    return `
+      <div class="settings-row">
+        <div class="settings-row-icon" style="background:var(--c-accent-soft);color:var(--c-accent)"><b>${(profiles[m]?.name || m)[0]}</b></div>
+        <div class="settings-row-info"><div class="settings-row-name">${esc(profiles[m]?.name || m)}</div></div>
+        <select class="settings-row-input dw-select" data-dw-member="${esc(m)}" style="max-width:160px">
+          <option value="">— не обрано —</option>
+          ${cards.map(c => `<option value="${esc(c.id)}" ${c.id === selected ? 'selected' : ''}>${esc(c.id)}${c.currency && c.currency !== 'UAH' ? ' ('+c.currency+')' : ''}</option>`).join('')}
+        </select>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderTelegramPrefs() {
+  const p = getTelegramPrefs();
+  return `
+    <div class="settings-row">
+      <div class="settings-row-info"><div class="settings-row-name"><i class="ti ti-calendar-due"></i> Нагадування про платежі</div></div>
+      <label class="settings-toggle"><input type="checkbox" id="tg-payments" ${p.paymentReminders ? 'checked' : ''}><span></span></label>
+    </div>
+    <div class="settings-row">
+      <div class="settings-row-info"><div class="settings-row-name"><i class="ti ti-alert-triangle"></i> Попередження про ліміти</div></div>
+      <label class="settings-toggle"><input type="checkbox" id="tg-limits" ${p.limitAlerts ? 'checked' : ''}><span></span></label>
+    </div>
+    <div class="settings-row">
+      <div class="settings-row-info"><div class="settings-row-name"><i class="ti ti-chart-bar"></i> Щоденний підсумок</div></div>
+      <label class="settings-toggle"><input type="checkbox" id="tg-daily" ${p.dailySummary ? 'checked' : ''}><span></span></label>
+    </div>
+    <div class="settings-row">
+      <div class="settings-row-info"><div class="settings-row-name">Час підсумку</div></div>
+      <select class="settings-row-input" id="tg-hour" style="max-width:120px">
+        ${[8,9,10,12,18,19,20,21,22].map(h => `<option value="${h}" ${p.summaryHour === h ? 'selected' : ''}>${h}:00</option>`).join('')}
+      </select>
+    </div>
+    <button class="btn-primary" style="width:100%;margin-top:8px" id="save-tg-prefs-btn">Зберегти налаштування</button>
+  `;
+}
+
 export function renderSettingsPage() {
   const el = document.getElementById('page-settings');
   if (!el) return;
@@ -223,6 +269,22 @@ export function renderSettingsPage() {
               <button class="theme-btn ${theme === 'dark' ? 'active' : ''}" data-theme="dark"><i class="ti ti-moon"></i></button>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Кошелек за замовчуванням -->
+      <div class="settings-section">
+        <div class="settings-label">Кошельок за замовчуванням</div>
+        <div class="settings-card" id="default-wallet-card">
+          ${renderDefaultWalletRows()}
+        </div>
+      </div>
+
+      <!-- Telegram сповіщення -->
+      <div class="settings-section">
+        <div class="settings-label">Telegram сповіщення</div>
+        <div class="settings-card">
+          ${renderTelegramPrefs()}
         </div>
       </div>
 
@@ -609,6 +671,25 @@ function bindHandlers(el) {
       results.push({ name: 'localStorage', status: 'fail', detail: e.message });
     }
     update(results);
+  });
+
+  // Кошельок за замовчуванням
+  el.querySelectorAll('.dw-select').forEach(sel => {
+    sel.addEventListener('change', () => {
+      setDefaultWallet(sel.dataset.dwMember, sel.value || null);
+      showToast('✅ Збережено');
+    });
+  });
+
+  // Telegram прefs
+  el.querySelector('#save-tg-prefs-btn')?.addEventListener('click', () => {
+    setTelegramPrefs({
+      paymentReminders: el.querySelector('#tg-payments')?.checked ?? true,
+      limitAlerts:      el.querySelector('#tg-limits')?.checked  ?? true,
+      dailySummary:     el.querySelector('#tg-daily')?.checked   ?? true,
+      summaryHour:      parseInt(el.querySelector('#tg-hour')?.value || '19'),
+    });
+    showToast('✅ Telegram налаштування збережено');
   });
 
   // Бюджет (план і ліміти) — делегування на document

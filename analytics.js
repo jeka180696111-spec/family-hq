@@ -8,6 +8,7 @@ import { esc, fmtMoney, fmtMoneyShort, log } from './utils.js';
 import { getExpCats, getProfiles, getDashPeriod, setDashPeriod, getViewAsMember } from './storage.js';
 
 let analyticsData = null;
+let trendData = null;
 let loading = false;
 
 export async function loadAnalytics() {
@@ -15,8 +16,12 @@ export async function loadAnalytics() {
   loading = true;
   try {
     const period = getDashPeriod();
-    const data = await apiGet('dashboard', { period });
+    const [data, trend] = await Promise.all([
+      apiGet('dashboard', { period }),
+      trendData ? Promise.resolve({ trend: trendData }) : apiGet('trend'),
+    ]);
     analyticsData = data;
+    trendData = trend.trend;
     renderAnalyticsPage();
   } catch (e) {
     log('loadAnalytics error:', e.message);
@@ -104,6 +109,9 @@ export function renderAnalyticsPage() {
         </div>
       ` : ''}
 
+      <!-- Тренд по місяцях -->
+      ${renderTrendChart(trendData)}
+
       <!-- Графік по днях -->
       ${period === 'month' && Object.keys(byDay).length ? `
         <div class="dash-card">
@@ -186,6 +194,43 @@ function renderByMember(byMember) {
             </div>
           `;
         }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderTrendChart(trend) {
+  if (!trend || trend.length < 2) return '';
+  const maxVal = Math.max(...trend.flatMap(m => [m.income, m.expense]), 1);
+  const MONTHS_UA = ['Січ','Лют','Бер','Кві','Тра','Чер','Лип','Сер','Вер','Жов','Лис','Гру'];
+
+  return `
+    <div class="dash-card">
+      <div class="dash-card-head">
+        <span class="dash-card-title">📈 Тренд за 6 місяців</span>
+      </div>
+      <div class="trend-chart">
+        ${trend.map(m => {
+          const [y, mon] = m.month.split('-').map(Number);
+          const label = MONTHS_UA[mon - 1];
+          const incH = Math.round((m.income  / maxVal) * 100);
+          const expH = Math.round((m.expense / maxVal) * 100);
+          const bal  = m.income - m.expense;
+          return `
+            <div class="trend-col" title="${label} ${y}: +${fmtMoneyShort(m.income)} / −${fmtMoneyShort(m.expense)}">
+              <div class="trend-bars">
+                <div class="trend-bar inc" style="height:${incH}%" title="Дохід: ${fmtMoneyShort(m.income)}"></div>
+                <div class="trend-bar exp" style="height:${expH}%" title="Витрата: ${fmtMoneyShort(m.expense)}"></div>
+              </div>
+              <div class="trend-bal ${bal >= 0 ? 'pos' : 'neg'}">${bal >= 0 ? '+' : ''}${fmtMoneyShort(bal)}</div>
+              <div class="trend-label">${label}</div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+      <div class="trend-legend">
+        <span class="trend-legend-inc">▌ Дохід</span>
+        <span class="trend-legend-exp">▌ Витрата</span>
       </div>
     </div>
   `;

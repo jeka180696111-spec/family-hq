@@ -19,24 +19,29 @@ module.exports = async function handler(req, res) {
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 256,
-        system: 'Ти помічник для розпізнавання чеків. Повертай тільки валідний JSON без пояснень.',
+        model: 'claude-sonnet-4-6',
+        max_tokens: 512,
+        system: `Ти — точний OCR-аналізатор чеків для українського застосунку обліку витрат.
+Завдання: витягнути дані з фото чека/квитанції та повернути ТІЛЬКИ валідний JSON.
+Правила:
+- amount: загальна сума до сплати (число, без валюти)
+- store: назва магазину/закладу (коротко)
+- date: дата у форматі YYYY-MM-DD (або null якщо не видно)
+- category: ОДНА категорія з переліку: Продукти, Ресторани, Транспорт, Комунальні, Здоров'я, Одяг, Розваги, Дім, Дитячі, Інше
+- items: масив позицій [{name, amount}] (до 5 позицій, лише якщо чітко видно)
+Якщо не вдається розпізнати — {"error": "не вдалося розпізнати"}
+Повертай ТІЛЬКИ JSON, без пояснень, без markdown.`,
         messages: [
           {
             role: 'user',
             content: [
               {
                 type: 'image',
-                source: {
-                  type: 'base64',
-                  media_type: mediaType,
-                  data: image,
-                },
+                source: { type: 'base64', media_type: mediaType, data: image },
               },
               {
                 type: 'text',
-                text: 'Це фото чека або квитанції. Витягни дані та поверни ТІЛЬКИ JSON без пояснень:\n{"amount": <число без валюти>, "store": "<назва магазину>", "date": "<YYYY-MM-DD або null>", "category": "<одна з: Продукти, Ресторани, Транспорт, Комунальні, Здоров\'я, Одяг, Розваги, Дім, Дитячі, Інше>"}\nЯкщо не можеш прочитати - поверни {"error": "не вдалося розпізнати"}',
+                text: 'Проаналізуй цей чек і поверни JSON з полями: amount, store, date, category, items.',
               },
             ],
           },
@@ -51,18 +56,16 @@ module.exports = async function handler(req, res) {
     }
 
     const data = await response.json();
-    const text = data.content?.[0]?.text || '';
+    const text = (data.content?.[0]?.text || '').trim();
 
+    // Try direct parse first
     try {
-      const parsed = JSON.parse(text.trim());
-      return res.status(200).json(parsed);
-    } catch (e) {
-      // Try to extract JSON from the response if wrapped in markdown
+      return res.status(200).json(JSON.parse(text));
+    } catch (_) {
+      // Extract JSON from potential markdown wrapper
       const match = text.match(/\{[\s\S]*\}/);
       if (match) {
-        try {
-          return res.status(200).json(JSON.parse(match[0]));
-        } catch {}
+        try { return res.status(200).json(JSON.parse(match[0])); } catch (_) {}
       }
       return res.status(200).json({ error: 'не вдалося розпізнати' });
     }
