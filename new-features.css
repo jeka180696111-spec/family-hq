@@ -144,6 +144,16 @@
 .modal-btn-primary { background: var(--c-accent); color: #fff; }
 .modal-btn-danger { background: var(--c-red); color: #fff; flex: 0 0 auto; }
 
+/* ── WALLET CREDIT BAR ──────────────────────────────────────── */
+.wallet-credit-row { margin-top: 5px; display: flex; align-items: center; gap: 6px; }
+.dash-wallet-credit { margin-top: 4px; display: flex; align-items: center; gap: 6px; }
+.wallet-credit-track { height: 4px; flex: 1; min-width: 40px; background: var(--c-bg-3); border-radius: 2px; overflow: hidden; }
+.wallet-credit-fill { height: 100%; border-radius: 2px; background: var(--c-green); transition: width .5s; }
+.wallet-credit-fill.warning { background: #f59e0b; }
+.wallet-credit-fill.danger { background: var(--c-red); }
+.wallet-credit-label { font-size: 10px; color: var(--c-text-3); white-space: nowrap; font-weight: 600; }
+.wallet-credit-label.used { color: var(--c-red); }
+
 /* ── EMPTY STATE ────────────────────────────────────────────── */
 .empty-state { display: flex; flex-direction: column; align-items: center; padding: 48px 20px; text-align: center; }
 

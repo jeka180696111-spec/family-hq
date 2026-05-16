@@ -197,12 +197,24 @@ async function saveOperation(op) {
   });
 }
 
-// Баланс по кошельках з урахуванням валюти
+// Баланс по кошельках з урахуванням валюти та кредитних лімітів
 async function getWalletBalances() {
-  const [snapshot, rates] = await Promise.all([
+  const [snapshot, rates, settingsDoc] = await Promise.all([
     db.collection('families').doc(FAMILY_ID).collection('operations').get(),
     getExchangeRates(),
+    db.collection('families').doc(FAMILY_ID).get(),
   ]);
+
+  // Збираємо кредитні ліміти з налаштувань карток
+  const creditLimits = {};
+  if (settingsDoc.exists) {
+    const s = settingsDoc.data();
+    ['cardsEvgen', 'cardsMarina'].forEach(key => {
+      (s[key] || []).forEach(c => {
+        if (c.creditLimit) creditLimits[c.id] = Number(c.creditLimit);
+      });
+    });
+  }
 
   const wallets = {};
   snapshot.docs.forEach(doc => {
@@ -221,12 +233,10 @@ async function getWalletBalances() {
 
   return Object.entries(wallets)
     .map(([name, v]) => {
-      // Рідна валюта — перша не-UAH, або UAH
       const primaryCur = Object.keys(v.currencies).find(c => c !== 'UAH') || 'UAH';
       const curData = v.currencies[primaryCur] || { income: 0, expense: 0 };
       const balance = Math.round(curData.income - curData.expense);
 
-      // UAH-еквівалент за ПОТОЧНИМ курсом (не за збереженим amountUah)
       let balanceUah;
       if (primaryCur === 'UAH') {
         balanceUah = balance;
@@ -235,9 +245,13 @@ async function getWalletBalances() {
         balanceUah = Math.round(balance * rate);
       }
 
-      return { name, balance, primaryCur, balanceUah };
+      const creditLimit = creditLimits[name] || 0;
+      const creditUsed = creditLimit > 0 ? Math.max(0, -balance) : 0;
+      const creditAvail = creditLimit > 0 ? Math.max(0, creditLimit - creditUsed) : 0;
+
+      return { name, balance, primaryCur, balanceUah, creditLimit, creditUsed, creditAvail };
     })
-    .filter(w => w.balance !== 0)
+    .filter(w => w.balance !== 0 || w.creditLimit > 0)
     .sort((a, b) => Math.abs(b.balanceUah) - Math.abs(a.balanceUah));
 }
 
@@ -529,6 +543,16 @@ async function handleCommand(cmd, chatId, userId, userName, who, res) {
         if (w.primaryCur !== 'UAH') {
           const sym = SYM[w.primaryCur] || w.primaryCur;
           txt += `💳 <b>${w.name}</b>: ${sign}${absNative} ${sym} (≈ ${sign === '−' ? '−' : ''}${fmtMoney(absUah)})\n`;
+        } else if (w.creditLimit > 0) {
+          // Кредитна картка: показуємо власні кошти і кредит окремо
+          const ownFunds = Math.max(0, w.balance);
+          if (w.creditUsed > 0) {
+            txt += `💳 <b>${w.name}</b>: −${fmtMoney(w.creditUsed)} <i>(кредит)</i>\n`;
+            txt += `   └ вільно: ${fmtMoney(w.creditAvail)} / ${fmtMoney(w.creditLimit)}\n`;
+          } else {
+            txt += `💳 <b>${w.name}</b>: +${fmtMoney(ownFunds)}\n`;
+            txt += `   └ кредит вільний · ліміт ${fmtMoney(w.creditLimit)}\n`;
+          }
         } else {
           txt += `💳 <b>${w.name}</b>: ${sign}${fmtMoney(absNative)}\n`;
         }

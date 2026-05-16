@@ -216,6 +216,13 @@ function renderWalletsBlock(viewAs) {
   });
 
   function cardBal(c) {
+    // Для кредитних карток — all-time баланс
+    const limit = Number(c.creditLimit) || 0;
+    if (limit > 0 && state.dashboard?.cardBalances) {
+      const key = `${c.owner}:${c.id}`;
+      const b = state.dashboard.cardBalances[key];
+      if (b) return Math.round(b.income - b.expense);
+    }
     let bal = 0;
     const cardCur = c.currency || 'UAH';
     (state.operations || []).forEach(o => {
@@ -236,7 +243,22 @@ function renderWalletsBlock(viewAs) {
   let filtered = allCards;
   if (visible !== null) filtered = allCards.filter(c => visible.includes(`${c.owner}::${c.id}`));
 
-  const cardsWithBal = filtered.map(c => ({ ...c, balance: cardBal(c) }))
+  const cardsWithBal = filtered.map(c => {
+    const balance = cardBal(c);
+    const limit = Number(c.creditLimit) || 0;
+    let credit = null;
+    if (limit > 0) {
+      const creditUsed = Math.max(0, -balance);
+      credit = {
+        limit,
+        creditUsed,
+        creditAvail: Math.max(0, limit - creditUsed),
+        pct: Math.min(100, Math.round((creditUsed / limit) * 100)),
+        status: creditUsed / limit >= 0.9 ? 'danger' : creditUsed / limit >= 0.6 ? 'warning' : '',
+      };
+    }
+    return { ...c, balance, credit };
+  })
     .sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance));
 
   if (!cardsWithBal.length) {
@@ -255,6 +277,18 @@ function renderWalletsBlock(viewAs) {
           <div class="dash-wallet-info">
             <div class="dash-wallet-name">${esc(c.id)}</div>
             <div class="dash-wallet-owner">${esc(c.owner)}${c.currency && c.currency !== 'UAH' ? ' · ' + c.currency : ''}</div>
+            ${c.credit ? `
+              <div class="dash-wallet-credit">
+                <div class="wallet-credit-track">
+                  <div class="wallet-credit-fill ${c.credit.status}" style="width:${c.credit.pct}%"></div>
+                </div>
+                <span class="wallet-credit-label ${c.credit.creditUsed > 0 ? 'used' : ''}">
+                  ${c.credit.creditUsed > 0
+                    ? `${fmtMoney(c.credit.creditUsed)} / ${fmtMoney(c.credit.limit)}`
+                    : `ліміт ${fmtMoney(c.credit.limit)}`}
+                </span>
+              </div>
+            ` : ''}
           </div>
           <div class="dash-wallet-balance ${c.balance >= 0 ? 'pos' : 'neg'}">${fmtMoneyWithUah(c.balance, c.currency || 'UAH', state.fx)}</div>
         </div>

@@ -32,22 +32,26 @@ export function renderWalletsPage() {
   const types = getWalletTypes();
   const profiles = getProfiles();
 
-  // Підрахунок балансу для кожної картки (з state.operations)
-  // Баланс кошелька — у його ВЛАСНІЙ валюті (з operation.amount, не amountUah)
+  // Підрахунок балансу для кожної картки
+  // Для кредитних карток використовуємо all-time дані з dashboard
   function cardBalance(card) {
+    const limit = Number(card.creditLimit) || 0;
+    if (limit > 0 && state.dashboard?.cardBalances) {
+      const key = `${card.owner}:${card.id}`;
+      const b = state.dashboard.cardBalances[key];
+      if (b) return Math.round(b.income - b.expense);
+    }
+    // Звичайний кошелек — поточні операції у власній валюті
     const ops = state.operations || [];
     let bal = 0;
     ops.forEach(o => {
       if (o.who === card.owner && o.card === card.id) {
-        // Беремо amount у валюті операції; якщо валюти збігаються — додаємо
         const opCur = o.currency || 'UAH';
         const cardCur = card.currency || 'UAH';
         let val = 0;
         if (opCur === cardCur) {
           val = o.amount || 0;
         } else {
-          // Якщо валюти різні — використовуємо amountUah і конвертуємо назад
-          // (це рідкісний кейс, але можливий якщо щось додали не в тій валюті)
           val = o.amountUah || o.amount || 0;
           if (cardCur !== 'UAH' && state.fx && state.fx[cardCur]) {
             const rate = state.fx[cardCur].mid || 1;
@@ -59,6 +63,18 @@ export function renderWalletsPage() {
       }
     });
     return bal;
+  }
+
+  // Інфо про кредит для картки з лімітом
+  function creditInfo(card, bal) {
+    const limit = Number(card.creditLimit) || 0;
+    if (!limit) return null;
+    const ownFunds = Math.max(0, bal);
+    const creditUsed = Math.max(0, -bal);
+    const creditAvail = Math.max(0, limit - creditUsed);
+    const pct = Math.min(100, Math.round((creditUsed / limit) * 100));
+    const status = pct >= 90 ? 'danger' : pct >= 60 ? 'warning' : '';
+    return { limit, ownFunds, creditUsed, creditAvail, pct, status };
   }
 
   // Загальна сума по фільтру в UAH
@@ -111,6 +127,7 @@ export function renderWalletsPage() {
           const bal = cardBalance(c);
           const cur = c.currency || 'UAH';
           const tp = getWalletTypeById(c.walletType);
+          const credit = creditInfo(c, bal);
           return `
             <div class="wallet-row" data-owner="${esc(c.owner)}" data-idx="${c.ownerIdx}">
               <div class="wallet-row-icon" style="background:${c.bg}">
@@ -123,6 +140,18 @@ export function renderWalletsPage() {
                   ${tp ? `<span class="wallet-row-type" style="color:${tp.color}">· ${esc(tp.name)}</span>` : ''}
                   <span class="wallet-row-cur">· ${cur}</span>
                 </div>
+                ${credit ? `
+                  <div class="wallet-credit-row">
+                    <div class="wallet-credit-track">
+                      <div class="wallet-credit-fill ${credit.status}" style="width:${credit.pct}%"></div>
+                    </div>
+                    <span class="wallet-credit-label ${credit.creditUsed > 0 ? 'used' : ''}">
+                      ${credit.creditUsed > 0
+                        ? `Кредит: ${fmtMoney(credit.creditUsed)} / ${fmtMoney(credit.limit)} · вільно ${fmtMoney(credit.creditAvail)}`
+                        : `Ліміт: ${fmtMoney(credit.limit)} · вільний`}
+                    </span>
+                  </div>
+                ` : ''}
               </div>
               <div class="wallet-row-balance ${bal >= 0 ? 'pos' : 'neg'}">${fmtMoneyWithUah(bal, cur, state.fx)}</div>
             </div>
