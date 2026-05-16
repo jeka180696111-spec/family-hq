@@ -1,5 +1,4 @@
 {
-  "outputDirectory": "main",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" }
   ],
