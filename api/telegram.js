@@ -1,5 +1,4 @@
 // /api/telegram.js — Telegram Bot Webhook (Vercel Serverless Function)
-// Обробляє повідомлення від Telegram і записує операції в Firestore
 
 const admin = require('firebase-admin');
 
@@ -7,7 +6,7 @@ const admin = require('firebase-admin');
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
-      projectId: 'familybudget-aa238',
+      projectId: process.env.FIREBASE_PROJECT_ID || 'familybudget-aa238',
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
       privateKey: (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
     }),
@@ -17,17 +16,21 @@ const db = admin.firestore();
 
 // ── Конфігурація ────────────────────────────────────────────
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const FAMILY_ID = 'koval';
+const FAMILY_ID = process.env.FAMILY_ID || 'koval';
 
-// Дозволені Telegram user ID (додай свій і Марини після першого /start)
+// Дозволені Telegram user ID: "123456,789012" в env
 const ALLOWED_USERS = process.env.TELEGRAM_ALLOWED_USERS
   ? process.env.TELEGRAM_ALLOWED_USERS.split(',').map(Number)
-  : []; // Порожній = всі дозволені (для тестування)
+  : [];
 
-// Маппінг Telegram user ID → ім'я в сім'ї
-const USER_MAP = {
-  // Заповниться автоматично після /start
-};
+// Маппінг Telegram user ID → ім'я: "123456:Євген,789012:Марина" в env
+const USER_MAP = {};
+if (process.env.TELEGRAM_USER_MAP) {
+  for (const pair of process.env.TELEGRAM_USER_MAP.split(',')) {
+    const [id, name] = pair.split(':');
+    if (id && name) USER_MAP[Number(id.trim())] = name.trim();
+  }
+}
 
 // ── Категорії для автовизначення ────────────────────────────
 const CATEGORY_KEYWORDS = {
@@ -54,30 +57,24 @@ function parseMessage(text) {
   if (!text) return null;
   text = text.trim();
 
-  // Команди
   if (text.startsWith('/')) return { command: text.split(' ')[0].toLowerCase() };
 
-  // Парсимо: "каву 85" або "85 каву" або "зп 40000" або "дохід 1000 зарплата"
   const lower = text.toLowerCase();
 
-  // Визначаємо тип: дохід чи витрата
   let type = 'Витрата';
-  if (/^(дохід|дохід|income|зп|зарплат|заробив|отримав|прихід|\+)/.test(lower)) {
+  if (/^(дохід|income|зп|зарплат|заробив|отримав|прихід|\+)/.test(lower)) {
     type = 'Дохід';
   }
 
-  // Знаходимо суму (перше число в тексті)
   const amountMatch = text.match(/(\d[\d\s]*[\d.,]?\d*)/);
   if (!amountMatch) return null;
   const amount = parseFloat(amountMatch[1].replace(/\s/g, '').replace(',', '.'));
   if (!amount || amount <= 0) return null;
 
-  // Визначаємо валюту
   let currency = 'UAH';
   if (/\$|usd|долар|бакс/.test(lower)) currency = 'USD';
   if (/€|eur|євро|евро/.test(lower)) currency = 'EUR';
 
-  // Визначаємо кошельок
   let card = '';
   if (/готівк|нал|cash/.test(lower)) card = 'Готівка';
   else if (/моно|mono/.test(lower)) card = 'Моно';
@@ -87,8 +84,7 @@ function parseMessage(text) {
   else if (/долар|\$|usd/.test(lower)) card = 'Долар';
   else if (/євро|€|eur/.test(lower)) card = 'Євро';
 
-  // Визначаємо категорію
-  let category = type === 'Дохід' ? 'Інше' : 'Інше';
+  let category = 'Інше';
 
   if (type === 'Дохід') {
     for (const [cat, keywords] of Object.entries(INCOME_KEYWORDS)) {
@@ -106,7 +102,6 @@ function parseMessage(text) {
     }
   }
 
-  // Опис — весь текст без числа
   let desc = text.replace(amountMatch[0], '').trim();
   desc = desc.replace(/^[\s,.\-:]+|[\s,.\-:]+$/g, '');
   if (desc.length > 100) desc = desc.substring(0, 100);
@@ -117,22 +112,16 @@ function parseMessage(text) {
 // ── Надіслати повідомлення в Telegram ───────────────────────
 async function sendMessage(chatId, text, options = {}) {
   const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-  const body = {
-    chat_id: chatId,
-    text,
-    parse_mode: 'HTML',
-    ...options,
-  };
   await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', ...options }),
   });
 }
 
 // ── Дата в Київському часовому поясі ────────────────────────
 function todayKyiv() {
-  return new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Kyiv' }); // 'YYYY-MM-DD'
+  return new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Kyiv' });
 }
 
 // ── Зберегти операцію в Firestore ───────────────────────────
@@ -289,8 +278,12 @@ module.exports = async function handler(req, res) {
     const userName = msg.from.first_name || 'User';
     const text = msg.text || '';
 
-    // Визначаємо хто пише (поки за замовчуванням Євген)
-    // Потім можна додати маппінг Telegram ID → ім'я
+    // Перевірка доступу
+    if (ALLOWED_USERS.length > 0 && !ALLOWED_USERS.includes(userId)) {
+      await sendMessage(chatId, `⛔ У вас немає доступу до цього бота.`);
+      return res.status(200).json({ ok: true });
+    }
+
     const who = USER_MAP[userId] || 'Євген';
 
     // ── Команди ──────────────────────────────────────────────
@@ -304,15 +297,14 @@ module.exports = async function handler(req, res) {
       '💰 Баланс': '/balance',
       '📅 Сьогодні': '/today',
       '❓ Допомога': '/help',
-      '➕ Витрата': null, // спеціальна обробка
-      '💵 Дохід': null,   // спеціальна обробка
+      '➕ Витрата': null,
+      '💵 Дохід': null,
     };
 
     if (btnMap[text] !== undefined) {
       if (btnMap[text]) {
         return handleCommand(btnMap[text], chatId, userId, userName, who, res);
       }
-      // Кнопки Витрата / Дохід — підказка
       const isIncome = text.includes('Дохід');
       await sendMessage(chatId,
         isIncome
@@ -335,15 +327,12 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // Конвертуємо в UAH
     let amountUah = parsed.amount;
     if (parsed.currency !== 'UAH') {
-      // Приблизні курси (можна потім тягнути з Firestore)
       const rates = { USD: 41.5, EUR: 45.0 };
       amountUah = Math.round(parsed.amount * (rates[parsed.currency] || 1));
     }
 
-    // Зберігаємо
     await saveOperation({
       type: parsed.type,
       amount: parsed.amount,
@@ -355,7 +344,6 @@ module.exports = async function handler(req, res) {
       who,
     });
 
-    // Відповідаємо
     const emoji = parsed.type === 'Дохід' ? '💰' : CAT_EMOJI[parsed.category] || '💸';
     const sign = parsed.type === 'Дохід' ? '+' : '-';
     const currSym = { UAH: '₴', USD: '$', EUR: '€' }[parsed.currency] || '₴';
