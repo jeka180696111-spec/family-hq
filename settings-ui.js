@@ -322,70 +322,65 @@ function renderLockSection() {
 
 // ── Main menu ─────────────────────────────────────────────────
 function renderMainMenu() {
+  const userAv = getAvatar() || state.user?.avatar || '';
+  const avatarHtml = userAv && userAv.length > 2
+    ? `<img src="${esc(userAv)}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,0.3)">`
+    : `<div style="width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.25);color:#fff;font-size:20px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,0.3)">${(state.user?.name || state.member || '?')[0]}</div>`;
+
   return `
     <div class="page-inner">
       <div class="page-head">
         <h1 class="page-title">Налаштування</h1>
       </div>
 
-      <!-- Group 1: Personal -->
-      <div class="settings-menu-group">
-        <button class="settings-menu-item" data-sub="profile">
-          <div class="settings-menu-icon" style="background:#DBEAFE;color:#2563EB"><i class="ti ti-user"></i></div>
-          <div class="settings-menu-label">Профіль</div>
-          <i class="ti ti-chevron-right settings-menu-arrow"></i>
-        </button>
-        <button class="settings-menu-item" data-sub="family">
-          <div class="settings-menu-icon" style="background:#FEF3C7;color:#D97706"><i class="ti ti-users"></i></div>
-          <div class="settings-menu-label">Родина</div>
-          <i class="ti ti-chevron-right settings-menu-arrow"></i>
-        </button>
-        <button class="settings-menu-item" data-sub="appearance">
-          <div class="settings-menu-icon" style="background:#EDE9FE;color:#7C3AED"><i class="ti ti-palette"></i></div>
-          <div class="settings-menu-label">Зовнішній вигляд</div>
-          <i class="ti ti-chevron-right settings-menu-arrow"></i>
-        </button>
-        <button class="settings-menu-item" data-sub="security">
-          <div class="settings-menu-icon" style="background:#FEE2E2;color:#DC2626"><i class="ti ti-lock"></i></div>
-          <div class="settings-menu-label">Безпека</div>
-          <i class="ti ti-chevron-right settings-menu-arrow"></i>
-        </button>
-      </div>
+      <!-- Profile Card -->
+      <button class="settings-profile-card" data-sub="profile-group">
+        <div style="display:flex;align-items:center;gap:14px">
+          ${avatarHtml}
+          <div style="text-align:left">
+            <div style="font-size:16px;font-weight:700;color:#fff">${esc(state.user?.name || state.member || 'Профіль')}</div>
+            <div style="font-size:12px;color:rgba(255,255,255,0.7)">${esc(state.user?.email || 'Профіль, вигляд, безпека')}</div>
+          </div>
+        </div>
+        <i class="ti ti-chevron-right" style="color:rgba(255,255,255,0.6);font-size:18px"></i>
+      </button>
 
-      <!-- Group 2: Finance -->
+      <!-- PRO Subscription Card -->
+      <button class="settings-pro-card" data-sub="subscription">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:42px;height:42px;border-radius:12px;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-size:22px;backdrop-filter:blur(4px)">✨</div>
+          <div style="text-align:left">
+            <div style="font-size:15px;font-weight:800;color:#fff;letter-spacing:-0.01em">Many Budget Pro</div>
+            <div style="font-size:12px;color:rgba(255,255,255,0.8)">AI · Родина · Telegram · Сканер</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="background:rgba(255,255,255,0.2);color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;backdrop-filter:blur(4px)">FREE</span>
+          <i class="ti ti-chevron-right" style="color:rgba(255,255,255,0.7);font-size:18px"></i>
+        </div>
+      </button>
+
+      <!-- Сервіси -->
+      <div class="settings-menu-label">СЕРВІСИ</div>
       <div class="settings-menu-group">
-        <button class="settings-menu-item" data-sub="default-wallet">
-          <div class="settings-menu-icon" style="background:#DCFCE7;color:#16A34A"><i class="ti ti-wallet"></i></div>
-          <div class="settings-menu-label">Кошельок за замовчуванням</div>
-          <i class="ti ti-chevron-right settings-menu-arrow"></i>
-        </button>
         <button class="settings-menu-item" data-sub="telegram">
           <div class="settings-menu-icon" style="background:#E0F2FE;color:#0284C7"><i class="ti ti-brand-telegram"></i></div>
-          <div class="settings-menu-label">Telegram сповіщення</div>
-          <i class="ti ti-chevron-right settings-menu-arrow"></i>
-        </button>
-        <button class="settings-menu-item" data-sub="subscription">
-          <div class="settings-menu-icon" style="background:linear-gradient(135deg,#DCFCE7,#BBF7D0);color:#16A34A"><i class="ti ti-star-filled"></i></div>
-          <div class="settings-menu-label">Підписка</div>
+          <div class="settings-menu-label">Telegram бот</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
         <button class="settings-menu-item" data-sub="sync">
           <div class="settings-menu-icon" style="background:#F0FDF4;color:#15803D"><i class="ti ti-refresh"></i></div>
-          <div class="settings-menu-label">Синхронізація</div>
+          <div class="settings-menu-label">Синхронізація та Backup</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
       </div>
 
-      <!-- Group 3: Data -->
+      <!-- Фінанси -->
+      <div class="settings-menu-label">НАЛАШТУВАННЯ</div>
       <div class="settings-menu-group">
-        <button class="settings-menu-item" data-sub="plan">
-          <div class="settings-menu-icon" style="background:#FFF7ED;color:#EA580C"><i class="ti ti-list-check"></i></div>
-          <div class="settings-menu-label">План витрат</div>
-          <i class="ti ti-chevron-right settings-menu-arrow"></i>
-        </button>
-        <button class="settings-menu-item" data-sub="limits">
-          <div class="settings-menu-icon" style="background:#FEE2E2;color:#DC2626"><i class="ti ti-gauge"></i></div>
-          <div class="settings-menu-label">Ліміти витрат</div>
+        <button class="settings-menu-item" data-sub="default-wallet">
+          <div class="settings-menu-icon" style="background:#DCFCE7;color:#16A34A"><i class="ti ti-wallet"></i></div>
+          <div class="settings-menu-label">Кошельок за замовчуванням</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
         <button class="settings-menu-item" data-sub="exp-cats">
@@ -398,49 +393,52 @@ function renderMainMenu() {
           <div class="settings-menu-label">Категорії доходів</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
-        <button class="settings-menu-item" data-sub="wallet-types">
-          <div class="settings-menu-icon" style="background:#EDE9FE;color:#6D28D9"><i class="ti ti-credit-card"></i></div>
-          <div class="settings-menu-label">Типи рахунків</div>
+        <button class="settings-menu-item" data-sub="limits">
+          <div class="settings-menu-icon" style="background:#FEE2E2;color:#DC2626"><i class="ti ti-gauge"></i></div>
+          <div class="settings-menu-label">Ліміти та план витрат</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
         <button class="settings-menu-item" data-sub="wallets">
           <div class="settings-menu-icon" style="background:#DBEAFE;color:#1D4ED8"><i class="ti ti-building-bank"></i></div>
-          <div class="settings-menu-label">Кошельки</div>
+          <div class="settings-menu-label">Кошельки та рахунки</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" data-sub="dashboard-widgets">
+          <div class="settings-menu-icon" style="background:#F0FDF4;color:#15803D"><i class="ti ti-layout-dashboard"></i></div>
+          <div class="settings-menu-label">Блоки дашборду</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
       </div>
 
-      <!-- Divider -->
-      <div style="height:4px"></div>
-
-      <!-- Group 4: Legal -->
+      <!-- Інше -->
+      <div class="settings-menu-label">ІНФОРМАЦІЯ</div>
       <div class="settings-menu-group">
-        <button class="settings-menu-item" data-sub="privacy">
-          <div class="settings-menu-icon" style="background:#E0F2FE;color:#0369A1"><i class="ti ti-shield"></i></div>
-          <div class="settings-menu-label">Політика конфіденційності</div>
-          <i class="ti ti-chevron-right settings-menu-arrow"></i>
-        </button>
-        <button class="settings-menu-item" data-sub="terms">
-          <div class="settings-menu-icon" style="background:#F0FDF4;color:#15803D"><i class="ti ti-file-text"></i></div>
-          <div class="settings-menu-label">Угода користувача</div>
-          <i class="ti ti-chevron-right settings-menu-arrow"></i>
-        </button>
         <button class="settings-menu-item" data-sub="about">
           <div class="settings-menu-icon" style="background:#EEF2FF;color:#4F46E5"><i class="ti ti-info-circle"></i></div>
           <div class="settings-menu-label">Про додаток</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
+        <button class="settings-menu-item" data-sub="privacy">
+          <div class="settings-menu-icon" style="background:#E0F2FE;color:#0369A1"><i class="ti ti-shield"></i></div>
+          <div class="settings-menu-label">Конфіденційність</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" data-sub="terms">
+          <div class="settings-menu-icon" style="background:#F0FDF4;color:#15803D"><i class="ti ti-file-text"></i></div>
+          <div class="settings-menu-label">Умови використання</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
       </div>
 
-      <div class="settings-footer">
-        <div>Сімейний бюджет v3.0</div>
-      </div>
+      <div class="settings-footer">Many Budget · v3.0</div>
     </div>
   `;
 }
 
 // ── Sub-page content builders ─────────────────────────────────
 const SUB_PAGE_TITLES = {
+  'profile-group':  'Профіль',
+  'dashboard-widgets': 'Блоки дашборду',
   profile:        'Профіль',
   family:         'Родина',
   appearance:     'Зовнішній вигляд',
@@ -467,6 +465,33 @@ function renderSubPageBody(key) {
   const lastSync = localStorage.getItem('budget_last_sync');
 
   switch (key) {
+    case 'profile-group': {
+      return `
+        <div class="settings-menu-group" style="margin-bottom:12px">
+          <button class="settings-menu-item" data-sub="profile">
+            <div class="settings-menu-icon" style="background:#DCFCE7;color:#16A34A"><i class="ti ti-user"></i></div>
+            <div class="settings-menu-label">Профіль</div>
+            <i class="ti ti-chevron-right settings-menu-arrow"></i>
+          </button>
+          <button class="settings-menu-item" data-sub="appearance">
+            <div class="settings-menu-icon" style="background:#EEF2FF;color:#4F46E5"><i class="ti ti-palette"></i></div>
+            <div class="settings-menu-label">Зовнішній вигляд</div>
+            <i class="ti ti-chevron-right settings-menu-arrow"></i>
+          </button>
+          <button class="settings-menu-item" data-sub="family">
+            <div class="settings-menu-icon" style="background:#FEF3C7;color:#D97706"><i class="ti ti-home-2"></i></div>
+            <div class="settings-menu-label">Родина</div>
+            <i class="ti ti-chevron-right settings-menu-arrow"></i>
+          </button>
+          <button class="settings-menu-item" data-sub="security">
+            <div class="settings-menu-icon" style="background:#FEE2E2;color:#DC2626"><i class="ti ti-lock"></i></div>
+            <div class="settings-menu-label">Безпека</div>
+            <i class="ti ti-chevron-right settings-menu-arrow"></i>
+          </button>
+        </div>
+      `;
+    }
+
     case 'profile': {
       const userAv = getAvatar() || state.user?.avatar || '';
       const userAvatarHtml = userAv && userAv.length > 2
@@ -556,7 +581,6 @@ function renderSubPageBody(key) {
 
     case 'appearance': {
       const curPalette = getPalette();
-      const widgets = getDashWidgets();
       const PALETTES_LIST = [
         { id: 'default',  label: 'Зелений',    bg: 'linear-gradient(135deg,#2E7D5F,#4CAF50)', emoji: '🌿' },
         { id: 'ocean',    label: 'Океан',       bg: 'linear-gradient(135deg,#1A6FBF,#4A9FEF)', emoji: '🌊' },
@@ -564,15 +588,6 @@ function renderSubPageBody(key) {
         { id: 'midnight', label: 'Полудень',    bg: 'linear-gradient(135deg,#6C3FD4,#9B72FF)', emoji: '🌙' },
         { id: 'neon',     label: 'Неон',        bg: 'linear-gradient(135deg,#060811,#00FFB3)', emoji: '⚡' },
         { id: 'glass',    label: 'Скло',        bg: 'linear-gradient(135deg,#b8f5d8,#ece4ff)', emoji: '🪟' },
-      ];
-      const WIDGET_LIST = [
-        { key: 'wallets',   label: 'Кошельки' },
-        { key: 'chart',     label: 'Графіки витрат/доходів' },
-        { key: 'donut',     label: 'Кругова діаграма категорій' },
-        { key: 'limits',    label: 'Топ категорій з лімітами' },
-        { key: 'credit',    label: 'Кредитні картки' },
-        { key: 'recurring', label: 'Найближчі платежі' },
-        { key: 'recent',    label: 'Останні операції' },
       ];
       return `
         <div class="settings-card">
@@ -601,8 +616,22 @@ function renderSubPageBody(key) {
           </div>
         </div>
 
+      `;
+    }
+
+    case 'dashboard-widgets': {
+      const widgets = JSON.parse(localStorage.getItem('budget_widgets') || '{}');
+      const WIDGET_LIST = [
+        { key: 'wallets',   label: 'Кошельки' },
+        { key: 'chart',     label: 'Графіки витрат/доходів' },
+        { key: 'donut',     label: 'Кругова діаграма категорій' },
+        { key: 'limits',    label: 'Топ категорій з лімітами' },
+        { key: 'credit',    label: 'Кредитні картки' },
+        { key: 'recurring', label: 'Найближчі платежі' },
+        { key: 'recent',    label: 'Останні операції' },
+      ];
+      return `
         <div class="settings-card" style="padding:16px">
-          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--c-text-3);margin-bottom:4px;padding-left:2px">Блоки дашборду</div>
           <div style="font-size:12px;color:var(--c-text-3);margin-bottom:14px;padding-left:2px">Вибери що показувати на головній</div>
           ${WIDGET_LIST.map(w => `
             <div class="settings-row" style="padding:10px 0;border-bottom:.5px solid var(--c-border)">
@@ -881,14 +910,58 @@ function renderSubPageBody(key) {
           </div>
         </div>
 
-        <div class="pw-actions" style="padding:0 0 8px">
-          <button class="pw-btn-primary" id="sub-page-subscribe-btn">
-            <span class="pw-price">149 ₴</span>
-            <span class="pw-period">/ місяць</span>
-          </button>
-          <button class="pw-btn-trial" id="sub-page-trial-btn">
-            Спробувати 7 днів безкоштовно
-          </button>
+        <div class="settings-card" style="margin-bottom:12px">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--c-text-3);margin-bottom:10px;padding-left:4px">Оберіть план</div>
+
+          <div class="sub-plan-card" data-plan="week">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start">
+              <div>
+                <div style="font-size:15px;font-weight:700">Тижневий</div>
+                <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">7 днів повного доступу</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:20px;font-weight:800;color:var(--c-accent)">49 ₴</div>
+                <div style="font-size:11px;color:var(--c-text-3)">/ 7 днів</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sub-plan-card sub-plan-featured" data-plan="month">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start">
+              <div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <div style="font-size:15px;font-weight:700">Місячний</div>
+                  <span style="background:var(--c-accent);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px">POPULAR</span>
+                </div>
+                <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">30 днів повного доступу</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:20px;font-weight:800;color:var(--c-accent)">149 ₴</div>
+                <div style="font-size:11px;color:var(--c-text-3)">/ місяць</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sub-plan-card" data-plan="year">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start">
+              <div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <div style="font-size:15px;font-weight:700">Річний</div>
+                  <span style="background:#F59E0B;color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px">ВИГІДНО</span>
+                </div>
+                <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">365 днів · 82.5 ₴/міс</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:20px;font-weight:800;color:var(--c-accent)">990 ₴</div>
+                <div style="font-size:11px;color:var(--c-text-3)">/ рік</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="padding:0 0 8px">
+          <button class="pw-btn-primary" id="sub-page-subscribe-btn">Підключити Pro</button>
+          <button class="pw-btn-trial" id="sub-page-trial-btn">Спробувати 7 днів безкоштовно</button>
           <div class="pw-cancel-hint">Скасувати в будь-який час. Без прихованих платежів.</div>
         </div>
       `;
@@ -1001,6 +1074,8 @@ function renderSubPage(key) {
     </div>
   `;
 }
+
+export function resetSettingsPage() { settingsSubPage = null; }
 
 // ── Main render function ──────────────────────────────────────
 export function renderSettingsPage() {

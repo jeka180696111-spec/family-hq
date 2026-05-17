@@ -162,6 +162,24 @@ export function renderWalletsPage() {
     </div>
   `;
 
+  // Animate hero balance
+  requestAnimationFrame(() => {
+    const balEl = el.querySelector('.wallets-hero-balance');
+    if (!balEl) return;
+    const target = totalBalanceUah;
+    const duration = 600;
+    const start = performance.now();
+    function tick(now) {
+      const p = Math.min((now - start) / duration, 1);
+      const ease = p === 1 ? 1 : 1 - Math.pow(2, -10 * p);
+      const cur = Math.round(Math.abs(target) * ease) * Math.sign(target);
+      balEl.textContent = cur.toLocaleString('uk-UA') + ' ₴';
+      if (p < 1) requestAnimationFrame(tick);
+      else balEl.textContent = fmtMoney(target, 'UAH');
+    }
+    requestAnimationFrame(tick);
+  });
+
   // Слухачі фільтрів
   el.querySelectorAll('[data-owner]').forEach(b => {
     b.addEventListener('click', () => {

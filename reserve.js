@@ -174,6 +174,24 @@ export function renderReservePage() {
     </div>
   `;
 
+  // Animate hero balance
+  requestAnimationFrame(() => {
+    const balEl = el.querySelector('.reserve-hero-amount');
+    if (!balEl) return;
+    const target = grandTotal;
+    const duration = 600;
+    const start = performance.now();
+    function tick(now) {
+      const p = Math.min((now - start) / duration, 1);
+      const ease = p === 1 ? 1 : 1 - Math.pow(2, -10 * p);
+      const cur = Math.round(Math.abs(target) * ease) * Math.sign(target);
+      balEl.textContent = cur.toLocaleString('uk-UA') + ' ₴';
+      if (p < 1) requestAnimationFrame(tick);
+      else balEl.textContent = fmtMoney(target, 'UAH');
+    }
+    requestAnimationFrame(tick);
+  });
+
   // Клік на кошельок накопичень — перехід в Кошельки
   el.querySelectorAll('[data-savings-card]').forEach(item => {
     item.addEventListener('click', () => {

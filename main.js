@@ -23,7 +23,7 @@ import { renderOperationsPage, loadOperations } from './operations-list.js';
 import { renderAnalyticsPage, loadAnalytics } from './analytics.js';
 import { renderReservePage, loadReserve } from './reserve.js';
 import { renderGoalsPage, loadGoals } from './goals.js';
-import { renderSettingsPage } from './settings-ui.js';
+import { renderSettingsPage, resetSettingsPage } from './settings-ui.js';
 // ── НОВІ МОДУЛІ ─────────────────────────────────────────────
 import { renderRecurringPage, loadRecurringPayments } from './recurring-payments.js';
 import { renderAIChatPage } from './ai-chat.js';
@@ -46,6 +46,8 @@ const PAGE_TITLES = {
 // ── Навігація ───────────────────────────────────────────────
 export function navigateTo(page) {
   if (!PAGE_TITLES[page]) page = 'dashboard';
+  // Reset settings nav when leaving settings
+  if (state.currentPage === 'settings' && page !== 'settings') resetSettingsPage();
   state.currentPage = page;
 
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
