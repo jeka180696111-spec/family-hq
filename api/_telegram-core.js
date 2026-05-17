@@ -530,68 +530,40 @@ function timeGreeting() {
 
 // Same logic as dashboard's calcBalanceSplit + calcCreditAvailable
 async function calcDashboardStats(familyId) {
-  const [familyDoc, opsSnap, rates] = await Promise.all([
+  const [wallets, familyDoc] = await Promise.all([
+    getWalletBalances(familyId), // already handles native currency → UAH correctly
     db.collection('families').doc(familyId).get(),
-    db.collection('families').doc(familyId).collection('operations').get(),
-    getExchangeRates(),
   ]);
 
-  // Build card config map: cardId → {walletType, creditLimit, currency}
-  const cardConfig = {};
+  // Build cardId → walletType map from family settings
+  const cardWalletType = {};
   if (familyDoc.exists) {
     const s = familyDoc.data();
     const cards = s.cards || {};
     Object.values(cards).forEach(memberCards => {
       (Array.isArray(memberCards) ? memberCards : []).forEach(c => {
-        cardConfig[c.id] = {
-          walletType:  c.walletType || 'card',
-          creditLimit: Number(c.creditLimit) || 0,
-          currency:    c.currency || 'UAH',
-        };
+        cardWalletType[c.id] = c.walletType || 'card';
       });
     });
-    // backwards-compat old format
     ['cardsEvgen', 'cardsMarina'].forEach(key => {
       (s[key] || []).forEach(c => {
-        cardConfig[c.id] = {
-          walletType:  c.walletType || 'card',
-          creditLimit: Number(c.creditLimit) || 0,
-          currency:    c.currency || 'UAH',
-        };
+        cardWalletType[c.id] = c.walletType || 'card';
       });
     });
   }
-
-  // Sum balances per card (in UAH)
-  const cardBalUah = {};
-  opsSnap.docs.forEach(doc => {
-    const d = doc.data();
-    if (d.category === 'Переказ') return;
-    const cardId = d.card || '';
-    if (!cardBalUah[cardId]) cardBalUah[cardId] = 0;
-    const amtUah = d.amountUah || (d.amount * (rates[d.currency] || 1)) || 0;
-    if (d.type === 'Дохід')   cardBalUah[cardId] += amtUah;
-    if (d.type === 'Витрата') cardBalUah[cardId] -= amtUah;
-  });
 
   let freeBalance    = 0;
   let savingsBalance = 0;
   let creditAvail    = 0;
 
-  Object.entries(cardBalUah).forEach(([cardId, balUah]) => {
-    const cfg = cardConfig[cardId];
-    if (!cfg) {
-      // Unknown card (bot-entered names) → treat as free if positive
-      if (balUah > 0) freeBalance += balUah;
-      return;
-    }
-    if (cfg.creditLimit > 0) {
-      const used = Math.max(0, -balUah);
-      creditAvail += Math.max(0, cfg.creditLimit - used);
-    } else if (cfg.walletType === 'savings') {
-      savingsBalance += balUah;
+  // w.name = card ID (operations store card ID, and card ID = card name in this app)
+  wallets.forEach(w => {
+    if (w.creditLimit > 0) {
+      creditAvail += w.creditAvail;
+    } else if (cardWalletType[w.name] === 'savings') {
+      savingsBalance += w.balanceUah;
     } else {
-      freeBalance += balUah;
+      freeBalance += w.balanceUah;
     }
   });
 
