@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { FAMILY_MEMBERS, state } from './config.js';
-import { getCards, getProfiles, getWalletTypeById, getFamilyName, getVisibleWallets, setVisibleWallets, getViewAsMember, getCategoryLimits, getSpendingPlan } from './storage.js';
+import { getCards, getProfiles, getWalletTypeById, getFamilyName, getVisibleWallets, setVisibleWallets, getViewAsMember, getCategoryLimits, getSpendingPlan, getDashWidgets } from './storage.js';
 import { apiGet } from './api.js';
 import { esc, fmtMoney, fmtMoneyShort, fmtMoneyWithUah, setText, fmtDate, log, showToast } from './utils.js';
 import { openOperationDialog } from './operations.js';
@@ -93,6 +93,8 @@ export function renderDashboard() {
     .filter(p => p.active !== false && (!viewAs || p.who === viewAs || p.who === 'Загальний'))
     .reduce((s, p) => s + (p.amount || 0), 0);
 
+  const w = getDashWidgets();
+
   el.innerHTML = `
     <div class="dashboard">
       <!-- HERO -->
@@ -100,7 +102,9 @@ export function renderDashboard() {
         <div class="dash-hero-left">
           <div class="dash-greet">${greet}, ${esc(myName)}! 👋${viewAs ? ` <span class="dash-viewas-tag">дивлюсь як ${esc(profiles[viewAs]?.name || viewAs)}</span>` : ''}</div>
           <div class="dash-hero-label">Можна витратити</div>
-          <div class="dash-hero-balance">${fmtMoney(freeBalance + creditAvail, 'UAH')}</div>
+          <div class="dash-hero-balance" data-balance-target="${freeBalance + creditAvail}">
+            ${fmtMoney(freeBalance + creditAvail, 'UAH')}
+          </div>
           <div class="dash-hero-meta">
             ${savingsBalance > 0 ? `<span class="dash-hero-pill pos"><i class="ti ti-coins"></i> Накопичення: ${fmtMoney(savingsBalance, 'UAH')}</span>` : ''}
             <span class="dash-hero-pill">
@@ -129,6 +133,7 @@ export function renderDashboard() {
       <!-- Грід -->
       <div class="dash-grid">
         <div class="dash-col">
+          ${w.chart ? `
           <div class="dash-card dash-stat-card">
             <div class="dash-card-head">
               <span class="dash-card-title">Витрати · ${esc(periodLabel)}</span>
@@ -136,7 +141,6 @@ export function renderDashboard() {
             </div>
             ${renderSparkline(byDayView, 'red')}
           </div>
-
           <div class="dash-card dash-stat-card">
             <div class="dash-card-head">
               <span class="dash-card-title">Доходи · ${esc(periodLabel)}</span>
@@ -144,14 +148,17 @@ export function renderDashboard() {
             </div>
             ${renderSparkline(byDayIncomeView, 'green')}
           </div>
+          ` : ''}
+
+          ${w.donut ? renderDonutCard(byCategoryView, totalExpense, periodLabel) : ''}
 
           ${renderFxCard()}
           ${renderForecastCard(totalExpense, totalIncome)}
-          ${renderCategoriesBlock(d, byCategoryView, totalExpense)}
+          ${w.limits ? renderCategoriesBlock(d, byCategoryView, totalExpense) : ''}
         </div>
 
         <div class="dash-col">
-          <!-- Кошельки -->
+          ${w.wallets ? `
           <div class="dash-card dash-wallets-card">
             <div class="dash-card-head">
               <span class="dash-card-title">Кошельки${viewAs ? ' · ' + esc(profiles[viewAs]?.name || viewAs) : ''}</span>
@@ -162,14 +169,11 @@ export function renderDashboard() {
             </div>
             ${renderWalletsBlock(viewAs)}
           </div>
+          ` : ''}
 
-          <!-- НОВЕ: Кредитні картки -->
-          ${renderCreditCardsBlock(viewAs)}
-
-          <!-- НОВЕ: Найближчі платежі -->
-          ${renderUpcomingPaymentsBlock(viewAs)}
-
-          ${renderRecentBlock(d.recent || [], viewAs)}
+          ${w.credit ? renderCreditCardsBlock(viewAs) : ''}
+          ${w.recurring ? renderUpcomingPaymentsBlock(viewAs) : ''}
+          ${w.recent ? renderRecentBlock(d.recent || [], viewAs) : ''}
         </div>
       </div>
     </div>
@@ -177,15 +181,26 @@ export function renderDashboard() {
 
   bindHandlers(el);
 
-  // Анімація балансу при оновленні
+  // Анімація балансу — лічильник від 0 до реального значення
   requestAnimationFrame(() => {
-    const balEl = document.querySelector('.dash-hero-balance');
-    if (balEl) {
-      balEl.classList.remove('dash-balance-pop');
-      void balEl.offsetWidth; // reflow
-      balEl.classList.add('dash-balance-pop');
-      setTimeout(() => balEl.classList.remove('dash-balance-pop'), 400);
+    const balEl = el.querySelector('.dash-hero-balance');
+    if (!balEl) return;
+    const target = parseFloat(balEl.dataset.balanceTarget) || 0;
+    const duration = 700;
+    const start = performance.now();
+    const prefix = target < 0 ? '−' : '';
+    const absTarget = Math.abs(target);
+    function tick(now) {
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / duration, 1);
+      // easeOutExpo
+      const ease = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+      const current = Math.round(absTarget * ease);
+      balEl.textContent = prefix + current.toLocaleString('uk-UA') + ' ₴';
+      if (progress < 1) requestAnimationFrame(tick);
+      else balEl.textContent = fmtMoney(target, 'UAH');
     }
+    requestAnimationFrame(tick);
   });
 
   // Алерт по кредитках (один раз при завантаженні)
@@ -377,6 +392,68 @@ function renderWalletsBlock(viewAs) {
           </div>
         </div>
       `).join('')}
+    </div>
+  `;
+}
+
+// ── Donut chart категорій ────────────────────────────────────
+const DONUT_COLORS = [
+  '#2E7D5F','#4A7BB7','#D9A13E','#C85450','#7F77DD',
+  '#E05A2B','#1A9E8A','#B85C9A','#5E8F3E','#8C6A2F',
+];
+
+function renderDonutCard(byCat, total, periodLabel) {
+  const entries = Object.entries(byCat || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  if (!entries.length || !total) return '';
+
+  const R = 54, cx = 70, cy = 70, strokeW = 22;
+  const circ = 2 * Math.PI * R;
+  let offset = 0;
+  const segments = entries.map(([cat, val], i) => {
+    const pct = val / total;
+    const dash = pct * circ;
+    const seg = { cat, val, pct, dash, offset, color: DONUT_COLORS[i % DONUT_COLORS.length] };
+    offset += dash;
+    return seg;
+  });
+
+  const svgSegments = segments.map(s => `
+    <circle
+      cx="${cx}" cy="${cy}" r="${R}"
+      fill="none"
+      stroke="${s.color}"
+      stroke-width="${strokeW}"
+      stroke-dasharray="${s.dash.toFixed(2)} ${(circ - s.dash).toFixed(2)}"
+      stroke-dashoffset="${(-s.offset + circ / 4).toFixed(2)}"
+      stroke-linecap="butt"
+    />
+  `).join('');
+
+  return `
+    <div class="dash-card">
+      <div class="dash-card-head">
+        <span class="dash-card-title">Категорії · ${esc(periodLabel)}</span>
+        <a href="#" class="dash-card-action" data-go="analytics">Аналіз →</a>
+      </div>
+      <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+        <div style="flex-shrink:0">
+          <svg width="140" height="140" viewBox="0 0 140 140">
+            <circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="var(--c-bg-3)" stroke-width="${strokeW}"/>
+            ${svgSegments}
+            <text x="${cx}" y="${cy - 6}" text-anchor="middle" font-size="11" fill="var(--c-text-3)" font-family="inherit" font-weight="600">Витрати</text>
+            <text x="${cx}" y="${cy + 12}" text-anchor="middle" font-size="13" fill="var(--c-text)" font-family="inherit" font-weight="800">${fmtMoneyShort(total)}</text>
+          </svg>
+        </div>
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+          ${segments.map(s => `
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="width:10px;height:10px;border-radius:3px;background:${s.color};flex-shrink:0"></div>
+              <div style="flex:1;font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s.cat)}</div>
+              <div style="font-size:12px;font-weight:700;flex-shrink:0">${Math.round(s.pct * 100)}%</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
     </div>
   `;
 }

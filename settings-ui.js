@@ -16,7 +16,10 @@ import {
   getSpendingPlan, setSpendingPlan,
   getDefaultWallet, setDefaultWallet,
   getTelegramPrefs, setTelegramPrefs,
+  getPalette, setPalette,
+  getDashWidgets, setDashWidgets,
 } from './storage.js';
+import { applyPalette } from './theme.js';
 import { syncSettingsToSheet, pingBackend, generateInviteCode } from './api.js';
 import { applyTheme, toggleTheme } from './theme.js';
 import { esc, showToast, uid, exportOperationsToCSV } from './utils.js';
@@ -551,14 +554,33 @@ function renderSubPageBody(key) {
       `;
     }
 
-    case 'appearance':
+    case 'appearance': {
+      const curPalette = getPalette();
+      const widgets = getDashWidgets();
+      const PALETTES_LIST = [
+        { id: 'default',  label: 'Зелений',    bg: 'linear-gradient(135deg,#2E7D5F,#4CAF50)', emoji: '🌿' },
+        { id: 'ocean',    label: 'Океан',       bg: 'linear-gradient(135deg,#1A6FBF,#4A9FEF)', emoji: '🌊' },
+        { id: 'sunset',   label: 'Захід',       bg: 'linear-gradient(135deg,#E05A2B,#FF7D4D)', emoji: '🌅' },
+        { id: 'midnight', label: 'Полудень',    bg: 'linear-gradient(135deg,#6C3FD4,#9B72FF)', emoji: '🌙' },
+        { id: 'neon',     label: 'Неон',        bg: 'linear-gradient(135deg,#060811,#00FFB3)', emoji: '⚡' },
+        { id: 'glass',    label: 'Скло',        bg: 'linear-gradient(135deg,#b8f5d8,#ece4ff)', emoji: '🪟' },
+      ];
+      const WIDGET_LIST = [
+        { key: 'wallets',   label: 'Кошельки' },
+        { key: 'chart',     label: 'Графіки витрат/доходів' },
+        { key: 'donut',     label: 'Кругова діаграма категорій' },
+        { key: 'limits',    label: 'Топ категорій з лімітами' },
+        { key: 'credit',    label: 'Кредитні картки' },
+        { key: 'recurring', label: 'Найближчі платежі' },
+        { key: 'recent',    label: 'Останні операції' },
+      ];
       return `
         <div class="settings-card">
           <div class="settings-row">
             <div class="settings-row-icon"><i class="ti ti-${theme === 'dark' ? 'moon' : 'sun'}"></i></div>
             <div class="settings-row-info">
-              <div class="settings-row-name">Тема</div>
-              <div class="settings-row-sub">${theme === 'dark' ? 'Темна' : 'Світла'}</div>
+              <div class="settings-row-name">Режим</div>
+              <div class="settings-row-sub">${theme === 'dark' ? 'Темний' : 'Світлий'}</div>
             </div>
             <div class="theme-switch">
               <button class="theme-btn ${theme === 'light' ? 'active' : ''}" data-theme="light"><i class="ti ti-sun"></i></button>
@@ -566,7 +588,34 @@ function renderSubPageBody(key) {
             </div>
           </div>
         </div>
+
+        <div class="settings-card" style="padding:16px">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--c-text-3);margin-bottom:12px;padding-left:2px">Стиль теми</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px" id="palette-grid">
+            ${PALETTES_LIST.map(p => `
+              <button data-palette-id="${p.id}" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 6px;border-radius:14px;border:2.5px solid ${p.id === curPalette ? 'var(--c-accent)' : 'transparent'};background:${p.id === curPalette ? 'var(--c-accent-soft)' : 'var(--c-bg-3)'};cursor:pointer;transition:all .15s">
+                <div style="width:44px;height:44px;border-radius:12px;background:${p.bg};display:flex;align-items:center;justify-content:center;font-size:22px;box-shadow:0 3px 10px rgba(0,0,0,0.15)">${p.emoji}</div>
+                <div style="font-size:11px;font-weight:600;color:var(--c-text)">${p.label}</div>
+              </button>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="settings-card" style="padding:16px">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--c-text-3);margin-bottom:4px;padding-left:2px">Блоки дашборду</div>
+          <div style="font-size:12px;color:var(--c-text-3);margin-bottom:14px;padding-left:2px">Вибери що показувати на головній</div>
+          ${WIDGET_LIST.map(w => `
+            <div class="settings-row" style="padding:10px 0;border-bottom:.5px solid var(--c-border)">
+              <div class="settings-row-info"><div class="settings-row-name" style="font-size:14px">${w.label}</div></div>
+              <label class="toggle-switch" style="flex-shrink:0">
+                <input type="checkbox" class="widget-toggle" data-widget="${w.key}" ${widgets[w.key] !== false ? 'checked' : ''}>
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+          `).join('')}
+        </div>
       `;
+    }
 
     case 'security':
       return `
@@ -1108,6 +1157,30 @@ function bindSettingsHandlers(el) {
     b.addEventListener('click', () => {
       applyTheme(b.dataset.theme);
       renderSettingsPage();
+    });
+  });
+
+  // Palette picker
+  el.querySelectorAll('[data-palette-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      applyPalette(btn.dataset.paletteId);
+      el.querySelectorAll('[data-palette-id]').forEach(b => {
+        const active = b.dataset.paletteId === btn.dataset.paletteId;
+        b.style.borderColor = active ? 'var(--c-accent)' : 'transparent';
+        b.style.background = active ? 'var(--c-accent-soft)' : 'var(--c-bg-3)';
+      });
+      showToast('✅ Стиль змінено');
+    });
+  });
+
+  // Dashboard widget toggles
+  el.querySelectorAll('.widget-toggle').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const widgets = getDashWidgets();
+      widgets[cb.dataset.widget] = cb.checked;
+      setDashWidgets(widgets);
+      if (window.renderDashboardPublic) window.renderDashboardPublic();
+      showToast(cb.checked ? '✅ Блок увімкнено' : 'Блок вимкнено');
     });
   });
 

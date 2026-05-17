@@ -170,6 +170,30 @@ export function setTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
 }
 
+// ── Палітра (стиль теми) ─────────────────────────────────────
+export function getPalette() {
+  return localStorage.getItem('budget_palette') || 'default';
+}
+export function setPalette(p) {
+  localStorage.setItem('budget_palette', p);
+  document.documentElement.setAttribute('data-palette', p);
+}
+
+// ── Налаштування блоків дашборду ─────────────────────────────
+const DEFAULT_WIDGETS = {
+  balance: true, wallets: true, chart: true, donut: true,
+  limits: true, credit: true, recurring: true, recent: true,
+};
+export function getDashWidgets() {
+  try {
+    const s = localStorage.getItem('budget_dash_widgets');
+    return s ? { ...DEFAULT_WIDGETS, ...JSON.parse(s) } : { ...DEFAULT_WIDGETS };
+  } catch { return { ...DEFAULT_WIDGETS }; }
+}
+export function setDashWidgets(w) {
+  localStorage.setItem('budget_dash_widgets', JSON.stringify(w));
+}
+
 // ── Ім'я користувача та аватар ──────────────────────────────
 export function getUsername() {
   return localStorage.getItem(APP_CONFIG.USERNAME_KEY) || '';

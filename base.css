@@ -139,6 +139,160 @@ body, .card, .sidebar, .topbar, .wallet-card, .modal {
   transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
 }
 
+/* ════════════════════════════════════════════════════════════════
+   ПАЛІТРИ — data-palette attribute on <html>
+   ════════════════════════════════════════════════════════════════ */
+
+/* ── OCEAN (Blue) ─────────────────────────────────────────── */
+[data-palette="ocean"]:root,
+[data-palette="ocean"] {
+  --c-accent:      #1A6FBF;
+  --c-accent-soft: #DDEEFF;
+  --c-sidebar-active: #DDEEFF;
+}
+[data-palette="ocean"][data-theme="dark"] {
+  --c-accent:      #4A9FEF;
+  --c-accent-soft: rgba(74,159,239,0.18);
+  --c-sidebar-active: rgba(74,159,239,0.2);
+}
+
+/* ── SUNSET (Orange-Pink) ─────────────────────────────────── */
+[data-palette="sunset"]:root,
+[data-palette="sunset"] {
+  --c-accent:      #E05A2B;
+  --c-accent-soft: #FDEADE;
+  --c-sidebar-active: #FDEADE;
+}
+[data-palette="sunset"][data-theme="dark"] {
+  --c-accent:      #FF7D4D;
+  --c-accent-soft: rgba(255,125,77,0.18);
+  --c-sidebar-active: rgba(255,125,77,0.2);
+}
+
+/* ── MIDNIGHT (Purple) ────────────────────────────────────── */
+[data-palette="midnight"]:root,
+[data-palette="midnight"] {
+  --c-accent:      #6C3FD4;
+  --c-accent-soft: #EDE6FF;
+  --c-sidebar-active: #EDE6FF;
+}
+[data-palette="midnight"][data-theme="dark"] {
+  --c-bg:        #0D0B1A;
+  --c-bg-2:      #160E2A;
+  --c-bg-3:      #1C1330;
+  --c-card:      #170F28;
+  --c-card-2:    #1E1538;
+  --c-border:    #2C2050;
+  --c-border-2:  #3A2A66;
+  --c-accent:      #9B72FF;
+  --c-accent-soft: rgba(155,114,255,0.2);
+  --c-sidebar:     #120A22;
+  --c-sidebar-active: rgba(155,114,255,0.22);
+  --c-bg-rgb: 13,11,26;
+  --c-card-rgb: 23,15,40;
+}
+
+/* ── NEON (Cyberpunk) ─────────────────────────────────────── */
+[data-palette="neon"] {
+  --c-bg:        #060811;
+  --c-bg-2:      #0C1020;
+  --c-bg-3:      #101525;
+  --c-card:      #0E1422;
+  --c-card-2:    #121828;
+  --c-text:      #E0F4FF;
+  --c-text-2:    #7AAEC8;
+  --c-text-3:    #456A82;
+  --c-border:    #1A2840;
+  --c-border-2:  #1F3050;
+  --c-accent:      #00FFB3;
+  --c-accent-soft: rgba(0,255,179,0.12);
+  --c-red:         #FF3D71;
+  --c-red-soft:    rgba(255,61,113,0.15);
+  --c-yellow:      #FFD600;
+  --c-yellow-soft: rgba(255,214,0,0.15);
+  --c-blue:        #00C8FF;
+  --c-blue-soft:   rgba(0,200,255,0.15);
+  --c-purple:      #C264FF;
+  --c-purple-soft: rgba(194,100,255,0.15);
+  --c-sidebar:     #060811;
+  --c-sidebar-active: rgba(0,255,179,0.14);
+  --shadow-sm:  0 1px 3px rgba(0,255,179,0.05);
+  --shadow:     0 2px 12px rgba(0,255,179,0.08);
+  --shadow-lg:  0 8px 32px rgba(0,255,179,0.1);
+  --c-bg-rgb: 6,8,17;
+  --c-card-rgb: 14,20,34;
+}
+/* Neon glow effects */
+[data-palette="neon"] .btn-primary,
+[data-palette="neon"] .fab-btn {
+  box-shadow: 0 0 16px rgba(0,255,179,0.4), 0 0 32px rgba(0,255,179,0.15);
+}
+[data-palette="neon"] .settings-card,
+[data-palette="neon"] .card {
+  border: 1px solid rgba(0,255,179,0.12);
+  box-shadow: 0 0 20px rgba(0,255,179,0.05);
+}
+[data-palette="neon"] .sb-item.active,
+[data-palette="neon"] .sb-item:hover {
+  text-shadow: 0 0 8px rgba(0,255,179,0.6);
+}
+
+/* ── GLASS (Frosted, iOS-style) ───────────────────────────── */
+[data-palette="glass"] {
+  --c-bg:        transparent;
+  --c-bg-2:      transparent;
+  --c-bg-3:      rgba(255,255,255,0.06);
+  --c-card:      rgba(255,255,255,0.72);
+  --c-card-2:    rgba(255,255,255,0.6);
+  --c-border:    rgba(255,255,255,0.3);
+  --c-border-2:  rgba(255,255,255,0.45);
+  --c-text:      #1A2421;
+  --c-text-2:    #4D5856;
+  --c-text-3:    #8A9492;
+  --c-accent:    #2E7D5F;
+  --c-accent-soft: rgba(46,125,95,0.2);
+  --c-sidebar:   rgba(255,255,255,0.7);
+  --c-sidebar-active: rgba(46,125,95,0.15);
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.06);
+  --shadow:    0 4px 20px rgba(0,0,0,0.1);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,0.14);
+  --c-bg-rgb: 255,255,255;
+  --c-card-rgb: 255,255,255;
+}
+[data-palette="glass"][data-theme="dark"] {
+  --c-card:      rgba(30,42,38,0.75);
+  --c-card-2:    rgba(22,32,28,0.65);
+  --c-border:    rgba(255,255,255,0.08);
+  --c-border-2:  rgba(255,255,255,0.14);
+  --c-text:      #E8EDEB;
+  --c-text-2:    #A0ACA9;
+  --c-text-3:    #617470;
+  --c-sidebar:   rgba(15,22,19,0.8);
+  --c-bg-rgb: 15,20,18;
+  --c-card-rgb: 30,42,38;
+}
+[data-palette="glass"] body {
+  background: linear-gradient(135deg, #b8f5d8 0%, #d4eaf7 40%, #ece4ff 80%, #ffd6e7 100%);
+  background-attachment: fixed;
+}
+[data-palette="glass"][data-theme="dark"] body {
+  background: linear-gradient(135deg, #0a1f16 0%, #0e1a2e 40%, #160d28 80%, #1a0a18 100%);
+  background-attachment: fixed;
+}
+[data-palette="glass"] .settings-card,
+[data-palette="glass"] .card,
+[data-palette="glass"] .topbar,
+[data-palette="glass"] .sidebar,
+[data-palette="glass"] #sidebar,
+[data-palette="glass"] .modal-sheet,
+[data-palette="glass"] .modal-dialog {
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+[data-palette="glass"] .topbar {
+  background: rgba(var(--c-card-rgb), 0.65) !important;
+}
+
 /* ── Утилітарні класи ───────────────────────────────────────── */
 .flex { display: flex; }
 .flex-col { display: flex; flex-direction: column; }

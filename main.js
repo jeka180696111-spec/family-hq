@@ -152,9 +152,10 @@ async function refreshFx() {
 // SIDEBAR + TOPBAR + BOTTOM NAV
 // ═══════════════════════════════════════════════════════════════
 
-// Exposed so settings can trigger sidebar/topbar refresh after avatar change
+// Exposed so settings can trigger sidebar/topbar/dashboard refresh
 window.renderSidebarPublic = () => renderSidebar();
 window.renderTopbarPublic = () => renderTopbar();
+window.renderDashboardPublic = () => import('./dashboard.js').then(m => m.renderDashboard());
 
 function renderSidebar() {
   const sb = document.getElementById('sidebar');

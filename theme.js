@@ -2,10 +2,29 @@
 // THEME — перемикач світлої/темної теми
 // ═══════════════════════════════════════════════════════════════
 
-import { getTheme, setTheme, hasUserSetTheme } from './storage.js';
+import { getTheme, setTheme, hasUserSetTheme, getPalette, setPalette } from './storage.js';
 
 // Доступні теми
 export const THEMES = ['light', 'dark'];
+export const PALETTES = ['default', 'ocean', 'sunset', 'midnight', 'neon', 'glass'];
+
+export function applyPalette(palette) {
+  if (!PALETTES.includes(palette)) palette = 'default';
+  setPalette(palette);
+  document.documentElement.setAttribute('data-palette', palette);
+  // Neon завжди темний
+  if (palette === 'neon') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+}
+
+export function initPalette() {
+  const p = getPalette();
+  document.documentElement.setAttribute('data-palette', p);
+  if (p === 'neon') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+}
 
 // Визначає поточну активну тему (з урахуванням системних налаштувань)
 function resolveTheme() {
@@ -20,6 +39,7 @@ function resolveTheme() {
 
 // Застосовуємо тему при старті
 export function initTheme() {
+  initPalette();
   const theme = resolveTheme();
   document.documentElement.setAttribute('data-theme', theme);
   updateThemeMeta(theme);
