@@ -361,7 +361,126 @@ function closeSidebar() {
 function initAIFab() {
   const btn = document.getElementById('ai-fab-btn');
   if (!btn) return;
-  btn.addEventListener('click', () => navigateTo('ai-chat'));
+  btn.addEventListener('click', () => openAIBubble(btn));
+}
+
+function openAIBubble(triggerBtn) {
+  if (document.getElementById('ai-bubble-dialog')) return;
+  const btnRect = triggerBtn.getBoundingClientRect();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'ai-bubble-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:199;';
+
+  const dialog = document.createElement('div');
+  dialog.id = 'ai-bubble-dialog';
+  dialog.style.cssText = `
+    position:fixed;
+    bottom:${window.innerHeight - btnRect.top + 8}px;
+    right:${window.innerWidth - btnRect.right}px;
+    width:min(360px, calc(100vw - 24px));
+    height:min(480px, calc(100vh - ${window.innerHeight - btnRect.top + 24}px));
+    background:var(--c-card);
+    border-radius:20px;
+    box-shadow:0 8px 40px rgba(0,0,0,0.22);
+    border:1px solid var(--c-border);
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    z-index:200;
+    transform:scale(0.1);
+    transform-origin:bottom right;
+    opacity:0;
+    transition:transform 0.28s cubic-bezier(0.34,1.56,0.64,1),opacity 0.2s ease;
+  `;
+
+  let bubbleHistory = [];
+
+  dialog.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--c-border);flex-shrink:0">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--c-accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px">🤖</div>
+        <div>
+          <div style="font-size:14px;font-weight:700">Фінн</div>
+          <div style="font-size:11px;color:var(--c-text-3)">AI помічник</div>
+        </div>
+      </div>
+      <button id="ai-bubble-close" style="width:30px;height:30px;border-radius:50%;background:var(--c-bg-3);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--c-text-2)">
+        <i class="ti ti-x" style="font-size:14px"></i>
+      </button>
+    </div>
+    <div id="ai-bubble-messages" style="flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:10px">
+      <div class="ai-msg ai-msg-bot">
+        <div class="ai-msg-bubble">Привіт! Я Фінн — ваш AI фінансовий помічник 👋 Чим можу допомогти?</div>
+      </div>
+    </div>
+    <div style="padding:10px 12px;border-top:1px solid var(--c-border);display:flex;gap:8px;flex-shrink:0">
+      <input id="ai-bubble-input" type="text" placeholder="Запитай мене..." style="flex:1;padding:9px 14px;border-radius:20px;border:1.5px solid var(--c-border);background:var(--c-bg-2);color:var(--c-text);font-size:14px;outline:none">
+      <button id="ai-bubble-send" style="width:38px;height:38px;border-radius:50%;background:var(--c-accent);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <i class="ti ti-send" style="font-size:16px"></i>
+      </button>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+  document.body.appendChild(dialog);
+
+  requestAnimationFrame(() => {
+    dialog.style.transform = 'scale(1)';
+    dialog.style.opacity = '1';
+  });
+
+  function closeAIBubble() {
+    dialog.style.transform = 'scale(0.1)';
+    dialog.style.opacity = '0';
+    overlay.style.opacity = '0';
+    setTimeout(() => { dialog.remove(); overlay.remove(); }, 280);
+  }
+
+  overlay.addEventListener('click', closeAIBubble);
+  dialog.querySelector('#ai-bubble-close').addEventListener('click', closeAIBubble);
+
+  const input = dialog.querySelector('#ai-bubble-input');
+  const messagesEl = dialog.querySelector('#ai-bubble-messages');
+  const sendBtn = dialog.querySelector('#ai-bubble-send');
+
+  function addMessage(text, role) {
+    const div = document.createElement('div');
+    div.className = `ai-msg ai-msg-${role === 'user' ? 'user' : 'bot'}`;
+    div.innerHTML = `<div class="ai-msg-bubble">${text.replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')}</div>`;
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  async function sendBubbleMessage() {
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    addMessage(text, 'user');
+    bubbleHistory.push({ role: 'user', content: text });
+
+    const typingDiv = document.createElement('div');
+    typingDiv.className = 'ai-msg ai-msg-bot';
+    typingDiv.innerHTML = '<div class="ai-msg-bubble" style="color:var(--c-text-3)">...</div>';
+    messagesEl.appendChild(typingDiv);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    try {
+      const { askAI } = await import('./ai-chat.js');
+      const reply = await askAI(text, bubbleHistory.slice(-10));
+      typingDiv.remove();
+      addMessage(reply, 'bot');
+      bubbleHistory.push({ role: 'assistant', content: reply });
+      if (bubbleHistory.length > 20) bubbleHistory = bubbleHistory.slice(-20);
+    } catch {
+      typingDiv.remove();
+      addMessage('Помилка відповіді. Спробуй ще раз.', 'bot');
+    }
+  }
+
+  sendBtn.addEventListener('click', sendBubbleMessage);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') sendBubbleMessage(); });
+  input.focus();
 }
 
 async function bootApp() {

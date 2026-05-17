@@ -7,8 +7,6 @@ import {
   getExpCats, setExpCats, getIncCats, setIncCats,
   getWalletTypes, setWalletTypes,
   getFamilyName, setFamilyName,
-  getFamilyAvatar, setFamilyAvatar,
-  getAvatar, setAvatar,
   getProfiles, setProfiles,
   getCards,
   getTheme,
@@ -17,15 +15,12 @@ import {
   getDefaultWallet, setDefaultWallet,
   getTelegramPrefs, setTelegramPrefs,
   getPalette, setPalette,
-  getDashWidgets, setDashWidgets,
 } from './storage.js';
-import { applyPalette } from './theme.js';
 import { syncSettingsToSheet, pingBackend, generateInviteCode } from './api.js';
-import { applyTheme, toggleTheme } from './theme.js';
-import { esc, showToast, uid, exportOperationsToCSV } from './utils.js';
+import { applyTheme, toggleTheme, applyPalette } from './theme.js';
+import { esc, showToast, uid } from './utils.js';
 import { openIconPicker } from './icon-picker.js';
 import { openBottomSheet, closeModal, confirmModal, promptModal } from './modals.js';
-import { showPaywall } from './paywall.js';
 import { signOut } from './auth.js';
 import { isLockEnabled, isBiometricAvailable, setupLock, disableLock } from './lock-screen.js';
 
@@ -322,65 +317,65 @@ function renderLockSection() {
 
 // ── Main menu ─────────────────────────────────────────────────
 function renderMainMenu() {
-  const userAv = getAvatar() || state.user?.avatar || '';
-  const avatarHtml = userAv && userAv.length > 2
-    ? `<img src="${esc(userAv)}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,0.3)">`
-    : `<div style="width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.25);color:#fff;font-size:20px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,0.3)">${(state.user?.name || state.member || '?')[0]}</div>`;
-
   return `
     <div class="page-inner">
       <div class="page-head">
         <h1 class="page-title">Налаштування</h1>
       </div>
 
-      <!-- Profile Card -->
-      <button class="settings-profile-card" data-sub="profile-group">
-        <div style="display:flex;align-items:center;gap:14px">
-          ${avatarHtml}
-          <div style="text-align:left">
-            <div style="font-size:16px;font-weight:700;color:#fff">${esc(state.user?.name || state.member || 'Профіль')}</div>
-            <div style="font-size:12px;color:rgba(255,255,255,0.7)">${esc(state.user?.email || 'Профіль, вигляд, безпека')}</div>
-          </div>
-        </div>
-        <i class="ti ti-chevron-right" style="color:rgba(255,255,255,0.6);font-size:18px"></i>
-      </button>
-
-      <!-- PRO Subscription Card -->
-      <button class="settings-pro-card" data-sub="subscription">
-        <div style="display:flex;align-items:center;gap:12px">
-          <div style="width:42px;height:42px;border-radius:12px;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-size:22px;backdrop-filter:blur(4px)">✨</div>
-          <div style="text-align:left">
-            <div style="font-size:15px;font-weight:800;color:#fff;letter-spacing:-0.01em">Many Budget Pro</div>
-            <div style="font-size:12px;color:rgba(255,255,255,0.8)">AI · Родина · Telegram · Сканер</div>
-          </div>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="background:rgba(255,255,255,0.2);color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;backdrop-filter:blur(4px)">FREE</span>
-          <i class="ti ti-chevron-right" style="color:rgba(255,255,255,0.7);font-size:18px"></i>
-        </div>
-      </button>
-
-      <!-- Сервіси -->
-      <div class="settings-menu-label">СЕРВІСИ</div>
+      <!-- Group 1: Personal -->
       <div class="settings-menu-group">
-        <button class="settings-menu-item" data-sub="telegram">
-          <div class="settings-menu-icon" style="background:#E0F2FE;color:#0284C7"><i class="ti ti-brand-telegram"></i></div>
-          <div class="settings-menu-label">Telegram бот</div>
+        <button class="settings-menu-item" data-sub="profile">
+          <div class="settings-menu-icon" style="background:#DBEAFE;color:#2563EB"><i class="ti ti-user"></i></div>
+          <div class="settings-menu-label">Профіль</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
-        <button class="settings-menu-item" data-sub="sync">
-          <div class="settings-menu-icon" style="background:#F0FDF4;color:#15803D"><i class="ti ti-refresh"></i></div>
-          <div class="settings-menu-label">Синхронізація та Backup</div>
+        <button class="settings-menu-item" data-sub="family">
+          <div class="settings-menu-icon" style="background:#FEF3C7;color:#D97706"><i class="ti ti-users"></i></div>
+          <div class="settings-menu-label">Родина</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" data-sub="appearance">
+          <div class="settings-menu-icon" style="background:#EDE9FE;color:#7C3AED"><i class="ti ti-palette"></i></div>
+          <div class="settings-menu-label">Зовнішній вигляд</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" data-sub="security">
+          <div class="settings-menu-icon" style="background:#FEE2E2;color:#DC2626"><i class="ti ti-lock"></i></div>
+          <div class="settings-menu-label">Безпека</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
       </div>
 
-      <!-- Фінанси -->
-      <div class="settings-menu-label">НАЛАШТУВАННЯ</div>
+      <!-- Group 2: Finance -->
       <div class="settings-menu-group">
         <button class="settings-menu-item" data-sub="default-wallet">
           <div class="settings-menu-icon" style="background:#DCFCE7;color:#16A34A"><i class="ti ti-wallet"></i></div>
           <div class="settings-menu-label">Кошельок за замовчуванням</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" data-sub="telegram">
+          <div class="settings-menu-icon" style="background:#E0F2FE;color:#0284C7"><i class="ti ti-brand-telegram"></i></div>
+          <div class="settings-menu-label">Telegram сповіщення</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" data-sub="sync">
+          <div class="settings-menu-icon" style="background:#F0FDF4;color:#15803D"><i class="ti ti-refresh"></i></div>
+          <div class="settings-menu-label">Синхронізація</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+      </div>
+
+      <!-- Group 3: Data -->
+      <div class="settings-menu-group">
+        <button class="settings-menu-item" data-sub="plan">
+          <div class="settings-menu-icon" style="background:#FFF7ED;color:#EA580C"><i class="ti ti-list-check"></i></div>
+          <div class="settings-menu-label">План витрат</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" data-sub="limits">
+          <div class="settings-menu-icon" style="background:#FEE2E2;color:#DC2626"><i class="ti ti-gauge"></i></div>
+          <div class="settings-menu-label">Ліміти витрат</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
         <button class="settings-menu-item" data-sub="exp-cats">
@@ -393,51 +388,50 @@ function renderMainMenu() {
           <div class="settings-menu-label">Категорії доходів</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
-        <button class="settings-menu-item" data-sub="limits">
-          <div class="settings-menu-icon" style="background:#FEE2E2;color:#DC2626"><i class="ti ti-gauge"></i></div>
-          <div class="settings-menu-label">Ліміти та план витрат</div>
+        <button class="settings-menu-item" data-sub="wallet-types">
+          <div class="settings-menu-icon" style="background:#EDE9FE;color:#6D28D9"><i class="ti ti-credit-card"></i></div>
+          <div class="settings-menu-label">Типи рахунків</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
         <button class="settings-menu-item" data-sub="wallets">
           <div class="settings-menu-icon" style="background:#DBEAFE;color:#1D4ED8"><i class="ti ti-building-bank"></i></div>
-          <div class="settings-menu-label">Кошельки та рахунки</div>
-          <i class="ti ti-chevron-right settings-menu-arrow"></i>
-        </button>
-        <button class="settings-menu-item" data-sub="dashboard-widgets">
-          <div class="settings-menu-icon" style="background:#F0FDF4;color:#15803D"><i class="ti ti-layout-dashboard"></i></div>
-          <div class="settings-menu-label">Блоки дашборду</div>
+          <div class="settings-menu-label">Кошельки</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
       </div>
 
-      <!-- Інше -->
-      <div class="settings-menu-label">ІНФОРМАЦІЯ</div>
+      <!-- Divider -->
+      <div style="height:4px"></div>
+
+      <!-- Group 4: Legal -->
       <div class="settings-menu-group">
+        <button class="settings-menu-item" data-sub="privacy">
+          <div class="settings-menu-icon" style="background:#E0F2FE;color:#0369A1"><i class="ti ti-shield"></i></div>
+          <div class="settings-menu-label">Політика конфіденційності</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" data-sub="terms">
+          <div class="settings-menu-icon" style="background:#F0FDF4;color:#15803D"><i class="ti ti-file-text"></i></div>
+          <div class="settings-menu-label">Угода користувача</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
         <button class="settings-menu-item" data-sub="about">
           <div class="settings-menu-icon" style="background:#EEF2FF;color:#4F46E5"><i class="ti ti-info-circle"></i></div>
           <div class="settings-menu-label">Про додаток</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
-        <button class="settings-menu-item" data-sub="privacy">
-          <div class="settings-menu-icon" style="background:#E0F2FE;color:#0369A1"><i class="ti ti-shield"></i></div>
-          <div class="settings-menu-label">Конфіденційність</div>
-          <i class="ti ti-chevron-right settings-menu-arrow"></i>
-        </button>
-        <button class="settings-menu-item" data-sub="terms">
-          <div class="settings-menu-icon" style="background:#F0FDF4;color:#15803D"><i class="ti ti-file-text"></i></div>
-          <div class="settings-menu-label">Умови використання</div>
-          <i class="ti ti-chevron-right settings-menu-arrow"></i>
-        </button>
       </div>
 
-      <div class="settings-footer">Many Budget · v3.0</div>
+      <div class="settings-footer">
+        <div>Сімейний бюджет v3.0</div>
+      </div>
     </div>
   `;
 }
 
 // ── Sub-page content builders ─────────────────────────────────
 const SUB_PAGE_TITLES = {
-  'profile-group':  'Профіль',
+  'profile-group':     'Профіль',
   'dashboard-widgets': 'Блоки дашборду',
   profile:        'Профіль',
   family:         'Родина',
@@ -492,25 +486,26 @@ function renderSubPageBody(key) {
       `;
     }
 
-    case 'profile': {
-      const userAv = getAvatar() || state.user?.avatar || '';
-      const userAvatarHtml = userAv && userAv.length > 2
-        ? `<img id="profile-avatar-img" src="${esc(userAv)}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid var(--c-accent)">`
-        : `<div id="profile-avatar-img" style="width:80px;height:80px;border-radius:50%;background:var(--c-accent-soft);color:var(--c-accent);font-size:32px;font-weight:700;display:flex;align-items:center;justify-content:center;border:3px solid var(--c-accent)">${(state.user?.name || '?')[0]}</div>`;
+    case 'profile':
       return `
-        <div class="settings-card" style="align-items:center;text-align:center;gap:12px;display:flex;flex-direction:column;padding:24px 16px">
-          <div style="position:relative;display:inline-block">
-            ${userAvatarHtml}
-            <label for="profile-photo-input" style="position:absolute;bottom:0;right:0;width:26px;height:26px;border-radius:50%;background:var(--c-accent);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.25)">
-              <i class="ti ti-camera" style="font-size:13px"></i>
-            </label>
-            <input type="file" id="profile-photo-input" accept="image/*" style="display:none">
+        <div class="settings-card">
+          ${state.user ? `
+            <div class="settings-row">
+              <div class="settings-row-icon"><i class="ti ti-user"></i></div>
+              <div class="settings-row-info">
+                <div class="settings-row-name">${esc(state.user.name)}</div>
+                <div class="settings-row-sub">${esc(state.user.email)}</div>
+              </div>
+            </div>
+          ` : ''}
+          <div class="settings-row">
+            <div class="settings-row-icon"><i class="ti ti-home"></i></div>
+            <div class="settings-row-info">
+              <div class="settings-row-name">Назва родини</div>
+              <input class="settings-row-input" id="family-name-input" value="${esc(family)}" placeholder="Родина...">
+            </div>
+            <button class="btn-ghost-sm" id="save-family-btn">Зберегти</button>
           </div>
-          <div>
-            <div style="font-size:17px;font-weight:700">${esc(state.user?.name || state.member || '')}</div>
-            <div style="font-size:13px;color:var(--c-text-3)">${esc(state.user?.email || '')}</div>
-          </div>
-          <button class="btn-ghost-sm" id="remove-user-avatar-btn" style="font-size:12px;color:var(--c-text-3)">Скинути фото</button>
         </div>
         <div class="settings-card">
           <button class="settings-menu-item" id="signout-btn" style="color:var(--c-red)">
@@ -525,48 +520,14 @@ function renderSubPageBody(key) {
           </button>
         </div>
       `;
-    }
 
-    case 'family': {
-      const famAv = getFamilyAvatar();
-      const famName = getFamilyName() || '';
-      const famLogoHtml = famAv && famAv.startsWith('data:')
-        ? `<img id="family-avatar-img" src="${esc(famAv)}" style="width:80px;height:80px;border-radius:20px;object-fit:cover;border:3px solid var(--c-accent)">`
-        : famAv
-          ? `<div id="family-avatar-img" style="width:80px;height:80px;border-radius:20px;background:var(--c-accent-soft);color:var(--c-accent);font-size:40px;display:flex;align-items:center;justify-content:center;border:3px solid var(--c-accent)">${famAv}</div>`
-          : `<div id="family-avatar-img" style="width:80px;height:80px;border-radius:20px;background:var(--c-accent-soft);color:var(--c-accent);font-size:32px;display:flex;align-items:center;justify-content:center;border:3px solid var(--c-accent)"><i class="ti ti-home-2"></i></div>`;
-      const FAMILY_EMOJIS = ['🏠','🏡','🏰','🌟','🌈','🌊','🌿','🦁','🐯','🦊','🐺','🦅','🌺','🍀','⭐','🎯','🚀','💎','🌙','🔥','🍁','🌻','🐉','🦋'];
+    case 'family':
       return `
-        <div class="settings-card" style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px;padding:24px 16px">
-          <div style="position:relative;display:inline-block">
-            ${famLogoHtml}
-            <label for="family-photo-input" style="position:absolute;bottom:0;right:0;width:26px;height:26px;border-radius:50%;background:var(--c-accent);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.25)">
-              <i class="ti ti-camera" style="font-size:13px"></i>
-            </label>
-            <input type="file" id="family-photo-input" accept="image/*" style="display:none">
-          </div>
-          <div style="width:100%;text-align:left">
-            <div style="font-size:12px;font-weight:600;color:var(--c-text-3);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em">Іконка родини</div>
-            <div style="display:flex;flex-wrap:wrap;gap:8px" id="family-emoji-grid">
-              ${FAMILY_EMOJIS.map(e => `
-                <button data-fam-emoji="${e}" style="width:40px;height:40px;border-radius:10px;font-size:22px;border:2px solid ${e === famAv ? 'var(--c-accent)' : 'transparent'};background:${e === famAv ? 'var(--c-accent-soft)' : 'var(--c-bg-3)'};cursor:pointer;display:flex;align-items:center;justify-content:center;transition:border-color 0.15s">${e}</button>
-              `).join('')}
-            </div>
-          </div>
-          <div style="width:100%;text-align:left">
-            <div style="font-size:12px;font-weight:600;color:var(--c-text-3);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em">Назва родини</div>
-            <div style="display:flex;gap:8px">
-              <input id="family-name-input" class="settings-row-input" style="flex:1" value="${esc(famName)}" placeholder="Наприклад: Ковалі">
-              <button class="btn-ghost-sm" id="save-family-btn">Зберегти</button>
-            </div>
-          </div>
-          <button class="btn-ghost-sm" id="remove-family-avatar-btn" style="font-size:12px;color:var(--c-text-3)">Скинути іконку</button>
-        </div>
         <div class="settings-card">
           <div id="members-list">
             ${getFamilyMembers().map((m) => `
               <div class="settings-row">
-                <div class="settings-row-icon" style="background:var(--c-accent-soft);color:var(--c-accent);font-weight:700">${m[0]}</div>
+                <div class="settings-row-icon" style="background:var(--c-accent-soft);color:var(--c-accent)"><b>${m[0]}</b></div>
                 <div class="settings-row-info">
                   <div class="settings-row-name">${esc(m)}</div>
                   <div class="settings-row-sub">${esc(m) === esc(state.member) ? 'Це ви' : 'Учасник'}</div>
@@ -577,7 +538,6 @@ function renderSubPageBody(key) {
           <button class="settings-add-btn" id="invite-btn"><i class="ti ti-user-plus"></i> Запросити члена родини</button>
         </div>
       `;
-    }
 
     case 'appearance': {
       const curPalette = getPalette();
@@ -615,34 +575,6 @@ function renderSubPageBody(key) {
             `).join('')}
           </div>
         </div>
-
-      `;
-    }
-
-    case 'dashboard-widgets': {
-      const widgets = JSON.parse(localStorage.getItem('budget_widgets') || '{}');
-      const WIDGET_LIST = [
-        { key: 'wallets',   label: 'Кошельки' },
-        { key: 'chart',     label: 'Графіки витрат/доходів' },
-        { key: 'donut',     label: 'Кругова діаграма категорій' },
-        { key: 'limits',    label: 'Топ категорій з лімітами' },
-        { key: 'credit',    label: 'Кредитні картки' },
-        { key: 'recurring', label: 'Найближчі платежі' },
-        { key: 'recent',    label: 'Останні операції' },
-      ];
-      return `
-        <div class="settings-card" style="padding:16px">
-          <div style="font-size:12px;color:var(--c-text-3);margin-bottom:14px;padding-left:2px">Вибери що показувати на головній</div>
-          ${WIDGET_LIST.map(w => `
-            <div class="settings-row" style="padding:10px 0;border-bottom:.5px solid var(--c-border)">
-              <div class="settings-row-info"><div class="settings-row-name" style="font-size:14px">${w.label}</div></div>
-              <label class="toggle-switch" style="flex-shrink:0">
-                <input type="checkbox" class="widget-toggle" data-widget="${w.key}" ${widgets[w.key] !== false ? 'checked' : ''}>
-                <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              </label>
-            </div>
-          `).join('')}
-        </div>
       `;
     }
 
@@ -668,11 +600,11 @@ function renderSubPageBody(key) {
               <i class="ti ti-brand-telegram"></i>
             </div>
             <div>
-              <div style="font-size:16px;font-weight:700;margin-bottom:2px">@MANY_BUDGET_BOT</div>
+              <div style="font-size:16px;font-weight:700;margin-bottom:2px">Many Budget Bot</div>
               <div style="font-size:13px;color:var(--c-text-3)">Ваш фінансовий асистент у Telegram</div>
             </div>
           </div>
-          <a href="https://t.me/MANY_BUDGET_BOT" target="_blank" rel="noopener"
+          <a href="https://t.me/ManyBudgetBot" target="_blank" rel="noopener"
             style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:12px;background:#0284C7;color:#fff;border-radius:var(--radius);font-size:14px;font-weight:700;text-decoration:none;margin-bottom:14px">
             <i class="ti ti-brand-telegram" style="font-size:18px"></i> Відкрити бота
           </a>
@@ -719,14 +651,6 @@ function renderSubPageBody(key) {
               <div class="settings-row-sub">Перевірити чи все працює</div>
             </div>
             <button class="btn-ghost-sm" id="diag-btn">Запустити</button>
-          </div>
-          <div class="settings-row">
-            <div class="settings-row-icon"><i class="ti ti-file-spreadsheet"></i></div>
-            <div class="settings-row-info">
-              <div class="settings-row-name">Експортувати CSV</div>
-              <div class="settings-row-sub">Завантажити всі операції у форматі CSV</div>
-            </div>
-            <button class="btn-ghost-sm" id="export-csv-btn"><i class="ti ti-download"></i> Експорт</button>
           </div>
         </div>
       `;
@@ -796,75 +720,32 @@ function renderSubPageBody(key) {
         </div>
       `;
 
-    case 'privacy':
+    case 'dashboard-widgets': {
+      const widgets = JSON.parse(localStorage.getItem('budget_widgets') || '{}');
+      const WIDGET_LIST = [
+        { key: 'wallets',   label: 'Кошельки' },
+        { key: 'chart',     label: 'Графіки витрат/доходів' },
+        { key: 'donut',     label: 'Кругова діаграма категорій' },
+        { key: 'limits',    label: 'Топ категорій з лімітами' },
+        { key: 'credit',    label: 'Кредитні картки' },
+        { key: 'recurring', label: 'Найближчі платежі' },
+        { key: 'recent',    label: 'Останні операції' },
+      ];
       return `
-        <div class="settings-card" style="margin-bottom:12px">
-          <div style="display:flex;align-items:center;gap:12px;padding-bottom:14px;border-bottom:1px solid var(--c-border);margin-bottom:14px">
-            <div style="width:44px;height:44px;border-radius:12px;background:#F0FDF4;color:#16A34A;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0"><i class="ti ti-shield-check"></i></div>
-            <div>
-              <div style="font-size:15px;font-weight:700">Політика конфіденційності</div>
-              <div style="font-size:12px;color:var(--c-text-3)">Редакція від 1 травня 2026 р.</div>
-            </div>
-          </div>
-          ${[
-            ['Які дані ми збираємо', 'Ми збираємо мінімум інформації: ім\'я та email вашого Google-акаунта для авторизації, а також фінансові операції, кошельки та цілі, які ви вводите вручну. Ми не збираємо геолокацію, контакти, або будь-які інші персональні дані.'],
-            ['Де зберігаються дані', 'Усі дані зберігаються у хмарній базі Firebase (Google Cloud) із шифруванням у стані спокою (AES-256) та під час передачі (TLS). Сервери розташовані в Євросоюзі.'],
-            ['Хто має доступ', 'Виключно ви та члени вашої родини, яких ви самостійно запросили до облікового запису. Ми — команда розробників — не переглядаємо ваші фінансові дані. Жодна третя сторона не має доступу.'],
-            ['Продаж даних', 'Ми не продаємо, не передаємо і не обмінюємо ваші персональні або фінансові дані з рекламодавцями, партнерами або будь-якими іншими організаціями.'],
-            ['Видалення даних', 'Ви можете видалити свій акаунт і всі пов\'язані дані в будь-який момент у розділі Налаштування → Акаунт → Видалити акаунт. Після видалення дані стираються повністю протягом 30 днів.'],
-            ['Зміни в політиці', 'Ми повідомляємо про суттєві зміни в цій політиці через сповіщення в додатку не менше ніж за 7 днів до набрання чинності. Актуальна версія завжди доступна в налаштуваннях.'],
-          ].map(([title, text]) => `
-            <div style="margin-bottom:14px">
-              <div style="font-size:13px;font-weight:700;color:var(--c-text);margin-bottom:4px">${title}</div>
-              <div style="font-size:13px;line-height:1.6;color:var(--c-text-2)">${text}</div>
+        <div class="settings-card" style="padding:16px">
+          <div style="font-size:12px;color:var(--c-text-3);margin-bottom:14px;padding-left:2px">Вибери що показувати на головній</div>
+          ${WIDGET_LIST.map(w => `
+            <div class="settings-row" style="padding:10px 0;border-bottom:.5px solid var(--c-border)">
+              <div class="settings-row-info"><div class="settings-row-name" style="font-size:14px">${w.label}</div></div>
+              <label class="toggle-switch" style="flex-shrink:0">
+                <input type="checkbox" class="widget-toggle" data-widget="${w.key}" ${widgets[w.key] !== false ? 'checked' : ''}>
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
             </div>
           `).join('')}
         </div>
-        <div class="settings-card">
-          <div style="display:flex;gap:12px;align-items:flex-start">
-            <i class="ti ti-mail" style="font-size:18px;color:var(--c-text-3);margin-top:2px"></i>
-            <div>
-              <div style="font-size:13px;font-weight:600">Питання щодо конфіденційності</div>
-              <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">Напишіть нам: <a href="mailto:privacy@many.app" style="color:var(--c-accent)">privacy@many.app</a></div>
-            </div>
-          </div>
-        </div>
       `;
-
-    case 'terms':
-      return `
-        <div class="settings-card" style="margin-bottom:12px">
-          <div style="display:flex;align-items:center;gap:12px;padding-bottom:14px;border-bottom:1px solid var(--c-border);margin-bottom:14px">
-            <div style="width:44px;height:44px;border-radius:12px;background:#FFF7ED;color:#EA580C;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0"><i class="ti ti-file-text"></i></div>
-            <div>
-              <div style="font-size:15px;font-weight:700">Угода користувача</div>
-              <div style="font-size:12px;color:var(--c-text-3)">Редакція від 1 травня 2026 р.</div>
-            </div>
-          </div>
-          ${[
-            ['Прийняття умов', 'Використовуючи додаток Many Budget, ви підтверджуєте, що ознайомились із цією угодою та погоджуєтесь з її умовами. Якщо ви не згодні — будь ласка, припиніть використання додатку.'],
-            ['Підписка та оплата', 'Доступ до повного функціоналу надається за платною підпискою. Підписка автоматично поновлюється. Ви можете скасувати її в будь-який момент у налаштуваннях App Store або Google Play. Повернення коштів здійснюється відповідно до правил магазину застосунків.'],
-            ['Обмеження відповідальності', 'Many Budget є інструментом для особистого фінансового обліку. Додаток не є фінансовим радником. Ми не несемо відповідальності за фінансові рішення, прийняті на основі даних у додатку. Завжди консультуйтесь із кваліфікованим фінансистом у важливих питаннях.'],
-            ['Права та обов\'язки', 'Ви зобов\'язуєтесь не використовувати додаток для незаконних цілей, не намагатися отримати несанкціонований доступ до чужих даних, не розповсюджувати шкідливий вміст через функції спільного доступу.'],
-            ['Зміни у функціоналі', 'Ми залишаємо за собою право змінювати, оновлювати або припиняти окремі функції додатку. Про суттєві зміни ми повідомляємо заздалегідь. Ми прагнемо вдосконалювати продукт та цінуємо ваш зворотний зв\'язок.'],
-            ['Припинення доступу', 'Ми залишаємо за собою право призупинити або припинити доступ до акаунта у разі порушення умов цієї угоди. Ви можете самостійно видалити акаунт у будь-який час.'],
-          ].map(([title, text]) => `
-            <div style="margin-bottom:14px">
-              <div style="font-size:13px;font-weight:700;color:var(--c-text);margin-bottom:4px">${title}</div>
-              <div style="font-size:13px;line-height:1.6;color:var(--c-text-2)">${text}</div>
-            </div>
-          `).join('')}
-        </div>
-        <div class="settings-card">
-          <div style="display:flex;gap:12px;align-items:flex-start">
-            <i class="ti ti-mail" style="font-size:18px;color:var(--c-text-3);margin-top:2px"></i>
-            <div>
-              <div style="font-size:13px;font-weight:600">Запитання щодо угоди</div>
-              <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">Напишіть нам: <a href="mailto:support@many.app" style="color:var(--c-accent)">support@many.app</a></div>
-            </div>
-          </div>
-        </div>
-      `;
+    }
 
     case 'subscription':
       return `
@@ -872,42 +753,6 @@ function renderSubPageBody(key) {
           <div class="sub-page-hero-logo">✨</div>
           <div class="sub-page-hero-title">Many Budget Pro</div>
           <div class="sub-page-hero-sub">Усі можливості. Одна підписка.</div>
-        </div>
-
-        <div class="settings-card" style="margin-bottom:12px">
-          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--c-text-3);margin-bottom:10px;padding-left:4px">Що входить до Pro</div>
-          ${[
-            ['ti-robot',          '#DBEAFE', '#2563EB', 'AI-аналітика (Фінн)',    'Персональний фінансовий радник на базі Claude AI'],
-            ['ti-users',          '#FEF3C7', '#D97706', 'Необмежена родина',       'Додавайте скількох завгодно членів родини'],
-            ['ti-brand-telegram', '#E0F2FE', '#0284C7', 'Telegram-бот',            'Додавайте операції прямо з месенджера'],
-            ['ti-scan',           '#F0FDF4', '#15803D', 'Сканер чеків',            'Фотографуйте чек — сума додається автоматично'],
-            ['ti-target',         '#EDE9FE', '#7C3AED', 'Цілі та резерв',          'Накопичуйте на мрії та будуйте фінансову подушку'],
-            ['ti-repeat',         '#FFF7ED', '#EA580C', 'Регулярні платежі',       'Автоматичний облік підписок та щомісячних витрат'],
-          ].map(([icon, bg, color, name, desc]) => `
-            <div style="display:flex;gap:12px;padding:10px 0;border-bottom:0.5px solid var(--c-border);align-items:flex-start">
-              <div style="width:36px;height:36px;border-radius:10px;background:${bg};color:${color};display:flex;align-items:center;justify-content:center;flex-shrink:0">
-                <i class="ti ${icon}"></i>
-              </div>
-              <div>
-                <div style="font-size:13px;font-weight:600">${name}</div>
-                <div style="font-size:12px;color:var(--c-text-3);margin-top:2px;line-height:1.4">${desc}</div>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-
-        <div class="settings-card" style="margin-bottom:12px">
-          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--c-text-3);margin-bottom:10px;padding-left:4px">Поточний план</div>
-          <div style="display:flex;align-items:center;gap:12px;padding:10px 0">
-            <div style="width:40px;height:40px;border-radius:12px;background:var(--c-bg-3);color:var(--c-text-3);display:flex;align-items:center;justify-content:center">
-              <i class="ti ti-package"></i>
-            </div>
-            <div style="flex:1">
-              <div style="font-size:15px;font-weight:700">Free</div>
-              <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">Базові можливості</div>
-            </div>
-            <div style="font-size:12px;font-weight:600;color:var(--c-text-3);background:var(--c-bg-3);padding:4px 10px;border-radius:20px">Активний</div>
-          </div>
         </div>
 
         <div class="settings-card" style="margin-bottom:12px">
@@ -966,6 +811,76 @@ function renderSubPageBody(key) {
         </div>
       `;
 
+    case 'privacy':
+      return `
+        <div class="settings-card" style="margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:12px;padding-bottom:14px;border-bottom:1px solid var(--c-border);margin-bottom:14px">
+            <div style="width:44px;height:44px;border-radius:12px;background:#F0FDF4;color:#16A34A;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0"><i class="ti ti-shield-check"></i></div>
+            <div>
+              <div style="font-size:15px;font-weight:700">Політика конфіденційності</div>
+              <div style="font-size:12px;color:var(--c-text-3)">Редакція від 1 травня 2025 р.</div>
+            </div>
+          </div>
+          ${[
+            ['Які дані ми збираємо', 'Ми збираємо мінімум інформації: ім\'я та email вашого Google-акаунта для авторизації, а також фінансові операції, кошельки та цілі, які ви вводите вручну. Ми не збираємо геолокацію, контакти, або будь-які інші персональні дані.'],
+            ['Де зберігаються дані', 'Усі дані зберігаються у хмарній базі Firebase (Google Cloud) із шифруванням у стані спокою (AES-256) та під час передачі (TLS). Сервери розташовані в Євросоюзі.'],
+            ['Хто має доступ', 'Виключно ви та члени вашої родини, яких ви самостійно запросили до облікового запису. Ми — команда розробників — не переглядаємо ваші фінансові дані. Жодна третя сторона не має доступу.'],
+            ['Продаж даних', 'Ми не продаємо, не передаємо і не обмінюємо ваші персональні або фінансові дані з рекламодавцями, партнерами або будь-якими іншими організаціями.'],
+            ['Видалення даних', 'Ви можете видалити свій акаунт і всі пов\'язані дані в будь-який момент у розділі Налаштування → Акаунт → Видалити акаунт. Після видалення дані стираються повністю протягом 30 днів.'],
+            ['Зміни в політиці', 'Ми повідомляємо про суттєві зміни в цій політиці через сповіщення в додатку не менше ніж за 7 днів до набрання чинності. Актуальна версія завжди доступна в налаштуваннях.'],
+          ].map(([title, text]) => `
+            <div style="margin-bottom:14px">
+              <div style="font-size:13px;font-weight:700;color:var(--c-text);margin-bottom:4px">${title}</div>
+              <div style="font-size:13px;line-height:1.6;color:var(--c-text-2)">${text}</div>
+            </div>
+          `).join('')}
+        </div>
+        <div class="settings-card">
+          <div style="display:flex;gap:12px;align-items:flex-start">
+            <i class="ti ti-mail" style="font-size:18px;color:var(--c-text-3);margin-top:2px"></i>
+            <div>
+              <div style="font-size:13px;font-weight:600">Питання щодо конфіденційності</div>
+              <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">Напишіть нам: <a href="mailto:privacy@many.app" style="color:var(--c-accent)">privacy@many.app</a></div>
+            </div>
+          </div>
+        </div>
+      `;
+
+    case 'terms':
+      return `
+        <div class="settings-card" style="margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:12px;padding-bottom:14px;border-bottom:1px solid var(--c-border);margin-bottom:14px">
+            <div style="width:44px;height:44px;border-radius:12px;background:#FFF7ED;color:#EA580C;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0"><i class="ti ti-file-text"></i></div>
+            <div>
+              <div style="font-size:15px;font-weight:700">Угода користувача</div>
+              <div style="font-size:12px;color:var(--c-text-3)">Редакція від 1 травня 2025 р.</div>
+            </div>
+          </div>
+          ${[
+            ['Прийняття умов', 'Використовуючи додаток Many Budget, ви підтверджуєте, що ознайомились із цією угодою та погоджуєтесь з її умовами. Якщо ви не згодні — будь ласка, припиніть використання додатку.'],
+            ['Підписка та оплата', 'Доступ до повного функціоналу надається за платною підпискою. Підписка автоматично поновлюється. Ви можете скасувати її в будь-який момент у налаштуваннях App Store або Google Play. Повернення коштів здійснюється відповідно до правил магазину застосунків.'],
+            ['Обмеження відповідальності', 'Many Budget є інструментом для особистого фінансового обліку. Додаток не є фінансовим радником. Ми не несемо відповідальності за фінансові рішення, прийняті на основі даних у додатку. Завжди консультуйтесь із кваліфікованим фінансистом у важливих питаннях.'],
+            ['Права та обов\'язки', 'Ви зобов\'язуєтесь не використовувати додаток для незаконних цілей, не намагатися отримати несанкціонований доступ до чужих даних, не розповсюджувати шкідливий вміст через функції спільного доступу.'],
+            ['Зміни у функціоналі', 'Ми залишаємо за собою право змінювати, оновлювати або припиняти окремі функції додатку. Про суттєві зміни ми повідомляємо заздалегідь. Ми прагнемо вдосконалювати продукт та цінуємо ваш зворотний зв\'язок.'],
+            ['Припинення доступу', 'Ми залишаємо за собою право призупинити або припинити доступ до акаунта у разі порушення умов цієї угоди. Ви можете самостійно видалити акаунт у будь-який час.'],
+          ].map(([title, text]) => `
+            <div style="margin-bottom:14px">
+              <div style="font-size:13px;font-weight:700;color:var(--c-text);margin-bottom:4px">${title}</div>
+              <div style="font-size:13px;line-height:1.6;color:var(--c-text-2)">${text}</div>
+            </div>
+          `).join('')}
+        </div>
+        <div class="settings-card">
+          <div style="display:flex;gap:12px;align-items:flex-start">
+            <i class="ti ti-mail" style="font-size:18px;color:var(--c-text-3);margin-top:2px"></i>
+            <div>
+              <div style="font-size:13px;font-weight:600">Запитання щодо угоди</div>
+              <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">Напишіть нам: <a href="mailto:support@many.app" style="color:var(--c-accent)">support@many.app</a></div>
+            </div>
+          </div>
+        </div>
+      `;
+
     case 'about':
       return `
         <div class="settings-card" style="margin-bottom:12px">
@@ -974,7 +889,7 @@ function renderSubPageBody(key) {
               💰
             </div>
             <div style="font-size:22px;font-weight:800;letter-spacing:-0.02em;margin-bottom:4px">Many Budget</div>
-            <div style="font-size:13px;color:var(--c-text-3);margin-bottom:16px">Версія 2.0.0 · Травень 2026</div>
+            <div style="font-size:13px;color:var(--c-text-3);margin-bottom:16px">Версія 2.0.0 · Травень 2025</div>
             <div style="font-size:14px;color:var(--c-text-2);line-height:1.7;max-width:300px">
               Розумний фінансовий менеджер для всієї родини з AI-аналітикою, синхронізацією та Telegram-ботом.
             </div>
@@ -1016,18 +931,6 @@ function renderSubPageBody(key) {
             </div>
           `).join('')}
         </div>
-        <div class="settings-card" style="margin-bottom:12px;background:linear-gradient(135deg,#2E7D5F 0%,#4CAF50 100%);color:#fff;border:none">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="font-size:28px">🚀</div>
-            <div style="flex:1">
-              <div style="font-size:15px;font-weight:700">Оновити до Pro</div>
-              <div style="font-size:12px;opacity:0.85;margin-top:2px">AI, Telegram-бот, сканер чеків та більше</div>
-            </div>
-            <button id="about-upgrade-btn" style="background:rgba(255,255,255,0.25);border:none;color:#fff;font-size:13px;font-weight:600;padding:8px 14px;border-radius:12px;cursor:pointer;white-space:nowrap">
-              149 ₴/міс
-            </button>
-          </div>
-        </div>
         <div class="settings-card">
           <div class="settings-row" style="border-bottom:0.5px solid var(--c-border);padding-bottom:10px;margin-bottom:10px">
             <div class="settings-row-icon" style="background:#FEF3C7;color:#D97706"><i class="ti ti-star-filled"></i></div>
@@ -1048,7 +951,7 @@ function renderSubPageBody(key) {
           <div class="settings-row">
             <div class="settings-row-icon" style="background:#FEE2E2;color:#DC2626"><i class="ti ti-heart-filled"></i></div>
             <div class="settings-row-info">
-              <div class="settings-row-name">Many Budget © 2026</div>
+              <div class="settings-row-name">Many Budget © 2025</div>
               <div class="settings-row-sub">Зроблено з ❤️ для вашої родини</div>
             </div>
           </div>
@@ -1235,28 +1138,38 @@ function bindSettingsHandlers(el) {
     });
   });
 
-  // Palette picker
-  el.querySelectorAll('[data-palette-id]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      applyPalette(btn.dataset.paletteId);
-      el.querySelectorAll('[data-palette-id]').forEach(b => {
-        const active = b.dataset.paletteId === btn.dataset.paletteId;
-        b.style.borderColor = active ? 'var(--c-accent)' : 'transparent';
-        b.style.background = active ? 'var(--c-accent-soft)' : 'var(--c-bg-3)';
-      });
-      showToast('✅ Стиль змінено');
+  // Palette
+  el.querySelectorAll('[data-palette-id]').forEach(b => {
+    b.addEventListener('click', () => {
+      setPalette(b.dataset.paletteId);
+      applyPalette(b.dataset.paletteId);
+      renderSettingsPage();
     });
   });
 
-  // Dashboard widget toggles
-  el.querySelectorAll('.widget-toggle').forEach(cb => {
-    cb.addEventListener('change', () => {
-      const widgets = getDashWidgets();
-      widgets[cb.dataset.widget] = cb.checked;
-      setDashWidgets(widgets);
-      if (window.renderDashboardPublic) window.renderDashboardPublic();
-      showToast(cb.checked ? '✅ Блок увімкнено' : 'Блок вимкнено');
+  // Widget toggles
+  el.querySelectorAll('.widget-toggle').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const widgets = JSON.parse(localStorage.getItem('budget_widgets') || '{}');
+      widgets[inp.dataset.widget] = inp.checked;
+      localStorage.setItem('budget_widgets', JSON.stringify(widgets));
     });
+  });
+
+  // Subscription plan cards
+  el.querySelectorAll('.sub-plan-card').forEach(card => {
+    card.addEventListener('click', () => {
+      el.querySelectorAll('.sub-plan-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+    });
+  });
+
+  // Subscribe button
+  el.querySelector('#sub-page-subscribe-btn')?.addEventListener('click', () => {
+    import('./paywall.js').then(m => m.showPaywall());
+  });
+  el.querySelector('#sub-page-trial-btn')?.addEventListener('click', () => {
+    import('./paywall.js').then(m => m.showPaywall());
   });
 
   // Family name
@@ -1265,71 +1178,9 @@ function bindSettingsHandlers(el) {
     if (!v) return;
     setFamilyName(v);
     syncSettingsToSheet();
+    const sb = document.getElementById('sb-family-name');
+    if (sb) sb.textContent = v;
     showToast('✅ Збережено');
-    if (window.renderSidebarPublic) window.renderSidebarPublic();
-  });
-
-  // Family emoji picker
-  el.querySelectorAll('[data-fam-emoji]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const emoji = btn.dataset.famEmoji;
-      setFamilyAvatar(emoji);
-      el.querySelectorAll('[data-fam-emoji]').forEach(b => {
-        const active = b.dataset.famEmoji === emoji;
-        b.style.borderColor = active ? 'var(--c-accent)' : 'transparent';
-        b.style.background = active ? 'var(--c-accent-soft)' : 'var(--c-bg-3)';
-      });
-      const img = el.querySelector('#family-avatar-img');
-      if (img) {
-        img.outerHTML = `<div id="family-avatar-img" style="width:80px;height:80px;border-radius:20px;background:var(--c-accent-soft);color:var(--c-accent);font-size:40px;display:flex;align-items:center;justify-content:center;border:3px solid var(--c-accent)">${emoji}</div>`;
-      }
-      if (window.renderSidebarPublic) window.renderSidebarPublic();
-      showToast('✅ Іконку змінено');
-    });
-  });
-
-  // Family photo upload
-  el.querySelector('#family-photo-input')?.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    try {
-      const dataUrl = await compressImage(file, 256);
-      setFamilyAvatar(dataUrl);
-      const img = el.querySelector('#family-avatar-img');
-      if (img) img.outerHTML = `<img id="family-avatar-img" src="${dataUrl}" style="width:80px;height:80px;border-radius:20px;object-fit:cover;border:3px solid var(--c-accent)">`;
-      if (window.renderSidebarPublic) window.renderSidebarPublic();
-      showToast('✅ Фото родини збережено');
-    } catch { showToast('Помилка завантаження', 'error'); }
-  });
-
-  // Remove family avatar
-  el.querySelector('#remove-family-avatar-btn')?.addEventListener('click', () => {
-    setFamilyAvatar('');
-    if (window.renderSidebarPublic) window.renderSidebarPublic();
-    showToast('Іконку скинуто');
-  });
-
-  // User photo upload
-  el.querySelector('#profile-photo-input')?.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    try {
-      const dataUrl = await compressImage(file, 256);
-      setAvatar(dataUrl);
-      const img = el.querySelector('#profile-avatar-img');
-      if (img) img.outerHTML = `<img id="profile-avatar-img" src="${dataUrl}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid var(--c-accent)">`;
-      if (window.renderSidebarPublic) window.renderSidebarPublic();
-      if (window.renderTopbarPublic) window.renderTopbarPublic();
-      showToast('✅ Фото профілю збережено');
-    } catch { showToast('Помилка завантаження', 'error'); }
-  });
-
-  // Remove user avatar
-  el.querySelector('#remove-user-avatar-btn')?.addEventListener('click', () => {
-    setAvatar('');
-    if (window.renderSidebarPublic) window.renderSidebarPublic();
-    if (window.renderTopbarPublic) window.renderTopbarPublic();
-    showToast('Фото скинуто');
   });
 
   // Sign out
@@ -1368,42 +1219,21 @@ function bindSettingsHandlers(el) {
     btn.textContent = '⏳ Генерую код...';
     try {
       const code = await generateInviteCode(state.familyId, state.user?.uid);
-      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=MANYBUDGET:${encodeURIComponent(code)}`;
       openBottomSheet({
-        title: '👥 Запросити члена родини',
+        title: '📨 Запрошення до родини',
         content: `
-          <div style="text-align:center;padding:8px 0 16px">
-            <div style="font-size:13px;color:var(--c-text-2);margin-bottom:20px">Поділись кодом запрошення</div>
-            <div style="display:flex;align-items:center;gap:10px;background:var(--c-accent-soft);border-radius:14px;padding:14px 16px;margin-bottom:20px">
-              <div style="flex:1;font-size:28px;font-weight:800;letter-spacing:6px;color:var(--c-accent);text-align:center">${esc(code)}</div>
-              <button class="btn-ghost invite-copy-code-btn" style="flex-shrink:0;display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600">
-                <i class="ti ti-copy"></i> Копіювати
-              </button>
-            </div>
-            <div style="font-size:13px;color:var(--c-text-2);margin-bottom:12px">або відскануй QR-код</div>
-            <img src="${qrUrl}" alt="QR код запрошення" width="160" height="160"
-              style="border-radius:12px;border:1px solid var(--c-border);margin-bottom:20px">
-            <div style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--c-text-3)">
-              <div>⏱ Код дійсний 24 години</div>
-              <div>👤 Для одного користувача</div>
-            </div>
+          <div style="text-align:center;padding:16px 0">
+            <div style="font-size:13px;color:var(--c-text-2);margin-bottom:12px">Поділися цим кодом з тим, кого хочеш додати до родини</div>
+            <div style="font-size:36px;font-weight:700;letter-spacing:8px;color:var(--c-accent);margin:16px 0;padding:16px;background:var(--c-accent-soft);border-radius:12px">${esc(code)}</div>
+            <div style="font-size:12px;color:var(--c-text-3);margin-bottom:16px">Код дійсний 7 днів</div>
+            <p style="font-size:13px;color:var(--c-text-2)">Людина вводить цей код під час реєстрації або в налаштуваннях → "Приєднатись до родини"</p>
           </div>
         `,
         footer: `
-          <button class="btn-primary flex-1 invite-copy-code-btn">
+          <button class="btn-primary flex-1" onclick="navigator.clipboard?.writeText('${esc(code)}');this.textContent='✅ Скопійовано!'">
             <i class="ti ti-copy"></i> Скопіювати код
           </button>
         `,
-        onOpen: (modalEl) => {
-          modalEl.querySelectorAll('.invite-copy-code-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-              navigator.clipboard?.writeText(code).then(() => {
-                showToast('Скопійовано!');
-                btn.innerHTML = '<i class="ti ti-check"></i> Скопійовано!';
-              }).catch(() => showToast('Скопійовано!'));
-            });
-          });
-        },
       });
     } catch (e) {
       showToast('Помилка: ' + e.message, 'error');
@@ -1423,11 +1253,6 @@ function bindSettingsHandlers(el) {
     } catch (e) {
       showToast('Помилка: ' + e.message, 'error');
     }
-  });
-
-  // CSV Export
-  el.querySelector('#export-csv-btn')?.addEventListener('click', () => {
-    exportOperationsToCSV(state.operations || []);
   });
 
   // Diagnostics
@@ -1619,32 +1444,5 @@ function bindSettingsHandlers(el) {
     b.addEventListener('click', () => {
       import('./main.js').then(m => m.navigateTo(b.dataset.go));
     });
-  });
-
-  // Paywall / subscription buttons
-  el.querySelector('#about-upgrade-btn')?.addEventListener('click', () => showPaywall());
-  el.querySelector('#sub-page-subscribe-btn')?.addEventListener('click', () => showPaywall());
-  el.querySelector('#sub-page-trial-btn')?.addEventListener('click', () => showPaywall());
-}
-
-// ── Стиснення зображення до base64 ──────────────────────────
-function compressImage(file, maxSize = 256) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = e => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const ratio = Math.min(maxSize / img.width, maxSize / img.height, 1);
-        canvas.width = Math.round(img.width * ratio);
-        canvas.height = Math.round(img.height * ratio);
-        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.82));
-      };
-      img.onerror = reject;
-      img.src = e.target.result;
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
   });
 }

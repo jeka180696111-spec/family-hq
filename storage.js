@@ -328,3 +328,9 @@ export function getEarnedAchievements() {
 export function setEarnedAchievements(obj) {
   writeJson('budget_achievements_earned', obj);
 }
+export function getPalette() {
+  return localStorage.getItem('budget_palette') || 'default';
+}
+export function setPalette(palette) {
+  localStorage.setItem('budget_palette', palette);
+}

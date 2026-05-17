@@ -31,6 +31,27 @@ function getFinancialContext() {
   return `Фінансові дані (${month}): ${who} — доходи ${Math.round(inc)}₴, витрати ${Math.round(exp)}₴, баланс ${Math.round(inc - exp)}₴.${topCats ? ' Топ витрат: ' + topCats + '.' : ''}${creditInfo ? ' Кредитки: ' + creditInfo + '.' : ''}`;
 }
 
+export async function askAI(userMessage, historyOverride = null) {
+  const context = getFinancialContext();
+  const messages = [
+    ...(historyOverride || chatHistory),
+    { role: 'user', content: userMessage },
+  ];
+
+  const res = await fetch('/api/ai-chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages, context }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  return data.text || '';
+}
+
 async function sendToClaude(userMessage) {
   const context = getFinancialContext();
   const messages = [

@@ -1,7 +1,7 @@
 // /api/telegram-summary.js — Щоденний підсумок о 22:00 Kyiv
 // Cron: "0 19 * * *" (19:00 UTC = 22:00 Kyiv влітку)
 
-const admin = require('firebase-admin');
+import admin from 'firebase-admin';
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -33,7 +33,7 @@ function todayKyiv() {
   return new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Kyiv' });
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   if (!BOT_TOKEN || !CHAT_ID) {
     return res.status(500).json({ error: 'Missing TELEGRAM env vars' });
   }

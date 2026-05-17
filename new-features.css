@@ -2,28 +2,6 @@
    NEW FEATURES — credit cards, recurring payments, AI reports
    ═══════════════════════════════════════════════════════════════ */
 
-/* ── Toggle switch (reusable) ───────────────────────────────── */
-.toggle-switch { position: relative; display: inline-block; width: 48px; height: 28px; }
-.toggle-switch input { opacity: 0; width: 0; height: 0; }
-.toggle-track {
-  position: absolute; inset: 0;
-  background: var(--c-border-2);
-  border-radius: 14px;
-  cursor: pointer;
-  transition: background .2s;
-}
-.toggle-switch input:checked + .toggle-track { background: var(--c-accent); }
-.toggle-thumb {
-  position: absolute;
-  top: 3px; left: 3px;
-  width: 22px; height: 22px;
-  background: #fff;
-  border-radius: 50%;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
-  transition: transform .2s cubic-bezier(.34,1.56,.64,1);
-}
-.toggle-switch input:checked + .toggle-track .toggle-thumb { transform: translateX(20px); }
-
 /* ── Skeleton loader ────────────────────────────────────────── */
 @keyframes shimmer {
   0%   { background-position: -400px 0; }
@@ -318,7 +296,7 @@
 /* ── AI FAB button (bottom-right corner) ─────────────────── */
 .ai-fab-btn {
   position: fixed;
-  bottom: 80px;
+  bottom: 90px;
   right: 16px;
   width: 48px;
   height: 48px;
@@ -999,3 +977,79 @@
   z-index: 1;
 }
 
+/* ── Settings profile card ─────────────────────────────────── */
+.settings-profile-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, var(--c-accent) 0%, color-mix(in srgb, var(--c-accent) 70%, #000) 100%);
+  border: none;
+  cursor: pointer;
+  transition: transform .15s, box-shadow .15s;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+}
+.settings-profile-card:hover { transform: scale(1.01); }
+
+/* ── Settings PRO card ─────────────────────────────────────── */
+.settings-pro-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #7C3AED 0%, #B45309 100%);
+  border: none;
+  cursor: pointer;
+  transition: transform .15s, box-shadow .15s;
+  box-shadow: 0 4px 20px rgba(124,58,237,0.3);
+}
+.settings-pro-card:hover { transform: scale(1.01); }
+
+/* ── Subscription plan cards ───────────────────────────────── */
+.sub-plan-card {
+  padding: 14px;
+  border-radius: 14px;
+  border: 2px solid var(--c-border);
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  background: var(--c-bg-2);
+}
+.sub-plan-card:last-child { margin-bottom: 0; }
+.sub-plan-card:hover { border-color: var(--c-accent); }
+.sub-plan-card.sub-plan-featured {
+  border-color: var(--c-accent);
+  background: var(--c-accent-soft);
+}
+.sub-plan-card.selected {
+  border-color: var(--c-accent);
+  background: var(--c-accent-soft);
+}
+
+/* ── AI bubble chat messages ───────────────────────────────── */
+.ai-msg { display: flex; }
+.ai-msg-user { justify-content: flex-end; }
+.ai-msg-bot { justify-content: flex-start; }
+.ai-msg-bubble {
+  max-width: 80%;
+  padding: 9px 13px;
+  border-radius: 16px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.ai-msg-user .ai-msg-bubble {
+  background: var(--c-accent);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.ai-msg-bot .ai-msg-bubble {
+  background: var(--c-bg-3);
+  color: var(--c-text);
+  border-bottom-left-radius: 4px;
+}
