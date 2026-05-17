@@ -528,35 +528,99 @@ function timeGreeting() {
   return '🌆 Доброго вечора';
 }
 
+// Same logic as dashboard's calcBalanceSplit + calcCreditAvailable
+async function calcDashboardStats(familyId) {
+  const [familyDoc, opsSnap, rates] = await Promise.all([
+    db.collection('families').doc(familyId).get(),
+    db.collection('families').doc(familyId).collection('operations').get(),
+    getExchangeRates(),
+  ]);
+
+  // Build card config map: cardId → {walletType, creditLimit, currency}
+  const cardConfig = {};
+  if (familyDoc.exists) {
+    const s = familyDoc.data();
+    const cards = s.cards || {};
+    Object.values(cards).forEach(memberCards => {
+      (Array.isArray(memberCards) ? memberCards : []).forEach(c => {
+        cardConfig[c.id] = {
+          walletType:  c.walletType || 'card',
+          creditLimit: Number(c.creditLimit) || 0,
+          currency:    c.currency || 'UAH',
+        };
+      });
+    });
+    // backwards-compat old format
+    ['cardsEvgen', 'cardsMarina'].forEach(key => {
+      (s[key] || []).forEach(c => {
+        cardConfig[c.id] = {
+          walletType:  c.walletType || 'card',
+          creditLimit: Number(c.creditLimit) || 0,
+          currency:    c.currency || 'UAH',
+        };
+      });
+    });
+  }
+
+  // Sum balances per card (in UAH)
+  const cardBalUah = {};
+  opsSnap.docs.forEach(doc => {
+    const d = doc.data();
+    if (d.category === 'Переказ') return;
+    const cardId = d.card || '';
+    if (!cardBalUah[cardId]) cardBalUah[cardId] = 0;
+    const amtUah = d.amountUah || (d.amount * (rates[d.currency] || 1)) || 0;
+    if (d.type === 'Дохід')   cardBalUah[cardId] += amtUah;
+    if (d.type === 'Витрата') cardBalUah[cardId] -= amtUah;
+  });
+
+  let freeBalance    = 0;
+  let savingsBalance = 0;
+  let creditAvail    = 0;
+
+  Object.entries(cardBalUah).forEach(([cardId, balUah]) => {
+    const cfg = cardConfig[cardId];
+    if (!cfg) {
+      // Unknown card (bot-entered names) → treat as free if positive
+      if (balUah > 0) freeBalance += balUah;
+      return;
+    }
+    if (cfg.creditLimit > 0) {
+      const used = Math.max(0, -balUah);
+      creditAvail += Math.max(0, cfg.creditLimit - used);
+    } else if (cfg.walletType === 'savings') {
+      savingsBalance += balUah;
+    } else {
+      freeBalance += balUah;
+    }
+  });
+
+  return {
+    spendable:      Math.round(freeBalance + creditAvail),
+    freeBalance:    Math.round(freeBalance),
+    savingsBalance: Math.round(savingsBalance),
+    creditAvail:    Math.round(creditAvail),
+  };
+}
+
 async function buildInfoPanel(who, familyId) {
   try {
     const { from, to } = currentMonthRange();
-    const [wallets, ops] = await Promise.all([
-      getWalletBalances(familyId),
+    const [stats, ops] = await Promise.all([
+      calcDashboardStats(familyId),
       getPeriodOps(familyId, from, to),
     ]);
 
-    const total   = wallets.reduce((s, w) => s + w.balanceUah, 0);
-    const savingsKeys = ['накоп', 'депоз', 'заощ', 'savings', 'ощад'];
-    const savings = wallets
-      .filter(w => savingsKeys.some(k => w.name.toLowerCase().includes(k)))
-      .reduce((s, w) => s + w.balanceUah, 0);
-    const free    = wallets
-      .filter(w => w.creditLimit === 0 && !savingsKeys.some(k => w.name.toLowerCase().includes(k)))
-      .reduce((s, w) => s + w.balanceUah, 0);
-
     const totalExp = ops.filter(o => o.type === 'Витрата').reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
-    const totalInc = ops.filter(o => o.type === 'Дохід').reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
+    const totalInc = ops.filter(o => o.type === 'Дохід').reduce((s, o)  => s + (o.amountUah || o.amount || 0), 0);
+
+    const { spendable, savingsBalance, creditAvail } = stats;
 
     let txt = `${timeGreeting()}, <b>${who}</b>!\n`;
     txt += `━━━━━━━━━━━━━━━\n`;
-    txt += `💎 Разом: <b>${total >= 0 ? '+' : '−'}${fmtMoney(Math.abs(total))}</b>\n`;
-    if (savings > 0) {
-      txt += `🏦 Накопичення: <b>+${fmtMoney(savings)}</b>\n`;
-      txt += `💵 Вільні: <b>${free >= 0 ? '+' : '−'}${fmtMoney(Math.abs(free))}</b>\n`;
-    } else {
-      txt += `💵 Вільні кошти: <b>${free >= 0 ? '+' : '−'}${fmtMoney(Math.abs(free))}</b>\n`;
-    }
+    txt += `💳 Можна витратити: <b>${fmtMoney(spendable)}</b>\n`;
+    if (savingsBalance > 0) txt += `🏦 Накопичення: <b>+${fmtMoney(savingsBalance)}</b>\n`;
+    if (creditAvail > 0)    txt += `💎 Кредит вільно: <b>${fmtMoney(creditAvail)}</b>\n`;
     txt += `━━━━━━━━━━━━━━━\n`;
     if (totalInc > 0 || totalExp > 0) {
       txt += `📅 Місяць: -${fmtMoney(totalExp)} витрат`;
