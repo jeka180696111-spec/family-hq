@@ -5,7 +5,7 @@
 import { state, FAMILY_MEMBERS } from './config.js';
 import { apiGet } from './api.js';
 import { esc, fmtMoney, fmtMoneyShort, log } from './utils.js';
-import { getExpCats, getProfiles, getDashPeriod, setDashPeriod, getViewAsMember } from './storage.js';
+import { getExpCats, getProfiles, getDashPeriod, setDashPeriod, getViewAsMember, getCategoryLimits } from './storage.js';
 
 let analyticsData = null;
 let trendData = null;
@@ -74,6 +74,9 @@ export function renderAnalyticsPage() {
       <div class="page-head">
         <h1 class="page-title">Аналіз${viewAs ? ' · ' + esc(profiles[viewAs]?.name || viewAs) : ''}</h1>
       </div>
+
+      <!-- Фінансовий рейтинг -->
+      ${renderHealthCard(d, viewAs)}
 
       <!-- Перемикач періоду -->
       <div class="period-switch">
@@ -155,6 +158,144 @@ export function renderAnalyticsPage() {
   `;
 
   bindHandlers(el);
+}
+
+function calcHealthScore(d, viewAs) {
+  let totalIncome = d.totalIncome || 0;
+  let totalExpense = d.totalExpense || 0;
+  let byCat = d.byCategory || {};
+  if (viewAs) {
+    totalIncome = d.byMember?.[viewAs]?.income || 0;
+    totalExpense = d.byMember?.[viewAs]?.expense || 0;
+    byCat = d.byCategoryMember?.[viewAs] || {};
+  }
+
+  const breakdown = [];
+
+  // 1. Savings rate (0–30 pts)
+  let savPts = 0;
+  let savDesc = '';
+  if (totalIncome > 0) {
+    const savRate = (totalIncome - totalExpense) / totalIncome;
+    const savPct = Math.round(savRate * 100);
+    if (savRate >= 0.20) { savPts = 30; savDesc = `Відмінно! ${savPct}% заощаджень`; }
+    else if (savRate >= 0.10) { savPts = 22; savDesc = `Добре! ${savPct}% заощаджень`; }
+    else if (savRate >= 0.05) { savPts = 14; savDesc = `${savPct}% заощаджень`; }
+    else if (savRate >= 0) { savPts = 7; savDesc = `Лише ${savPct}% заощаджень`; }
+    else { savPts = 0; savDesc = 'Витрати більші за доходи'; }
+  } else {
+    savPts = 0;
+    savDesc = 'Немає даних про доходи';
+  }
+  breakdown.push({ label: 'Норма заощаджень', pts: savPts, max: 30, desc: savDesc });
+
+  // 2. Budget limits adherence (0–25 pts)
+  const limits = getCategoryLimits() || {};
+  const limitKeys = Object.keys(limits);
+  let limitPts = 0;
+  let limitDesc = '';
+  if (limitKeys.length === 0) {
+    limitPts = 15;
+    limitDesc = 'Ліміти не задано';
+  } else {
+    let exceeded = 0;
+    for (const cat of limitKeys) {
+      if ((byCat[cat] || 0) > limits[cat]) exceeded++;
+    }
+    if (exceeded === 0) { limitPts = 25; limitDesc = 'Жоден ліміт не перевищено'; }
+    else if (exceeded === 1) { limitPts = 15; limitDesc = `Перевищено 1 з ${limitKeys.length}`; }
+    else if (exceeded === 2) { limitPts = 7; limitDesc = `Перевищено 2 з ${limitKeys.length}`; }
+    else { limitPts = 0; limitDesc = `Перевищено ${exceeded} з ${limitKeys.length}`; }
+  }
+  breakdown.push({ label: 'Дотримання лімітів', pts: limitPts, max: 25, desc: limitDesc });
+
+  // 3. Regular tracking (0–20 pts)
+  const now = new Date();
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const ops = state.operations || [];
+  const recentOps = ops.filter(op => {
+    const d = new Date(op.date || op.created_at || 0);
+    return d >= sevenDaysAgo;
+  });
+  const opCount = recentOps.length;
+  let trackPts = 0;
+  let trackDesc = '';
+  if (opCount >= 7) { trackPts = 20; trackDesc = '7+ записів за тиждень'; }
+  else if (opCount >= 4) { trackPts = 14; trackDesc = `${opCount} записи за тиждень`; }
+  else if (opCount >= 1) { trackPts = 8; trackDesc = `${opCount} ${opCount === 1 ? 'запис' : 'записи'} за тиждень`; }
+  else { trackPts = 0; trackDesc = 'Немає записів'; }
+  breakdown.push({ label: 'Регулярність записів', pts: trackPts, max: 20, desc: trackDesc });
+
+  // 4. Financial goals (0–15 pts)
+  const goals = state.goals || [];
+  const activeGoals = goals.length;
+  let goalPts = 0;
+  let goalDesc = '';
+  if (activeGoals >= 2) { goalPts = 15; goalDesc = `${activeGoals} активні цілі`; }
+  else if (activeGoals === 1) { goalPts = 10; goalDesc = '1 активна ціль'; }
+  else { goalPts = 0; goalDesc = 'Немає фінансових цілей'; }
+  breakdown.push({ label: 'Фінансові цілі', pts: goalPts, max: 15, desc: goalDesc });
+
+  // 5. Expense diversity (0–10 pts)
+  const catCount = Object.keys(byCat).filter(k => byCat[k] > 0).length;
+  let divPts = 0;
+  let divDesc = '';
+  if (catCount >= 5) { divPts = 10; divDesc = `${catCount} категорій витрат`; }
+  else if (catCount >= 3) { divPts = 7; divDesc = `${catCount} категорії витрат`; }
+  else if (catCount >= 1) { divPts = 3; divDesc = `${catCount} категорія витрат`; }
+  else { divPts = 0; divDesc = 'Немає витрат по категоріях'; }
+  breakdown.push({ label: 'Різноманіття витрат', pts: divPts, max: 10, desc: divDesc });
+
+  const score = savPts + limitPts + trackPts + goalPts + divPts;
+  return { score, breakdown };
+}
+
+function renderHealthCard(d, viewAs) {
+  const { score, breakdown } = calcHealthScore(d, viewAs);
+
+  let color, label;
+  if (score >= 90) { color = '#10B981'; label = 'Відмінно ⭐'; }
+  else if (score >= 75) { color = '#10B981'; label = 'Добре'; }
+  else if (score >= 60) { color = '#3B82F6'; label = 'Нормально'; }
+  else if (score >= 40) { color = '#F59E0B'; label = 'Потребує уваги'; }
+  else { color = '#EF4444'; label = 'Критично'; }
+
+  const circumference = 289.0;
+  const dashLen = (score / 100 * circumference).toFixed(1);
+
+  return `
+    <div class="dash-card health-card">
+      <div class="health-top">
+        <div class="health-circle-wrap">
+          <svg width="104" height="104" viewBox="0 0 104 104">
+            <circle cx="52" cy="52" r="46" fill="none" stroke="var(--c-border)" stroke-width="9"/>
+            <circle cx="52" cy="52" r="46" fill="none" stroke="${color}" stroke-width="9"
+              stroke-dasharray="${dashLen} ${circumference}"
+              stroke-linecap="round"
+              transform="rotate(-90 52 52)"
+              style="transition:stroke-dasharray 1s ease"/>
+          </svg>
+          <div class="health-circle-inner">
+            <div class="health-score-num">${score}</div>
+            <div class="health-score-sub">/ 100</div>
+          </div>
+        </div>
+        <div class="health-right">
+          <div class="health-label" style="color:${color}">${label}</div>
+          <div class="health-desc">Фінансовий рейтинг за поточний місяць</div>
+          ${breakdown.map(f => `
+            <div class="health-factor">
+              <div class="health-factor-bar-wrap">
+                <div class="health-factor-bar" style="width:${f.pts / f.max * 100}%;background:${f.pts / f.max > 0.66 ? '#10B981' : f.pts / f.max > 0.33 ? '#F59E0B' : '#EF4444'}"></div>
+              </div>
+              <div class="health-factor-label">${f.label} <span class="health-factor-pts">${f.pts}/${f.max}</span></div>
+              <div class="health-factor-desc">${f.desc}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 function renderByMember(byMember) {
