@@ -508,16 +508,34 @@ async function getTodaySameCategoryOps(familyId, who, category) {
 
 // ── Keyboards ────────────────────────────────────────────────
 const MAIN_KEYBOARD = {
-  keyboard: [
-    [{ text: '💰 Баланс' },     { text: '📅 Сьогодні' }],
-    [{ text: '📆 Місяць' },     { text: '⏱ Тиждень' }],
-    [{ text: '📊 Статистика' }, { text: '📋 Останні' }],
-    [{ text: '➕ Витрата' },    { text: '💵 Дохід' }],
-    [{ text: '📸 Фото чека' },  { text: '❓ Допомога' }],
-    [{ text: '📊 Звіт місяця' }],
-  ],
+  keyboard: [[{ text: '☰ Меню' }]],
   resize_keyboard: true,
   is_persistent: true,
+};
+
+const MENU_INLINE = {
+  inline_keyboard: [
+    [
+      { text: '➕ Витрата',    callback_data: 'mn:expense' },
+      { text: '💵 Дохід',      callback_data: 'mn:income' },
+      { text: '📸 Чек',        callback_data: 'mn:receipt' },
+    ],
+    [
+      { text: '💰 Баланс',     callback_data: 'mn:balance' },
+      { text: '📅 Сьогодні',   callback_data: 'mn:today' },
+      { text: '📆 Місяць',     callback_data: 'mn:month' },
+    ],
+    [
+      { text: '⏱ Тиждень',    callback_data: 'mn:week' },
+      { text: '📊 Статистика', callback_data: 'mn:stats' },
+      { text: '📋 Останні',    callback_data: 'mn:last' },
+    ],
+    [
+      { text: '📊 Звіт',       callback_data: 'mn:report' },
+      { text: '🤖 AI Фінн',    callback_data: 'mn:ai' },
+      { text: '❓ Допомога',   callback_data: 'mn:help' },
+    ],
+  ],
 };
 
 function buildConfirmKeyboard(pendingId, type) {
@@ -730,6 +748,27 @@ async function handleCallback(cb, res) {
     await deleteOperation(familyId, id);
     await editMessage(chatId, messageId, '🗑 Операцію видалено.');
     await answerCallback(cb.id, 'Видалено');
+    return res.status(200).json({ ok: true });
+  }
+
+  if (action === 'mn') {
+    await answerCallback(cb.id);
+    const who = tgUser?.name || '';
+    const userName = cb.from.first_name || '';
+    const CMD = { balance: '/balance', today: '/today', month: '/month', week: '/week', stats: '/stats', last: '/last', report: '/report', help: '/help', ai: '/ai' };
+    if (id === 'expense') {
+      await sendMessage(chatId, `➕ <b>Напиши витрату:</b>\n<code>каву 85</code>\n<code>продукти 500 моно</code>\n<code>бензин 1200 готівка</code>\n<code>50$ готівка</code>\n\nАбо надішли 📸 фото чека`);
+      return res.status(200).json({ ok: true });
+    }
+    if (id === 'income') {
+      await sendMessage(chatId, `💵 <b>Напиши дохід:</b>\n<code>зп 40000</code>\n<code>дохід 5000 підробіток</code>\n<code>повернення 500</code>`);
+      return res.status(200).json({ ok: true });
+    }
+    if (id === 'receipt') {
+      await sendMessage(chatId, `📸 <b>Надішли фото чека</b> — розпізнаю суму, магазин та категорію автоматично.\n\n<i>Порада: фото чітке, чек повністю в кадрі</i>`);
+      return res.status(200).json({ ok: true });
+    }
+    if (CMD[id]) return handleCommand(CMD[id], chatId, userId, userName, who, familyId, res);
     return res.status(200).json({ ok: true });
   }
 
@@ -1014,6 +1053,22 @@ ${context}`;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
+    // Register bot commands on GET (call once manually or auto on first GET)
+    await tgPost('setMyCommands', {
+      commands: [
+        { command: 'start',  description: 'Почати / перезапустити бота' },
+        { command: 'help',   description: 'Список можливостей' },
+        { command: 'balance', description: 'Баланс по рахунках' },
+        { command: 'today',  description: 'Операції за сьогодні' },
+        { command: 'month',  description: 'Витрати і доходи за місяць' },
+        { command: 'week',   description: 'Операції за тиждень' },
+        { command: 'stats',  description: 'Статистика по категоріях' },
+        { command: 'last',   description: '5 останніх операцій' },
+        { command: 'report', description: 'Детальний звіт місяця' },
+        { command: 'ai',     description: 'AI-радник Фінн' },
+        { command: 'forget', description: 'Очистити пам\'ять AI' },
+      ],
+    });
     return res.status(200).json({ ok: true, message: 'Telegram webhook endpoint' });
   }
 
@@ -1122,57 +1177,14 @@ export default async function handler(req, res) {
       return handleReceiptPhoto(chatId, who, familyId, msg, res);
     }
 
-    // Фото чека
-    if (msg.photo && msg.photo.length > 0) {
-      return handleReceiptPhoto(chatId, who, msg, res);
-    }
-
     // Команди
     if (text.startsWith('/')) {
       return handleCommand(text.split(' ')[0].toLowerCase(), chatId, userId, userName, who, familyId, res);
     }
 
-    // Reply keyboard кнопки
-    const BTN_MAP = {
-      '💰 Баланс':      '/balance',
-      '📅 Сьогодні':    '/today',
-      '📆 Місяць':      '/month',
-      '⏱ Тиждень':     '/week',
-      '📊 Статистика':  '/stats',
-      '📋 Останні':     '/last',
-      '❓ Допомога':    '/help',
-      '📊 Звіт місяця': '/report',
-    };
-
-    if (BTN_MAP[text]) {
-      return handleCommand(BTN_MAP[text], chatId, userId, userName, who, familyId, res);
-    }
-
-    if (text === '➕ Витрата') {
-      await sendMessage(chatId,
-        `➕ <b>Напиши витрату:</b>\n` +
-        `<code>каву 85</code>\n` +
-        `<code>продукти 500 моно</code>\n` +
-        `<code>бензин 1200 готівка</code>\n` +
-        `<code>50$ готівка</code>\n\n` +
-        `Або надішли 📸 <b>фото чека</b> — розпізнаю автоматично`
-      );
-      return res.status(200).json({ ok: true });
-    }
-    if (text === '💵 Дохід') {
-      await sendMessage(chatId,
-        `💵 <b>Напиши дохід:</b>\n` +
-        `<code>зп 40000</code>\n` +
-        `<code>дохід 5000 підробіток</code>\n` +
-        `<code>повернення 500</code>`
-      );
-      return res.status(200).json({ ok: true });
-    }
-    if (text === '📸 Фото чека') {
-      await sendMessage(chatId,
-        `📸 <b>Надішли фото чека</b> — я розпізнаю суму, магазин та категорію автоматично.\n\n` +
-        `<i>Порада: фото має бути чітким, чек повністю в кадрі</i>`
-      );
+    // Menu button
+    if (text === '☰ Меню') {
+      await sendMessage(chatId, `📋 <b>Меню</b> — обери дію:`, { reply_markup: MENU_INLINE });
       return res.status(200).json({ ok: true });
     }
 
