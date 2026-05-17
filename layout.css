@@ -228,13 +228,13 @@
 
 /* ── CONTENT ────────────────────────────────────────────────── */
 .content { grid-area: content; padding: 0; overflow-y: auto; overflow-x: hidden; background: var(--c-bg); }
-.page { display: none; min-height: calc(100vh - 64px); transition: opacity .15s ease; }
+.page { display: none; min-height: calc(100vh - 64px); transition: opacity .15s ease; min-width: 0; width: 100%; }
 .page.active { display: block; animation: page-in .2s ease; }
 @keyframes page-in {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.page-inner { max-width: 1400px; margin: 0 auto; padding: 24px 28px 100px; }
+.page-inner { max-width: 1400px; margin: 0 auto; padding: 24px 28px 100px; min-width: 0; }
 
 .page-head {
   display: flex; align-items: center; justify-content: space-between;

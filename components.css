@@ -112,6 +112,8 @@
   border-radius: 18px;
   border: 1px solid var(--c-border);
   padding: 18px;
+  min-width: 0;
+  overflow: hidden;
   box-shadow: 0 1px 4px rgba(0,0,0,0.04), 0 0 0 0 transparent;
   transition: box-shadow .25s, border-color .25s;
 }
@@ -121,7 +123,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   margin-bottom: 14px;
+  min-width: 0;
 }
 .dash-card-title {
   font-size: 11px;
@@ -129,10 +133,17 @@
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: var(--c-text-3);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .dash-card-amount {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .dash-card-action {
   font-size: 12px;
