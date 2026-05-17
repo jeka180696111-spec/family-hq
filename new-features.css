@@ -296,7 +296,7 @@
 /* ── AI FAB button (bottom-right corner) ─────────────────── */
 .ai-fab-btn {
   position: fixed;
-  bottom: 80px;
+  bottom: 90px;
   right: 16px;
   width: 48px;
   height: 48px;
@@ -613,4 +613,443 @@
 .swipe-delete-overlay {
   position: absolute; right: 0; top: 4px; bottom: 4px;
   border-radius: 0 12px 12px 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PAYWALL — стилі bottom sheet підписки
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Шапка paywall */
+.pw-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0 20px;
+  text-align: center;
+}
+.pw-logo {
+  font-size: 44px;
+  margin-bottom: 10px;
+  filter: drop-shadow(0 4px 12px rgba(46,125,95,0.25));
+  line-height: 1;
+}
+.pw-title {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, #2E7D5F 0%, #4CAF50 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 4px;
+}
+.pw-subtitle {
+  font-size: 14px;
+  color: var(--c-text-2);
+  font-weight: 500;
+}
+
+/* Список фіч */
+.pw-features {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 24px;
+  background: var(--c-bg-2);
+  border-radius: 16px;
+  padding: 6px 14px;
+}
+.pw-feature-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 0.5px solid var(--c-border);
+}
+.pw-feature-row:last-child {
+  border-bottom: none;
+}
+.pw-feature-check {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #DCFCE7;
+  color: #16A34A;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.pw-feature-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+.pw-feature-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--c-text);
+}
+
+/* Кнопки */
+.pw-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.pw-btn-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 15px 24px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #2E7D5F 0%, #4CAF50 100%);
+  color: #fff;
+  font-size: 17px;
+  font-weight: 700;
+  box-shadow: 0 6px 20px rgba(46,125,95,0.4);
+  transition: transform .15s, box-shadow .15s;
+  letter-spacing: -0.01em;
+}
+.pw-btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 28px rgba(46,125,95,0.5); }
+.pw-btn-primary:active { transform: scale(.97); }
+.pw-price {
+  font-size: 20px;
+  font-weight: 800;
+}
+.pw-period {
+  font-size: 14px;
+  font-weight: 500;
+  opacity: 0.85;
+}
+.pw-btn-trial {
+  width: 100%;
+  padding: 13px 24px;
+  border-radius: 14px;
+  border: 1.5px solid var(--c-accent);
+  color: var(--c-accent);
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--c-accent-soft);
+  transition: background .15s, transform .15s;
+}
+.pw-btn-trial:hover { background: var(--c-accent); color: #fff; }
+.pw-btn-trial:active { transform: scale(.97); }
+.pw-cancel-hint {
+  font-size: 12px;
+  color: var(--c-text-3);
+  text-align: center;
+  padding-bottom: 4px;
+}
+
+/* ── Subscription subpage ──────────────────────────────────── */
+.sub-page-hero {
+  background: linear-gradient(135deg, #2E7D5F 0%, #3DAA75 60%, #4CAF50 100%);
+  border-radius: 20px;
+  padding: 28px 20px 24px;
+  margin-bottom: 16px;
+  text-align: center;
+  box-shadow: 0 8px 28px rgba(46,125,95,0.3);
+  color: #fff;
+}
+.sub-hero-emoji {
+  font-size: 48px;
+  margin-bottom: 10px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.18));
+}
+.sub-hero-title {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin-bottom: 4px;
+}
+.sub-hero-tagline {
+  font-size: 13px;
+  opacity: 0.85;
+  font-weight: 500;
+}
+
+.sub-plan-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 5px 14px;
+  border-radius: 20px;
+  background: rgba(255,255,255,0.2);
+  font-size: 13px;
+  font-weight: 600;
+  backdrop-filter: blur(4px);
+}
+.sub-plan-badge.pro {
+  background: rgba(255,255,255,0.3);
+}
+
+.sub-features-card {
+  background: var(--c-bg-2);
+  border-radius: 16px;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+.sub-feature-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 16px;
+  border-bottom: 0.5px solid var(--c-border);
+}
+.sub-feature-item:last-child { border-bottom: none; }
+.sub-feature-ico {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.sub-feature-text { flex: 1; }
+.sub-feature-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text);
+  margin-bottom: 2px;
+}
+.sub-feature-desc {
+  font-size: 12px;
+  color: var(--c-text-3);
+  line-height: 1.4;
+}
+
+.sub-cta-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 8px;
+}
+.sub-price-label {
+  text-align: center;
+  font-size: 13px;
+  color: var(--c-text-2);
+  margin-bottom: -4px;
+}
+.sub-cta-cancel {
+  text-align: center;
+  font-size: 12px;
+  color: var(--c-text-3);
+  padding-top: 2px;
+}
+.sub-upgrade-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 15px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #2E7D5F 0%, #4CAF50 100%);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  box-shadow: 0 6px 18px rgba(46,125,95,0.35);
+  transition: transform .15s, box-shadow .15s;
+}
+.sub-upgrade-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(46,125,95,0.45); }
+.sub-upgrade-btn:active { transform: scale(.97); }
+.sub-pro-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: rgba(255,255,255,0.25);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* Кнопка Оновити до Pro в "Про додаток" */
+.settings-pro-btn {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 0;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.settings-pro-btn-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #2E7D5F, #4CAF50);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+  box-shadow: 0 4px 10px rgba(46,125,95,0.3);
+}
+.settings-pro-btn-label {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--c-accent);
+}
+.settings-pro-btn-sub {
+  font-size: 12px;
+  color: var(--c-text-3);
+  margin-top: 1px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SUBSCRIPTION SUBPAGE — hero шапка сторінки підписки
+   ═══════════════════════════════════════════════════════════════ */
+
+.sub-page-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 28px 16px 24px;
+  margin-bottom: 16px;
+  background: linear-gradient(160deg, #1a5c40 0%, #2E7D5F 50%, #4CAF50 100%);
+  border-radius: 20px;
+  position: relative;
+  overflow: hidden;
+}
+.sub-page-hero::before {
+  content: '';
+  position: absolute;
+  top: -40px;
+  right: -40px;
+  width: 160px;
+  height: 160px;
+  background: rgba(255,255,255,0.07);
+  border-radius: 50%;
+}
+.sub-page-hero::after {
+  content: '';
+  position: absolute;
+  bottom: -50px;
+  left: -30px;
+  width: 130px;
+  height: 130px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 50%;
+}
+.sub-page-hero-logo {
+  font-size: 52px;
+  line-height: 1;
+  margin-bottom: 12px;
+  filter: drop-shadow(0 4px 16px rgba(0,0,0,0.25));
+  position: relative;
+  z-index: 1;
+}
+.sub-page-hero-title {
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  color: #fff;
+  margin-bottom: 6px;
+  position: relative;
+  z-index: 1;
+}
+.sub-page-hero-sub {
+  font-size: 14px;
+  color: rgba(255,255,255,0.8);
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Settings profile card ─────────────────────────────────── */
+.settings-profile-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, var(--c-accent) 0%, color-mix(in srgb, var(--c-accent) 70%, #000) 100%);
+  border: none;
+  cursor: pointer;
+  transition: transform .15s, box-shadow .15s;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+}
+.settings-profile-card:hover { transform: scale(1.01); }
+
+/* ── Settings PRO card ─────────────────────────────────────── */
+.settings-pro-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #7C3AED 0%, #B45309 100%);
+  border: none;
+  cursor: pointer;
+  transition: transform .15s, box-shadow .15s;
+  box-shadow: 0 4px 20px rgba(124,58,237,0.3);
+}
+.settings-pro-card:hover { transform: scale(1.01); }
+
+/* ── Subscription plan cards ───────────────────────────────── */
+.sub-plan-card {
+  padding: 14px;
+  border-radius: 14px;
+  border: 2px solid var(--c-border);
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  background: var(--c-bg-2);
+}
+.sub-plan-card:last-child { margin-bottom: 0; }
+.sub-plan-card:hover { border-color: var(--c-accent); }
+.sub-plan-card.sub-plan-featured {
+  border-color: var(--c-accent);
+  background: var(--c-accent-soft);
+}
+.sub-plan-card.selected {
+  border-color: var(--c-accent);
+  background: var(--c-accent-soft);
+}
+
+/* ── AI bubble chat messages ───────────────────────────────── */
+.ai-msg { display: flex; }
+.ai-msg-user { justify-content: flex-end; }
+.ai-msg-bot { justify-content: flex-start; }
+.ai-msg-bubble {
+  max-width: 80%;
+  padding: 9px 13px;
+  border-radius: 16px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.ai-msg-user .ai-msg-bubble {
+  background: var(--c-accent);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.ai-msg-bot .ai-msg-bubble {
+  background: var(--c-bg-3);
+  color: var(--c-text);
+  border-bottom-left-radius: 4px;
 }

@@ -14,9 +14,10 @@ import {
   getSpendingPlan, setSpendingPlan,
   getDefaultWallet, setDefaultWallet,
   getTelegramPrefs, setTelegramPrefs,
+  getPalette, setPalette,
 } from './storage.js';
 import { syncSettingsToSheet, pingBackend, generateInviteCode } from './api.js';
-import { applyTheme, toggleTheme } from './theme.js';
+import { applyTheme, toggleTheme, applyPalette } from './theme.js';
 import { esc, showToast, uid } from './utils.js';
 import { openIconPicker } from './icon-picker.js';
 import { openBottomSheet, closeModal, confirmModal, promptModal } from './modals.js';
@@ -430,6 +431,8 @@ function renderMainMenu() {
 
 // ── Sub-page content builders ─────────────────────────────────
 const SUB_PAGE_TITLES = {
+  'profile-group':     'Профіль',
+  'dashboard-widgets': 'Блоки дашборду',
   profile:        'Профіль',
   family:         'Родина',
   appearance:     'Зовнішній вигляд',
@@ -443,6 +446,7 @@ const SUB_PAGE_TITLES = {
   'inc-cats':     'Категорії доходів',
   'wallet-types': 'Типи рахунків',
   wallets:        'Кошельки',
+  subscription:   'Підписка',
   privacy:        'Політика конфіденційності',
   terms:          'Угода користувача',
   about:          'Про додаток',
@@ -455,6 +459,33 @@ function renderSubPageBody(key) {
   const lastSync = localStorage.getItem('budget_last_sync');
 
   switch (key) {
+    case 'profile-group': {
+      return `
+        <div class="settings-menu-group" style="margin-bottom:12px">
+          <button class="settings-menu-item" data-sub="profile">
+            <div class="settings-menu-icon" style="background:#DCFCE7;color:#16A34A"><i class="ti ti-user"></i></div>
+            <div class="settings-menu-label">Профіль</div>
+            <i class="ti ti-chevron-right settings-menu-arrow"></i>
+          </button>
+          <button class="settings-menu-item" data-sub="appearance">
+            <div class="settings-menu-icon" style="background:#EEF2FF;color:#4F46E5"><i class="ti ti-palette"></i></div>
+            <div class="settings-menu-label">Зовнішній вигляд</div>
+            <i class="ti ti-chevron-right settings-menu-arrow"></i>
+          </button>
+          <button class="settings-menu-item" data-sub="family">
+            <div class="settings-menu-icon" style="background:#FEF3C7;color:#D97706"><i class="ti ti-home-2"></i></div>
+            <div class="settings-menu-label">Родина</div>
+            <i class="ti ti-chevron-right settings-menu-arrow"></i>
+          </button>
+          <button class="settings-menu-item" data-sub="security">
+            <div class="settings-menu-icon" style="background:#FEE2E2;color:#DC2626"><i class="ti ti-lock"></i></div>
+            <div class="settings-menu-label">Безпека</div>
+            <i class="ti ti-chevron-right settings-menu-arrow"></i>
+          </button>
+        </div>
+      `;
+    }
+
     case 'profile':
       return `
         <div class="settings-card">
@@ -508,14 +539,23 @@ function renderSubPageBody(key) {
         </div>
       `;
 
-    case 'appearance':
+    case 'appearance': {
+      const curPalette = getPalette();
+      const PALETTES_LIST = [
+        { id: 'default',  label: 'Зелений',    bg: 'linear-gradient(135deg,#2E7D5F,#4CAF50)', emoji: '🌿' },
+        { id: 'ocean',    label: 'Океан',       bg: 'linear-gradient(135deg,#1A6FBF,#4A9FEF)', emoji: '🌊' },
+        { id: 'sunset',   label: 'Захід',       bg: 'linear-gradient(135deg,#E05A2B,#FF7D4D)', emoji: '🌅' },
+        { id: 'midnight', label: 'Полудень',    bg: 'linear-gradient(135deg,#6C3FD4,#9B72FF)', emoji: '🌙' },
+        { id: 'neon',     label: 'Неон',        bg: 'linear-gradient(135deg,#060811,#00FFB3)', emoji: '⚡' },
+        { id: 'glass',    label: 'Скло',        bg: 'linear-gradient(135deg,#b8f5d8,#ece4ff)', emoji: '🪟' },
+      ];
       return `
         <div class="settings-card">
           <div class="settings-row">
             <div class="settings-row-icon"><i class="ti ti-${theme === 'dark' ? 'moon' : 'sun'}"></i></div>
             <div class="settings-row-info">
-              <div class="settings-row-name">Тема</div>
-              <div class="settings-row-sub">${theme === 'dark' ? 'Темна' : 'Світла'}</div>
+              <div class="settings-row-name">Режим</div>
+              <div class="settings-row-sub">${theme === 'dark' ? 'Темний' : 'Світлий'}</div>
             </div>
             <div class="theme-switch">
               <button class="theme-btn ${theme === 'light' ? 'active' : ''}" data-theme="light"><i class="ti ti-sun"></i></button>
@@ -523,7 +563,20 @@ function renderSubPageBody(key) {
             </div>
           </div>
         </div>
+
+        <div class="settings-card" style="padding:16px">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--c-text-3);margin-bottom:12px;padding-left:2px">Стиль теми</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px" id="palette-grid">
+            ${PALETTES_LIST.map(p => `
+              <button data-palette-id="${p.id}" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 6px;border-radius:14px;border:2.5px solid ${p.id === curPalette ? 'var(--c-accent)' : 'transparent'};background:${p.id === curPalette ? 'var(--c-accent-soft)' : 'var(--c-bg-3)'};cursor:pointer;transition:all .15s">
+                <div style="width:44px;height:44px;border-radius:12px;background:${p.bg};display:flex;align-items:center;justify-content:center;font-size:22px;box-shadow:0 3px 10px rgba(0,0,0,0.15)">${p.emoji}</div>
+                <div style="font-size:11px;font-weight:600;color:var(--c-text)">${p.label}</div>
+              </button>
+            `).join('')}
+          </div>
+        </div>
       `;
+    }
 
     case 'security':
       return `
@@ -664,6 +717,97 @@ function renderSubPageBody(key) {
             `;
           }).join('')}
           <button class="settings-add-btn" id="add-wallet-btn"><i class="ti ti-plus"></i> Додати кошельок</button>
+        </div>
+      `;
+
+    case 'dashboard-widgets': {
+      const widgets = JSON.parse(localStorage.getItem('budget_widgets') || '{}');
+      const WIDGET_LIST = [
+        { key: 'wallets',   label: 'Кошельки' },
+        { key: 'chart',     label: 'Графіки витрат/доходів' },
+        { key: 'donut',     label: 'Кругова діаграма категорій' },
+        { key: 'limits',    label: 'Топ категорій з лімітами' },
+        { key: 'credit',    label: 'Кредитні картки' },
+        { key: 'recurring', label: 'Найближчі платежі' },
+        { key: 'recent',    label: 'Останні операції' },
+      ];
+      return `
+        <div class="settings-card" style="padding:16px">
+          <div style="font-size:12px;color:var(--c-text-3);margin-bottom:14px;padding-left:2px">Вибери що показувати на головній</div>
+          ${WIDGET_LIST.map(w => `
+            <div class="settings-row" style="padding:10px 0;border-bottom:.5px solid var(--c-border)">
+              <div class="settings-row-info"><div class="settings-row-name" style="font-size:14px">${w.label}</div></div>
+              <label class="toggle-switch" style="flex-shrink:0">
+                <input type="checkbox" class="widget-toggle" data-widget="${w.key}" ${widgets[w.key] !== false ? 'checked' : ''}>
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    case 'subscription':
+      return `
+        <div class="sub-page-hero">
+          <div class="sub-page-hero-logo">✨</div>
+          <div class="sub-page-hero-title">Many Budget Pro</div>
+          <div class="sub-page-hero-sub">Усі можливості. Одна підписка.</div>
+        </div>
+
+        <div class="settings-card" style="margin-bottom:12px">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--c-text-3);margin-bottom:10px;padding-left:4px">Оберіть план</div>
+
+          <div class="sub-plan-card" data-plan="week">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start">
+              <div>
+                <div style="font-size:15px;font-weight:700">Тижневий</div>
+                <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">7 днів повного доступу</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:20px;font-weight:800;color:var(--c-accent)">49 ₴</div>
+                <div style="font-size:11px;color:var(--c-text-3)">/ 7 днів</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sub-plan-card sub-plan-featured" data-plan="month">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start">
+              <div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <div style="font-size:15px;font-weight:700">Місячний</div>
+                  <span style="background:var(--c-accent);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px">POPULAR</span>
+                </div>
+                <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">30 днів повного доступу</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:20px;font-weight:800;color:var(--c-accent)">149 ₴</div>
+                <div style="font-size:11px;color:var(--c-text-3)">/ місяць</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sub-plan-card" data-plan="year">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start">
+              <div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <div style="font-size:15px;font-weight:700">Річний</div>
+                  <span style="background:#F59E0B;color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px">ВИГІДНО</span>
+                </div>
+                <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">365 днів · 82.5 ₴/міс</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:20px;font-weight:800;color:var(--c-accent)">990 ₴</div>
+                <div style="font-size:11px;color:var(--c-text-3)">/ рік</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="padding:0 0 8px">
+          <button class="pw-btn-primary" id="sub-page-subscribe-btn">Підключити Pro</button>
+          <button class="pw-btn-trial" id="sub-page-trial-btn">Спробувати 7 днів безкоштовно</button>
+          <div class="pw-cancel-hint">Скасувати в будь-який час. Без прихованих платежів.</div>
         </div>
       `;
 
@@ -834,6 +978,8 @@ function renderSubPage(key) {
   `;
 }
 
+export function resetSettingsPage() { settingsSubPage = null; }
+
 // ── Main render function ──────────────────────────────────────
 export function renderSettingsPage() {
   const el = document.getElementById('page-settings');
@@ -990,6 +1136,40 @@ function bindSettingsHandlers(el) {
       applyTheme(b.dataset.theme);
       renderSettingsPage();
     });
+  });
+
+  // Palette
+  el.querySelectorAll('[data-palette-id]').forEach(b => {
+    b.addEventListener('click', () => {
+      setPalette(b.dataset.paletteId);
+      applyPalette(b.dataset.paletteId);
+      renderSettingsPage();
+    });
+  });
+
+  // Widget toggles
+  el.querySelectorAll('.widget-toggle').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const widgets = JSON.parse(localStorage.getItem('budget_widgets') || '{}');
+      widgets[inp.dataset.widget] = inp.checked;
+      localStorage.setItem('budget_widgets', JSON.stringify(widgets));
+    });
+  });
+
+  // Subscription plan cards
+  el.querySelectorAll('.sub-plan-card').forEach(card => {
+    card.addEventListener('click', () => {
+      el.querySelectorAll('.sub-plan-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+    });
+  });
+
+  // Subscribe button
+  el.querySelector('#sub-page-subscribe-btn')?.addEventListener('click', () => {
+    import('./paywall.js').then(m => m.showPaywall());
+  });
+  el.querySelector('#sub-page-trial-btn')?.addEventListener('click', () => {
+    import('./paywall.js').then(m => m.showPaywall());
   });
 
   // Family name
