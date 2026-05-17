@@ -5,8 +5,17 @@
 import { showToast } from './utils.js';
 import { state } from './config.js';
 
-// VAPID public key — replace with real key from web-push or https://vapidkeys.com
-const VAPID_PUBLIC_KEY = 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U';
+// VAPID public key is fetched from /api/vapid-public-key (stored in Vercel env).
+// Private key never touches client code — it lives only in Vercel env.
+let _vapidKeyCache = null;
+async function getVapidPublicKey() {
+  if (_vapidKeyCache) return _vapidKeyCache;
+  const res = await fetch('/api/vapid-public-key');
+  if (!res.ok) throw new Error('VAPID ключ не налаштовано на сервері');
+  const { key } = await res.json();
+  _vapidKeyCache = key;
+  return key;
+}
 
 const PREF_KEY = 'budget_push_prefs';
 
@@ -58,9 +67,10 @@ export async function requestPushPermission() {
 
   try {
     const reg = await navigator.serviceWorker.ready;
+    const vapidKey = await getVapidPublicKey();
     const sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      applicationServerKey: urlBase64ToUint8Array(vapidKey),
     });
 
     // Save subscription to backend
