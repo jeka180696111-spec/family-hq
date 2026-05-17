@@ -140,128 +140,129 @@ body, .card, .sidebar, .topbar, .wallet-card, .modal {
 }
 
 /* ════════════════════════════════════════════════════════════════
-   ПАЛІТРИ — кожна тема має vivid фон + напівпрозорі картки
+   ПАЛІТРИ — vivid фони + білі/темні картки зверху (контраст!)
+   Принцип: яскравий фон + чисті картки = краса
    ════════════════════════════════════════════════════════════════ */
 
 /* ── OCEAN — глибока вода ─────────────────────────────────── */
 [data-palette="ocean"] {
   --c-accent:        #1A6FBF;
-  --c-accent-soft:   rgba(26,111,191,0.15);
-  --c-sidebar-active: rgba(26,111,191,0.18);
-  --c-card:          rgba(235,245,255,0.82);
-  --c-card-2:        rgba(220,238,255,0.75);
+  --c-accent-soft:   rgba(26,111,191,0.14);
+  --c-card:          rgba(255,255,255,0.88);
+  --c-card-2:        rgba(248,252,255,0.82);
   --c-bg:            transparent;
-  --c-bg-2:          rgba(210,232,255,0.5);
-  --c-bg-3:          rgba(180,215,255,0.35);
-  --c-border:        rgba(26,111,191,0.15);
-  --c-border-2:      rgba(26,111,191,0.25);
-  --c-sidebar:       rgba(230,243,255,0.88);
-  --c-text:          #0D2340;
-  --c-text-2:        #2E5580;
-  --c-text-3:        #6A90B8;
-  --c-bg-rgb: 210,232,255;
-  --c-card-rgb: 235,245,255;
+  --c-bg-2:          rgba(255,255,255,0.45);
+  --c-bg-3:          rgba(255,255,255,0.28);
+  --c-border:        rgba(26,111,191,0.12);
+  --c-border-2:      rgba(26,111,191,0.22);
+  --c-sidebar:       rgba(255,255,255,0.90);
+  --c-sidebar-active: rgba(26,111,191,0.14);
+  --c-text:          #0A1E35;
+  --c-text-2:        #1E4A72;
+  --c-text-3:        #5080A8;
+  --c-bg-rgb: 26,90,160;
+  --c-card-rgb: 255,255,255;
 }
 [data-palette="ocean"][data-theme="dark"] {
-  --c-accent:        #4A9FEF;
-  --c-accent-soft:   rgba(74,159,239,0.18);
-  --c-sidebar-active: rgba(74,159,239,0.22);
-  --c-card:          rgba(8,22,45,0.82);
-  --c-card-2:        rgba(6,18,38,0.75);
+  --c-accent:        #5AB0FF;
+  --c-accent-soft:   rgba(90,176,255,0.16);
+  --c-card:          rgba(4,14,30,0.88);
+  --c-card-2:        rgba(2,10,24,0.82);
   --c-bg:            transparent;
-  --c-bg-2:          rgba(6,14,30,0.6);
-  --c-bg-3:          rgba(10,22,46,0.5);
-  --c-border:        rgba(74,159,239,0.12);
-  --c-border-2:      rgba(74,159,239,0.2);
-  --c-sidebar:       rgba(5,14,32,0.88);
-  --c-text:          #C8DFFF;
-  --c-text-2:        #7AADD8;
-  --c-text-3:        #3A6090;
-  --c-bg-rgb: 6,14,30;
-  --c-card-rgb: 8,22,45;
+  --c-bg-2:          rgba(4,14,30,0.55);
+  --c-bg-3:          rgba(6,18,38,0.40);
+  --c-border:        rgba(90,176,255,0.12);
+  --c-border-2:      rgba(90,176,255,0.22);
+  --c-sidebar:       rgba(2,8,20,0.92);
+  --c-sidebar-active: rgba(90,176,255,0.18);
+  --c-text:          #C0DEFF;
+  --c-text-2:        #6090C0;
+  --c-text-3:        #305878;
+  --c-bg-rgb: 4,14,30;
+  --c-card-rgb: 4,14,30;
 }
 
 /* ── SUNSET — захід сонця ─────────────────────────────────── */
 [data-palette="sunset"] {
-  --c-accent:        #E05A2B;
-  --c-accent-soft:   rgba(224,90,43,0.14);
-  --c-sidebar-active: rgba(224,90,43,0.16);
-  --c-card:          rgba(255,245,235,0.84);
-  --c-card-2:        rgba(255,238,220,0.76);
+  --c-accent:        #D94F20;
+  --c-accent-soft:   rgba(217,79,32,0.13);
+  --c-card:          rgba(255,255,255,0.88);
+  --c-card-2:        rgba(255,252,248,0.82);
   --c-bg:            transparent;
-  --c-bg-2:          rgba(255,230,205,0.5);
-  --c-bg-3:          rgba(255,215,185,0.4);
-  --c-border:        rgba(224,90,43,0.14);
-  --c-border-2:      rgba(224,90,43,0.24);
-  --c-sidebar:       rgba(255,242,230,0.9);
-  --c-text:          #2D1200;
-  --c-text-2:        #7A3010;
-  --c-text-3:        #B87050;
-  --c-bg-rgb: 255,230,205;
-  --c-card-rgb: 255,245,235;
+  --c-bg-2:          rgba(255,255,255,0.45);
+  --c-bg-3:          rgba(255,255,255,0.28);
+  --c-border:        rgba(217,79,32,0.12);
+  --c-border-2:      rgba(217,79,32,0.22);
+  --c-sidebar:       rgba(255,255,255,0.90);
+  --c-sidebar-active: rgba(217,79,32,0.13);
+  --c-text:          #2A0E00;
+  --c-text-2:        #6B2800;
+  --c-text-3:        #A86040;
+  --c-bg-rgb: 200,80,20;
+  --c-card-rgb: 255,255,255;
 }
 [data-palette="sunset"][data-theme="dark"] {
-  --c-accent:        #FF7D4D;
-  --c-accent-soft:   rgba(255,125,77,0.18);
-  --c-sidebar-active: rgba(255,125,77,0.2);
-  --c-card:          rgba(40,18,8,0.84);
-  --c-card-2:        rgba(32,12,4,0.76);
+  --c-accent:        #FF7040;
+  --c-accent-soft:   rgba(255,112,64,0.16);
+  --c-card:          rgba(22,8,2,0.88);
+  --c-card-2:        rgba(16,5,0,0.82);
   --c-bg:            transparent;
-  --c-bg-2:          rgba(30,10,2,0.6);
-  --c-bg-3:          rgba(45,15,5,0.5);
-  --c-border:        rgba(255,125,77,0.12);
-  --c-border-2:      rgba(255,125,77,0.2);
-  --c-sidebar:       rgba(28,8,2,0.9);
-  --c-text:          #FFD8C0;
-  --c-text-2:        #D08060;
-  --c-text-3:        #805040;
-  --c-bg-rgb: 30,10,2;
-  --c-card-rgb: 40,18,8;
+  --c-bg-2:          rgba(22,8,2,0.55);
+  --c-bg-3:          rgba(30,10,2,0.40);
+  --c-border:        rgba(255,112,64,0.12);
+  --c-border-2:      rgba(255,112,64,0.22);
+  --c-sidebar:       rgba(14,4,0,0.92);
+  --c-sidebar-active: rgba(255,112,64,0.18);
+  --c-text:          #FFD5B8;
+  --c-text-2:        #C06840;
+  --c-text-3:        #804028;
+  --c-bg-rgb: 22,8,2;
+  --c-card-rgb: 22,8,2;
 }
 
 /* ── MIDNIGHT — завжди темний, космос ────────────────────── */
 [data-palette="midnight"] {
-  --c-bg:        #080614;
-  --c-bg-2:      #0E0A20;
-  --c-bg-3:      #140E2A;
-  --c-card:      rgba(18,12,38,0.88);
-  --c-card-2:    rgba(24,16,48,0.82);
-  --c-text:      #DDD8FF;
-  --c-text-2:    #9080CC;
-  --c-text-3:    #504080;
-  --c-border:    rgba(155,114,255,0.14);
-  --c-border-2:  rgba(155,114,255,0.22);
-  --c-accent:      #9B72FF;
-  --c-accent-soft: rgba(155,114,255,0.18);
+  --c-bg:        transparent;
+  --c-bg-2:      rgba(8,4,24,0.55);
+  --c-bg-3:      rgba(20,10,50,0.40);
+  --c-card:      rgba(12,6,32,0.88);
+  --c-card-2:    rgba(18,10,44,0.82);
+  --c-text:      #E0D8FF;
+  --c-text-2:    #9880D0;
+  --c-text-3:    #504880;
+  --c-border:    rgba(155,114,255,0.15);
+  --c-border-2:  rgba(155,114,255,0.26);
+  --c-accent:      #A87EFF;
+  --c-accent-soft: rgba(168,126,255,0.16);
   --c-red:         #FF5090;
   --c-red-soft:    rgba(255,80,144,0.15);
   --c-yellow:      #FFD060;
   --c-yellow-soft: rgba(255,208,96,0.15);
-  --c-blue:        #60B0FF;
-  --c-blue-soft:   rgba(96,176,255,0.15);
-  --c-purple:      #C890FF;
-  --c-purple-soft: rgba(200,144,255,0.15);
-  --c-sidebar:     rgba(6,4,18,0.94);
-  --c-sidebar-active: rgba(155,114,255,0.22);
-  --shadow-sm:  0 2px 8px rgba(0,0,0,0.5);
-  --shadow:     0 4px 20px rgba(0,0,0,0.6);
-  --shadow-lg:  0 8px 40px rgba(0,0,0,0.7);
-  --c-bg-rgb: 8,6,20;
-  --c-card-rgb: 18,12,38;
+  --c-blue:        #60B8FF;
+  --c-blue-soft:   rgba(96,184,255,0.15);
+  --c-purple:      #D090FF;
+  --c-purple-soft: rgba(208,144,255,0.15);
+  --c-sidebar:     rgba(6,2,18,0.94);
+  --c-sidebar-active: rgba(168,126,255,0.20);
+  --shadow-sm:  0 2px 10px rgba(0,0,0,0.6);
+  --shadow:     0 4px 24px rgba(0,0,0,0.7);
+  --shadow-lg:  0 8px 48px rgba(0,0,0,0.8);
+  --c-bg-rgb: 8,4,24;
+  --c-card-rgb: 12,6,32;
 }
 
 /* ── NEON — кіберпанк, завжди темний ─────────────────────── */
 [data-palette="neon"] {
-  --c-bg:        #04060F;
-  --c-bg-2:      #080C1A;
-  --c-bg-3:      rgba(0,200,144,0.06);
-  --c-card:      rgba(6,10,22,0.92);
-  --c-card-2:    rgba(8,14,28,0.88);
-  --c-text:      #D0F4E8;
-  --c-text-2:    #60A890;
-  --c-text-3:    #306050;
-  --c-border:    rgba(0,200,144,0.15);
-  --c-border-2:  rgba(0,200,144,0.25);
+  --c-bg:        transparent;
+  --c-bg-2:      rgba(0,6,12,0.55);
+  --c-bg-3:      rgba(0,200,144,0.05);
+  --c-card:      rgba(2,8,18,0.90);
+  --c-card-2:    rgba(4,12,24,0.85);
+  --c-text:      #C8F0E0;
+  --c-text-2:    #50A880;
+  --c-text-3:    #285840;
+  --c-border:    rgba(0,200,144,0.18);
+  --c-border-2:  rgba(0,200,144,0.30);
   --c-accent:      #00C890;
   --c-accent-soft: rgba(0,200,144,0.14);
   --c-red:         #FF3D71;
@@ -272,13 +273,13 @@ body, .card, .sidebar, .topbar, .wallet-card, .modal {
   --c-blue-soft:   rgba(0,200,255,0.15);
   --c-purple:      #C264FF;
   --c-purple-soft: rgba(194,100,255,0.15);
-  --c-sidebar:     rgba(2,4,10,0.96);
+  --c-sidebar:     rgba(0,4,10,0.96);
   --c-sidebar-active: rgba(0,200,144,0.16);
-  --shadow-sm:  0 1px 6px rgba(0,200,144,0.1);
-  --shadow:     0 4px 20px rgba(0,0,0,0.6);
-  --shadow-lg:  0 8px 40px rgba(0,0,0,0.7);
-  --c-bg-rgb: 4,6,15;
-  --c-card-rgb: 6,10,22;
+  --shadow-sm:  0 2px 10px rgba(0,0,0,0.7);
+  --shadow:     0 4px 24px rgba(0,0,0,0.8);
+  --shadow-lg:  0 8px 48px rgba(0,0,0,0.9);
+  --c-bg-rgb: 0,6,12;
+  --c-card-rgb: 2,8,18;
 }
 
 /* ── GLASS — преміум frosted ──────────────────────────────── */
@@ -286,236 +287,201 @@ body, .card, .sidebar, .topbar, .wallet-card, .modal {
   --c-bg:        transparent;
   --c-bg-2:      transparent;
   --c-bg-3:      rgba(255,255,255,0.08);
-  --c-card:      rgba(255,255,255,0.72);
-  --c-card-2:    rgba(255,255,255,0.6);
-  --c-border:    rgba(255,255,255,0.32);
-  --c-border-2:  rgba(255,255,255,0.48);
+  --c-card:      rgba(255,255,255,0.75);
+  --c-card-2:    rgba(255,255,255,0.62);
+  --c-border:    rgba(255,255,255,0.34);
+  --c-border-2:  rgba(255,255,255,0.50);
   --c-text:      #1A2421;
   --c-text-2:    #4D5856;
   --c-text-3:    #8A9492;
   --c-accent:    #2E7D5F;
   --c-accent-soft: rgba(46,125,95,0.2);
-  --c-sidebar:   rgba(255,255,255,0.72);
+  --c-sidebar:   rgba(255,255,255,0.74);
   --c-sidebar-active: rgba(46,125,95,0.15);
-  --shadow-sm: 0 2px 8px rgba(0,0,0,0.06);
-  --shadow:    0 4px 20px rgba(0,0,0,0.1);
-  --shadow-lg: 0 12px 40px rgba(0,0,0,0.14);
+  --shadow-sm: 0 2px 10px rgba(0,0,0,0.07);
+  --shadow:    0 4px 24px rgba(0,0,0,0.11);
+  --shadow-lg: 0 12px 48px rgba(0,0,0,0.15);
   --c-bg-rgb: 255,255,255;
   --c-card-rgb: 255,255,255;
 }
 [data-palette="glass"][data-theme="dark"] {
-  --c-card:      rgba(20,32,28,0.78);
-  --c-card-2:    rgba(14,24,20,0.68);
+  --c-card:      rgba(16,28,24,0.80);
+  --c-card-2:    rgba(10,20,16,0.70);
   --c-border:    rgba(255,255,255,0.09);
   --c-border-2:  rgba(255,255,255,0.16);
   --c-text:      #E8EDEB;
   --c-text-2:    #A0ACA9;
   --c-text-3:    #617470;
-  --c-sidebar:   rgba(10,18,15,0.84);
-  --c-bg-rgb: 15,20,18;
-  --c-card-rgb: 20,32,28;
+  --c-sidebar:   rgba(8,16,13,0.86);
+  --c-bg-rgb: 14,24,20;
+  --c-card-rgb: 16,28,24;
 }
 
-/* ════ VIVID BACKGROUNDS ═════════════════════════════════════
-   Яскраві фони для кожної теми — видно скрізь напівпрозорі картки
-   ════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════════
+   ФОНИ — яскраві та унікальні для кожної теми
+   ════════════════════════════════════════════════════════════════ */
 
 body { transition: background 0.5s ease; }
 
-/* ── DEFAULT — зелений ліс ───────────────────────────────── */
+/* ── DEFAULT — чистий зелений ────────────────────────────── */
 [data-palette="default"] body,
 :root:not([data-palette]) body {
   background:
-    radial-gradient(ellipse 80vw 70vh at 0% 0%,   rgba(46,125,95,0.18)  0%, transparent 65%),
-    radial-gradient(ellipse 70vw 80vh at 100% 100%, rgba(78,200,140,0.16) 0%, transparent 65%),
-    radial-gradient(ellipse 50vw 50vh at 60% 35%,  rgba(100,200,120,0.10) 0%, transparent 55%),
-    #F4FAF6;
+    radial-gradient(ellipse 75vw 65vh at 5%  5%,  rgba(46,125,95,0.16) 0%, transparent 68%),
+    radial-gradient(ellipse 65vw 75vh at 95% 95%,  rgba(78,200,140,0.14) 0%, transparent 68%),
+    radial-gradient(ellipse 45vw 45vh at 55% 40%,  rgba(60,160,100,0.08) 0%, transparent 55%),
+    #F2F8F4;
   background-attachment: fixed;
 }
 [data-palette="default"][data-theme="dark"] body,
 [data-theme="dark"]:not([data-palette]) body {
   background:
-    radial-gradient(ellipse 80vw 70vh at 0% 0%,    rgba(46,125,95,0.35)  0%, transparent 65%),
-    radial-gradient(ellipse 70vw 80vh at 100% 100%, rgba(20,80,55,0.40)   0%, transparent 65%),
-    radial-gradient(ellipse 50vw 50vh at 55% 40%,  rgba(60,140,90,0.18)  0%, transparent 55%),
-    #0A1410;
+    radial-gradient(ellipse 75vw 65vh at 5%  5%,  rgba(46,125,95,0.32) 0%, transparent 68%),
+    radial-gradient(ellipse 65vw 75vh at 95% 95%,  rgba(20,80,55,0.38)  0%, transparent 68%),
+    radial-gradient(ellipse 45vw 45vh at 55% 42%,  rgba(60,140,90,0.16) 0%, transparent 55%),
+    #080E0A;
   background-attachment: fixed;
 }
 
-/* ── OCEAN — хвилі та глибина ────────────────────────────── */
+/* ── OCEAN — глибокий насичений синій ────────────────────── */
 [data-palette="ocean"] body {
   background:
-    radial-gradient(ellipse 100vw 55vh at 50% -5%, rgba(26,111,191,0.22) 0%, transparent 60%),
-    radial-gradient(ellipse 80vw 70vh at 0% 100%,  rgba(0,160,255,0.18)  0%, transparent 65%),
-    radial-gradient(ellipse 60vw 60vh at 100% 20%, rgba(74,159,239,0.16) 0%, transparent 60%),
-    radial-gradient(ellipse 50vw 40vh at 50% 60%,  rgba(0,120,220,0.10)  0%, transparent 55%),
-    linear-gradient(180deg, #daeeff 0%, #eef6ff 50%, #d8eeff 100%);
+    radial-gradient(ellipse 110vw 50vh at 50% -10%, rgba(100,180,255,0.55) 0%, transparent 55%),
+    radial-gradient(ellipse 80vw 80vh at -10% 110%, rgba(20,100,200,0.60)  0%, transparent 60%),
+    radial-gradient(ellipse 70vw 60vh at 110% 10%,  rgba(0,140,220,0.45)   0%, transparent 58%),
+    radial-gradient(ellipse 50vw 50vh at 60%  55%,  rgba(50,120,210,0.20)  0%, transparent 50%),
+    linear-gradient(155deg, #1565a0 0%, #0d47a1 40%, #01579b 70%, #006994 100%);
   background-attachment: fixed;
 }
 [data-palette="ocean"][data-theme="dark"] body {
   background:
-    radial-gradient(ellipse 100vw 55vh at 50% -5%, rgba(26,111,191,0.45) 0%, transparent 60%),
-    radial-gradient(ellipse 80vw 70vh at 0% 100%,  rgba(0,40,120,0.50)   0%, transparent 65%),
-    radial-gradient(ellipse 60vw 60vh at 100% 20%, rgba(10,60,160,0.35)  0%, transparent 60%),
-    radial-gradient(ellipse 50vw 40vh at 55% 55%,  rgba(0,80,180,0.20)   0%, transparent 50%),
-    #030814;
+    radial-gradient(ellipse 110vw 50vh at 50% -10%, rgba(20,100,200,0.55) 0%, transparent 55%),
+    radial-gradient(ellipse 80vw 80vh at -10% 110%, rgba(0,30,100,0.70)   0%, transparent 60%),
+    radial-gradient(ellipse 70vw 60vh at 110% 10%,  rgba(0,60,140,0.50)   0%, transparent 58%),
+    linear-gradient(155deg, #010a1a 0%, #021228 40%, #011830 100%);
   background-attachment: fixed;
 }
 
-/* ── SUNSET — тепло й золото ─────────────────────────────── */
+/* ── SUNSET — насичений захід ────────────────────────────── */
 [data-palette="sunset"] body {
   background:
-    radial-gradient(ellipse 100vw 50vh at 50% -8%, rgba(255,180,60,0.28)  0%, transparent 58%),
-    radial-gradient(ellipse 80vw 70vh at 100% 90%, rgba(224,90,43,0.22)   0%, transparent 65%),
-    radial-gradient(ellipse 70vw 60vh at 0% 80%,   rgba(255,120,80,0.18)  0%, transparent 62%),
-    radial-gradient(ellipse 50vw 50vh at 60% 40%,  rgba(255,200,100,0.14) 0%, transparent 55%),
-    linear-gradient(170deg, #fff3e0 0%, #fff8f0 50%, #ffe8d0 100%);
+    radial-gradient(ellipse 110vw 55vh at 50% -5%,  rgba(255,200,50,0.70)  0%, transparent 50%),
+    radial-gradient(ellipse 80vw 80vh at 110% 110%, rgba(200,40,20,0.65)   0%, transparent 58%),
+    radial-gradient(ellipse 70vw 60vh at -10% 80%,  rgba(255,100,30,0.50)  0%, transparent 58%),
+    radial-gradient(ellipse 55vw 55vh at 55% 50%,   rgba(240,80,40,0.25)   0%, transparent 52%),
+    linear-gradient(155deg, #e65c00 0%, #c0392b 45%, #9b1b30 100%);
   background-attachment: fixed;
 }
 [data-palette="sunset"][data-theme="dark"] body {
   background:
-    radial-gradient(ellipse 100vw 50vh at 50% -8%, rgba(255,120,30,0.45)  0%, transparent 58%),
-    radial-gradient(ellipse 80vw 70vh at 100% 90%, rgba(160,30,10,0.50)   0%, transparent 65%),
-    radial-gradient(ellipse 70vw 60vh at 0% 80%,   rgba(200,60,20,0.35)   0%, transparent 62%),
-    radial-gradient(ellipse 50vw 50vh at 55% 45%,  rgba(255,100,30,0.18)  0%, transparent 55%),
-    #0E0604;
+    radial-gradient(ellipse 110vw 55vh at 50% -5%,  rgba(200,80,10,0.55)  0%, transparent 50%),
+    radial-gradient(ellipse 80vw 80vh at 110% 110%, rgba(120,10,5,0.70)   0%, transparent 58%),
+    radial-gradient(ellipse 70vw 60vh at -10% 80%,  rgba(160,40,10,0.45)  0%, transparent 58%),
+    linear-gradient(155deg, #100200 0%, #1e0400 45%, #140208 100%);
   background-attachment: fixed;
 }
 
-/* ── MIDNIGHT — космос, зірки ────────────────────────────── */
+/* ── MIDNIGHT — глибокий космос ──────────────────────────── */
 [data-palette="midnight"] body {
   background:
-    /* Star field */
-    radial-gradient(circle at 1px 1px, rgba(200,160,255,0.18) 1px, transparent 0) 0 0 / 22px 22px,
-    radial-gradient(circle at 1px 1px, rgba(255,255,255,0.09) 1px, transparent 0) 11px 11px / 33px 33px,
-    /* Nebula blobs */
-    radial-gradient(ellipse 90vw 60vh at 20% 10%,  rgba(108,63,212,0.50) 0%, transparent 65%),
-    radial-gradient(ellipse 70vw 70vh at 90% 90%,  rgba(50,15,130,0.55)  0%, transparent 65%),
-    radial-gradient(ellipse 55vw 55vh at 60% 45%,  rgba(155,114,255,0.22) 0%, transparent 55%),
-    radial-gradient(ellipse 40vw 40vh at 80% 15%,  rgba(200,100,255,0.16) 0%, transparent 50%),
-    #050310;
+    /* Stars — 3 layers */
+    radial-gradient(circle at 1px 1px, rgba(220,180,255,0.22) 1px, transparent 0) 0 0 / 20px 20px,
+    radial-gradient(circle at 1px 1px, rgba(255,255,255,0.10) 1px, transparent 0) 10px 14px / 32px 32px,
+    radial-gradient(circle at 1px 1px, rgba(180,120,255,0.12) 1px, transparent 0) 5px 8px  / 48px 48px,
+    /* Nebula */
+    radial-gradient(ellipse 100vw 65vh at 15% 5%,   rgba(80,30,180,0.65)  0%, transparent 62%),
+    radial-gradient(ellipse 85vw 75vh at 90% 95%,   rgba(30,5,110,0.70)   0%, transparent 62%),
+    radial-gradient(ellipse 60vw 55vh at 60% 45%,   rgba(130,60,220,0.28) 0%, transparent 55%),
+    radial-gradient(ellipse 45vw 45vh at 80% 15%,   rgba(180,80,255,0.18) 0%, transparent 50%),
+    linear-gradient(180deg, #04010e 0%, #080318 100%);
   background-attachment: fixed;
 }
 
-/* ── NEON — кіберпанк сітка ──────────────────────────────── */
+/* ── NEON — кіберпанк ────────────────────────────────────── */
 [data-palette="neon"] body {
   background:
-    /* Grid */
-    linear-gradient(rgba(0,200,144,0.06) 1px, transparent 1px) 0 0 / 48px 48px,
-    linear-gradient(90deg, rgba(0,200,144,0.06) 1px, transparent 1px) 0 0 / 48px 48px,
-    /* Accent diagonals */
-    repeating-linear-gradient(-45deg, transparent, transparent 80px, rgba(194,100,255,0.03) 80px, rgba(194,100,255,0.03) 81px),
+    /* Cyberpunk grid */
+    linear-gradient(rgba(0,200,144,0.07) 1px, transparent 1px) 0 0 / 46px 46px,
+    linear-gradient(90deg, rgba(0,200,144,0.07) 1px, transparent 1px) 0 0 / 46px 46px,
+    /* Diagonal purple lines */
+    repeating-linear-gradient(-45deg, transparent, transparent 80px, rgba(194,100,255,0.04) 80px, rgba(194,100,255,0.04) 81px),
     /* Glows */
-    radial-gradient(ellipse 80vw 60vh at 10% 10%,  rgba(0,200,144,0.18)   0%, transparent 68%),
-    radial-gradient(ellipse 70vw 70vh at 90% 90%,  rgba(194,100,255,0.22) 0%, transparent 65%),
-    radial-gradient(ellipse 50vw 50vh at 80% 20%,  rgba(0,200,255,0.12)   0%, transparent 58%),
-    #020408;
+    radial-gradient(ellipse 85vw 65vh at 5%  5%,  rgba(0,180,120,0.24)   0%, transparent 65%),
+    radial-gradient(ellipse 75vw 75vh at 95% 95%,  rgba(150,60,255,0.28)  0%, transparent 65%),
+    radial-gradient(ellipse 55vw 55vh at 80% 20%,  rgba(0,180,255,0.14)   0%, transparent 55%),
+    linear-gradient(180deg, #000508 0%, #010310 100%);
   background-attachment: fixed;
 }
 
-/* ── GLASS — преміум градієнт ────────────────────────────── */
+/* ── GLASS — веселковий градієнт ─────────────────────────── */
 [data-palette="glass"] body {
   background:
-    linear-gradient(135deg, #b0f0d0 0%, #c8e4f8 30%, #e0d8ff 65%, #ffc8e8 100%);
+    linear-gradient(135deg, #a8f0c8 0%, #c0e0f8 28%, #dcd0ff 60%, #ffb8e0 100%);
   background-attachment: fixed;
 }
 [data-palette="glass"][data-theme="dark"] body {
   background:
-    linear-gradient(135deg, #081a10 0%, #0a1628 35%, #12082a 70%, #180a16 100%);
+    linear-gradient(135deg, #061410 0%, #080e20 32%, #0e0618 65%, #140810 100%);
   background-attachment: fixed;
 }
 
-/* ════ BACKDROP BLUR — напівпрозорість для Ocean/Sunset/Midnight/Neon ════ */
-[data-palette="ocean"] .settings-card,
-[data-palette="ocean"] .card,
-[data-palette="ocean"] .topbar,
-[data-palette="ocean"] .sidebar,
-[data-palette="ocean"] #sidebar,
-[data-palette="ocean"] .modal-sheet,
-[data-palette="ocean"] .modal-dialog,
-[data-palette="sunset"] .settings-card,
-[data-palette="sunset"] .card,
-[data-palette="sunset"] .topbar,
-[data-palette="sunset"] .sidebar,
-[data-palette="sunset"] #sidebar,
-[data-palette="sunset"] .modal-sheet,
-[data-palette="sunset"] .modal-dialog,
-[data-palette="midnight"] .settings-card,
-[data-palette="midnight"] .card,
-[data-palette="midnight"] .topbar,
-[data-palette="midnight"] .sidebar,
-[data-palette="midnight"] #sidebar,
-[data-palette="midnight"] .modal-sheet,
-[data-palette="midnight"] .modal-dialog,
-[data-palette="neon"] .settings-card,
-[data-palette="neon"] .card,
-[data-palette="neon"] .topbar,
-[data-palette="neon"] .sidebar,
-[data-palette="neon"] #sidebar,
-[data-palette="neon"] .modal-sheet,
-[data-palette="neon"] .modal-dialog,
-[data-palette="glass"] .settings-card,
-[data-palette="glass"] .card,
-[data-palette="glass"] .topbar,
-[data-palette="glass"] .sidebar,
-[data-palette="glass"] #sidebar,
-[data-palette="glass"] .modal-sheet,
-[data-palette="glass"] .modal-dialog {
-  backdrop-filter: blur(16px) saturate(160%);
-  -webkit-backdrop-filter: blur(16px) saturate(160%);
+/* ════ BACKDROP BLUR ══════════════════════════════════════════ */
+[data-palette="ocean"] .settings-card, [data-palette="ocean"] .card,
+[data-palette="ocean"] .topbar, [data-palette="ocean"] .sidebar, [data-palette="ocean"] #sidebar,
+[data-palette="ocean"] .modal-sheet, [data-palette="ocean"] .modal-dialog,
+[data-palette="sunset"] .settings-card, [data-palette="sunset"] .card,
+[data-palette="sunset"] .topbar, [data-palette="sunset"] .sidebar, [data-palette="sunset"] #sidebar,
+[data-palette="sunset"] .modal-sheet, [data-palette="sunset"] .modal-dialog,
+[data-palette="midnight"] .settings-card, [data-palette="midnight"] .card,
+[data-palette="midnight"] .topbar, [data-palette="midnight"] .sidebar, [data-palette="midnight"] #sidebar,
+[data-palette="midnight"] .modal-sheet, [data-palette="midnight"] .modal-dialog,
+[data-palette="neon"] .settings-card, [data-palette="neon"] .card,
+[data-palette="neon"] .topbar, [data-palette="neon"] .sidebar, [data-palette="neon"] #sidebar,
+[data-palette="neon"] .modal-sheet, [data-palette="neon"] .modal-dialog,
+[data-palette="glass"] .settings-card, [data-palette="glass"] .card,
+[data-palette="glass"] .topbar, [data-palette="glass"] .sidebar, [data-palette="glass"] #sidebar,
+[data-palette="glass"] .modal-sheet, [data-palette="glass"] .modal-dialog {
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
 }
 
-/* ════ GLOW та СПЕЦЕФЕКТИ ══════════════════════════════════ */
-
-/* Neon card borders */
-[data-palette="neon"] .settings-card,
-[data-palette="neon"] .card {
-  border: 1px solid rgba(0,200,144,0.18);
-  box-shadow: 0 4px 24px rgba(0,0,0,0.5), 0 0 20px rgba(0,200,144,0.06);
+/* ════ СПЕЦЕФЕКТИ ══════════════════════════════════════════════ */
+[data-palette="neon"] .settings-card, [data-palette="neon"] .card {
+  border: 1px solid rgba(0,200,144,0.20);
+  box-shadow: 0 4px 28px rgba(0,0,0,0.6), 0 0 24px rgba(0,200,144,0.07);
 }
 [data-palette="neon"] .btn-primary {
-  box-shadow: 0 0 16px rgba(0,200,144,0.4), 0 4px 20px rgba(0,0,0,0.5);
+  box-shadow: 0 0 18px rgba(0,200,144,0.45), 0 4px 20px rgba(0,0,0,0.6);
 }
-[data-palette="neon"] .sb-item.active {
-  text-shadow: 0 0 8px rgba(0,200,144,0.6);
-}
+[data-palette="neon"] .sb-item.active { text-shadow: 0 0 8px rgba(0,200,144,0.7); }
 
-/* Midnight card glow */
-[data-palette="midnight"] .settings-card,
-[data-palette="midnight"] .card {
-  border: 1px solid rgba(155,114,255,0.15);
-  box-shadow: 0 4px 24px rgba(0,0,0,0.55), 0 0 20px rgba(108,63,212,0.08);
+[data-palette="midnight"] .settings-card, [data-palette="midnight"] .card {
+  border: 1px solid rgba(168,126,255,0.18);
+  box-shadow: 0 4px 28px rgba(0,0,0,0.65), 0 0 24px rgba(80,30,180,0.10);
 }
 [data-palette="midnight"] .btn-primary {
-  box-shadow: 0 0 16px rgba(155,114,255,0.35), 0 4px 16px rgba(0,0,0,0.5);
+  box-shadow: 0 0 18px rgba(168,126,255,0.40), 0 4px 16px rgba(0,0,0,0.6);
 }
 
-/* ════ ІКОНКИ — свічення за темою ════════════════════════════ */
-[data-palette="default"] .sb-item.active i,
-[data-palette="default"] .bn-item.active i,
-:root:not([data-palette]) .sb-item.active i,
-:root:not([data-palette]) .bn-item.active i {
+/* ════ ІКОНКИ — свічення за темою ═════════════════════════════ */
+[data-palette="default"] .sb-item.active i, [data-palette="default"] .bn-item.active i,
+:root:not([data-palette]) .sb-item.active i, :root:not([data-palette]) .bn-item.active i {
   filter: drop-shadow(0 0 5px rgba(46,125,95,0.6));
 }
-[data-palette="ocean"] .sb-item.active i,
-[data-palette="ocean"] .bn-item.active i {
-  filter: drop-shadow(0 0 6px rgba(26,111,191,0.65));
+[data-palette="ocean"] .sb-item.active i, [data-palette="ocean"] .bn-item.active i {
+  filter: drop-shadow(0 0 7px rgba(90,176,255,0.80));
 }
-[data-palette="sunset"] .sb-item.active i,
-[data-palette="sunset"] .bn-item.active i {
-  filter: drop-shadow(0 0 6px rgba(224,90,43,0.65));
+[data-palette="sunset"] .sb-item.active i, [data-palette="sunset"] .bn-item.active i {
+  filter: drop-shadow(0 0 7px rgba(255,112,64,0.80));
 }
-[data-palette="midnight"] .sb-item.active i,
-[data-palette="midnight"] .bn-item.active i {
-  filter: drop-shadow(0 0 8px rgba(155,114,255,0.75));
+[data-palette="midnight"] .sb-item.active i, [data-palette="midnight"] .bn-item.active i {
+  filter: drop-shadow(0 0 8px rgba(168,126,255,0.85));
 }
-[data-palette="neon"] .sb-item.active i,
-[data-palette="neon"] .bn-item.active i {
-  filter: drop-shadow(0 0 8px rgba(0,200,144,0.85));
+[data-palette="neon"] .sb-item.active i, [data-palette="neon"] .bn-item.active i {
+  filter: drop-shadow(0 0 9px rgba(0,200,144,0.90));
 }
-[data-palette="glass"] .sb-item.active i,
-[data-palette="glass"] .bn-item.active i {
-  filter: drop-shadow(0 0 5px rgba(46,125,95,0.55));
+[data-palette="glass"] .sb-item.active i, [data-palette="glass"] .bn-item.active i {
+  filter: drop-shadow(0 0 5px rgba(46,125,95,0.60));
 }
 
 /* ════════════════════════════════════════════════════════════════
