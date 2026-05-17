@@ -111,33 +111,34 @@ export function renderPushSettingsPage() {
 
   return `
     <div class="settings-card">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <div>
-          <div style="font-size:15px;font-weight:700">Push-сповіщення</div>
-          <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">${supported ? 'Сповіщення прямо на телефон' : 'Не підтримується цим браузером'}</div>
+      <div class="settings-row">
+        <div class="settings-row-icon" style="background:#FEF3C7;color:#D97706"><i class="ti ti-bell"></i></div>
+        <div class="settings-row-info">
+          <div class="settings-row-name">Push-сповіщення</div>
+          <div class="settings-row-sub">${supported ? 'Сповіщення прямо на телефон' : 'Не підтримується браузером'}</div>
         </div>
         ${supported ? `
-          <label class="toggle-switch">
+          <label class="settings-toggle">
             <input type="checkbox" id="push-master-toggle" ${prefs.enabled ? 'checked' : ''}>
-            <span class="toggle-slider"></span>
+            <span></span>
           </label>
         ` : '<span style="font-size:12px;color:var(--c-red)">Недоступно</span>'}
       </div>
     </div>
 
     ${supported ? `
+    <div class="settings-section-header">ПРО ЩО СПОВІЩАТИ</div>
     <div class="settings-card" id="push-prefs-section" style="${prefs.enabled ? '' : 'opacity:0.5;pointer-events:none'}">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--c-text-3);margin-bottom:12px">Про що сповіщати</div>
 
-      ${renderPushRow('limitWarning.on', prefs.limitWarning.on, '⚠️ Перевищення ліміту',
-        `При досягненні <b>${prefs.limitWarning.threshold}%</b> від ліміту категорії`,
+      ${renderPushRow('limitWarning.on', prefs.limitWarning.on, 'ti-alert-triangle', 'Перевищення ліміту',
+        `При досягненні <b id="push-thr-label">${prefs.limitWarning.threshold}%</b> від ліміту`,
         `<input type="range" min="50" max="100" step="5" value="${prefs.limitWarning.threshold}"
-          id="push-limit-threshold" style="width:100%;margin-top:6px">`
+          id="push-limit-threshold" class="push-range">`
       )}
 
-      ${renderPushRow('recurringReminder.on', prefs.recurringReminder.on, '📅 Нагадування про платежі',
-        `За <b>${prefs.recurringReminder.daysBefore}</b> ${prefs.recurringReminder.daysBefore === 1 ? 'день' : 'дні'} до платежу`,
-        `<select id="push-days-before" class="ip-input" style="margin-top:6px;padding:6px 10px;font-size:13px">
+      ${renderPushRow('recurringReminder.on', prefs.recurringReminder.on, 'ti-calendar-due', 'Нагадування про платежі',
+        'Заздалегідь до платежу',
+        `<select id="push-days-before" class="settings-row-input" style="width:100%">
           <option value="0" ${prefs.recurringReminder.daysBefore===0?'selected':''}>В день платежу</option>
           <option value="1" ${prefs.recurringReminder.daysBefore===1?'selected':''}>За 1 день</option>
           <option value="2" ${prefs.recurringReminder.daysBefore===2?'selected':''}>За 2 дні</option>
@@ -145,39 +146,38 @@ export function renderPushSettingsPage() {
         </select>`
       )}
 
-      ${renderPushRow('dailySummary.on', prefs.dailySummary.on, '📊 Щоденний підсумок',
-        `О <b>${prefs.dailySummary.time}</b>`,
+      ${renderPushRow('dailySummary.on', prefs.dailySummary.on, 'ti-chart-bar', 'Щоденний підсумок',
+        'Підсумок витрат за день',
         `<input type="time" id="push-daily-time" value="${prefs.dailySummary.time}"
-          class="ip-input" style="margin-top:6px;padding:6px 10px;font-size:13px;width:auto">`
+          class="settings-row-input" style="width:100%">`
       )}
 
-      ${renderPushRow('weeklySummary.on', prefs.weeklySummary.on, '📈 Тижневий звіт',
+      ${renderPushRow('weeklySummary.on', prefs.weeklySummary.on, 'ti-calendar-stats', 'Тижневий звіт',
         'Щопонеділка — підсумок тижня', ''
       )}
 
-      ${renderPushRow('goalMilestone.on', prefs.goalMilestone.on, '🎯 Досягнення цілей',
-        'При досягненні 25%, 50%, 75%, 100% цілі', ''
+      ${renderPushRow('goalMilestone.on', prefs.goalMilestone.on, 'ti-target', 'Досягнення цілей',
+        'При 25%, 50%, 75%, 100% цілі', ''
       )}
     </div>
     ` : ''}
   `;
 }
 
-function renderPushRow(prefKey, checked, title, desc, extra) {
+function renderPushRow(prefKey, checked, icon, title, desc, extra) {
   return `
-    <div class="settings-row" style="margin-bottom:12px;flex-direction:column;align-items:flex-start;gap:4px">
-      <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
-        <div>
-          <div style="font-size:14px;font-weight:600">${title}</div>
-          <div style="font-size:12px;color:var(--c-text-3)">${desc}</div>
-        </div>
-        <label class="toggle-switch" style="flex-shrink:0;margin-left:12px">
-          <input type="checkbox" data-push-pref="${prefKey}" ${checked ? 'checked' : ''}>
-          <span class="toggle-slider"></span>
-        </label>
+    <div class="settings-row">
+      <div class="settings-row-icon" style="background:var(--c-accent-soft);color:var(--c-accent)"><i class="ti ${icon}"></i></div>
+      <div class="settings-row-info">
+        <div class="settings-row-name">${title}</div>
+        <div class="settings-row-sub">${desc}</div>
       </div>
-      ${extra ? `<div style="width:100%">${extra}</div>` : ''}
+      <label class="settings-toggle">
+        <input type="checkbox" data-push-pref="${prefKey}" ${checked ? 'checked' : ''}>
+        <span></span>
+      </label>
     </div>
+    ${extra ? `<div class="settings-row push-row-extra">${extra}</div>` : ''}
   `;
 }
 
@@ -206,8 +206,8 @@ export function bindPushSettingsHandlers(wrap) {
   if (threshold) {
     threshold.addEventListener('input', () => {
       savePref('limitWarning.threshold', parseInt(threshold.value));
-      const desc = threshold.previousElementSibling?.querySelector('b');
-      if (desc) desc.textContent = threshold.value + '%';
+      const lbl = wrap.querySelector('#push-thr-label');
+      if (lbl) lbl.textContent = threshold.value + '%';
     });
   }
 

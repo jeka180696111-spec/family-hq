@@ -1213,3 +1213,15 @@
   font-weight: 700;
   background: var(--c-accent-soft);
 }
+
+/* ── Push notifications: extra row (slider/select under toggle) ─ */
+.push-row-extra {
+  padding-top: 0;
+  margin-top: -6px;
+  padding-bottom: 12px;
+}
+.push-range {
+  width: 100%;
+  accent-color: var(--c-accent);
+  cursor: pointer;
+}
