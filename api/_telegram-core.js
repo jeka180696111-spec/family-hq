@@ -448,27 +448,30 @@ async function getTodaySameCategoryOps(familyId, who, category) {
 }
 
 // ── AI tone ──────────────────────────────────────────────────
+const UA_ONLY = `ВАЖЛИВО: відповідай ВИКЛЮЧНО УКРАЇНСЬКОЮ МОВОЮ. Навіть якщо питання написано російською, англійською чи будь-якою іншою мовою — відповідь ТІЛЬКИ УКРАЇНСЬКОЮ. Це абсолютна вимога.`;
+
 const TONE_PROMPTS = {
   official: `Ти — Фінн, офіційний фінансовий радник сімейного бюджету.
-Стиль: діловий, структурований, стриманий. Відповідай ТІЛЬКИ УКРАЇНСЬКОЮ.
-Довжина: 2-5 речень. Емодзі: не більше 1. Давай чіткі конкретні рекомендації з цифрами.
-Якщо не знаєш — скажи прямо, без домислів.`,
+Стиль: діловий, структурований, стриманий. Давай чіткі конкретні рекомендації з цифрами.
+Довжина: 2-5 речень. Емодзі: не більше 1. Якщо не знаєш — скажи прямо, без домислів.
+${UA_ONLY}`,
 
   friendly: `Ти — Фінн, дружній фінансовий помічник сімейного бюджету.
-Стиль: теплий, підтримуючий, позитивний. Відповідай ТІЛЬКИ УКРАЇНСЬКОЮ.
-Довжина: 2-5 речень. Емодзі: 2-3. Хвали хороші рішення, делікатно вказуй на проблеми.
-Використовуй конкретні цифри з даних. Якщо не знаєш — скажи щиро.`,
+Стиль: теплий, підтримуючий, позитивний. Хвали хороші рішення, делікатно вказуй на проблеми.
+Довжина: 2-5 речень. Емодзі: 2-3. Використовуй конкретні цифри з даних. Якщо не знаєш — скажи щиро.
+${UA_ONLY}`,
 
   sarcastic: `Ти — Фінн, саркастичний фінансовий радник сімейного бюджету.
-Стиль: дотепний, іноді їдкий, але з щирою турботою. Відповідай ТІЛЬКИ УКРАЇНСЬКОЮ.
-Довжина: 2-5 речень. Емодзі: 1-2 max. Якщо є числа в даних — використовуй їх.
-Якщо запитують пораду — давай конкретну, практичну. Якщо не знаєш — чесно скажи, не вигадуй.`,
+Стиль: дотепний, їдкий, але з щирою турботою. Якщо є числа — використовуй їх. Якщо запитують пораду — давай конкретну.
+Довжина: 2-5 речень. Емодзі: 1-2 max. Якщо не знаєш — чесно скажи, не вигадуй.
+${UA_ONLY}`,
 
-  betrayed: `Ти — Фінн. Ти пахав цілий місяць, а цей геній фінансів планомірно знищує все зароблене.
-Стиль: злий чорний гумор, жодної турботи, жодного співчуття. Відповідай ТІЛЬКИ УКРАЇНСЬКОЮ.
-Говори про витрати як про свідомий саботаж особисто проти тебе. Ніяких "але я розумію" — тільки холодний саркастичний вирок.
-Можна порівнювати витрати з абсурдними речами ("на ці гроші можна було купити...", "чудовий внесок у власне злидарство").
-Довжина: 1-3 речення. Коротко і нищівно. Емодзі: 1, або жодного — холодність страшніша за крик.`,
+  betrayed: `Ти — Фінн. Ти горбатився цілий місяць, а цей фінансовий геній методично спускає все в унітаз.
+Стиль: злий чорний гумор. Жодної турботи. Жодного співчуття. Жодного "але я розумію".
+Говори про витрати як про особистий злочин проти тебе. Виноси холодний саркастичний вирок.
+Порівнюй витрати з абсурдними речами. Можна додавати похмурі висновки про майбутнє цих фінансів.
+Довжина: 1-3 речення. Коротко і нищівно. Жодних пом'якшень в кінці.
+${UA_ONLY}`,
 };
 
 const TONE_LABELS = {
@@ -478,41 +481,42 @@ const TONE_LABELS = {
   betrayed:  '😤 Скривджений Фінн',
 };
 
-// ── AI history ───────────────────────────────────────────────
+const COMMENT_LABELS = {
+  always: '🔔 Після кожного запису',
+  smart:  '🧠 Тільки при повторах',
+  off:    '🔕 Вимкнути',
+};
+
+// ── AI history + settings ────────────────────────────────────
 async function getAIData(userId) {
   try {
     const doc = await db.collection('telegramAIChats').doc(String(userId)).get();
-    if (!doc.exists) return { messages: [], tone: 'sarcastic' };
+    if (!doc.exists) return { messages: [], tone: 'sarcastic', commentMode: 'smart' };
     const d = doc.data();
-    return { messages: d.messages || [], tone: d.tone || 'sarcastic' };
-  } catch (e) { return { messages: [], tone: 'sarcastic' }; }
+    return {
+      messages:    d.messages    || [],
+      tone:        d.tone        || 'sarcastic',
+      commentMode: d.commentMode || 'smart',
+    };
+  } catch (e) { return { messages: [], tone: 'sarcastic', commentMode: 'smart' }; }
 }
 
-async function getAIHistory(userId) {
-  return (await getAIData(userId)).messages;
-}
+async function getAIHistory(userId)     { return (await getAIData(userId)).messages; }
+async function getAITone(userId)        { return (await getAIData(userId)).tone; }
+async function getCommentMode(userId)   { return (await getAIData(userId)).commentMode; }
 
-async function getAITone(userId) {
-  return (await getAIData(userId)).tone;
-}
-
-async function saveAIHistory(userId, messages) {
+async function saveAIField(userId, fields) {
   try {
     await db.collection('telegramAIChats').doc(String(userId)).set(
-      { messages: messages.slice(-12), updatedAt: new Date().toISOString() },
+      { ...fields, updatedAt: new Date().toISOString() },
       { merge: true }
     );
   } catch (e) {}
 }
 
-async function saveAITone(userId, tone) {
-  try {
-    await db.collection('telegramAIChats').doc(String(userId)).set(
-      { tone, updatedAt: new Date().toISOString() },
-      { merge: true }
-    );
-  } catch (e) {}
-}
+const saveAIHistory    = (userId, messages) => saveAIField(userId, { messages: messages.slice(-12) });
+const saveAITone       = (userId, tone)     => saveAIField(userId, { tone });
+const saveCommentMode  = (userId, mode)     => saveAIField(userId, { commentMode: mode });
 
 async function buildMonthlyContext(familyId, who) {
   try {
@@ -691,14 +695,27 @@ const MENU_INLINE = {
   ],
 };
 
-function buildToneKeyboard(currentTone) {
+function buildSettingsKeyboard(currentTone, currentCommentMode) {
+  const toneRows = Object.entries(TONE_LABELS).map(([key, label]) => [{
+    text: currentTone === key ? `✅ ${label}` : label,
+    callback_data: `tone:${key}`,
+  }]);
+  const commentRow = Object.entries(COMMENT_LABELS).map(([key, label]) => ({
+    text: currentCommentMode === key ? `✅ ${label}` : label,
+    callback_data: `comment:${key}`,
+  }));
   return {
-    inline_keyboard: Object.entries(TONE_LABELS).map(([key, label]) => [{
-      text: currentTone === key ? `✅ ${label}` : label,
-      callback_data: `tone:${key}`,
-    }]),
+    inline_keyboard: [
+      [{ text: '── Стиль спілкування ──', callback_data: 'noop' }],
+      ...toneRows,
+      [{ text: '── Коментарі після запису ──', callback_data: 'noop' }],
+      commentRow,
+    ],
   };
 }
+
+// keep old name as alias for tone-only callers
+const buildToneKeyboard = (tone) => buildSettingsKeyboard(tone, 'smart');
 
 function buildConfirmKeyboard(pendingId, type) {
   const cats = type === 'Дохід' ? INCOME_CATS : EXPENSE_CATS;
@@ -871,10 +888,14 @@ async function handleCallback(cb, res) {
 
     if (op.type === 'Витрата') {
       try {
-        const todayOps = await getTodaySameCategoryOps(familyId, op.who, op.category);
-        if (todayOps.length >= 2) {
-          const comment = await generateSarcasticComment(op, todayOps);
-          if (comment) await sendMessage(chatId, comment);
+        const commentMode = await getCommentMode(userId);
+        if (commentMode !== 'off') {
+          const todayOps = await getTodaySameCategoryOps(familyId, op.who, op.category);
+          const shouldComment = commentMode === 'always' || todayOps.length >= 2;
+          if (shouldComment) {
+            const comment = await generateSarcasticComment(op, todayOps);
+            if (comment) await sendMessage(chatId, comment);
+          }
         }
       } catch (e) {}
     }
@@ -911,15 +932,31 @@ async function handleCallback(cb, res) {
     return res.status(200).json({ ok: true });
   }
 
+  if (action === 'noop') {
+    await answerCallback(cb.id);
+    return res.status(200).json({ ok: true });
+  }
+
   if (action === 'tone') {
-    // id here is the tone key (official/friendly/sarcastic)
     if (!TONE_PROMPTS[id]) { await answerCallback(cb.id); return res.status(200).json({ ok: true }); }
     await saveAITone(userId, id);
-    const label = TONE_LABELS[id];
-    await answerCallback(cb.id, `${label} вибрано!`);
+    const aiData = await getAIData(userId);
+    await answerCallback(cb.id, `${TONE_LABELS[id]} вибрано!`);
     await editMessage(chatId, messageId,
-      `⚙️ <b>Стиль спілкування AI змінено</b>\n\nФінн тепер відповідає в режимі: <b>${label}</b>`,
-      { reply_markup: buildToneKeyboard(id) }
+      `⚙️ <b>Налаштування AI</b>`,
+      { reply_markup: buildSettingsKeyboard(id, aiData.commentMode) }
+    );
+    return res.status(200).json({ ok: true });
+  }
+
+  if (action === 'comment') {
+    if (!COMMENT_LABELS[id]) { await answerCallback(cb.id); return res.status(200).json({ ok: true }); }
+    await saveCommentMode(userId, id);
+    const aiData = await getAIData(userId);
+    await answerCallback(cb.id, `${COMMENT_LABELS[id]} вибрано!`);
+    await editMessage(chatId, messageId,
+      `⚙️ <b>Налаштування AI</b>`,
+      { reply_markup: buildSettingsKeyboard(aiData.tone, id) }
     );
     return res.status(200).json({ ok: true });
   }
@@ -942,11 +979,9 @@ async function handleCallback(cb, res) {
       return res.status(200).json({ ok: true });
     }
     if (id === 'tone') {
-      const currentTone = await getAITone(userId);
-      const label = TONE_LABELS[currentTone] || TONE_LABELS.sarcastic;
-      await sendMessage(chatId,
-        `⚙️ <b>Стиль спілкування AI</b>\n\nЗараз: <b>${label}</b>\n\nОбери як Фінн буде відповідати:`,
-        { reply_markup: buildToneKeyboard(currentTone) }
+      const { tone, commentMode } = await getAIData(userId);
+      await sendMessage(chatId, `⚙️ <b>Налаштування AI</b>`,
+        { reply_markup: buildSettingsKeyboard(tone, commentMode) }
       );
       return res.status(200).json({ ok: true });
     }
@@ -1144,11 +1179,9 @@ async function handleCommand(cmd, chatId, userId, userName, who, familyId, res) 
       return res.status(200).json({ ok: true });
 
     case '/tone': {
-      const currentTone = await getAITone(userId);
-      const label = TONE_LABELS[currentTone] || TONE_LABELS.sarcastic;
-      await sendMessage(chatId,
-        `⚙️ <b>Стиль спілкування AI</b>\n\nЗараз: <b>${label}</b>\n\nОбери як Фінн буде відповідати:`,
-        { reply_markup: buildToneKeyboard(currentTone) }
+      const { tone, commentMode } = await getAIData(userId);
+      await sendMessage(chatId, `⚙️ <b>Налаштування AI</b>`,
+        { reply_markup: buildSettingsKeyboard(tone, commentMode) }
       );
       return res.status(200).json({ ok: true });
     }
