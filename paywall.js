@@ -1,17 +1,16 @@
 // ═══════════════════════════════════════════════════════════════
-// PAYWALL — модальне вікно підписки Many Budget Pro
+// PAYWALL — модальне вікно підписки Money Budget Pro
 // ═══════════════════════════════════════════════════════════════
 
 import { openModal, closeModal } from './modals.js';
 import { showToast } from './utils.js';
 
 const FEATURES = [
-  { icon: 'ti-robot',          label: 'AI-аналітика (Фінн)' },
+  { icon: 'ti-robot',          label: 'AI-помічник Фінн' },
   { icon: 'ti-users',          label: 'Необмежена родина' },
   { icon: 'ti-brand-telegram', label: 'Telegram-бот' },
   { icon: 'ti-scan',           label: 'Сканер чеків' },
   { icon: 'ti-target',         label: 'Цілі та резерв' },
-  { icon: 'ti-repeat',         label: 'Регулярні платежі' },
 ];
 
 export function showPaywall() {
@@ -30,7 +29,7 @@ export function showPaywall() {
   const content = `
     <div class="pw-header">
       <div class="pw-logo">✨</div>
-      <div class="pw-title">Many Budget Pro</div>
+      <div class="pw-title">Money Budget Pro</div>
       <div class="pw-subtitle">Розблокуй всі можливості</div>
     </div>
 
@@ -40,7 +39,7 @@ export function showPaywall() {
 
     <div class="pw-actions">
       <button class="pw-btn-primary" id="pw-subscribe-btn">
-        <span class="pw-price">149 ₴</span>
+        <span class="pw-price">$4.99</span>
         <span class="pw-period">/ місяць</span>
       </button>
       <button class="pw-btn-trial" id="pw-trial-btn">

@@ -789,6 +789,33 @@ function renderSubPageBody(key) {
         </div>
 
         <div class="settings-card" style="margin-bottom:12px">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--c-text-3);margin-bottom:10px;padding-left:4px">Що входить</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px">
+            <div style="padding:10px;border-radius:10px;background:var(--c-bg-3)">
+              <div style="font-size:12px;font-weight:700;margin-bottom:6px">Безкоштовно</div>
+              ${['Облік витрат і доходів','Аналітика та звіти','Кілька кошельків','Категорії'].map(f => `
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+                  <i class="ti ti-check" style="font-size:12px;color:#16A34A;flex-shrink:0"></i>
+                  <span style="font-size:11px;color:var(--c-text-2)">${f}</span>
+                </div>
+              `).join('')}
+            </div>
+            <div style="padding:10px;border-radius:10px;background:var(--c-accent-soft);border:1px solid var(--c-accent)">
+              <div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--c-accent)">Pro ✨</div>
+              ${['Telegram-бот','AI-помічник Фінн','Необмежена родина','Цілі та резерв','Сканер чеків'].map(f => `
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+                  <i class="ti ti-check" style="font-size:12px;color:var(--c-accent);flex-shrink:0"></i>
+                  <span style="font-size:11px;color:var(--c-text-2)">${f}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--c-text-3);text-align:center;margin-top:8px;padding:8px;background:#F0FDF4;border-radius:8px">
+            🎁 7 днів Pro безкоштовно — кредитна картка не потрібна
+          </div>
+        </div>
+
+        <div class="settings-card" style="margin-bottom:12px">
           <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--c-text-3);margin-bottom:10px;padding-left:4px">Оберіть план</div>
 
           <div class="sub-plan-card" data-plan="week">
@@ -798,8 +825,8 @@ function renderSubPageBody(key) {
                 <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">7 днів повного доступу</div>
               </div>
               <div style="text-align:right">
-                <div style="font-size:20px;font-weight:800;color:var(--c-accent)">49 ₴</div>
-                <div style="font-size:11px;color:var(--c-text-3)">~$1.2 · / 7 днів</div>
+                <div style="font-size:20px;font-weight:800;color:var(--c-accent)">$1.99</div>
+                <div style="font-size:11px;color:var(--c-text-3)">/ 7 днів</div>
               </div>
             </div>
           </div>
@@ -814,8 +841,8 @@ function renderSubPageBody(key) {
                 <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">30 днів повного доступу</div>
               </div>
               <div style="text-align:right">
-                <div style="font-size:20px;font-weight:800;color:var(--c-accent)">149 ₴</div>
-                <div style="font-size:11px;color:var(--c-text-3)">~$3.6 · / місяць</div>
+                <div style="font-size:20px;font-weight:800;color:var(--c-accent)">$4.99</div>
+                <div style="font-size:11px;color:var(--c-text-3)">/ місяць</div>
               </div>
             </div>
           </div>
@@ -827,11 +854,11 @@ function renderSubPageBody(key) {
                   <div style="font-size:15px;font-weight:700">Річний</div>
                   <span style="background:#F59E0B;color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px">ВИГІДНО</span>
                 </div>
-                <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">365 днів · ~133 ₴/міс · ~$39/рік</div>
+                <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">365 днів · ~$4.17/міс</div>
               </div>
               <div style="text-align:right">
-                <div style="font-size:20px;font-weight:800;color:var(--c-accent)">1599 ₴</div>
-                <div style="font-size:11px;color:var(--c-text-3)">~$39 · / рік</div>
+                <div style="font-size:20px;font-weight:800;color:var(--c-accent)">$49.99</div>
+                <div style="font-size:11px;color:var(--c-text-3)">/ рік</div>
               </div>
             </div>
           </div>
@@ -851,20 +878,24 @@ function renderSubPageBody(key) {
             <div style="width:44px;height:44px;border-radius:12px;background:#F0FDF4;color:#16A34A;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0"><i class="ti ti-shield-check"></i></div>
             <div>
               <div style="font-size:15px;font-weight:700">Політика конфіденційності</div>
-              <div style="font-size:12px;color:var(--c-text-3)">Редакція від 1 травня 2025 р.</div>
+              <div style="font-size:12px;color:var(--c-text-3)">Редакція від 1 травня 2026 р.</div>
             </div>
           </div>
           ${[
-            ['Які дані ми збираємо', 'Ми збираємо мінімум інформації: ім\'я та email вашого Google-акаунта для авторизації, а також фінансові операції, кошельки та цілі, які ви вводите вручну. Ми не збираємо геолокацію, контакти, або будь-які інші персональні дані.'],
-            ['Де зберігаються дані', 'Усі дані зберігаються у хмарній базі Firebase (Google Cloud) із шифруванням у стані спокою (AES-256) та під час передачі (TLS). Сервери розташовані в Євросоюзі.'],
-            ['Хто має доступ', 'Виключно ви та члени вашої родини, яких ви самостійно запросили до облікового запису. Ми — команда розробників — не переглядаємо ваші фінансові дані. Жодна третя сторона не має доступу.'],
-            ['Продаж даних', 'Ми не продаємо, не передаємо і не обмінюємо ваші персональні або фінансові дані з рекламодавцями, партнерами або будь-якими іншими організаціями.'],
-            ['Видалення даних', 'Ви можете видалити свій акаунт і всі пов\'язані дані в будь-який момент у розділі Налаштування → Акаунт → Видалити акаунт. Після видалення дані стираються повністю протягом 30 днів.'],
-            ['Зміни в політиці', 'Ми повідомляємо про суттєві зміни в цій політиці через сповіщення в додатку не менше ніж за 7 днів до набрання чинності. Актуальна версія завжди доступна в налаштуваннях.'],
+            ['1. Загальні положення', 'Ця Політика конфіденційності описує, як Money Budget ("ми", "нас", "наш") збирає, використовує та захищає персональні дані користувачів додатку Money Budget. Використовуючи додаток, ви погоджуєтесь з умовами цієї Політики. Якщо ви не погоджуєтесь — будь ласка, припиніть використання додатку.'],
+            ['2. Які дані ми збираємо', 'Ми збираємо лише мінімально необхідні дані:\n• Ім\'я та email з вашого Google-акаунта (для авторизації)\n• Фінансові операції, які ви вводите вручну (суми, категорії, дати)\n• Налаштування кошельків та категорій\n• Цілі та плани накопичень\n• Telegram ID (якщо ви підключаєте бота)\n• Технічні дані: версія додатку, тип пристрою (для усунення помилок)\n\nМи НЕ збираємо: геолокацію, контакти, фото, SMS, push-повідомлення без дозволу, дані банківських карток або рахунків.'],
+            ['3. Як ми використовуємо дані', 'Зібрані дані використовуються виключно для:\n• Надання функціоналу додатку (облік фінансів, аналітика)\n• Синхронізації даних між пристроями\n• Надсилання сповіщень через Telegram-бот (якщо підключено)\n• Генерації AI-звітів та рекомендацій (дані не зберігаються в AI-системі)\n• Технічної підтримки та усунення помилок\n\nМи НЕ використовуємо ваші дані для реклами, продажу третім особам або профілювання.'],
+            ['4. Зберігання та безпека даних', 'Усі дані зберігаються в хмарній базі Firebase (Google Cloud):\n• Шифрування в стані спокою: AES-256\n• Шифрування під час передачі: TLS 1.3\n• Сервери розташовані в регіоні Євросоюзу (Бельгія, Frankfurt)\n• Доступ до бази захищений правилами безпеки Firebase\n• Регулярне резервне копіювання даних\n\nМи застосовуємо принцип мінімальних привілеїв: жоден співробітник не має прямого доступу до ваших фінансових даних без технічної необхідності.'],
+            ['5. Хто має доступ до ваших даних', 'Доступ до ваших даних мають:\n• Ви особисто\n• Члени родини, яких ви самостійно запросили до спільного акаунту\n• Команда розробників Money Budget — лише у технічних цілях (усунення критичних помилок) і виключно через знеособлені логи\n\nТретіх сторін з доступом до ваших фінансових даних — немає. Жодного доступу рекламним мережам, аналітичним платформам або державним органам (крім випадків, передбачених законом України).'],
+            ['6. Передача даних третім особам', 'Ми НЕ продаємо, НЕ передаємо та НЕ обмінюємо ваші персональні або фінансові дані з будь-якими третіми особами.\n\nВикористовуємо лише такі технічні сервіси:\n• Google Firebase — зберігання та синхронізація даних (Google Privacy Policy)\n• Anthropic Claude API — генерація AI-звітів (дані не зберігаються Anthropic після обробки)\n• Telegram Bot API — сповіщення (лише якщо ви підключили бота)\n• Vercel — хостинг додатку (технічні логи без персональних даних)'],
+            ['7. Ваші права (GDPR)', 'Відповідно до Регламенту GDPR ви маєте право:\n• Право на доступ: отримати копію всіх ваших даних\n• Право на виправлення: виправити неточні дані\n• Право на видалення ("право бути забутим"): видалити акаунт і всі дані\n• Право на обмеження обробки: обмежити використання даних\n• Право на портативність: отримати дані у машиночитаному форматі\n• Право на заперечення: заперечити проти обробки даних\n\nДля реалізації будь-якого з прав — напишіть на privacy@moneybudget.app'],
+            ['8. Видалення акаунту та даних', 'Ви можете видалити свій акаунт у будь-який момент через: Налаштування → Акаунт → Видалити акаунт.\n\nПісля запиту на видалення:\n• Персональні дані видаляються протягом 30 днів\n• Резервні копії очищуються протягом 90 днів\n• Деякі знеособлені агреговані дані можуть зберігатись для статистики\n\nВи отримаєте підтвердження видалення на email.'],
+            ['9. Cookies та трекери', 'Money Budget є прогресивним веб-додатком (PWA) і використовує:\n• LocalStorage та IndexedDB — для кешування даних на вашому пристрої\n• Service Worker — для офлайн-роботи\n• Firebase Authentication cookies — для підтримки сесії\n\nМи НЕ використовуємо сторонні трекери, рекламні cookies або аналітику поведінки користувачів.'],
+            ['10. Зміни в Політиці', 'Про суттєві зміни в Політиці ми повідомляємо:\n• Через сповіщення в додатку — не менше ніж за 14 днів до набрання чинності\n• Через email — для змін, що суттєво впливають на ваші права\n\nАктуальна версія Політики завжди доступна в Налаштуваннях. Продовження використання додатку після змін означає вашу згоду з новою редакцією.'],
           ].map(([title, text], i, arr) => `
-            <div style="margin-bottom:${i < arr.length-1 ? '14px' : '0'}">
-              <div style="font-size:13px;font-weight:700;color:var(--c-text);margin-bottom:4px">${title}</div>
-              <div style="font-size:13px;line-height:1.6;color:var(--c-text-2)">${text}</div>
+            <div style="margin-bottom:${i < arr.length-1 ? '16px' : '0'}">
+              <div style="font-size:13px;font-weight:700;color:var(--c-text);margin-bottom:5px">${title}</div>
+              <div style="font-size:13px;line-height:1.65;color:var(--c-text-2);white-space:pre-line">${text}</div>
             </div>
           `).join('')}
         </div>
@@ -873,7 +904,7 @@ function renderSubPageBody(key) {
             <i class="ti ti-mail" style="font-size:18px;color:var(--c-text-3);margin-top:2px"></i>
             <div>
               <div style="font-size:13px;font-weight:600">Питання щодо конфіденційності</div>
-              <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">Напишіть нам: <a href="mailto:privacy@many.app" style="color:var(--c-accent)">privacy@many.app</a></div>
+              <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">Напишіть нам: <a href="mailto:privacy@moneybudget.app" style="color:var(--c-accent)">privacy@moneybudget.app</a></div>
             </div>
           </div>
         </div>
@@ -886,20 +917,24 @@ function renderSubPageBody(key) {
             <div style="width:44px;height:44px;border-radius:12px;background:#FFF7ED;color:#EA580C;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0"><i class="ti ti-file-text"></i></div>
             <div>
               <div style="font-size:15px;font-weight:700">Угода користувача</div>
-              <div style="font-size:12px;color:var(--c-text-3)">Редакція від 1 травня 2025 р.</div>
+              <div style="font-size:12px;color:var(--c-text-3)">Редакція від 1 травня 2026 р.</div>
             </div>
           </div>
           ${[
-            ['Прийняття умов', 'Використовуючи додаток Many Budget, ви підтверджуєте, що ознайомились із цією угодою та погоджуєтесь з її умовами. Якщо ви не згодні — будь ласка, припиніть використання додатку.'],
-            ['Підписка та оплата', 'Доступ до повного функціоналу надається за платною підпискою. Підписка автоматично поновлюється. Ви можете скасувати її в будь-який момент у налаштуваннях App Store або Google Play. Повернення коштів здійснюється відповідно до правил магазину застосунків.'],
-            ['Обмеження відповідальності', 'Many Budget є інструментом для особистого фінансового обліку. Додаток не є фінансовим радником. Ми не несемо відповідальності за фінансові рішення, прийняті на основі даних у додатку. Завжди консультуйтесь із кваліфікованим фінансистом у важливих питаннях.'],
-            ['Права та обов\'язки', 'Ви зобов\'язуєтесь не використовувати додаток для незаконних цілей, не намагатися отримати несанкціонований доступ до чужих даних, не розповсюджувати шкідливий вміст через функції спільного доступу.'],
-            ['Зміни у функціоналі', 'Ми залишаємо за собою право змінювати, оновлювати або припиняти окремі функції додатку. Про суттєві зміни ми повідомляємо заздалегідь. Ми прагнемо вдосконалювати продукт та цінуємо ваш зворотний зв\'язок.'],
-            ['Припинення доступу', 'Ми залишаємо за собою право призупинити або припинити доступ до акаунта у разі порушення умов цієї угоди. Ви можете самостійно видалити акаунт у будь-який час.'],
+            ['1. Прийняття умов', 'Використовуючи додаток Money Budget, ви підтверджуєте, що:\n• Вам виповнилось 18 років, або ви маєте дозвіл батьків/опікунів\n• Ви ознайомились з цією Угодою та Політикою конфіденційності\n• Ви погоджуєтесь дотримуватись умов Угоди\n\nЯкщо ви не погоджуєтесь з будь-яким пунктом — будь ласка, припиніть використання додатку.'],
+            ['2. Опис сервісу', 'Money Budget — це прогресивний веб-додаток (PWA) для сімейного фінансового обліку. Додаток надає:\n• Безкоштовний базовий доступ: облік операцій, аналітика\n• Преміум-доступ (за підпискою): Telegram-бот, AI-помічник Фінн, необмежена кількість членів родини, цілі та резерв, сканер чеків\n\nМи залишаємо за собою право змінювати функціонал, додавати нові можливості та коригувати перелік функцій у безкоштовному та преміум-планах.'],
+            ['3. Підписка та оплата', 'Преміум-доступ надається на платній основі:\n• Тижнева підписка: $1.99 (7 днів)\n• Місячна підписка: $4.99 (30 днів)\n• Річна підписка: $49.99 (365 днів)\n\nПідписка є сімейною — покриває всіх членів родини в одному акаунті. Оплата здійснюється наперед. Підписка НЕ поновлюється автоматично без вашої явної згоди.\n\n7-денний пробний період надається новим користувачам безкоштовно — кредитна картка не потрібна.'],
+            ['4. Повернення коштів', 'Ми надаємо повне повернення коштів протягом 7 днів з моменту оплати без пояснень. Після 7 днів — повернення розглядається індивідуально у разі технічних проблем з нашого боку.\n\nДля запиту повернення: support@moneybudget.app'],
+            ['5. Права інтелектуальної власності', 'Додаток Money Budget, його код, дизайн, логотип та всі матеріали є власністю команди розробників Money Budget та захищені авторським правом.\n\nВам надається обмежена невиключна ліцензія на використання додатку виключно у особистих/сімейних некомерційних цілях. Забороняється:\n• Копіювати, модифікувати або розповсюджувати код додатку\n• Використовувати у комерційних цілях без письмового дозволу\n• Декомпілювати або здійснювати зворотній інжиніринг'],
+            ['6. Обмеження відповідальності', 'Money Budget є інструментом для особистого фінансового обліку та НЕ є:\n• Фінансовим радником або брокером\n• Банківським сервісом або платіжною системою\n• Гарантом фінансових результатів\n\nМи не несемо відповідальності за:\n• Фінансові рішення, прийняті на основі даних у додатку\n• Технічні збої, що призвели до втрати даних (рекомендуємо регулярно робити резервні копії)\n• Збитки, що перевищують суму сплаченої підписки за останні 12 місяців'],
+            ['7. Обов\'язки користувача', 'Використовуючи Money Budget, ви зобов\'язуєтесь:\n• Надавати достовірну інформацію при реєстрації\n• Не використовувати додаток для незаконних цілей\n• Не намагатись отримати несанкціонований доступ до чужих даних\n• Не розповсюджувати шкідливий вміст через функції спільного доступу\n• Зберігати конфіденційність даних для входу до акаунту\n• Негайно повідомляти нас про несанкціонований доступ до вашого акаунту'],
+            ['8. Зміни у сервісі', 'Ми залишаємо за собою право:\n• Оновлювати та покращувати функціонал додатку\n• Змінювати ціни підписки з попереднім повідомленням за 30 днів\n• Призупиняти або припиняти окремі функції\n• Змінювати умови цієї Угоди\n\nПро суттєві зміни ми повідомляємо через додаток та/або email не менше ніж за 14 днів.'],
+            ['9. Припинення доступу', 'Ми залишаємо за собою право призупинити або припинити ваш доступ у разі:\n• Порушення умов цієї Угоди\n• Спроб зламу або несанкціонованого доступу\n• Шахрайських дій з підпискою\n\nВи можете самостійно видалити акаунт у будь-який час через Налаштування → Акаунт.'],
+            ['10. Застосовне право', 'Ця Угода регулюється законодавством України. Спори вирішуються шляхом переговорів. У разі неможливості врегулювання — у судовому порядку за місцем реєстрації розробника.\n\nЯкщо будь-яке положення Угоди буде визнано недійсним — решта положень залишаються в силі.'],
           ].map(([title, text], i, arr) => `
-            <div style="margin-bottom:${i < arr.length-1 ? '14px' : '0'}">
-              <div style="font-size:13px;font-weight:700;color:var(--c-text);margin-bottom:4px">${title}</div>
-              <div style="font-size:13px;line-height:1.6;color:var(--c-text-2)">${text}</div>
+            <div style="margin-bottom:${i < arr.length-1 ? '16px' : '0'}">
+              <div style="font-size:13px;font-weight:700;color:var(--c-text);margin-bottom:5px">${title}</div>
+              <div style="font-size:13px;line-height:1.65;color:var(--c-text-2);white-space:pre-line">${text}</div>
             </div>
           `).join('')}
         </div>
@@ -908,7 +943,7 @@ function renderSubPageBody(key) {
             <i class="ti ti-mail" style="font-size:18px;color:var(--c-text-3);margin-top:2px"></i>
             <div>
               <div style="font-size:13px;font-weight:600">Запитання щодо угоди</div>
-              <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">Напишіть нам: <a href="mailto:support@many.app" style="color:var(--c-accent)">support@many.app</a></div>
+              <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">Напишіть нам: <a href="mailto:support@moneybudget.app" style="color:var(--c-accent)">support@moneybudget.app</a></div>
             </div>
           </div>
         </div>
@@ -917,26 +952,26 @@ function renderSubPageBody(key) {
     case 'about':
       return `
         <div class="settings-card" style="margin-bottom:12px">
-          <div style="display:flex;flex-direction:column;align-items:center;padding:24px 16px 20px;text-align:center">
-            <div style="width:80px;height:80px;border-radius:22px;background:linear-gradient(135deg,#2E7D5F,#4CAF50);display:flex;align-items:center;justify-content:center;font-size:40px;margin-bottom:14px;box-shadow:0 8px 24px rgba(46,125,95,0.35)">
+          <div style="display:flex;align-items:center;gap:14px;padding:16px 4px 14px;">
+            <div style="width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,#2E7D5F,#4CAF50);display:flex;align-items:center;justify-content:center;font-size:28px;flex-shrink:0;box-shadow:0 4px 16px rgba(46,125,95,0.35)">
               💰
             </div>
-            <div style="font-size:22px;font-weight:800;letter-spacing:-0.02em;margin-bottom:4px">Many Budget</div>
-            <div style="font-size:13px;color:var(--c-text-3);margin-bottom:16px">Версія 2.0.0 · Травень 2025</div>
-            <div style="font-size:14px;color:var(--c-text-2);line-height:1.7;max-width:300px">
-              Розумний фінансовий менеджер для всієї родини з AI-аналітикою, синхронізацією та Telegram-ботом.
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:18px;font-weight:800;letter-spacing:-0.02em;">Money Budget</div>
+              <div style="font-size:12px;color:var(--c-text-3);margin-top:2px;">Версія 2.0.0 · Травень 2026</div>
+              <div style="font-size:12px;color:var(--c-text-2);margin-top:4px;line-height:1.5;">Розумний фінансовий менеджер для всієї родини.</div>
             </div>
           </div>
-          <div style="border-top:1px solid var(--c-border);padding-top:16px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center">
+          <div style="border-top:1px solid var(--c-border);padding-top:12px;display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center">
             ${[
               ['🤝','Сімейний','доступ'],
               ['🤖','AI','аналітика'],
               ['📱','Telegram','бот'],
             ].map(([em, t1, t2]) => `
-              <div style="padding:10px 4px">
-                <div style="font-size:22px;margin-bottom:4px">${em}</div>
-                <div style="font-size:12px;font-weight:700;color:var(--c-text)">${t1}</div>
-                <div style="font-size:11px;color:var(--c-text-3)">${t2}</div>
+              <div style="padding:8px 4px">
+                <div style="font-size:20px;margin-bottom:3px">${em}</div>
+                <div style="font-size:11px;font-weight:700;color:var(--c-text)">${t1}</div>
+                <div style="font-size:10px;color:var(--c-text-3)">${t2}</div>
               </div>
             `).join('')}
           </div>
@@ -953,11 +988,11 @@ function renderSubPageBody(key) {
             ['ti-repeat','Регулярні платежі','Автоматичний облік підписок та щомісячних витрат'],
             ['ti-scan','Сканер чеків','Фотографуйте чек — додаток розпізнає суму автоматично'],
           ].map(([icon, name, desc], i, arr) => `
-            <div style="display:flex;gap:12px;padding:10px 0;align-items:flex-start;${i < arr.length-1 ? 'border-bottom:0.5px solid var(--c-border)' : ''}">
+            <div style="display:flex;gap:14px;padding:10px 0;align-items:flex-start;${i < arr.length-1 ? 'border-bottom:0.5px solid var(--c-border)' : ''}">
               <div style="width:36px;height:36px;border-radius:10px;background:var(--c-accent-soft);color:var(--c-accent);display:flex;align-items:center;justify-content:center;flex-shrink:0">
                 <i class="ti ${icon}"></i>
               </div>
-              <div>
+              <div style="padding-left:4px">
                 <div style="font-size:13px;font-weight:600">${name}</div>
                 <div style="font-size:12px;color:var(--c-text-3);margin-top:2px;line-height:1.4">${desc}</div>
               </div>
@@ -965,6 +1000,14 @@ function renderSubPageBody(key) {
           `).join('')}
         </div>
         <div class="settings-card">
+          <div class="settings-row" style="border-bottom:0.5px solid var(--c-border);padding-bottom:10px;margin-bottom:10px">
+            <div class="settings-row-icon" style="background:#FEF9C3;color:#CA8A04"><i class="ti ti-heart-handshake"></i></div>
+            <div class="settings-row-info">
+              <div class="settings-row-name">Підтримати розробників</div>
+              <div class="settings-row-sub">Донат на розвиток українського продукту ❤️🇺🇦</div>
+            </div>
+            <i class="ti ti-chevron-right" style="color:var(--c-text-3)"></i>
+          </div>
           <div class="settings-row" style="border-bottom:0.5px solid var(--c-border);padding-bottom:10px;margin-bottom:10px">
             <div class="settings-row-icon" style="background:#FEF3C7;color:#D97706"><i class="ti ti-star-filled"></i></div>
             <div class="settings-row-info">
@@ -977,14 +1020,14 @@ function renderSubPageBody(key) {
             <div class="settings-row-icon" style="background:#EDE9FE;color:#7C3AED"><i class="ti ti-share"></i></div>
             <div class="settings-row-info">
               <div class="settings-row-name">Поділитися</div>
-              <div class="settings-row-sub">Розкажіть друзям про Many Budget</div>
+              <div class="settings-row-sub">Розкажіть друзям про Money Budget</div>
             </div>
             <i class="ti ti-chevron-right" style="color:var(--c-text-3)"></i>
           </div>
           <div class="settings-row">
             <div class="settings-row-icon" style="background:#FEE2E2;color:#DC2626"><i class="ti ti-heart-filled"></i></div>
             <div class="settings-row-info">
-              <div class="settings-row-name">Many Budget © 2025</div>
+              <div class="settings-row-name">Money Budget © 2026</div>
               <div class="settings-row-sub">Зроблено з ❤️ для вашої родини</div>
             </div>
           </div>
