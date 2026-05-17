@@ -27,6 +27,7 @@ import { openBottomSheet, closeModal, confirmModal, promptModal } from './modals
 import { signOut } from './auth.js';
 import { isLockEnabled, isBiometricAvailable, setupLock, disableLock } from './lock-screen.js';
 import { exportToExcel, exportBackupJSON, importBackupJSON } from './export.js';
+import { renderPushSettingsPage, bindPushSettingsHandlers } from './push-notifications.js';
 
 // ── Sub-page state ───────────────────────────────────────────
 let settingsSubPage = null;
@@ -387,6 +388,11 @@ function renderMainMenu() {
           <div class="settings-menu-label">Telegram бот</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
+        <button class="settings-menu-item" data-sub="notifications">
+          <div class="settings-menu-icon" style="background:#FEF3C7;color:#D97706"><i class="ti ti-bell"></i></div>
+          <div class="settings-menu-label">Push-сповіщення</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
         <button class="settings-menu-item" data-sub="sync">
           <div class="settings-menu-icon" style="background:#F0FDF4;color:#15803D"><i class="ti ti-refresh"></i></div>
           <div class="settings-menu-label">Синхронізація та Backup</div>
@@ -464,6 +470,7 @@ const SUB_PAGE_TITLES = {
   security:       'Безпека',
   'default-wallet': 'Гаманець за замовчуванням',
   telegram:       'Telegram сповіщення',
+  notifications:  'Push-сповіщення',
   sync:           'Синхронізація',
   plan:           'План витрат',
   limits:         'Ліміти витрат',
@@ -686,6 +693,9 @@ function renderSubPageBody(key) {
           ${renderTelegramPrefs()}
         </div>
       `;
+
+    case 'notifications':
+      return renderPushSettingsPage();
 
     case 'sync':
       return `
@@ -1521,6 +1531,11 @@ function bindSettingsHandlers(el) {
       showToast('✅ Збережено');
     });
   });
+
+  // Push notification prefs
+  if (settingsSubPage === 'notifications') {
+    bindPushSettingsHandlers(el);
+  }
 
   // Telegram prefs
   el.querySelector('#save-tg-prefs-btn')?.addEventListener('click', () => {
