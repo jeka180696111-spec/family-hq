@@ -1,6 +1,6 @@
 {
-  "name": "Many Budget",
-  "short_name": "Many",
+  "name": "Money Budget",
+  "short_name": "Money",
   "description": "Сімейний фінансовий менеджер з AI-аналітикою",
   "start_url": "/",
   "display": "standalone",

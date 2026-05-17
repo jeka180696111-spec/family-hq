@@ -57,7 +57,7 @@ function renderStep1(screen) {
       <!-- Логотип і заголовок -->
       <div style="text-align:center;margin-bottom:24px">
         <div class="auth-logo" style="margin:0 auto 14px">💰</div>
-        <h1 style="font-size:22px;font-weight:800;color:var(--c-text);margin-bottom:4px;letter-spacing:-0.3px">Many Budget</h1>
+        <h1 style="font-size:22px;font-weight:800;color:var(--c-text);margin-bottom:4px;letter-spacing:-0.3px">Money Budget</h1>
         <p style="font-size:13px;color:var(--c-text-2);font-weight:500">Розумний фінансовий менеджер</p>
       </div>
 
