@@ -447,20 +447,63 @@ async function getTodaySameCategoryOps(familyId, who, category) {
   return snapshot.docs.map(d => d.data());
 }
 
+// ── AI tone ──────────────────────────────────────────────────
+const TONE_PROMPTS = {
+  official: `Ти — Фінн, офіційний фінансовий радник сімейного бюджету.
+Стиль: діловий, структурований, стриманий. Відповідай ТІЛЬКИ УКРАЇНСЬКОЮ.
+Довжина: 2-5 речень. Емодзі: не більше 1. Давай чіткі конкретні рекомендації з цифрами.
+Якщо не знаєш — скажи прямо, без домислів.`,
+
+  friendly: `Ти — Фінн, дружній фінансовий помічник сімейного бюджету.
+Стиль: теплий, підтримуючий, позитивний. Відповідай ТІЛЬКИ УКРАЇНСЬКОЮ.
+Довжина: 2-5 речень. Емодзі: 2-3. Хвали хороші рішення, делікатно вказуй на проблеми.
+Використовуй конкретні цифри з даних. Якщо не знаєш — скажи щиро.`,
+
+  sarcastic: `Ти — Фінн, саркастичний фінансовий радник сімейного бюджету.
+Стиль: дотепний, іноді їдкий, але з щирою турботою. Відповідай ТІЛЬКИ УКРАЇНСЬКОЮ.
+Довжина: 2-5 речень. Емодзі: 1-2 max. Якщо є числа в даних — використовуй їх.
+Якщо запитують пораду — давай конкретну, практичну. Якщо не знаєш — чесно скажи, не вигадуй.`,
+};
+
+const TONE_LABELS = {
+  official:  '👔 Офіційний',
+  friendly:  '😊 Дружній',
+  sarcastic: '😏 Саркастичний',
+};
+
 // ── AI history ───────────────────────────────────────────────
-async function getAIHistory(userId) {
+async function getAIData(userId) {
   try {
     const doc = await db.collection('telegramAIChats').doc(String(userId)).get();
-    return doc.exists ? (doc.data().messages || []) : [];
-  } catch (e) { return []; }
+    if (!doc.exists) return { messages: [], tone: 'sarcastic' };
+    const d = doc.data();
+    return { messages: d.messages || [], tone: d.tone || 'sarcastic' };
+  } catch (e) { return { messages: [], tone: 'sarcastic' }; }
+}
+
+async function getAIHistory(userId) {
+  return (await getAIData(userId)).messages;
+}
+
+async function getAITone(userId) {
+  return (await getAIData(userId)).tone;
 }
 
 async function saveAIHistory(userId, messages) {
   try {
-    await db.collection('telegramAIChats').doc(String(userId)).set({
-      messages: messages.slice(-12),
-      updatedAt: new Date().toISOString(),
-    });
+    await db.collection('telegramAIChats').doc(String(userId)).set(
+      { messages: messages.slice(-12), updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
+  } catch (e) {}
+}
+
+async function saveAITone(userId, tone) {
+  try {
+    await db.collection('telegramAIChats').doc(String(userId)).set(
+      { tone, updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
   } catch (e) {}
 }
 
@@ -635,8 +678,20 @@ const MENU_INLINE = {
       { text: '🤖 AI Фінн',    callback_data: 'mn:ai' },
       { text: '❓ Допомога',   callback_data: 'mn:help' },
     ],
+    [
+      { text: '⚙️ Стиль AI',   callback_data: 'mn:tone' },
+    ],
   ],
 };
+
+function buildToneKeyboard(currentTone) {
+  return {
+    inline_keyboard: Object.entries(TONE_LABELS).map(([key, label]) => [{
+      text: currentTone === key ? `✅ ${label}` : label,
+      callback_data: `tone:${key}`,
+    }]),
+  };
+}
 
 function buildConfirmKeyboard(pendingId, type) {
   const cats = type === 'Дохід' ? INCOME_CATS : EXPENSE_CATS;
@@ -849,6 +904,19 @@ async function handleCallback(cb, res) {
     return res.status(200).json({ ok: true });
   }
 
+  if (action === 'tone') {
+    // id here is the tone key (official/friendly/sarcastic)
+    if (!TONE_PROMPTS[id]) { await answerCallback(cb.id); return res.status(200).json({ ok: true }); }
+    await saveAITone(userId, id);
+    const label = TONE_LABELS[id];
+    await answerCallback(cb.id, `${label} вибрано!`);
+    await editMessage(chatId, messageId,
+      `⚙️ <b>Стиль спілкування AI змінено</b>\n\nФінн тепер відповідає в режимі: <b>${label}</b>`,
+      { reply_markup: buildToneKeyboard(id) }
+    );
+    return res.status(200).json({ ok: true });
+  }
+
   if (action === 'mn') {
     await answerCallback(cb.id);
     const who = tgUser?.name || '';
@@ -864,6 +932,15 @@ async function handleCallback(cb, res) {
     }
     if (id === 'receipt') {
       await sendMessage(chatId, `📸 <b>Надішли фото чека</b> — розпізнаю суму, магазин та категорію автоматично.\n\n<i>Порада: фото чітке, чек повністю в кадрі</i>`);
+      return res.status(200).json({ ok: true });
+    }
+    if (id === 'tone') {
+      const currentTone = await getAITone(userId);
+      const label = TONE_LABELS[currentTone] || TONE_LABELS.sarcastic;
+      await sendMessage(chatId,
+        `⚙️ <b>Стиль спілкування AI</b>\n\nЗараз: <b>${label}</b>\n\nОбери як Фінн буде відповідати:`,
+        { reply_markup: buildToneKeyboard(currentTone) }
+      );
       return res.status(200).json({ ok: true });
     }
     if (CMD[id]) return handleCommand(CMD[id], chatId, userId, userName, who, familyId, res);
@@ -1059,6 +1136,16 @@ async function handleCommand(cmd, chatId, userId, userName, who, familyId, res) 
       await sendMessage(chatId, `🗑 <b>Пам'ять очищено.</b>\nФінн забув нашу розмову і починає з чистого аркуша.`);
       return res.status(200).json({ ok: true });
 
+    case '/tone': {
+      const currentTone = await getAITone(userId);
+      const label = TONE_LABELS[currentTone] || TONE_LABELS.sarcastic;
+      await sendMessage(chatId,
+        `⚙️ <b>Стиль спілкування AI</b>\n\nЗараз: <b>${label}</b>\n\nОбери як Фінн буде відповідати:`,
+        { reply_markup: buildToneKeyboard(currentTone) }
+      );
+      return res.status(200).json({ ok: true });
+    }
+
     default:
       return handleAIChat(chatId, cmd, who, familyId, userId, res);
   }
@@ -1104,18 +1191,14 @@ async function handleAIChat(chatId, userText, who, familyId, userId, res) {
   await sendTypingAction(chatId);
 
   try {
-    const [history, context] = await Promise.all([
-      getAIHistory(userId),
+    const [aiData, context] = await Promise.all([
+      getAIData(userId),
       buildMonthlyContext(familyId, who),
     ]);
 
-    const systemPrompt = `Ти — Фінн, саркастичний фінансовий радник сімейного бюджету.
-Стиль: дотепний, іноді їдкий, але з щирою турботою. Відповідай ТІЛЬКИ УКРАЇНСЬКОЮ.
-Довжина: 2-5 речень. Емодзі: 1-2 max. Якщо є числа в даних — використовуй їх.
-Якщо запитують пораду — давай конкретну, практичну.
-Якщо не знаєш — чесно скажи, не вигадуй.
-
-${context}`;
+    const { messages: history, tone } = aiData;
+    const tonePrompt = TONE_PROMPTS[tone] || TONE_PROMPTS.sarcastic;
+    const systemPrompt = `${tonePrompt}\n\n${context}`;
 
     const messages = [...history, { role: 'user', content: userText }];
 
@@ -1161,6 +1244,7 @@ return async function handler(req, res) {
         { command: 'report',  description: 'Детальний звіт місяця' },
         { command: 'ai',      description: 'AI-радник Фінн' },
         { command: 'forget',  description: 'Очистити пам\'ять AI' },
+        { command: 'tone',    description: 'Стиль спілкування AI' },
       ],
     });
     return res.status(200).json({ ok: true, message: 'Telegram webhook endpoint' });
