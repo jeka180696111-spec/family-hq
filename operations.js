@@ -175,14 +175,12 @@ export function openOperationDialog(opts = {}) {
             `).join('')}
           </div>
           <label class="ip-label">На кошельок</label>
-          <div class="op-wallet-grid">
+          <div class="op-wallet-scroll">
             ${toCards.map(c => `
-              <button type="button" class="op-wallet-card ${c.id===curToCard?'active':''}" data-to-card="${esc(c.id)}">
-                <div class="op-wallet-card-icon" style="background:${c.bg};color:${c.color}"><i class="ti ${c.icon}"></i></div>
-                <div class="op-wallet-card-info">
-                  <div class="op-wallet-card-name">${esc(c.id)}</div>
-                  ${c.currency && c.currency !== 'UAH' ? `<div class="op-wallet-card-cur">${c.currency}</div>` : ''}
-                </div>
+              <button type="button" class="op-wallet-item ${c.id===curToCard?'active':''}" data-to-card="${esc(c.id)}">
+                <div class="op-wallet-item-icon" style="background:${c.bg};color:${c.color}"><i class="ti ${c.icon}"></i></div>
+                <div class="op-wallet-item-name">${esc(c.id)}</div>
+                ${c.currency && c.currency !== 'UAH' ? `<div class="op-wallet-item-cur">${c.currency}</div>` : ''}
               </button>
             `).join('')}
           </div>
