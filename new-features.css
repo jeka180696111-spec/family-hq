@@ -1073,6 +1073,79 @@
   margin-bottom: 2px;
 }
 
+/* ── Compact filter bar (ops + wallets) ─────────────────────── */
+.ops-filter-bar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  position: relative;
+}
+.ops-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 11px;
+  border-radius: 20px;
+  background: var(--c-bg-3);
+  border: 1.5px solid var(--c-border);
+  color: var(--c-text-2);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+  white-space: nowrap;
+}
+.ops-filter-btn i { font-size: 14px; }
+.ops-filter-btn.active {
+  border-color: var(--c-accent);
+  color: var(--c-accent);
+  background: var(--c-accent-soft);
+}
+.ops-filter-btn .opf-arrow {
+  font-size: 11px;
+  opacity: 0.5;
+  transition: transform .2s;
+}
+.ops-filter-btn.open .opf-arrow { transform: rotate(180deg); }
+.opf-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 170px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--c-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0,0,0,.14);
+  z-index: 200;
+  padding: 4px;
+  display: none;
+  flex-direction: column;
+}
+.opf-dropdown.open { display: flex; }
+.opf-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--c-text);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background .12s;
+  background: none;
+  border: none;
+}
+.opf-item:hover { background: var(--c-bg-3); }
+.opf-item.active {
+  color: var(--c-accent);
+  font-weight: 700;
+  background: var(--c-accent-soft);
+}
+
 /* ── Compact filter bar (ops + wallets) ─────────────────── */
 .ops-filter-bar {
   display: flex;
