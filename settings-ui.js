@@ -633,11 +633,11 @@ function renderSubPageBody(key) {
               <i class="ti ti-brand-telegram"></i>
             </div>
             <div>
-              <div style="font-size:16px;font-weight:700;margin-bottom:2px">Many Budget Bot</div>
+              <div style="font-size:16px;font-weight:700;margin-bottom:2px">Finance Helper Bot</div>
               <div style="font-size:13px;color:var(--c-text-3)">Ваш фінансовий асистент у Telegram</div>
             </div>
           </div>
-          <a href="https://t.me/ManyBudgetBot" target="_blank" rel="noopener"
+          <a href="https://t.me/FinanceHelperBot" target="_blank" rel="noopener"
             style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:12px;background:#0284C7;color:#fff;border-radius:var(--radius);font-size:14px;font-weight:700;text-decoration:none;margin-bottom:14px">
             <i class="ti ti-brand-telegram" style="font-size:18px"></i> Відкрити бота
           </a>
@@ -648,8 +648,8 @@ function renderSubPageBody(key) {
             ['ti-chart-bar','Щоденний підсумок','Отримуйте зведення витрат за день у зручний для вас час'],
             ['ti-alert-triangle','Попередження про ліміти','Сповіщення коли витрати наближаються до встановленого ліміту'],
             ['ti-camera','Сканування чеків','Надішліть фото чека — бот розпізнає суму і категорію автоматично'],
-          ].map(([icon, name, desc]) => `
-            <div style="display:flex;gap:12px;padding:10px 0;border-bottom:0.5px solid var(--c-border)">
+          ].map(([icon, name, desc], i, arr) => `
+            <div style="display:flex;gap:12px;padding:10px 0;align-items:flex-start;${i < arr.length-1 ? 'border-bottom:0.5px solid var(--c-border)' : ''}">
               <div style="width:36px;height:36px;border-radius:10px;background:#E0F2FE;color:#0284C7;display:flex;align-items:center;justify-content:center;flex-shrink:0">
                 <i class="ti ${icon}" style="font-size:16px"></i>
               </div>
@@ -861,8 +861,8 @@ function renderSubPageBody(key) {
             ['Продаж даних', 'Ми не продаємо, не передаємо і не обмінюємо ваші персональні або фінансові дані з рекламодавцями, партнерами або будь-якими іншими організаціями.'],
             ['Видалення даних', 'Ви можете видалити свій акаунт і всі пов\'язані дані в будь-який момент у розділі Налаштування → Акаунт → Видалити акаунт. Після видалення дані стираються повністю протягом 30 днів.'],
             ['Зміни в політиці', 'Ми повідомляємо про суттєві зміни в цій політиці через сповіщення в додатку не менше ніж за 7 днів до набрання чинності. Актуальна версія завжди доступна в налаштуваннях.'],
-          ].map(([title, text]) => `
-            <div style="margin-bottom:14px">
+          ].map(([title, text], i, arr) => `
+            <div style="margin-bottom:${i < arr.length-1 ? '14px' : '0'}">
               <div style="font-size:13px;font-weight:700;color:var(--c-text);margin-bottom:4px">${title}</div>
               <div style="font-size:13px;line-height:1.6;color:var(--c-text-2)">${text}</div>
             </div>
@@ -896,8 +896,8 @@ function renderSubPageBody(key) {
             ['Права та обов\'язки', 'Ви зобов\'язуєтесь не використовувати додаток для незаконних цілей, не намагатися отримати несанкціонований доступ до чужих даних, не розповсюджувати шкідливий вміст через функції спільного доступу.'],
             ['Зміни у функціоналі', 'Ми залишаємо за собою право змінювати, оновлювати або припиняти окремі функції додатку. Про суттєві зміни ми повідомляємо заздалегідь. Ми прагнемо вдосконалювати продукт та цінуємо ваш зворотний зв\'язок.'],
             ['Припинення доступу', 'Ми залишаємо за собою право призупинити або припинити доступ до акаунта у разі порушення умов цієї угоди. Ви можете самостійно видалити акаунт у будь-який час.'],
-          ].map(([title, text]) => `
-            <div style="margin-bottom:14px">
+          ].map(([title, text], i, arr) => `
+            <div style="margin-bottom:${i < arr.length-1 ? '14px' : '0'}">
               <div style="font-size:13px;font-weight:700;color:var(--c-text);margin-bottom:4px">${title}</div>
               <div style="font-size:13px;line-height:1.6;color:var(--c-text-2)">${text}</div>
             </div>
@@ -952,8 +952,8 @@ function renderSubPageBody(key) {
             ['ti-chart-bar','Аналітика','Детальна статистика витрат по категоріях і членах родини'],
             ['ti-repeat','Регулярні платежі','Автоматичний облік підписок та щомісячних витрат'],
             ['ti-scan','Сканер чеків','Фотографуйте чек — додаток розпізнає суму автоматично'],
-          ].map(([icon, name, desc]) => `
-            <div style="display:flex;gap:12px;padding:10px 0;border-bottom:0.5px solid var(--c-border)">
+          ].map(([icon, name, desc], i, arr) => `
+            <div style="display:flex;gap:12px;padding:10px 0;align-items:flex-start;${i < arr.length-1 ? 'border-bottom:0.5px solid var(--c-border)' : ''}">
               <div style="width:36px;height:36px;border-radius:10px;background:var(--c-accent-soft);color:var(--c-accent);display:flex;align-items:center;justify-content:center;flex-shrink:0">
                 <i class="ti ${icon}"></i>
               </div>
@@ -1019,6 +1019,10 @@ export function renderSettingsPage() {
   if (!el) return;
 
   el.innerHTML = settingsSubPage ? renderSubPage(settingsSubPage) : renderMainMenu();
+
+  // Scroll content area to top when entering/changing sub-page
+  const contentEl = document.querySelector('.content');
+  if (contentEl) contentEl.scrollTop = 0;
 
   // Render dynamic grids after HTML is set
   if (settingsSubPage === 'exp-cats') {

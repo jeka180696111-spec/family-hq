@@ -92,28 +92,17 @@ export function renderWalletsPage() {
         <div class="wallets-hero-meta">${totalCount} ${totalCount === 1 ? 'кошельок' : 'кошельків'}</div>
       </div>
 
-      <div class="wallets-filters">
-        <div class="wallets-filter-group">
-          <div class="wallets-filter-label">Власник</div>
-          <div class="wallets-filter-chips">
-            <button class="chip ${ownerFilter === 'all' ? 'active' : ''}" data-owner="all">Усі</button>
-            ${FAMILY_MEMBERS.map(m => `
-              <button class="chip ${ownerFilter === m ? 'active' : ''}" data-owner="${esc(m)}">${esc(profiles[m]?.name || m)}</button>
-            `).join('')}
-          </div>
-        </div>
-        <div class="wallets-filter-group">
-          <div class="wallets-filter-label">Тип</div>
-          <div class="wallets-filter-chips">
-            <button class="chip ${typeFilter === 'all' ? 'active' : ''}" data-type="all">Усі</button>
-            ${types.map(t => `
-              <button class="chip ${typeFilter === t.id ? 'active' : ''}" data-type="${esc(t.id)}"
-                style="${typeFilter === t.id ? `background:${t.bg};color:${t.color};border-color:${t.color}` : ''}">
-                <i class="ti ${t.icon || 'ti-wallet'}"></i> ${esc(t.name)}
-              </button>
-            `).join('')}
-          </div>
-        </div>
+      <div class="ops-filter-bar wallets-filter-bar" id="wallets-filter-bar">
+        <button class="ops-filter-btn ${ownerFilter !== 'all' ? 'active' : ''}" id="wf-owner" data-wf="owner">
+          <i class="ti ti-user"></i>
+          <span>${ownerFilter !== 'all' ? esc(profiles[ownerFilter]?.name || ownerFilter) : 'Власник'}</span>
+          <i class="ti ti-chevron-down opf-arrow"></i>
+        </button>
+        <button class="ops-filter-btn ${typeFilter !== 'all' ? 'active' : ''}" id="wf-type" data-wf="type">
+          <i class="ti ti-wallet"></i>
+          <span>${typeFilter !== 'all' ? esc(types.find(t=>t.id===typeFilter)?.name || typeFilter) : 'Тип'}</span>
+          <i class="ti ti-chevron-down opf-arrow"></i>
+        </button>
       </div>
 
       <div class="wallets-list">
@@ -180,19 +169,79 @@ export function renderWalletsPage() {
     requestAnimationFrame(tick);
   });
 
-  // Слухачі фільтрів
-  el.querySelectorAll('[data-owner]').forEach(b => {
-    b.addEventListener('click', () => {
-      state.walletFilter = b.dataset.owner;
-      renderWalletsPage();
+  // Слухачі фільтрів — compact dropdown bar
+  {
+    const filterBar = el.querySelector('#wallets-filter-bar');
+    let openDropdown = null;
+
+    function closeWfDropdown() {
+      if (openDropdown) {
+        openDropdown.remove();
+        openDropdown = null;
+        filterBar && filterBar.querySelectorAll('.ops-filter-btn').forEach(b => b.classList.remove('open'));
+      }
+    }
+
+    filterBar && filterBar.querySelectorAll('.ops-filter-btn[data-wf]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const key = btn.dataset.wf;
+        if (openDropdown && btn.classList.contains('open')) {
+          closeWfDropdown();
+          return;
+        }
+        closeWfDropdown();
+        btn.classList.add('open');
+
+        let options = [];
+        if (key === 'owner') {
+          options = [
+            { val: 'all', label: 'Усі' },
+            ...FAMILY_MEMBERS.map(m => ({ val: m, label: profiles[m]?.name || m })),
+          ];
+        } else if (key === 'type') {
+          options = [
+            { val: 'all', label: 'Усі' },
+            ...types.map(t => ({ val: t.id, label: t.name })),
+          ];
+        }
+
+        const curVal = key === 'owner' ? ownerFilter : typeFilter;
+        const dd = document.createElement('div');
+        dd.className = 'opf-dropdown open';
+        dd.style.maxHeight = '240px';
+        dd.style.overflowY = 'auto';
+
+        options.forEach(opt => {
+          const item = document.createElement('button');
+          item.className = 'opf-item' + (opt.val === curVal ? ' active' : '');
+          item.textContent = opt.label;
+          item.addEventListener('click', e2 => {
+            e2.stopPropagation();
+            if (key === 'owner') state.walletFilter = opt.val;
+            else state.walletTypeFilter = opt.val;
+            closeWfDropdown();
+            renderWalletsPage();
+          });
+          dd.appendChild(item);
+        });
+
+        const btnRect = btn.getBoundingClientRect();
+        const barRect = filterBar.getBoundingClientRect();
+        dd.style.left = (btnRect.left - barRect.left) + 'px';
+        dd.style.top = (btnRect.bottom - barRect.top + 4) + 'px';
+
+        filterBar.appendChild(dd);
+        openDropdown = dd;
+      });
     });
-  });
-  el.querySelectorAll('[data-type]').forEach(b => {
-    b.addEventListener('click', () => {
-      state.walletTypeFilter = b.dataset.type;
-      renderWalletsPage();
-    });
-  });
+
+    document.addEventListener('click', function onWfOutsideClick(e) {
+      if (openDropdown && filterBar && !filterBar.contains(e.target)) {
+        closeWfDropdown();
+      }
+    }, { capture: true });
+  }
 
   // Клік на кошельок — редагування
   el.querySelectorAll('.wallet-row').forEach(row => {

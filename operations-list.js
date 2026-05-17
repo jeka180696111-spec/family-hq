@@ -85,38 +85,28 @@ export function renderOperationsPage() {
       <!-- Пошук -->
       <input class="ops-search-input" id="ops-search" type="search" placeholder="Пошук операцій..." value="${esc(state.opSearch || '')}">
 
-      <!-- Фільтри -->
-      <div class="ops-filters">
-        <div class="wallets-filter-chips">
-          <button class="chip ${effectiveWho === 'all' ? 'active' : ''}" data-filter-who="all">Усі</button>
-          ${FAMILY_MEMBERS.map(m => `
-            <button class="chip ${effectiveWho === m ? 'active' : ''}" data-filter-who="${esc(m)}">${esc(profiles[m]?.name || m)}</button>
-          `).join('')}
-        </div>
-        <div class="wallets-filter-chips">
-          <button class="chip ${f.type === 'all' ? 'active' : ''}" data-filter-type="all">Усі типи</button>
-          <button class="chip ${f.type === 'Дохід' ? 'active' : ''}" data-filter-type="Дохід"><i class="ti ti-arrow-down-circle"></i> Дохід</button>
-          <button class="chip ${f.type === 'Витрата' ? 'active' : ''}" data-filter-type="Витрата"><i class="ti ti-arrow-up-circle"></i> Витрата</button>
-          <button class="chip ${f.type === 'Переказ' ? 'active' : ''}" data-filter-type="Переказ"><i class="ti ti-arrows-exchange"></i> Переказ</button>
-        </div>
-        ${(() => {
-          const cats = [...new Set(allOps.map(o => o.category).filter(Boolean))].sort();
-          if (cats.length <= 3) return '';
-          const curCat = f.cat || 'all';
-          return `<div class="wallets-filter-chips" id="filter-cats-row">
-            <button class="chip ${curCat === 'all' ? 'active' : ''}" data-filter-cat="all">Всі</button>
-            ${cats.map(c => `<button class="chip ${curCat === c ? 'active' : ''}" data-filter-cat="${esc(c)}">${esc(c)}</button>`).join('')}
-          </div>`;
-        })()}
-        ${(() => {
-          const cards = [...new Set(allOps.map(o => o.card).filter(Boolean))].sort();
-          if (cards.length <= 3) return '';
-          const curCard = f.card || 'all';
-          return `<div class="wallets-filter-chips" id="filter-cards-row">
-            <button class="chip ${curCard === 'all' ? 'active' : ''}" data-filter-card="all">Всі</button>
-            ${cards.map(c => `<button class="chip ${curCard === c ? 'active' : ''}" data-filter-card="${esc(c)}">${esc(c)}</button>`).join('')}
-          </div>`;
-        })()}
+      <!-- Фільтри: compact dropdown bar -->
+      <div class="ops-filter-bar" id="ops-filter-bar">
+        <button class="ops-filter-btn ${f.who !== 'all' ? 'active' : ''}" id="opf-who" data-opf="who">
+          <i class="ti ti-user"></i>
+          <span>${f.who !== 'all' ? esc(profiles[f.who]?.name || f.who) : 'Хто'}</span>
+          <i class="ti ti-chevron-down opf-arrow"></i>
+        </button>
+        <button class="ops-filter-btn ${f.type !== 'all' ? 'active' : ''}" id="opf-type" data-opf="type">
+          <i class="ti ti-arrows-exchange"></i>
+          <span>${f.type !== 'all' ? esc(f.type) : 'Тип'}</span>
+          <i class="ti ti-chevron-down opf-arrow"></i>
+        </button>
+        <button class="ops-filter-btn ${f.cat !== 'all' ? 'active' : ''}" id="opf-cat" data-opf="cat">
+          <i class="ti ti-tag"></i>
+          <span>${f.cat !== 'all' ? esc(f.cat) : 'Категорія'}</span>
+          <i class="ti ti-chevron-down opf-arrow"></i>
+        </button>
+        <button class="ops-filter-btn ${f.card !== 'all' ? 'active' : ''}" id="opf-card" data-opf="card">
+          <i class="ti ti-wallet"></i>
+          <span>${f.card !== 'all' ? esc(f.card) : 'Кошельок'}</span>
+          <i class="ti ti-chevron-down opf-arrow"></i>
+        </button>
       </div>
 
       <div id="ops-content">
@@ -425,35 +415,106 @@ function bindHandlers(el) {
     });
   });
 
-  // Фільтри
-  el.querySelectorAll('[data-filter-who]').forEach(b => {
-    b.addEventListener('click', () => {
-      state.opFilter = state.opFilter || { who: 'all', type: 'all', cat: 'all', card: 'all' };
-      state.opFilter.who = b.dataset.filterWho;
-      renderOperationsPage();
+  // Фільтри — compact dropdown bar
+  {
+    const profiles = getProfiles();
+    const allOps = state.operations || [];
+    const f = state.opFilter || { who: 'all', type: 'all', cat: 'all', card: 'all' };
+    const filterBar = el.querySelector('#ops-filter-bar');
+    let openDropdown = null;
+
+    function closeDropdown() {
+      if (openDropdown) {
+        openDropdown.remove();
+        openDropdown = null;
+        filterBar.querySelectorAll('.ops-filter-btn').forEach(b => b.classList.remove('open'));
+      }
+    }
+
+    function buildOptions(key) {
+      if (key === 'who') {
+        return [
+          { val: 'all', label: 'Усі' },
+          ...FAMILY_MEMBERS.map(m => ({ val: m, label: profiles[m]?.name || m })),
+        ];
+      }
+      if (key === 'type') {
+        return [
+          { val: 'all', label: 'Усі типи' },
+          { val: 'Дохід', label: 'Дохід' },
+          { val: 'Витрата', label: 'Витрата' },
+          { val: 'Переказ', label: 'Переказ' },
+        ];
+      }
+      if (key === 'cat') {
+        const cats = [...new Set(allOps.map(o => o.category).filter(Boolean))].sort();
+        return [{ val: 'all', label: 'Усі' }, ...cats.map(c => ({ val: c, label: c }))];
+      }
+      if (key === 'card') {
+        const cards = [...new Set(allOps.map(o => o.card).filter(Boolean))].sort();
+        return [{ val: 'all', label: 'Усі' }, ...cards.map(c => ({ val: c, label: c }))];
+      }
+      return [];
+    }
+
+    filterBar && filterBar.querySelectorAll('.ops-filter-btn[data-opf]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const key = btn.dataset.opf;
+        // Close if already open for this button
+        if (openDropdown && btn.classList.contains('open')) {
+          closeDropdown();
+          return;
+        }
+        closeDropdown();
+
+        btn.classList.add('open');
+        const curVal = (state.opFilter || {})[key] || 'all';
+        const options = buildOptions(key);
+
+        const dd = document.createElement('div');
+        dd.className = 'opf-dropdown open';
+        dd.id = 'opf-dropdown';
+        dd.style.maxHeight = '240px';
+        dd.style.overflowY = 'auto';
+
+        options.forEach(opt => {
+          const item = document.createElement('button');
+          item.className = 'opf-item' + (opt.val === curVal ? ' active' : '');
+          item.dataset.val = opt.val;
+          item.textContent = opt.label;
+          item.addEventListener('click', e2 => {
+            e2.stopPropagation();
+            state.opFilter = state.opFilter || { who: 'all', type: 'all', cat: 'all', card: 'all' };
+            state.opFilter[key] = opt.val;
+            closeDropdown();
+            renderOperationsPage();
+          });
+          dd.appendChild(item);
+        });
+
+        // Position relative to filterBar
+        const btnRect = btn.getBoundingClientRect();
+        const barRect = filterBar.getBoundingClientRect();
+        dd.style.left = (btnRect.left - barRect.left) + 'px';
+        dd.style.top = (btnRect.bottom - barRect.top + 4) + 'px';
+
+        filterBar.appendChild(dd);
+        openDropdown = dd;
+      });
     });
-  });
-  el.querySelectorAll('[data-filter-type]').forEach(b => {
-    b.addEventListener('click', () => {
-      state.opFilter = state.opFilter || { who: 'all', type: 'all', cat: 'all', card: 'all' };
-      state.opFilter.type = b.dataset.filterType;
-      renderOperationsPage();
-    });
-  });
-  el.querySelectorAll('[data-filter-cat]').forEach(b => {
-    b.addEventListener('click', () => {
-      state.opFilter = state.opFilter || { who: 'all', type: 'all', cat: 'all', card: 'all' };
-      state.opFilter.cat = b.dataset.filterCat;
-      renderOperationsPage();
-    });
-  });
-  el.querySelectorAll('[data-filter-card]').forEach(b => {
-    b.addEventListener('click', () => {
-      state.opFilter = state.opFilter || { who: 'all', type: 'all', cat: 'all', card: 'all' };
-      state.opFilter.card = b.dataset.filterCard;
-      renderOperationsPage();
-    });
-  });
+
+    document.addEventListener('click', function onOutsideClick(e) {
+      if (openDropdown && !filterBar.contains(e.target)) {
+        closeDropdown();
+      }
+    }, { capture: true, once: false });
+    // Clean up listener when page re-renders (filterBar replaced)
+    if (filterBar) {
+      const observer = new MutationObserver(() => { closeDropdown(); observer.disconnect(); });
+      observer.observe(filterBar.parentNode || document.body, { childList: true, subtree: false });
+    }
+  }
 
   // Місяць
   el.querySelector('[data-month="prev"]')?.addEventListener('click', () => {
