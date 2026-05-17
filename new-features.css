@@ -1053,3 +1053,14 @@
   color: var(--c-text);
   border-bottom-left-radius: 4px;
 }
+
+/* ── Settings section header labels ───────────────────────── */
+.settings-section-header {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--c-text-3);
+  padding: 8px 4px 4px;
+  margin-bottom: 2px;
+}

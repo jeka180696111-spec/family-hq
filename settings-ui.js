@@ -15,6 +15,9 @@ import {
   getDefaultWallet, setDefaultWallet,
   getTelegramPrefs, setTelegramPrefs,
   getPalette, setPalette,
+  getAvatar, setAvatar,
+  getFamilyAvatar, setFamilyAvatar,
+  getDashWidgets, setDashWidgets,
 } from './storage.js';
 import { syncSettingsToSheet, pingBackend, generateInviteCode } from './api.js';
 import { applyTheme, toggleTheme, applyPalette } from './theme.js';
@@ -317,65 +320,70 @@ function renderLockSection() {
 
 // ── Main menu ─────────────────────────────────────────────────
 function renderMainMenu() {
+  const userAv = getAvatar() || state.user?.avatar || '';
+  const avatarHtml = userAv && userAv.length > 2
+    ? `<img src="${esc(userAv)}" style="width:46px;height:46px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,0.4)">`
+    : `<div style="width:46px;height:46px;border-radius:50%;background:rgba(255,255,255,0.25);color:#fff;font-size:20px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,0.4)">${(state.user?.name || state.member || '?')[0].toUpperCase()}</div>`;
+
   return `
     <div class="page-inner">
       <div class="page-head">
         <h1 class="page-title">Налаштування</h1>
       </div>
 
-      <!-- Group 1: Personal -->
+      <!-- Profile Card -->
+      <button class="settings-profile-card" data-sub="profile-group">
+        <div style="display:flex;align-items:center;gap:14px">
+          ${avatarHtml}
+          <div style="text-align:left">
+            <div style="font-size:16px;font-weight:700;color:#fff">${esc(state.user?.name || state.member || 'Профіль')}</div>
+            <div style="font-size:12px;color:rgba(255,255,255,0.72)">${esc(state.user?.email || 'Профіль · Вигляд · Родина · Безпека')}</div>
+          </div>
+        </div>
+        <i class="ti ti-chevron-right" style="color:rgba(255,255,255,0.6);font-size:18px;flex-shrink:0"></i>
+      </button>
+
+      <!-- PRO Card -->
+      <button class="settings-pro-card" data-sub="subscription">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:42px;height:42px;border-radius:12px;background:rgba(255,255,255,0.18);display:flex;align-items:center;justify-content:center;font-size:22px">✨</div>
+          <div style="text-align:left">
+            <div style="font-size:15px;font-weight:800;color:#fff;letter-spacing:-0.01em">Many Budget Pro</div>
+            <div style="font-size:12px;color:rgba(255,255,255,0.78)">AI · Родина · Telegram · Сканер</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+          <span style="background:rgba(255,255,255,0.2);color:#fff;font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px">FREE</span>
+          <i class="ti ti-chevron-right" style="color:rgba(255,255,255,0.6);font-size:18px"></i>
+        </div>
+      </button>
+
+      <!-- СЕРВІСИ -->
+      <div class="settings-section-header">СЕРВІСИ</div>
       <div class="settings-menu-group">
-        <button class="settings-menu-item" data-sub="profile">
-          <div class="settings-menu-icon" style="background:#DBEAFE;color:#2563EB"><i class="ti ti-user"></i></div>
-          <div class="settings-menu-label">Профіль</div>
+        <button class="settings-menu-item" data-sub="telegram">
+          <div class="settings-menu-icon" style="background:#E0F2FE;color:#0284C7"><i class="ti ti-brand-telegram"></i></div>
+          <div class="settings-menu-label">Telegram бот</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
-        <button class="settings-menu-item" data-sub="family">
-          <div class="settings-menu-icon" style="background:#FEF3C7;color:#D97706"><i class="ti ti-users"></i></div>
-          <div class="settings-menu-label">Родина</div>
-          <i class="ti ti-chevron-right settings-menu-arrow"></i>
-        </button>
-        <button class="settings-menu-item" data-sub="appearance">
-          <div class="settings-menu-icon" style="background:#EDE9FE;color:#7C3AED"><i class="ti ti-palette"></i></div>
-          <div class="settings-menu-label">Зовнішній вигляд</div>
-          <i class="ti ti-chevron-right settings-menu-arrow"></i>
-        </button>
-        <button class="settings-menu-item" data-sub="security">
-          <div class="settings-menu-icon" style="background:#FEE2E2;color:#DC2626"><i class="ti ti-lock"></i></div>
-          <div class="settings-menu-label">Безпека</div>
+        <button class="settings-menu-item" data-sub="sync">
+          <div class="settings-menu-icon" style="background:#F0FDF4;color:#15803D"><i class="ti ti-refresh"></i></div>
+          <div class="settings-menu-label">Синхронізація та Backup</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
       </div>
 
-      <!-- Group 2: Finance -->
+      <!-- НАЛАШТУВАННЯ -->
+      <div class="settings-section-header">НАЛАШТУВАННЯ</div>
       <div class="settings-menu-group">
         <button class="settings-menu-item" data-sub="default-wallet">
           <div class="settings-menu-icon" style="background:#DCFCE7;color:#16A34A"><i class="ti ti-wallet"></i></div>
           <div class="settings-menu-label">Кошельок за замовчуванням</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
-        <button class="settings-menu-item" data-sub="telegram">
-          <div class="settings-menu-icon" style="background:#E0F2FE;color:#0284C7"><i class="ti ti-brand-telegram"></i></div>
-          <div class="settings-menu-label">Telegram сповіщення</div>
-          <i class="ti ti-chevron-right settings-menu-arrow"></i>
-        </button>
-        <button class="settings-menu-item" data-sub="sync">
-          <div class="settings-menu-icon" style="background:#F0FDF4;color:#15803D"><i class="ti ti-refresh"></i></div>
-          <div class="settings-menu-label">Синхронізація</div>
-          <i class="ti ti-chevron-right settings-menu-arrow"></i>
-        </button>
-      </div>
-
-      <!-- Group 3: Data -->
-      <div class="settings-menu-group">
-        <button class="settings-menu-item" data-sub="plan">
-          <div class="settings-menu-icon" style="background:#FFF7ED;color:#EA580C"><i class="ti ti-list-check"></i></div>
-          <div class="settings-menu-label">План витрат</div>
-          <i class="ti ti-chevron-right settings-menu-arrow"></i>
-        </button>
-        <button class="settings-menu-item" data-sub="limits">
-          <div class="settings-menu-icon" style="background:#FEE2E2;color:#DC2626"><i class="ti ti-gauge"></i></div>
-          <div class="settings-menu-label">Ліміти витрат</div>
+        <button class="settings-menu-item" data-sub="dashboard-widgets">
+          <div class="settings-menu-icon" style="background:#EEF2FF;color:#4F46E5"><i class="ti ti-layout-dashboard"></i></div>
+          <div class="settings-menu-label">Блоки дашборду</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
         <button class="settings-menu-item" data-sub="exp-cats">
@@ -388,43 +396,39 @@ function renderMainMenu() {
           <div class="settings-menu-label">Категорії доходів</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
-        <button class="settings-menu-item" data-sub="wallet-types">
-          <div class="settings-menu-icon" style="background:#EDE9FE;color:#6D28D9"><i class="ti ti-credit-card"></i></div>
-          <div class="settings-menu-label">Типи рахунків</div>
+        <button class="settings-menu-item" data-sub="limits">
+          <div class="settings-menu-icon" style="background:#FEE2E2;color:#DC2626"><i class="ti ti-gauge"></i></div>
+          <div class="settings-menu-label">Ліміти та план витрат</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
         <button class="settings-menu-item" data-sub="wallets">
           <div class="settings-menu-icon" style="background:#DBEAFE;color:#1D4ED8"><i class="ti ti-building-bank"></i></div>
-          <div class="settings-menu-label">Кошельки</div>
+          <div class="settings-menu-label">Кошельки та рахунки</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
       </div>
 
-      <!-- Divider -->
-      <div style="height:4px"></div>
-
-      <!-- Group 4: Legal -->
+      <!-- ІНФОРМАЦІЯ -->
+      <div class="settings-section-header">ІНФОРМАЦІЯ</div>
       <div class="settings-menu-group">
-        <button class="settings-menu-item" data-sub="privacy">
-          <div class="settings-menu-icon" style="background:#E0F2FE;color:#0369A1"><i class="ti ti-shield"></i></div>
-          <div class="settings-menu-label">Політика конфіденційності</div>
-          <i class="ti ti-chevron-right settings-menu-arrow"></i>
-        </button>
-        <button class="settings-menu-item" data-sub="terms">
-          <div class="settings-menu-icon" style="background:#F0FDF4;color:#15803D"><i class="ti ti-file-text"></i></div>
-          <div class="settings-menu-label">Угода користувача</div>
-          <i class="ti ti-chevron-right settings-menu-arrow"></i>
-        </button>
         <button class="settings-menu-item" data-sub="about">
           <div class="settings-menu-icon" style="background:#EEF2FF;color:#4F46E5"><i class="ti ti-info-circle"></i></div>
           <div class="settings-menu-label">Про додаток</div>
           <i class="ti ti-chevron-right settings-menu-arrow"></i>
         </button>
+        <button class="settings-menu-item" data-sub="privacy">
+          <div class="settings-menu-icon" style="background:#E0F2FE;color:#0369A1"><i class="ti ti-shield"></i></div>
+          <div class="settings-menu-label">Конфіденційність</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" data-sub="terms">
+          <div class="settings-menu-icon" style="background:#F0FDF4;color:#15803D"><i class="ti ti-file-text"></i></div>
+          <div class="settings-menu-label">Умови використання</div>
+          <i class="ti ti-chevron-right settings-menu-arrow"></i>
+        </button>
       </div>
 
-      <div class="settings-footer">
-        <div>Сімейний бюджет v3.0</div>
-      </div>
+      <div class="settings-footer">Many Budget · v3.0</div>
     </div>
   `;
 }
@@ -1122,8 +1126,8 @@ function bindSettingsHandlers(el) {
     renderSettingsPage();
   });
 
-  // Menu items
-  el.querySelectorAll('.settings-menu-item').forEach(b => {
+  // Menu items + profile/pro cards
+  el.querySelectorAll('.settings-menu-item, .settings-profile-card, .settings-pro-card').forEach(b => {
     b.addEventListener('click', () => {
       settingsSubPage = b.dataset.sub;
       renderSettingsPage();
