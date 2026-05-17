@@ -293,10 +293,13 @@
 .scanner-choice-btn i { font-size: 24px; color: var(--c-accent); }
 .scanner-choice-desc { font-size: 12px; font-weight: 500; color: var(--c-text-3); margin-top: 2px; }
 
+/* ── FX bar: hidden (shown only on dashboard via JS) ─────── */
+#fx-bar { display: none !important; }
+
 /* ── AI FAB button (bottom-right corner) ─────────────────── */
 .ai-fab-btn {
   position: fixed;
-  bottom: 90px;
+  bottom: 112px;
   right: 16px;
   width: 48px;
   height: 48px;
@@ -406,7 +409,12 @@
 
 /* ── AI Combined page ────────────────────────────────────── */
 #page-ai-chat { flex-direction: column; overflow: hidden; }
-#page-ai-chat.active { display: flex; }
+#page-ai-chat.active {
+  display: flex;
+  /* dvh shrinks when virtual keyboard appears, keeping input visible */
+  height: 100dvh;
+  max-height: 100dvh;
+}
 .ai-combined-page {
   display: flex; flex-direction: column;
   height: 100%;

@@ -93,6 +93,32 @@ export function renderReservePage() {
 
       ${survivalMonths > 0 ? renderSurvivalBadge(survivalMonths, avgMonthlyExpense) : ''}
 
+      <!-- Старий розділ "Резерв" з листа Sheets (якщо є) -->
+      ${oldReserveTotal > 0 || txs.length > 0 ? `
+        <div class="dash-card">
+          <div class="dash-card-head">
+            <span class="dash-card-title">Старий резерв (з листа)</span>
+            <span class="dash-card-amount">${fmtMoney(oldReserveTotal, 'UAH')}</span>
+          </div>
+          ${Object.keys(r.balances || {}).length > 0 ? `
+            <div class="reserve-balances" style="margin:8px 0">
+              ${Object.entries(r.balances || {}).map(([cur, val]) => `
+                <div class="reserve-balance-card">
+                  <div class="reserve-balance-cur">${cur}</div>
+                  <div class="reserve-balance-val">${fmtMoney(val, cur)}</div>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+      ` : ''}
+
+      <!-- Дії: поповнити, зняти -->
+      <div class="reserve-actions">
+        <button class="btn-primary flex-1" id="add-reserve-btn"><i class="ti ti-plus"></i> Поповнити</button>
+        <button class="btn-ghost flex-1" id="withdraw-reserve-btn"><i class="ti ti-minus"></i> Зняти</button>
+      </div>
+
       <!-- Кошельки накопичень (нова логіка) -->
       ${cardsWithBal.length > 0 ? `
         <div class="dash-card">
@@ -120,32 +146,6 @@ export function renderReservePage() {
           💡 Створи кошельок з типом <b>Накопичення</b> на сторінці Кошельки — і він автоматично з'явиться тут.
         </div>
       `}
-
-      <!-- Старий розділ "Резерв" з листа Sheets (якщо є) -->
-      ${oldReserveTotal > 0 || txs.length > 0 ? `
-        <div class="dash-card">
-          <div class="dash-card-head">
-            <span class="dash-card-title">Старий резерв (з листа)</span>
-            <span class="dash-card-amount">${fmtMoney(oldReserveTotal, 'UAH')}</span>
-          </div>
-          ${Object.keys(r.balances || {}).length > 0 ? `
-            <div class="reserve-balances" style="margin:8px 0">
-              ${Object.entries(r.balances || {}).map(([cur, val]) => `
-                <div class="reserve-balance-card">
-                  <div class="reserve-balance-cur">${cur}</div>
-                  <div class="reserve-balance-val">${fmtMoney(val, cur)}</div>
-                </div>
-              `).join('')}
-            </div>
-          ` : ''}
-        </div>
-      ` : ''}
-
-      <!-- Дії: поповнити, зняти -->
-      <div class="reserve-actions">
-        <button class="btn-primary flex-1" id="add-reserve-btn"><i class="ti ti-plus"></i> Поповнити</button>
-        <button class="btn-ghost flex-1" id="withdraw-reserve-btn"><i class="ti ti-minus"></i> Зняти</button>
-      </div>
 
       <!-- Історія транзакцій старого резерву -->
       ${txs.length > 0 ? `

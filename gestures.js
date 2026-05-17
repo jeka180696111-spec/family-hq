@@ -54,13 +54,9 @@ export function addSwipeDelete(el, onDelete, labelText = 'Видалити') {
     opacity:0; pointer-events:none;
     transition:opacity .2s;
   `;
-  // Wrap el in a relative container if not already
-  const parent = el.parentElement;
-  if (!parent) return;
-  if (getComputedStyle(parent).position === 'static') {
-    parent.style.position = 'relative';
-  }
-  parent.appendChild(overlay);
+  // Append overlay directly to el (.op-item has position:relative + overflow:hidden)
+  if (!el.parentElement) return;
+  el.appendChild(overlay);
 
   el.style.transition = 'transform .2s';
   el.style.willChange = 'transform';
@@ -111,9 +107,9 @@ export function addSwipeDelete(el, onDelete, labelText = 'Видалити') {
     await onDelete();
   });
 
-  // Tap elsewhere to close
+  // Tap elsewhere to close (overlay is inside el, so el.contains covers both)
   document.addEventListener('touchstart', e => {
-    if (revealed && !el.contains(e.target) && !overlay.contains(e.target)) {
+    if (revealed && !el.contains(e.target)) {
       el.style.transition = 'transform .25s';
       el.style.transform = '';
       overlay.style.opacity = '0';

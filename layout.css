@@ -227,7 +227,7 @@
 }
 
 /* ── CONTENT ────────────────────────────────────────────────── */
-.content { grid-area: content; padding: 0; overflow-y: auto; background: var(--c-bg); }
+.content { grid-area: content; padding: 0; overflow-y: auto; overflow-x: hidden; background: var(--c-bg); }
 .page { display: none; min-height: calc(100vh - 64px); transition: opacity .15s ease; }
 .page.active { display: block; animation: page-in .2s ease; }
 @keyframes page-in {

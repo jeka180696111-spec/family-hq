@@ -412,6 +412,8 @@
 .ip-label:first-child { margin-top: 0; }
 .ip-input {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   padding: 12px 14px;
   border-radius: var(--radius-sm);
   background: var(--c-bg-3);
@@ -419,6 +421,10 @@
   color: var(--c-text);
   font-size: 14px;
   transition: border 0.15s;
+  box-sizing: border-box;
+}
+input[type="datetime-local"].ip-input {
+  font-size: 13px;
 }
 .ip-input:focus { border-color: var(--c-accent); }
 .ip-input-big { font-size: 24px; font-weight: 700; padding: 14px 16px; }
