@@ -66,6 +66,10 @@ async function answerCallback(callbackId, text = '') {
   await tgPost('answerCallbackQuery', { callback_query_id: callbackId, text });
 }
 
+async function sendTypingAction(chatId) {
+  await tgPost('sendChatAction', { chat_id: chatId, action: 'typing' });
+}
+
 // ── Helpers ──────────────────────────────────────────────────
 function todayKyiv() {
   return new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Kyiv' });
@@ -440,6 +444,56 @@ async function deleteOperation(familyId, id) {
     .collection('operations').doc(id).delete();
 }
 
+async function getAIHistory(userId) {
+  try {
+    const doc = await db.collection('telegramAIChats').doc(String(userId)).get();
+    return doc.exists ? (doc.data().messages || []) : [];
+  } catch (e) { return []; }
+}
+
+async function saveAIHistory(userId, messages) {
+  try {
+    await db.collection('telegramAIChats').doc(String(userId)).set({
+      messages: messages.slice(-12),
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (e) {}
+}
+
+async function buildMonthlyContext(familyId, who) {
+  try {
+    const { from, to, label } = currentMonthRange();
+    const [ops, wallets] = await Promise.all([
+      getPeriodOps(familyId, from, to),
+      getWalletBalances(familyId),
+    ]);
+
+    const expenses = ops.filter(o => o.type === 'Витрата');
+    const incomes  = ops.filter(o => o.type === 'Дохід');
+    const totalExp = expenses.reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
+    const totalInc = incomes.reduce((s, o) => s + (o.amountUah || o.amount || 0), 0);
+    const totalBal = wallets.reduce((s, w) => s + w.balanceUah, 0);
+
+    const byCat = {};
+    expenses.forEach(o => {
+      const cat = o.category || 'Інше';
+      byCat[cat] = (byCat[cat] || 0) + (o.amountUah || o.amount || 0);
+    });
+    const catLines = Object.entries(byCat)
+      .sort((a, b) => b[1] - a[1])
+      .map(([cat, amt]) => `  ${cat}: ${fmtMoney(amt)}`).join('\n');
+
+    const walletLines = wallets.slice(0, 6)
+      .map(w => `  ${w.name}: ${w.balance > 0 ? '+' : ''}${w.balance} ${w.primaryCur}${w.creditLimit ? ` (кредит ${fmtMoney(w.creditAvail)} вільно)` : ''}`).join('\n');
+
+    const lastOps = ops.slice(0, 5).map(o => `  ${o.date} ${o.type === 'Витрата' ? '-' : '+'}${o.amount}${o.currency !== 'UAH' ? o.currency : '₴'} ${o.desc || o.category}`).join('\n');
+
+    return `=== БЮДЖЕТ (${label}) ===\nУчасник: ${who}\nБаланс: ${fmtMoney(totalBal)}\nДоходи: ${fmtMoney(totalInc)} | Витрати: ${fmtMoney(totalExp)} | Зекономлено: ${fmtMoney(Math.max(0, totalInc - totalExp))}\n\nВитрати по категоріях:\n${catLines || '  (ще немає)'}\n\nРахунки:\n${walletLines || '  (немає)'}\n\nОстанні операції:\n${lastOps || '  (немає)'}`;
+  } catch (e) {
+    return `Учасник: ${who}. Дані бюджету тимчасово недоступні.`;
+  }
+}
+
 async function getTodaySameCategoryOps(familyId, who, category) {
   const today = todayKyiv();
   const snapshot = await db.collection('families').doc(familyId)
@@ -703,10 +757,11 @@ async function handleCommand(cmd, chatId, userId, userName, who, familyId, res) 
         `⏱ <b>Тиждень</b> — операції за останні 7 днів\n` +
         `📊 <b>Статистика</b> — витрати по категоріях з графіком\n` +
         `📋 <b>Останні</b> — 5 останніх операцій (можна видалити)\n\n` +
-        `<b>🤖 AI-питання</b> — просто постав питання:\n` +
+        `<b>🤖 AI-чат (Фінн)</b> — напиши будь-яке питання:\n` +
         `<i>"Де я найбільше витрачаю?"</i>\n` +
         `<i>"Як скоротити витрати?"</i>\n` +
-        `<i>"Аналіз моїх фінансів"</i>`,
+        `<i>"Аналіз цього місяця"</i>\n` +
+        `Або /forget — очистити пам'ять розмови з AI`,
         { reply_markup: MAIN_KEYBOARD }
       );
       return res.status(200).json({ ok: true });
@@ -858,9 +913,18 @@ async function handleCommand(cmd, chatId, userId, userName, who, familyId, res) 
       return res.status(200).json({ ok: true });
     }
 
-    default:
-      await sendMessage(chatId, `❓ Невідома команда. Натисни кнопку нижче або напиши витрату.`, { reply_markup: MAIN_KEYBOARD });
+    case '/ai':
+      await sendMessage(chatId, `🤖 <b>Привіт, я Фінн!</b>\n\nПростав питання про свій бюджет — відповім з даними.\n\n<i>Приклади:\n• "Скільки я витратив цього місяця?"\n• "Де найбільше витрачаю?"\n• "Дай поради як зекономити"</i>`);
       return res.status(200).json({ ok: true });
+
+    case '/forget':
+      await saveAIHistory(userId, []);
+      await sendMessage(chatId, `🗑 <b>Пам'ять очищено.</b>\nФінн забув нашу розмову і починає з чистого аркуша.`);
+      return res.status(200).json({ ok: true });
+
+    default:
+      // Unknown command — try AI
+      return handleAIChat(chatId, cmd, who, familyId, userId, res);
   }
 }
 
@@ -894,48 +958,49 @@ async function generateSarcasticComment(op, todayOps) {
 }
 
 // ── AI Чат ───────────────────────────────────────────────────
-function isConversational(text) {
-  if (text.length < 4) return false;
-  if (text.includes('?') || text.includes('?')) return true;
-  const triggers = ['як', 'що', 'де', 'чому', 'скільки', 'коли', 'чи', 'поради', 'порада', 'допоможи', 'розкажи', 'поясни', 'аналіз', 'звіт', 'прогноз', 'розбір', 'критикуй', 'оціни', 'думаєш'];
-  const lower = text.toLowerCase();
-  return triggers.some(t => lower.startsWith(t) || lower.includes(' ' + t));
-}
+async function handleAIChat(chatId, userText, who, familyId, userId, res) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    await sendMessage(chatId, '❌ AI ключ не налаштований.');
+    return res.status(200).json({ ok: true });
+  }
 
-async function handleAIChat(chatId, userText, who, familyId, res) {
+  // Show typing while fetching data
+  await sendTypingAction(chatId);
+
   try {
-    const [wallets, recentOps] = await Promise.all([
-      getWalletBalances(familyId),
-      getLastOps(familyId, 10),
+    const [history, context] = await Promise.all([
+      getAIHistory(userId),
+      buildMonthlyContext(familyId, who),
     ]);
-    const totalUah = wallets.reduce((s, w) => s + w.balanceUah, 0);
-    const recentExp = recentOps.filter(o => o.type === 'Витрата').slice(0, 5)
-      .map(o => `${o.desc || o.category} ${o.amount}₴`).join(', ');
-    const context = `Користувач: ${who}. Загальний баланс: ${fmtMoney(totalUah)}. Останні витрати: ${recentExp || 'немає'}.`;
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      await sendMessage(chatId, '❌ AI ключ не налаштований.');
-      return res.status(200).json({ ok: true });
-    }
+    const systemPrompt = `Ти — Фінн, саркастичний фінансовий радник сімейного бюджету.
+Стиль: дотепний, іноді їдкий, але з щирою турботою. Відповідай ТІЛЬКИ УКРАЇНСЬКОЮ.
+Довжина: 2-5 речень. Емодзі: 1-2 max. Якщо є числа в даних — використовуй їх.
+Якщо запитують пораду — давай конкретну, практичну.
+Якщо не знаєш — чесно скажи, не вигадуй.
 
-    const systemPrompt = `Ти — саркастичний фінансовий радник на ім'я Фінн. Стиль: дотепний, їдкий, але з турботою.
-Правила: відповідай УКРАЇНСЬКОЮ, коротко (2-4 речення), використовуй конкретні цифри якщо є, емодзі помірно.
 ${context}`;
+
+    const messages = [...history, { role: 'user', content: userText }];
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 400,
+        max_tokens: 500,
         system: systemPrompt,
-        messages: [{ role: 'user', content: userText }],
+        messages,
       }),
     });
 
     const data = await response.json();
     const reply = data.content?.filter(c => c.type === 'text').map(c => c.text).join('\n') || 'Щось пішло не так 🤷';
+
+    // Save history (fire-and-forget)
+    saveAIHistory(userId, [...messages, { role: 'assistant', content: reply }]);
+
     await sendMessage(chatId, reply);
   } catch (e) {
     await sendMessage(chatId, '❌ Помилка AI: ' + e.message);
@@ -1114,13 +1179,8 @@ export default async function handler(req, res) {
     // Парсимо операцію і показуємо для підтвердження
     const parsed = parseMessage(text);
     if (!parsed) {
-      if (isConversational(text)) {
-        return handleAIChat(chatId, text, who, familyId, res);
-      }
-      await sendMessage(chatId,
-        `🤔 Не зрозумів. Напиши суму і опис:\n<code>каву 85</code>\n<code>зп 40000</code>\n\nАбо постав питання — я відповім 😏`
-      );
-      return res.status(200).json({ ok: true });
+      // Anything that's not a money entry goes to AI chat
+      return handleAIChat(chatId, text, who, familyId, userId, res);
     }
 
     const rates = await getExchangeRates();
