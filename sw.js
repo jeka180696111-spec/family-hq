@@ -1,4 +1,4 @@
-const CACHE = 'budget-v9';
+const CACHE = 'budget-v10';
 const STATIC = [
   '/', '/index.html',
   '/base.css', '/layout.css', '/components.css', '/pages.css', '/new-features.css',
@@ -8,7 +8,8 @@ const STATIC = [
   '/recurring-payments.js', '/ai-chat.js', '/ai-reports.js', '/challenges.js',
   '/settings-ui.js', '/modals.js', '/fab.js', '/onboarding.js',
   '/receipt-scanner.js', '/transfer.js', '/credit-cards.js', '/lock-screen.js',
-  '/icon-picker.js', '/icon-192.png', '/icon-512.png', '/manifest.json',
+  '/icon-picker.js', '/export.js', '/push-notifications.js',
+  '/icon-192.png', '/icon-512.png', '/manifest.json',
 ];
 
 self.addEventListener('install', e => {
@@ -56,5 +57,34 @@ self.addEventListener('fetch', e => {
       }
       return res;
     }))
+  );
+});
+
+// ── Push notifications ───────────────────────────────────────
+self.addEventListener('push', e => {
+  let data = { title: 'Money Budget', body: 'Нове сповіщення', icon: '/icon-192.png', tag: 'default' };
+  try { if (e.data) Object.assign(data, e.data.json()); } catch {}
+
+  e.waitUntil(
+    self.registration.showNotification(data.title, {
+      body:  data.body,
+      icon:  data.icon  || '/icon-192.png',
+      badge: '/icon-192.png',
+      tag:   data.tag   || 'budget',
+      data:  data.url ? { url: data.url } : undefined,
+      vibrate: [200, 100, 200],
+    })
+  );
+});
+
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = e.notification.data?.url || '/';
+  e.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+      const existing = list.find(c => c.url.includes(self.location.origin));
+      if (existing) return existing.focus().then(c => c.navigate(url));
+      return clients.openWindow(url);
+    })
   );
 });
