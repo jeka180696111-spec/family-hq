@@ -26,6 +26,7 @@ import { openIconPicker } from './icon-picker.js';
 import { openBottomSheet, closeModal, confirmModal, promptModal } from './modals.js';
 import { signOut } from './auth.js';
 import { isLockEnabled, isBiometricAvailable, setupLock, disableLock } from './lock-screen.js';
+import { exportToExcel } from './export.js';
 
 // ── Sub-page state ───────────────────────────────────────────
 let settingsSubPage = null;
@@ -357,6 +358,16 @@ function renderMainMenu() {
           <i class="ti ti-chevron-right" style="color:rgba(255,255,255,0.6);font-size:18px"></i>
         </div>
       </button>
+
+      <!-- ДАНІ -->
+      <div class="settings-section-header">ДАНІ</div>
+      <div class="settings-menu-group">
+        <button class="settings-menu-item" id="export-excel-btn">
+          <div class="settings-menu-icon" style="background:#DCFCE7;color:#16A34A"><i class="ti ti-file-spreadsheet"></i></div>
+          <div class="settings-menu-label">Експорт у Excel</div>
+          <i class="ti ti-download settings-menu-arrow"></i>
+        </button>
+      </div>
 
       <!-- СЕРВІСИ -->
       <div class="settings-section-header">СЕРВІСИ</div>
@@ -1205,10 +1216,15 @@ function bindSettingsHandlers(el) {
   // Menu items + profile/pro cards
   el.querySelectorAll('.settings-menu-item, .settings-profile-card, .settings-pro-card').forEach(b => {
     b.addEventListener('click', () => {
-      settingsSubPage = b.dataset.sub;
-      renderSettingsPage();
+      if (b.dataset.sub) {
+        settingsSubPage = b.dataset.sub;
+        renderSettingsPage();
+      }
     });
   });
+
+  // Export to Excel
+  el.querySelector('#export-excel-btn')?.addEventListener('click', () => exportToExcel());
 
   // Theme
   el.querySelectorAll('[data-theme]').forEach(b => {
