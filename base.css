@@ -317,113 +317,6 @@ body, .card, .sidebar, .topbar, .wallet-card, .modal {
   --c-card-rgb: 16,28,24;
 }
 
-/* ════════════════════════════════════════════════════════════════
-   ФОНИ — яскраві та унікальні для кожної теми
-   ════════════════════════════════════════════════════════════════ */
-
-body { transition: background 0.5s ease; }
-
-/* ── DEFAULT — чистий зелений ────────────────────────────── */
-[data-palette="default"] body,
-:root:not([data-palette]) body {
-  background:
-    radial-gradient(ellipse 75vw 65vh at 5%  5%,  rgba(46,125,95,0.16) 0%, transparent 68%),
-    radial-gradient(ellipse 65vw 75vh at 95% 95%,  rgba(78,200,140,0.14) 0%, transparent 68%),
-    radial-gradient(ellipse 45vw 45vh at 55% 40%,  rgba(60,160,100,0.08) 0%, transparent 55%),
-    #F2F8F4;
-  background-attachment: fixed;
-}
-[data-palette="default"][data-theme="dark"] body,
-[data-theme="dark"]:not([data-palette]) body {
-  background:
-    radial-gradient(ellipse 75vw 65vh at 5%  5%,  rgba(46,125,95,0.32) 0%, transparent 68%),
-    radial-gradient(ellipse 65vw 75vh at 95% 95%,  rgba(20,80,55,0.38)  0%, transparent 68%),
-    radial-gradient(ellipse 45vw 45vh at 55% 42%,  rgba(60,140,90,0.16) 0%, transparent 55%),
-    #080E0A;
-  background-attachment: fixed;
-}
-
-/* ── OCEAN — глибокий насичений синій ────────────────────── */
-[data-palette="ocean"] body {
-  background:
-    radial-gradient(ellipse 110vw 50vh at 50% -10%, rgba(100,180,255,0.55) 0%, transparent 55%),
-    radial-gradient(ellipse 80vw 80vh at -10% 110%, rgba(20,100,200,0.60)  0%, transparent 60%),
-    radial-gradient(ellipse 70vw 60vh at 110% 10%,  rgba(0,140,220,0.45)   0%, transparent 58%),
-    radial-gradient(ellipse 50vw 50vh at 60%  55%,  rgba(50,120,210,0.20)  0%, transparent 50%),
-    linear-gradient(155deg, #1565a0 0%, #0d47a1 40%, #01579b 70%, #006994 100%);
-  background-attachment: fixed;
-}
-[data-palette="ocean"][data-theme="dark"] body {
-  background:
-    radial-gradient(ellipse 110vw 50vh at 50% -10%, rgba(20,100,200,0.55) 0%, transparent 55%),
-    radial-gradient(ellipse 80vw 80vh at -10% 110%, rgba(0,30,100,0.70)   0%, transparent 60%),
-    radial-gradient(ellipse 70vw 60vh at 110% 10%,  rgba(0,60,140,0.50)   0%, transparent 58%),
-    linear-gradient(155deg, #010a1a 0%, #021228 40%, #011830 100%);
-  background-attachment: fixed;
-}
-
-/* ── SUNSET — насичений захід ────────────────────────────── */
-[data-palette="sunset"] body {
-  background:
-    radial-gradient(ellipse 110vw 55vh at 50% -5%,  rgba(255,200,50,0.70)  0%, transparent 50%),
-    radial-gradient(ellipse 80vw 80vh at 110% 110%, rgba(200,40,20,0.65)   0%, transparent 58%),
-    radial-gradient(ellipse 70vw 60vh at -10% 80%,  rgba(255,100,30,0.50)  0%, transparent 58%),
-    radial-gradient(ellipse 55vw 55vh at 55% 50%,   rgba(240,80,40,0.25)   0%, transparent 52%),
-    linear-gradient(155deg, #e65c00 0%, #c0392b 45%, #9b1b30 100%);
-  background-attachment: fixed;
-}
-[data-palette="sunset"][data-theme="dark"] body {
-  background:
-    radial-gradient(ellipse 110vw 55vh at 50% -5%,  rgba(200,80,10,0.55)  0%, transparent 50%),
-    radial-gradient(ellipse 80vw 80vh at 110% 110%, rgba(120,10,5,0.70)   0%, transparent 58%),
-    radial-gradient(ellipse 70vw 60vh at -10% 80%,  rgba(160,40,10,0.45)  0%, transparent 58%),
-    linear-gradient(155deg, #100200 0%, #1e0400 45%, #140208 100%);
-  background-attachment: fixed;
-}
-
-/* ── MIDNIGHT — глибокий космос ──────────────────────────── */
-[data-palette="midnight"] body {
-  background:
-    /* Stars — 3 layers */
-    radial-gradient(circle at 1px 1px, rgba(220,180,255,0.22) 1px, transparent 0) 0 0 / 20px 20px,
-    radial-gradient(circle at 1px 1px, rgba(255,255,255,0.10) 1px, transparent 0) 10px 14px / 32px 32px,
-    radial-gradient(circle at 1px 1px, rgba(180,120,255,0.12) 1px, transparent 0) 5px 8px  / 48px 48px,
-    /* Nebula */
-    radial-gradient(ellipse 100vw 65vh at 15% 5%,   rgba(80,30,180,0.65)  0%, transparent 62%),
-    radial-gradient(ellipse 85vw 75vh at 90% 95%,   rgba(30,5,110,0.70)   0%, transparent 62%),
-    radial-gradient(ellipse 60vw 55vh at 60% 45%,   rgba(130,60,220,0.28) 0%, transparent 55%),
-    radial-gradient(ellipse 45vw 45vh at 80% 15%,   rgba(180,80,255,0.18) 0%, transparent 50%),
-    linear-gradient(180deg, #04010e 0%, #080318 100%);
-  background-attachment: fixed;
-}
-
-/* ── NEON — кіберпанк ────────────────────────────────────── */
-[data-palette="neon"] body {
-  background:
-    /* Cyberpunk grid */
-    linear-gradient(rgba(0,200,144,0.07) 1px, transparent 1px) 0 0 / 46px 46px,
-    linear-gradient(90deg, rgba(0,200,144,0.07) 1px, transparent 1px) 0 0 / 46px 46px,
-    /* Diagonal purple lines */
-    repeating-linear-gradient(-45deg, transparent, transparent 80px, rgba(194,100,255,0.04) 80px, rgba(194,100,255,0.04) 81px),
-    /* Glows */
-    radial-gradient(ellipse 85vw 65vh at 5%  5%,  rgba(0,180,120,0.24)   0%, transparent 65%),
-    radial-gradient(ellipse 75vw 75vh at 95% 95%,  rgba(150,60,255,0.28)  0%, transparent 65%),
-    radial-gradient(ellipse 55vw 55vh at 80% 20%,  rgba(0,180,255,0.14)   0%, transparent 55%),
-    linear-gradient(180deg, #000508 0%, #010310 100%);
-  background-attachment: fixed;
-}
-
-/* ── GLASS — веселковий градієнт ─────────────────────────── */
-[data-palette="glass"] body {
-  background:
-    linear-gradient(135deg, #a8f0c8 0%, #c0e0f8 28%, #dcd0ff 60%, #ffb8e0 100%);
-  background-attachment: fixed;
-}
-[data-palette="glass"][data-theme="dark"] body {
-  background:
-    linear-gradient(135deg, #061410 0%, #080e20 32%, #0e0618 65%, #140810 100%);
-  background-attachment: fixed;
-}
 
 /* ════ BACKDROP BLUR ══════════════════════════════════════════ */
 [data-palette="ocean"] .settings-card, [data-palette="ocean"] .card,
@@ -485,8 +378,7 @@ body { transition: background 0.5s ease; }
 }
 
 /* ════════════════════════════════════════════════════════════════
-   АТМОСФЕРНІ ФОНИ — багатошарові текстури + аурні блоби
-   Кожна тема має власний характер: хвилі, зірки, сітка, промені
+   ФОНИ — багатошарові текстури + аурні блоби
    ════════════════════════════════════════════════════════════════ */
 
 body { transition: background 0.5s ease; }
@@ -524,18 +416,14 @@ body { transition: background 0.5s ease; }
 /* ── OCEAN — глибока вода ────────────────────────────────── */
 [data-palette="ocean"] body {
   background:
-    /* Wave ripple pattern */
     repeating-linear-gradient(-30deg, transparent, transparent 35px, rgba(74,159,239,0.022) 35px, rgba(74,159,239,0.022) 36px),
     repeating-linear-gradient(150deg, transparent, transparent 55px, rgba(0,180,230,0.015)  55px, rgba(0,180,230,0.015)  56px),
-    /* Caustic shimmer dots */
     radial-gradient(circle at 1px 1px, rgba(74,159,239,0.04) 1px, transparent 0) 0 0 / 35px 35px,
-    /* Blobs */
-    radial-gradient(ellipse 75vw 60vh at 5% 12%,   rgba(26,111,191,0.13)  0%, transparent 70%),
-    radial-gradient(ellipse 60vw 70vh at 96% 88%,  rgba(74,159,239,0.11)  0%, transparent 65%),
-    radial-gradient(ellipse 50vw 50vh at 50% 55%,  rgba(0,180,230,0.08)   0%, transparent 60%),
-    radial-gradient(ellipse 35vw 40vh at 82% 18%,  rgba(100,200,255,0.07) 0%, transparent 55%),
-    radial-gradient(ellipse 30vw 35vh at 18% 78%,  rgba(0,120,200,0.06)   0%, transparent 50%),
-    var(--c-bg);
+    radial-gradient(ellipse 75vw 60vh at 5% 12%,   rgba(100,200,255,0.30)  0%, transparent 70%),
+    radial-gradient(ellipse 60vw 70vh at 96% 88%,  rgba(20,120,240,0.40)   0%, transparent 65%),
+    radial-gradient(ellipse 50vw 50vh at 50% 55%,  rgba(0,140,230,0.22)    0%, transparent 60%),
+    radial-gradient(ellipse 35vw 40vh at 82% 18%,  rgba(60,160,255,0.18)   0%, transparent 55%),
+    linear-gradient(155deg, #1565a0 0%, #0d47a1 50%, #006994 100%);
   background-attachment: fixed;
 }
 [data-palette="ocean"][data-theme="dark"] body {
@@ -547,59 +435,38 @@ body { transition: background 0.5s ease; }
     radial-gradient(ellipse 60vw 75vh at 97% 92%,  rgba(10,50,140,0.36)   0%, transparent 65%),
     radial-gradient(ellipse 50vw 50vh at 52% 52%,  rgba(0,100,200,0.14)   0%, transparent 58%),
     radial-gradient(ellipse 35vw 40vh at 78% 18%,  rgba(0,60,180,0.18)    0%, transparent 52%),
-    radial-gradient(ellipse 30vw 35vh at 15% 80%,  rgba(20,80,160,0.12)   0%, transparent 48%),
-    var(--c-bg);
+    linear-gradient(155deg, #010a1a 0%, #021228 50%, #011830 100%);
   background-attachment: fixed;
 }
 
 /* ── SUNSET — захід сонця ────────────────────────────────── */
 [data-palette="sunset"] body {
   background:
-    /* Sun rays bursting from top */
-    radial-gradient(ellipse 100vw 40vh at 50% -5%, rgba(255,200,80,0.10)  0%, rgba(255,140,50,0.04) 50%, transparent 70%),
-    /* Warm haze diagonal */
+    radial-gradient(ellipse 100vw 40vh at 50% -5%, rgba(255,220,100,0.40)  0%, rgba(255,140,50,0.20) 50%, transparent 70%),
     repeating-linear-gradient(25deg, transparent, transparent 45px, rgba(255,140,50,0.018) 45px, rgba(255,140,50,0.018) 46px),
     repeating-linear-gradient(-65deg, transparent, transparent 60px, rgba(255,80,60,0.012) 60px, rgba(255,80,60,0.012) 61px),
-    /* Blobs */
-    radial-gradient(ellipse 75vw 60vh at 8% 3%,    rgba(255,160,40,0.14)  0%, transparent 70%),
-    radial-gradient(ellipse 60vw 70vh at 92% 96%,  rgba(224,90,43,0.12)   0%, transparent 65%),
-    radial-gradient(ellipse 50vw 45vh at 78% 28%,  rgba(255,80,100,0.08)  0%, transparent 60%),
-    radial-gradient(ellipse 40vw 55vh at 18% 82%,  rgba(255,200,60,0.09)  0%, transparent 55%),
-    radial-gradient(ellipse 35vw 35vh at 45% 60%,  rgba(220,80,50,0.06)   0%, transparent 50%),
-    var(--c-bg);
+    radial-gradient(ellipse 75vw 60vh at 8% 3%,    rgba(255,160,40,0.35)  0%, transparent 70%),
+    radial-gradient(ellipse 60vw 70vh at 92% 96%,  rgba(180,30,20,0.50)   0%, transparent 65%),
+    radial-gradient(ellipse 50vw 45vh at 78% 28%,  rgba(255,80,40,0.30)   0%, transparent 60%),
+    radial-gradient(ellipse 40vw 55vh at 18% 82%,  rgba(220,60,20,0.25)   0%, transparent 55%),
+    linear-gradient(155deg, #e65c00 0%, #c0392b 50%, #9b1b30 100%);
   background-attachment: fixed;
 }
 [data-palette="sunset"][data-theme="dark"] body {
   background:
-    radial-gradient(ellipse 100vw 45vh at 50% -8%, rgba(255,120,30,0.18)  0%, rgba(180,30,10,0.06) 55%, transparent 72%),
+    radial-gradient(ellipse 100vw 45vh at 50% -8%, rgba(200,60,10,0.30)  0%, rgba(120,10,5,0.10) 55%, transparent 72%),
     repeating-linear-gradient(25deg, transparent, transparent 45px, rgba(255,100,30,0.04) 45px, rgba(255,100,30,0.04) 46px),
     repeating-linear-gradient(-65deg, transparent, transparent 60px, rgba(200,30,50,0.03) 60px, rgba(200,30,50,0.03) 61px),
-    radial-gradient(ellipse 80vw 62vh at 5% 5%,    rgba(255,100,20,0.26)  0%, transparent 70%),
-    radial-gradient(ellipse 62vw 72vh at 96% 94%,  rgba(180,30,50,0.30)   0%, transparent 65%),
-    radial-gradient(ellipse 50vw 48vh at 76% 28%,  rgba(255,70,40,0.16)   0%, transparent 58%),
-    radial-gradient(ellipse 40vw 55vh at 15% 80%,  rgba(220,140,20,0.20)  0%, transparent 55%),
-    radial-gradient(ellipse 35vw 35vh at 45% 55%,  rgba(200,50,20,0.10)   0%, transparent 50%),
-    var(--c-bg);
+    radial-gradient(ellipse 80vw 62vh at 5% 5%,    rgba(200,60,10,0.26)  0%, transparent 70%),
+    radial-gradient(ellipse 62vw 72vh at 96% 94%,  rgba(140,20,30,0.32)   0%, transparent 65%),
+    radial-gradient(ellipse 50vw 48vh at 76% 28%,  rgba(200,50,20,0.18)   0%, transparent 58%),
+    radial-gradient(ellipse 40vw 55vh at 15% 80%,  rgba(180,80,10,0.22)   0%, transparent 55%),
+    linear-gradient(155deg, #100200 0%, #1e0400 50%, #140208 100%);
   background-attachment: fixed;
 }
 
-/* ── MIDNIGHT — космічна ніч ─────────────────────────────── */
-[data-palette="midnight"] body {
-  background:
-    /* Star dots — tiny scattered */
-    radial-gradient(circle at 1px 1px, rgba(155,114,255,0.06) 1px, transparent 0) 0 0 / 28px 28px,
-    radial-gradient(circle at 1px 1px, rgba(200,150,255,0.04) 1px, transparent 0) 14px 14px / 42px 42px,
-    /* Nebula haze */
-    repeating-linear-gradient(70deg, transparent, transparent 60px, rgba(108,63,212,0.015) 60px, rgba(108,63,212,0.015) 61px),
-    /* Blobs */
-    radial-gradient(ellipse 75vw 60vh at 6% 10%,   rgba(108,63,212,0.12)  0%, transparent 70%),
-    radial-gradient(ellipse 60vw 70vh at 94% 92%,  rgba(155,114,255,0.10) 0%, transparent 65%),
-    radial-gradient(ellipse 50vw 50vh at 55% 45%,  rgba(80,40,180,0.07)   0%, transparent 60%),
-    radial-gradient(ellipse 35vw 40vh at 80% 18%,  rgba(180,120,255,0.06) 0%, transparent 55%),
-    radial-gradient(ellipse 30vw 35vh at 20% 75%,  rgba(60,20,160,0.05)   0%, transparent 50%),
-    var(--c-bg);
-  background-attachment: fixed;
-}
+/* ── MIDNIGHT — космічна ніч (завжди темний) ─────────────── */
+[data-palette="midnight"] body,
 [data-palette="midnight"][data-theme="dark"] body {
   background:
     /* Dense star field */
@@ -608,31 +475,31 @@ body { transition: background 0.5s ease; }
     radial-gradient(circle at 1px 1px, rgba(140,80,255,0.08)  1px, transparent 0) 7px 19px  / 50px 50px,
     /* Purple nebula sweeps */
     repeating-linear-gradient(70deg, transparent, transparent 60px, rgba(108,63,212,0.04) 60px, rgba(108,63,212,0.04) 61px),
-    /* Blobs */
+    /* Nebula blobs */
     radial-gradient(ellipse 80vw 65vh at 4% 6%,    rgba(108,63,212,0.34)  0%, transparent 70%),
     radial-gradient(ellipse 65vw 75vh at 97% 94%,  rgba(50,15,130,0.42)   0%, transparent 65%),
     radial-gradient(ellipse 50vw 50vh at 55% 50%,  rgba(155,114,255,0.16) 0%, transparent 55%),
     radial-gradient(ellipse 38vw 42vh at 82% 14%,  rgba(200,100,255,0.12) 0%, transparent 52%),
     radial-gradient(ellipse 32vw 38vh at 18% 78%,  rgba(80,20,180,0.16)   0%, transparent 50%),
-    var(--c-bg);
+    linear-gradient(180deg, #04010e 0%, #080318 100%);
   background-attachment: fixed;
 }
 
-/* ── NEON — кіберпанк ────────────────────────────────────── */
+/* ── NEON — кіберпанк (завжди темний) ───────────────────── */
 [data-palette="neon"] body {
   background:
     /* Cyberpunk grid */
-    linear-gradient(rgba(0,200,144,0.04) 1px, transparent 1px) 0 0 / 50px 50px,
-    linear-gradient(90deg, rgba(0,200,144,0.04) 1px, transparent 1px) 0 0 / 50px 50px,
+    linear-gradient(rgba(0,200,144,0.07) 1px, transparent 1px) 0 0 / 50px 50px,
+    linear-gradient(90deg, rgba(0,200,144,0.07) 1px, transparent 1px) 0 0 / 50px 50px,
     /* Diagonal accent lines */
-    repeating-linear-gradient(-45deg, transparent, transparent 70px, rgba(194,100,255,0.025) 70px, rgba(194,100,255,0.025) 71px),
+    repeating-linear-gradient(-45deg, transparent, transparent 70px, rgba(194,100,255,0.04) 70px, rgba(194,100,255,0.04) 71px),
     /* Glow blobs */
-    radial-gradient(ellipse 70vw 60vh at 3% 8%,    rgba(0,200,144,0.12)   0%, transparent 68%),
-    radial-gradient(ellipse 55vw 68vh at 97% 94%,  rgba(194,100,255,0.16) 0%, transparent 65%),
-    radial-gradient(ellipse 45vw 45vh at 78% 32%,  rgba(0,200,255,0.10)   0%, transparent 58%),
-    radial-gradient(ellipse 35vw 35vh at 22% 78%,  rgba(0,200,144,0.08)   0%, transparent 52%),
-    radial-gradient(ellipse 25vw 25vh at 55% 18%,  rgba(194,100,255,0.07) 0%, transparent 48%),
-    var(--c-bg);
+    radial-gradient(ellipse 70vw 60vh at 3% 8%,    rgba(0,200,144,0.22)   0%, transparent 68%),
+    radial-gradient(ellipse 55vw 68vh at 97% 94%,  rgba(150,60,255,0.28)  0%, transparent 65%),
+    radial-gradient(ellipse 45vw 45vh at 78% 32%,  rgba(0,200,255,0.16)   0%, transparent 58%),
+    radial-gradient(ellipse 35vw 35vh at 22% 78%,  rgba(0,180,120,0.14)   0%, transparent 52%),
+    radial-gradient(ellipse 25vw 25vh at 55% 18%,  rgba(194,100,255,0.12) 0%, transparent 48%),
+    linear-gradient(180deg, #000508 0%, #010310 100%);
   background-attachment: fixed;
 }
 
