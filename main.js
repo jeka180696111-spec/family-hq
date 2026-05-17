@@ -6,7 +6,7 @@ import { state, FAMILY_MEMBERS, APP_CONFIG, FIREBASE_CONFIG } from './config.js'
 import { showOnboarding } from './onboarding.js';
 import { log, showToast, setText, esc } from './utils.js';
 import {
-  getFamilyName, getProfiles, getTheme,
+  getFamilyName, getFamilyAvatar, getAvatar, getProfiles, getTheme,
   getExpCats, getIncCats, getCards, getWalletTypes,
   setExpCats, setIncCats, setCards, setWalletTypes, setProfiles, setFamilyName,
   isDirty, clearDirty,
@@ -152,6 +152,10 @@ async function refreshFx() {
 // SIDEBAR + TOPBAR + BOTTOM NAV
 // ═══════════════════════════════════════════════════════════════
 
+// Exposed so settings can trigger sidebar/topbar refresh after avatar change
+window.renderSidebarPublic = () => renderSidebar();
+window.renderTopbarPublic = () => renderTopbar();
+
 function renderSidebar() {
   const sb = document.getElementById('sidebar');
   if (!sb) return;
@@ -159,17 +163,31 @@ function renderSidebar() {
   const me = whoAmI() || FAMILY_MEMBERS[0];
   const myProfile = profiles[me] || {};
 
+  const familyAvatar = getFamilyAvatar();
+  const familyName = getFamilyName() || 'Моя родина';
+  const userAvatarStored = getAvatar();
+  const userPhotoUrl = state.user?.avatar || '';
+  const userAvatarSrc = userAvatarStored || userPhotoUrl;
+  const familyLogoHtml = familyAvatar && familyAvatar.startsWith('data:')
+    ? `<img src="${familyAvatar}" style="width:36px;height:36px;border-radius:10px;object-fit:cover">`
+    : familyAvatar
+      ? `<span style="font-size:22px;line-height:1">${familyAvatar}</span>`
+      : `<i class="ti ti-home-2"></i>`;
+  const userAvatarHtml = userAvatarSrc && userAvatarSrc.length > 2
+    ? `<img src="${userAvatarSrc}" style="width:36px;height:36px;border-radius:50%;object-fit:cover">`
+    : `<span style="font-weight:700">${(myProfile.name || me)[0]}</span>`;
+
   sb.innerHTML = `
     <div class="sb-header">
       <div class="sb-logo">
-        <div class="sb-logo-icon"><i class="ti ti-home-2"></i></div>
+        <div class="sb-logo-icon" style="display:flex;align-items:center;justify-content:center">${familyLogoHtml}</div>
         <div class="sb-logo-info">
-          <div class="sb-logo-name">${esc(getFamilyName() || 'Кіосе')}</div>
+          <div class="sb-logo-name">${esc(familyName)}</div>
           <div class="sb-logo-sub">Сімейний бюджет</div>
         </div>
       </div>
       <div class="sb-user">
-        <div class="sb-user-avatar" style="background:var(--c-accent-soft);color:var(--c-accent)">${(myProfile.name || me)[0]}</div>
+        <div class="sb-user-avatar" style="background:var(--c-accent-soft);color:var(--c-accent);overflow:hidden;padding:0">${userAvatarHtml}</div>
         <div>
           <div class="sb-user-name">${esc(myProfile.name || me)}</div>
           <div class="sb-user-role">Активний</div>
@@ -217,7 +235,13 @@ function renderTopbar() {
     <div class="topbar-title" id="topbar-title">Головна</div>
 
     <button class="topbar-viewas-btn" id="topbar-viewas">
-      <div class="topbar-viewas-avatar">${(activeProf.name || activeView)[0]}</div>
+      ${(() => {
+        const isMine = activeView === me;
+        const src = isMine ? (getAvatar() || state.user?.avatar || '') : '';
+        return src && src.length > 2
+          ? `<img src="${src}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0">`
+          : `<div class="topbar-viewas-avatar">${(activeProf.name || activeView)[0]}</div>`;
+      })()}
       <span class="topbar-viewas-name">${esc(activeProf.name || activeView)}</span>
       <i class="ti ti-chevron-down"></i>
     </button>

@@ -151,7 +151,7 @@ export function getWalletTypeById(id) {
 
 // ── Назва родини ────────────────────────────────────────────
 export function getFamilyName() {
-  return localStorage.getItem(APP_CONFIG.FAMILY_KEY) || 'Родина Коваль';
+  return localStorage.getItem(APP_CONFIG.FAMILY_KEY) || '';
 }
 export function setFamilyName(name) {
   localStorage.setItem(APP_CONFIG.FAMILY_KEY, name);
@@ -183,6 +183,15 @@ export function getAvatar() {
 }
 export function setAvatar(dataUrl) {
   localStorage.setItem(APP_CONFIG.AVATAR_KEY, dataUrl);
+}
+
+// ── Аватар родини ────────────────────────────────────────────
+export function getFamilyAvatar() {
+  return localStorage.getItem('budget_family_avatar') || '';
+}
+export function setFamilyAvatar(val) {
+  localStorage.setItem('budget_family_avatar', val);
+  markDirty('budget_family_avatar');
 }
 
 // ── Який це юзер у нашій сім'ї ──────────────────────────────
