@@ -490,43 +490,71 @@ function renderSubPageBody(key) {
       `;
     }
 
-    case 'profile':
+    case 'profile': {
+      const userAv = getAvatar() || state.user?.avatar || '';
+      const userAvatarHtml = userAv && userAv.length > 2
+        ? `<img id="profile-avatar-img" src="${esc(userAv)}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid var(--c-accent)">`
+        : `<div id="profile-avatar-img" style="width:80px;height:80px;border-radius:50%;background:var(--c-accent-soft);color:var(--c-accent);font-size:32px;font-weight:700;display:flex;align-items:center;justify-content:center;border:3px solid var(--c-accent)">${(state.user?.name || '?')[0]}</div>`;
       return `
-        <div class="settings-card">
-          ${state.user ? `
-            <div class="settings-row">
-              <div class="settings-row-icon"><i class="ti ti-user"></i></div>
-              <div class="settings-row-info">
-                <div class="settings-row-name">${esc(state.user.name)}</div>
-                <div class="settings-row-sub">${esc(state.user.email)}</div>
-              </div>
-            </div>
-          ` : ''}
-          <div class="settings-row">
-            <div class="settings-row-icon"><i class="ti ti-home"></i></div>
-            <div class="settings-row-info">
-              <div class="settings-row-name">Назва родини</div>
-              <input class="settings-row-input" id="family-name-input" value="${esc(family)}" placeholder="Родина...">
-            </div>
-            <button class="btn-ghost-sm" id="save-family-btn">Зберегти</button>
+        <div class="settings-card" style="align-items:center;text-align:center;gap:12px;display:flex;flex-direction:column;padding:24px 16px">
+          <div style="position:relative;display:inline-block">
+            ${userAvatarHtml}
+            <label for="profile-photo-input" style="position:absolute;bottom:0;right:0;width:26px;height:26px;border-radius:50%;background:var(--c-accent);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.25)">
+              <i class="ti ti-camera" style="font-size:13px"></i>
+            </label>
+            <input type="file" id="profile-photo-input" accept="image/*" style="display:none">
           </div>
+          <div>
+            <div style="font-size:17px;font-weight:700">${esc(state.user?.name || state.member || '')}</div>
+            <div style="font-size:13px;color:var(--c-text-3)">${esc(state.user?.email || '')}</div>
+          </div>
+          <button class="btn-ghost-sm" id="remove-user-avatar-btn" style="font-size:12px;color:var(--c-text-3)">Скинути фото</button>
         </div>
         <div class="settings-card">
-          <button class="settings-menu-item" id="signout-btn" style="color:var(--c-red)">
+          <button class="settings-menu-item" id="signout-btn">
             <div class="settings-menu-icon" style="background:var(--c-red-soft);color:var(--c-red)"><i class="ti ti-logout"></i></div>
             <div class="settings-menu-label" style="color:var(--c-red)">Вийти з профілю</div>
             <i class="ti ti-chevron-right settings-menu-arrow"></i>
           </button>
-          <button class="settings-menu-item" id="delete-account-btn" style="color:var(--c-red)">
+          <button class="settings-menu-item" id="delete-account-btn">
             <div class="settings-menu-icon" style="background:var(--c-red-soft);color:var(--c-red)"><i class="ti ti-trash"></i></div>
             <div class="settings-menu-label" style="color:var(--c-red)">Видалити профіль і дані</div>
             <i class="ti ti-chevron-right settings-menu-arrow"></i>
           </button>
         </div>
       `;
+    }
 
-    case 'family':
+    case 'family': {
+      const famAv = getFamilyAvatar();
+      const famName = getFamilyName() || '';
+      const famLogoHtml = famAv && famAv.startsWith('data:')
+        ? `<img id="family-avatar-img" src="${esc(famAv)}" style="width:80px;height:80px;border-radius:20px;object-fit:cover;border:3px solid var(--c-accent)">`
+        : famAv
+          ? `<div id="family-avatar-img" style="width:80px;height:80px;border-radius:20px;background:var(--c-accent-soft);color:var(--c-accent);font-size:40px;display:flex;align-items:center;justify-content:center;border:3px solid var(--c-accent)">${famAv}</div>`
+          : `<div id="family-avatar-img" style="width:80px;height:80px;border-radius:20px;background:var(--c-accent-soft);color:var(--c-accent);font-size:32px;display:flex;align-items:center;justify-content:center;border:3px solid var(--c-accent)"><i class="ti ti-home-2"></i></div>`;
+      const FAMILY_EMOJIS = ['🏠','🏡','🏰','🌟','🌈','🌊','🌿','🦁','🐯','🦊','🐺','🦅','🌺','🍀','⭐','🎯','🚀','💎','🌙','🔥','🍁','🌻','🐉','🦋'];
       return `
+        <div class="settings-card" style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px;padding:24px 16px">
+          <div style="position:relative;display:inline-block">
+            ${famLogoHtml}
+            <label for="family-photo-input" style="position:absolute;bottom:0;right:0;width:26px;height:26px;border-radius:50%;background:var(--c-accent);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.25)">
+              <i class="ti ti-camera" style="font-size:13px"></i>
+            </label>
+            <input type="file" id="family-photo-input" accept="image/*" style="display:none">
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input id="family-name-input" value="${esc(famName)}" placeholder="Назва родини" style="font-size:16px;font-weight:700;text-align:center;border-bottom:1.5px solid var(--c-border);padding:4px 8px;background:transparent;width:180px">
+            <button class="btn-ghost-sm" id="save-family-btn">✓</button>
+          </div>
+          <button class="btn-ghost-sm" id="remove-family-avatar-btn" style="font-size:12px;color:var(--c-text-3)">Скинути фото</button>
+        </div>
+        <div class="settings-card" style="padding:16px">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--c-text-3);margin-bottom:12px">Іконка родини</div>
+          <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px">
+            ${FAMILY_EMOJIS.map(em => `<button data-fam-emoji="${em}" style="font-size:24px;padding:6px;border-radius:10px;background:${famAv===em?'var(--c-accent-soft)':'var(--c-bg-3)'};border:2px solid ${famAv===em?'var(--c-accent)':'transparent'};cursor:pointer">${em}</button>`).join('')}
+          </div>
+        </div>
         <div class="settings-card">
           <div id="members-list">
             ${getFamilyMembers().map((m) => `
@@ -542,6 +570,7 @@ function renderSubPageBody(key) {
           <button class="settings-add-btn" id="invite-btn"><i class="ti ti-user-plus"></i> Запросити члена родини</button>
         </div>
       `;
+    }
 
     case 'appearance': {
       const curPalette = getPalette();
@@ -1154,10 +1183,73 @@ function bindSettingsHandlers(el) {
   // Widget toggles
   el.querySelectorAll('.widget-toggle').forEach(inp => {
     inp.addEventListener('change', () => {
-      const widgets = JSON.parse(localStorage.getItem('budget_widgets') || '{}');
+      const widgets = getDashWidgets();
       widgets[inp.dataset.widget] = inp.checked;
-      localStorage.setItem('budget_widgets', JSON.stringify(widgets));
+      setDashWidgets(widgets);
     });
+  });
+
+  // Family emoji picker
+  el.querySelectorAll('[data-fam-emoji]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const emoji = btn.dataset.famEmoji;
+      setFamilyAvatar(emoji);
+      el.querySelectorAll('[data-fam-emoji]').forEach(b => {
+        const active = b.dataset.famEmoji === emoji;
+        b.style.borderColor = active ? 'var(--c-accent)' : 'transparent';
+        b.style.background  = active ? 'var(--c-accent-soft)' : 'var(--c-bg-3)';
+      });
+      const img = el.querySelector('#family-avatar-img');
+      if (img) img.outerHTML = `<div id="family-avatar-img" style="width:80px;height:80px;border-radius:20px;background:var(--c-accent-soft);color:var(--c-accent);font-size:40px;display:flex;align-items:center;justify-content:center;border:3px solid var(--c-accent)">${emoji}</div>`;
+      if (window.renderSidebarPublic) window.renderSidebarPublic();
+      showToast('✅ Іконку змінено');
+    });
+  });
+
+  // Family photo upload
+  el.querySelector('#family-photo-input')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const dataUrl = await compressImage(file, 256);
+      setFamilyAvatar(dataUrl);
+      const img = el.querySelector('#family-avatar-img');
+      if (img) img.outerHTML = `<img id="family-avatar-img" src="${dataUrl}" style="width:80px;height:80px;border-radius:20px;object-fit:cover;border:3px solid var(--c-accent)">`;
+      if (window.renderSidebarPublic) window.renderSidebarPublic();
+      showToast('✅ Фото родини збережено');
+    } catch { showToast('Помилка завантаження', 'error'); }
+  });
+
+  // Remove family avatar
+  el.querySelector('#remove-family-avatar-btn')?.addEventListener('click', () => {
+    setFamilyAvatar('');
+    if (window.renderSidebarPublic) window.renderSidebarPublic();
+    renderSettingsPage();
+    showToast('Іконку скинуто');
+  });
+
+  // User photo upload
+  el.querySelector('#profile-photo-input')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const dataUrl = await compressImage(file, 256);
+      setAvatar(dataUrl);
+      const img = el.querySelector('#profile-avatar-img');
+      if (img) img.outerHTML = `<img id="profile-avatar-img" src="${dataUrl}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid var(--c-accent)">`;
+      if (window.renderSidebarPublic) window.renderSidebarPublic();
+      if (window.renderTopbarPublic) window.renderTopbarPublic();
+      showToast('✅ Фото профілю збережено');
+    } catch { showToast('Помилка завантаження', 'error'); }
+  });
+
+  // Remove user avatar
+  el.querySelector('#remove-user-avatar-btn')?.addEventListener('click', () => {
+    setAvatar('');
+    if (window.renderSidebarPublic) window.renderSidebarPublic();
+    if (window.renderTopbarPublic) window.renderTopbarPublic();
+    renderSettingsPage();
+    showToast('Фото скинуто');
   });
 
   // Subscription plan cards
@@ -1448,5 +1540,27 @@ function bindSettingsHandlers(el) {
     b.addEventListener('click', () => {
       import('./main.js').then(m => m.navigateTo(b.dataset.go));
     });
+  });
+}
+
+// ── Image compression helper ──────────────────────────────────
+function compressImage(file, maxSize = 256) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = e => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
+        canvas.width  = Math.round(img.width  * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.82));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
   });
 }
