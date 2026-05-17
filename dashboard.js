@@ -68,6 +68,7 @@ export function renderDashboard() {
   const greet = hour < 6 ? 'Доброї ночі' : hour < 12 ? 'Доброго ранку' : hour < 18 ? 'Доброго дня' : 'Доброго вечора';
   const me = whoAmI() || FAMILY_MEMBERS[0];
   const myName = profiles[me]?.name || me;
+  const isPro = state.isPro === true;
 
   const now = new Date();
   const periodLabel = now.toLocaleDateString('uk-UA', { month: 'long', year: 'numeric' });
@@ -100,7 +101,7 @@ export function renderDashboard() {
       <!-- HERO -->
       <div class="dash-hero-v2">
         <div class="dash-hero-left">
-          <div class="dash-greet">${greet}, ${esc(myName)}! 👋${viewAs ? ` <span class="dash-viewas-tag">дивлюсь як ${esc(profiles[viewAs]?.name || viewAs)}</span>` : ''}</div>
+          <div class="dash-greet">${greet}, ${esc(myName)}! 👋${isPro ? '<span class="pro-badge">PRO</span>' : ''}${viewAs ? ` <span class="dash-viewas-tag">дивлюсь як ${esc(profiles[viewAs]?.name || viewAs)}</span>` : ''}</div>
           <div class="dash-hero-label">Можна витратити</div>
           <div class="dash-hero-balance" data-balance-target="${freeBalance + creditAvail}">
             ${fmtMoney(freeBalance + creditAvail, 'UAH')}
@@ -120,6 +121,9 @@ export function renderDashboard() {
           </div>
         </div>
       </div>
+
+      <!-- Spend per day -->
+      ${renderSpendPerDayCard(freeBalance, viewAs, recurringTotal)}
 
       <!-- Швидкі дії -->
       <div class="dash-quick-actions">
@@ -209,6 +213,60 @@ export function renderDashboard() {
     state._creditAlertShown = true;
     setTimeout(() => showToast(alerts[0].message, 'error'), 1000);
   }
+}
+
+// ── Spend per day ────────────────────────────────────────────
+function calcSpendPerDay(freeBalance, viewAs) {
+  const now = new Date();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const today = now.getDate();
+  const daysLeft = Math.max(1, daysInMonth - today + 1);
+
+  // Upcoming recurring payments: dayOfMonth >= today
+  const upcoming = (state.recurringPayments || [])
+    .filter(p => p.active !== false && p.dayOfMonth >= today &&
+      (!viewAs || p.who === viewAs || p.who === 'Загальний'))
+    .reduce((s, p) => s + (p.amount || 0), 0);
+
+  // Goals monthly reserve: (target - saved) / months_to_deadline or flat 0 if no deadline
+  const goalsReserve = (state.goals || [])
+    .filter(g => g.status !== 'done' && g.deadline)
+    .reduce((s, g) => {
+      const deadline = new Date(g.deadline);
+      const monthsLeft = Math.max(1,
+        (deadline.getFullYear() - now.getFullYear()) * 12 +
+        (deadline.getMonth() - now.getMonth()));
+      const remaining = Math.max(0, (g.target || 0) - (g.saved || 0));
+      return s + remaining / monthsLeft;
+    }, 0);
+
+  const available = Math.max(0, freeBalance - upcoming - goalsReserve);
+  const perDay = Math.round(available / daysLeft);
+
+  return { perDay, daysLeft, upcoming, goalsReserve: Math.round(goalsReserve) };
+}
+
+function renderSpendPerDayCard(freeBalance, viewAs, recurringTotal) {
+  const { perDay, daysLeft, upcoming, goalsReserve } = calcSpendPerDay(freeBalance, viewAs);
+  if (perDay <= 0 && freeBalance <= 0) return '';
+
+  const good = perDay >= 200;
+  const warn = perDay > 0 && perDay < 200;
+
+  return `
+    <div class="spd-card">
+      <div class="spd-left">
+        <div class="spd-label">Можна витрачати на день</div>
+        <div class="spd-amount ${good ? 'good' : warn ? 'warn' : 'bad'}">${fmtMoney(perDay, 'UAH')}</div>
+        <div class="spd-meta">Залишилось ${daysLeft} ${daysLeft === 1 ? 'день' : daysLeft < 5 ? 'дні' : 'днів'} у місяці</div>
+      </div>
+      <div class="spd-right">
+        ${upcoming > 0 ? `<div class="spd-item"><i class="ti ti-calendar-repeat"></i><span>Платежі: −${fmtMoney(upcoming, 'UAH')}</span></div>` : ''}
+        ${goalsReserve > 0 ? `<div class="spd-item"><i class="ti ti-target"></i><span>Цілі: −${fmtMoney(goalsReserve, 'UAH')}</span></div>` : ''}
+        <div class="spd-item"><i class="ti ti-calendar-month"></i><span>Баланс: ${fmtMoney(freeBalance, 'UAH')}</span></div>
+      </div>
+    </div>
+  `;
 }
 
 // ── Баланс з розділенням: вільні vs накопичення ──────────────
