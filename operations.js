@@ -96,17 +96,15 @@ export function openOperationDialog(opts = {}) {
         </div>
 
         <label class="ip-label">Кошельок</label>
-        <div class="op-wallet-grid">
+        <div class="op-wallet-scroll">
           ${myCards.map(c => `
-            <button type="button" class="op-wallet-card ${c.id===curCard?'active':''}" data-op-card="${esc(c.id)}"
+            <button type="button" class="op-wallet-item ${c.id===curCard?'active':''}" data-op-card="${esc(c.id)}"
               data-card-cur="${esc(c.currency||'UAH')}">
-              <div class="op-wallet-card-icon" style="background:${c.bg};color:${c.color}">
+              <div class="op-wallet-item-icon" style="background:${c.bg};color:${c.color}">
                 <i class="ti ${c.icon}"></i>
               </div>
-              <div class="op-wallet-card-info">
-                <div class="op-wallet-card-name">${esc(c.id)}</div>
-                ${c.currency && c.currency !== 'UAH' ? `<div class="op-wallet-card-cur">${c.currency}</div>` : ''}
-              </div>
+              <div class="op-wallet-item-name">${esc(c.id)}</div>
+              ${c.currency && c.currency !== 'UAH' ? `<div class="op-wallet-item-cur">${c.currency}</div>` : ''}
             </button>
           `).join('')}
           ${!myCards.length ? '<div class="empty-mini">Спочатку додай кошельок</div>' : ''}
@@ -153,15 +151,13 @@ export function openOperationDialog(opts = {}) {
             `).join('')}
           </div>
           <label class="ip-label">З кошелька</label>
-          <div class="op-wallet-grid">
+          <div class="op-wallet-scroll">
             ${fromCards.map(c => `
-              <button type="button" class="op-wallet-card ${c.id===curCard?'active':''}" data-from-card="${esc(c.id)}"
+              <button type="button" class="op-wallet-item ${c.id===curCard?'active':''}" data-from-card="${esc(c.id)}"
                 data-card-cur="${esc(c.currency||'UAH')}">
-                <div class="op-wallet-card-icon" style="background:${c.bg};color:${c.color}"><i class="ti ${c.icon}"></i></div>
-                <div class="op-wallet-card-info">
-                  <div class="op-wallet-card-name">${esc(c.id)}</div>
-                  ${c.currency && c.currency !== 'UAH' ? `<div class="op-wallet-card-cur">${c.currency}</div>` : ''}
-                </div>
+                <div class="op-wallet-item-icon" style="background:${c.bg};color:${c.color}"><i class="ti ${c.icon}"></i></div>
+                <div class="op-wallet-item-name">${esc(c.id)}</div>
+                ${c.currency && c.currency !== 'UAH' ? `<div class="op-wallet-item-cur">${c.currency}</div>` : ''}
               </button>
             `).join('')}
           </div>

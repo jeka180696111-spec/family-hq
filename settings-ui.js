@@ -348,7 +348,7 @@ function renderMainMenu() {
         <div style="display:flex;align-items:center;gap:12px">
           <div style="width:42px;height:42px;border-radius:12px;background:rgba(255,255,255,0.18);display:flex;align-items:center;justify-content:center;font-size:22px">✨</div>
           <div style="text-align:left">
-            <div style="font-size:15px;font-weight:800;color:#fff;letter-spacing:-0.01em">Many Budget Pro</div>
+            <div style="font-size:15px;font-weight:800;color:#fff;letter-spacing:-0.01em">Money Budget Pro</div>
             <div style="font-size:12px;color:rgba(255,255,255,0.78)">AI · Родина · Telegram · Сканер</div>
           </div>
         </div>
@@ -428,7 +428,7 @@ function renderMainMenu() {
         </button>
       </div>
 
-      <div class="settings-footer">Many Budget · v3.0</div>
+      <div class="settings-footer">Money Budget · v3.0</div>
     </div>
   `;
 }
@@ -784,7 +784,7 @@ function renderSubPageBody(key) {
       return `
         <div class="sub-page-hero">
           <div class="sub-page-hero-logo">✨</div>
-          <div class="sub-page-hero-title">Many Budget Pro</div>
+          <div class="sub-page-hero-title">Money Budget Pro</div>
           <div class="sub-page-hero-sub">Усі можливості. Одна підписка.</div>
         </div>
 
