@@ -799,7 +799,7 @@ function renderSubPageBody(key) {
               </div>
               <div style="text-align:right">
                 <div style="font-size:20px;font-weight:800;color:var(--c-accent)">49 ₴</div>
-                <div style="font-size:11px;color:var(--c-text-3)">/ 7 днів</div>
+                <div style="font-size:11px;color:var(--c-text-3)">~$1.2 · / 7 днів</div>
               </div>
             </div>
           </div>
@@ -815,7 +815,7 @@ function renderSubPageBody(key) {
               </div>
               <div style="text-align:right">
                 <div style="font-size:20px;font-weight:800;color:var(--c-accent)">149 ₴</div>
-                <div style="font-size:11px;color:var(--c-text-3)">/ місяць</div>
+                <div style="font-size:11px;color:var(--c-text-3)">~$3.6 · / місяць</div>
               </div>
             </div>
           </div>
@@ -827,11 +827,11 @@ function renderSubPageBody(key) {
                   <div style="font-size:15px;font-weight:700">Річний</div>
                   <span style="background:#F59E0B;color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px">ВИГІДНО</span>
                 </div>
-                <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">365 днів · 82.5 ₴/міс</div>
+                <div style="font-size:12px;color:var(--c-text-3);margin-top:2px">365 днів · ~133 ₴/міс · ~$39/рік</div>
               </div>
               <div style="text-align:right">
-                <div style="font-size:20px;font-weight:800;color:var(--c-accent)">990 ₴</div>
-                <div style="font-size:11px;color:var(--c-text-3)">/ рік</div>
+                <div style="font-size:20px;font-weight:800;color:var(--c-accent)">1599 ₴</div>
+                <div style="font-size:11px;color:var(--c-text-3)">~$39 · / рік</div>
               </div>
             </div>
           </div>
