@@ -12,8 +12,8 @@ export function applyPalette(palette) {
   if (!PALETTES.includes(palette)) palette = 'default';
   setPalette(palette);
   document.documentElement.setAttribute('data-palette', palette);
-  // Neon завжди темний
-  if (palette === 'neon') {
+  // Neon і Midnight завжди темні
+  if (palette === 'neon' || palette === 'midnight') {
     document.documentElement.setAttribute('data-theme', 'dark');
   }
 }
@@ -21,7 +21,7 @@ export function applyPalette(palette) {
 export function initPalette() {
   const p = getPalette();
   document.documentElement.setAttribute('data-palette', p);
-  if (p === 'neon') {
+  if (p === 'neon' || p === 'midnight') {
     document.documentElement.setAttribute('data-theme', 'dark');
   }
 }
