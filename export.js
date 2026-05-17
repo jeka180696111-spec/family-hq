@@ -94,3 +94,79 @@ export async function exportToExcel() {
     showToast('Помилка експорту: ' + e.message, 'error');
   }
 }
+
+export async function exportBackupJSON() {
+  showToast('Готую резервну копію...');
+  try {
+    const [opsData, goalsData] = await Promise.all([
+      apiGet('operations', { limit: 9999 }),
+      apiGet('goals'),
+    ]);
+
+    const backup = {
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      familyId: state.familyId,
+      operations: opsData.operations || [],
+      goals: goalsData.goals || [],
+      wallets: JSON.parse(localStorage.getItem('budget_cards') || '{}'),
+      categories: {
+        expense: JSON.parse(localStorage.getItem('budget_exp_cats') || '[]'),
+        income:  JSON.parse(localStorage.getItem('budget_inc_cats') || '[]'),
+      },
+      limits: JSON.parse(localStorage.getItem('budget_cat_limits') || '{}'),
+      settings: {
+        period: localStorage.getItem('budget_dash_period'),
+        members: JSON.parse(localStorage.getItem('budget_members') || '[]'),
+      },
+    };
+
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `money-budget-backup-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    showToast(`Резервна копія збережена (${backup.operations.length} операцій)`, 'success');
+  } catch(e) {
+    showToast('Помилка: ' + e.message, 'error');
+  }
+}
+
+export function importBackupJSON() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json,application/json';
+  input.style.display = 'none';
+  document.body.appendChild(input);
+
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    document.body.removeChild(input);
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const backup = JSON.parse(text);
+
+      if (!backup.version || !backup.operations) {
+        showToast('Невірний формат файлу', 'error');
+        return;
+      }
+
+      // Restore localStorage settings (non-destructive for operations)
+      if (backup.wallets) localStorage.setItem('budget_cards', JSON.stringify(backup.wallets));
+      if (backup.categories?.expense?.length) localStorage.setItem('budget_exp_cats', JSON.stringify(backup.categories.expense));
+      if (backup.categories?.income?.length)  localStorage.setItem('budget_inc_cats',  JSON.stringify(backup.categories.income));
+      if (backup.limits) localStorage.setItem('budget_cat_limits', JSON.stringify(backup.limits));
+
+      showToast(`Налаштування відновлено з резервної копії від ${backup.exportedAt?.slice(0,10) || '?'}. Операції у Firestore збережено.`, 'success');
+    } catch(e) {
+      showToast('Помилка читання файлу: ' + e.message, 'error');
+    }
+  });
+
+  input.click();
+}

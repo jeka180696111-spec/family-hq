@@ -777,6 +777,7 @@ export async function loadFamilyData(familyId) {
   const memberNames = Array.isArray(data.members) ? data.members.map(m => m.name) : [];
 
   state.familyMembers = memberNames;
+  state.isPro = data.isPro === true;
   setFamilyMembers(memberNames);
 
   log('family data loaded:', familyId, 'members:', memberNames);

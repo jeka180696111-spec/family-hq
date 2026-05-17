@@ -26,7 +26,7 @@ import { openIconPicker } from './icon-picker.js';
 import { openBottomSheet, closeModal, confirmModal, promptModal } from './modals.js';
 import { signOut } from './auth.js';
 import { isLockEnabled, isBiometricAvailable, setupLock, disableLock } from './lock-screen.js';
-import { exportToExcel } from './export.js';
+import { exportToExcel, exportBackupJSON, importBackupJSON } from './export.js';
 
 // ── Sub-page state ───────────────────────────────────────────
 let settingsSubPage = null;
@@ -366,6 +366,16 @@ function renderMainMenu() {
           <div class="settings-menu-icon" style="background:#DCFCE7;color:#16A34A"><i class="ti ti-file-spreadsheet"></i></div>
           <div class="settings-menu-label">Експорт у Excel</div>
           <i class="ti ti-download settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" id="export-backup-btn">
+          <div class="settings-menu-icon" style="background:#EEF2FF;color:#4F46E5"><i class="ti ti-database-export"></i></div>
+          <div class="settings-menu-label">Резервна копія (JSON)</div>
+          <i class="ti ti-download settings-menu-arrow"></i>
+        </button>
+        <button class="settings-menu-item" id="import-backup-btn">
+          <div class="settings-menu-icon" style="background:#FFF7ED;color:#EA580C"><i class="ti ti-database-import"></i></div>
+          <div class="settings-menu-label">Відновити з копії</div>
+          <i class="ti ti-upload settings-menu-arrow"></i>
         </button>
       </div>
 
@@ -1225,6 +1235,8 @@ function bindSettingsHandlers(el) {
 
   // Export to Excel
   el.querySelector('#export-excel-btn')?.addEventListener('click', () => exportToExcel());
+  el.querySelector('#export-backup-btn')?.addEventListener('click', () => exportBackupJSON());
+  el.querySelector('#import-backup-btn')?.addEventListener('click', () => importBackupJSON());
 
   // Theme
   el.querySelectorAll('[data-theme]').forEach(b => {
