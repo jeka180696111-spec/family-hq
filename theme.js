@@ -73,11 +73,6 @@ export function applyTheme(theme) {
   updateThemeMeta(theme);
 }
 
-// Застосувати палітру кольорів
-export function applyPalette(palette) {
-  if (!palette) palette = 'default';
-  document.documentElement.setAttribute('data-palette', palette);
-}
 
 // Оновлюємо <meta name="theme-color">
 function updateThemeMeta(theme) {
