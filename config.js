@@ -103,7 +103,23 @@ export const DEFAULT_WALLET_TYPES = [
   { id: 'savings', name: 'Накопичення',  icon: 'ti-coins',           bg: '#FEF3E2', color: '#BA7517' },
 ];
 
-// Іконки для вибору (icon-picker)
+// Валюти (cc = код НБУ). UAH — базова. Решта тягнуться з NBU API.
+export const CURRENCIES = [
+  { code: 'UAH', sym: '₴',  name: 'Гривня' },
+  { code: 'USD', sym: '$',  name: 'Долар' },
+  { code: 'EUR', sym: '€',  name: 'Євро' },
+  { code: 'GBP', sym: '£',  name: 'Фунт' },
+  { code: 'PLN', sym: 'zł', name: 'Злотий' },
+  { code: 'CHF', sym: '₣',  name: 'Франк' },
+  { code: 'CAD', sym: 'C$', name: 'Канад. долар' },
+  { code: 'CZK', sym: 'Kč', name: 'Крона (CZK)' },
+  { code: 'JPY', sym: '¥',  name: 'Єна' },
+  { code: 'CNY', sym: '¥',  name: 'Юань' },
+  { code: 'TRY', sym: '₺',  name: 'Ліра' },
+];
+
+export const CURRENCY_SYMBOLS = Object.fromEntries(CURRENCIES.map(c => [c.code, c.sym]));
+export const FX_CURRENCIES = CURRENCIES.filter(c => c.code !== 'UAH').map(c => c.code);
 export const ICON_LIST = [
   'ti-cash','ti-credit-card','ti-credit-card-pay','ti-wallet','ti-coins','ti-currency-dollar',
   'ti-currency-euro','ti-currency-hryvnia','ti-shopping-cart','ti-shopping-bag','ti-basket',

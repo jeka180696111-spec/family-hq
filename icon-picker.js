@@ -2,8 +2,9 @@
 // ICON PICKER — універсальний редактор з вибором іконки, кольору і типу
 // ═══════════════════════════════════════════════════════════════
 
-import { ICON_LIST } from './config.js';
+import { ICON_LIST, CURRENCIES } from './config.js';
 import { esc, uid } from './utils.js';
+import { t } from './i18n.js';
 import { openBottomSheet, closeModal } from './modals.js';
 
 // Палітра кольорів (bg + color)
@@ -66,20 +67,13 @@ export function openIconPicker(opts) {
     <input id="${namId}" class="ip-input" type="text" value="${esc(selName)}" placeholder="${esc(opts.namePlaceholder || '')}">
 
     ${showCurrency ? `
-      <label class="ip-label">Валюта</label>
+      <label class="ip-label">${t('Валюта')}</label>
       <div class="ip-cur-row">
-        <button type="button" class="ip-cur-btn ${selCur === 'UAH' ? 'active' : ''}" data-cur="UAH">
-          <span class="ip-cur-sym">₴</span>
-          <span class="ip-cur-name">Гривня</span>
-        </button>
-        <button type="button" class="ip-cur-btn ${selCur === 'USD' ? 'active' : ''}" data-cur="USD">
-          <span class="ip-cur-sym">$</span>
-          <span class="ip-cur-name">Долар</span>
-        </button>
-        <button type="button" class="ip-cur-btn ${selCur === 'EUR' ? 'active' : ''}" data-cur="EUR">
-          <span class="ip-cur-sym">€</span>
-          <span class="ip-cur-name">Євро</span>
-        </button>
+        ${CURRENCIES.map(c => `
+        <button type="button" class="ip-cur-btn ${selCur === c.code ? 'active' : ''}" data-cur="${c.code}">
+          <span class="ip-cur-sym">${c.sym}</span>
+          <span class="ip-cur-name">${t(c.name)}</span>
+        </button>`).join('')}
       </div>
     ` : ''}
 

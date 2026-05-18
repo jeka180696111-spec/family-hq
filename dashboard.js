@@ -7,7 +7,7 @@ import { getCards, getProfiles, getWalletTypeById, getFamilyName, getVisibleWall
 import { apiGet } from './api.js';
 import { esc, fmtMoney, fmtMoneyShort, fmtMoneyWithUah, setText, fmtDate, log, showToast } from './utils.js';
 import { openOperationDialog } from './operations.js';
-import { t } from './i18n.js';
+import { t, currentLang } from './i18n.js';
 import { whoAmI } from './auth.js';
 // ── НОВІ ІМПОРТИ ────────────────────────────────────────────
 import { renderCreditCardsBlock, getCreditAlerts } from './credit-cards.js';
@@ -635,6 +635,8 @@ function renderDonutCard(byCat, total, periodLabel) {
 
 // ── FX Rate card ────────────────────────────────────────────
 function renderFxCard() {
+  // Курси НБУ актуальні лише для української аудиторії
+  if (currentLang() !== 'uk') return '';
   const fx = state.fx || {};
   const usd = fx.USD || {};
   const eur = fx.EUR || {};

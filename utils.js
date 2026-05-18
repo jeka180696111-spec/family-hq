@@ -17,7 +17,7 @@ export function esc(str) {
 export function fmtMoney(amount, currency) {
   if (amount === null || amount === undefined || isNaN(amount)) return '0 ₴';
   const num = Math.round(Math.abs(amount)).toLocaleString('uk-UA');
-  const sym = { UAH: '₴', USD: '$', EUR: '€' }[currency] || (currency || '₴');
+  const sym = { UAH: '₴', USD: '$', EUR: '€', GBP: '£', PLN: 'zł', CHF: '₣', CAD: 'C$', CZK: 'Kč', JPY: '¥', CNY: '¥', TRY: '₺' }[currency] || (currency || '₴');
   return currency === 'UAH' || !currency ? `${num} ${sym}` : `${sym}${num}`;
 }
 

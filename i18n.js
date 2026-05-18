@@ -91,6 +91,20 @@ const EN = {
   'Гаманці': 'Wallets',
   'Налаштувати': 'Configure',
   'Усі →': 'All →',
+
+  // ── Валюти ──
+  'Валюта': 'Currency',
+  'Гривня': 'Hryvnia',
+  'Долар': 'US Dollar',
+  'Євро': 'Euro',
+  'Фунт': 'Pound',
+  'Злотий': 'Zloty',
+  'Франк': 'Franc',
+  'Канад. долар': 'Canadian Dollar',
+  'Крона (CZK)': 'Koruna (CZK)',
+  'Єна': 'Yen',
+  'Юань': 'Yuan',
+  'Ліра': 'Lira',
 };
 
 export const dict = { en: EN };

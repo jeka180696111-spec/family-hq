@@ -5,6 +5,7 @@
 import { state, syncState, APP_CONFIG,
          getFamilyMembers, setFamilyMembers, FAMILY_MEMBERS,
          DEFAULT_EXP_CATS, DEFAULT_INC_CATS, DEFAULT_WALLET_TYPES, DEFAULT_CARDS,
+         FX_CURRENCIES,
 } from './config.js';
 import {
   getExpCats, getIncCats, getCards, getProfiles,
@@ -294,8 +295,9 @@ async function getFxRates() {
     const rates = await resp.json();
     const fx = {};
     rates.forEach(r => {
-      if (r.cc === 'USD') fx.USD = { buy: r.rate, sale: r.rate, mid: r.rate };
-      if (r.cc === 'EUR') fx.EUR = { buy: r.rate, sale: r.rate, mid: r.rate };
+      if (FX_CURRENCIES.includes(r.cc)) {
+        fx[r.cc] = { buy: r.rate, sale: r.rate, mid: r.rate };
+      }
     });
     state.fx = fx;
     // Зберігаємо в Firestore для кешування

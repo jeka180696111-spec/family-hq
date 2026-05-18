@@ -13,7 +13,7 @@ import {
   getViewAsMember, setViewAsMember,
 } from './storage.js';
 import { initTheme, toggleTheme } from './theme.js';
-import { initI18n, t } from './i18n.js';
+import { initI18n, t, currentLang } from './i18n.js';
 import { initAuth, signInWithGoogle, signOut, whoAmI } from './auth.js';
 import { checkAndLock, startActivityTracking } from './lock-screen.js';
 import { initFirestore, apiGet, syncSettingsToSheet, loadSettingsFromFirestore, loadFamilyData } from './api.js';
@@ -143,8 +143,10 @@ async function refreshFx() {
     state.fx = fx;
     // Показуємо курси в статус барі
     const fxEl = document.getElementById('fx-bar');
-    if (fxEl && fx.USD && fx.EUR) {
+    if (fxEl && fx.USD && fx.EUR && currentLang() === 'uk') {
       fxEl.textContent = `us ${fx.USD.mid?.toFixed(2) || '?'} ₴ · eu ${fx.EUR.mid?.toFixed(2) || '?'} ₴`;
+    } else if (fxEl) {
+      fxEl.textContent = '';
     }
   } catch (e) {
     log('fx error:', e.message);

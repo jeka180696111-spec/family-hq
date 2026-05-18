@@ -631,9 +631,8 @@ function renderSubPageBody(key) {
           <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--c-text-3);margin-bottom:12px;padding-left:2px">${t('Мова')}</div>
           <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px" id="lang-grid">
             ${LANGUAGES.map(l => `
-              <button data-lang-id="${l.code}" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:14px 6px;border-radius:14px;border:2.5px solid ${l.code === curLang ? 'var(--c-accent)' : 'transparent'};background:${l.code === curLang ? 'var(--c-accent-soft)' : 'var(--c-bg-3)'};cursor:pointer;transition:all .15s">
-                <span style="font-size:22px">${l.flag}</span>
-                <span style="font-size:13px;font-weight:600;color:var(--c-text)">${l.label}</span>
+              <button data-lang-id="${l.code}" style="display:flex;align-items:center;justify-content:center;height:52px;border-radius:14px;border:2.5px solid ${l.code === curLang ? 'var(--c-accent)' : 'transparent'};background:${l.code === curLang ? 'var(--c-accent-soft)' : 'var(--c-bg-3)'};cursor:pointer;transition:all .15s;font-size:14px;font-weight:600;color:var(--c-text)">
+                ${l.label}
               </button>
             `).join('')}
           </div>
