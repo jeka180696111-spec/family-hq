@@ -13,6 +13,7 @@ import {
   getViewAsMember, setViewAsMember,
 } from './storage.js';
 import { initTheme, toggleTheme } from './theme.js';
+import { initI18n, t } from './i18n.js';
 import { initAuth, signInWithGoogle, signOut, whoAmI } from './auth.js';
 import { checkAndLock, startActivityTracking } from './lock-screen.js';
 import { initFirestore, apiGet, syncSettingsToSheet, loadSettingsFromFirestore, loadFamilyData } from './api.js';
@@ -539,6 +540,7 @@ async function bootApp() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  initI18n();
   initTheme();
 
   // Ініціалізуємо Firebase

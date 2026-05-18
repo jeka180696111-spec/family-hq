@@ -27,6 +27,7 @@ import { openBottomSheet, closeModal, confirmModal, promptModal } from './modals
 import { signOut } from './auth.js';
 import { isLockEnabled, isBiometricAvailable, setupLock, disableLock } from './lock-screen.js';
 import { exportToExcel, exportBackupJSON, importBackupJSON } from './export.js';
+import { LANGUAGES, getLang, setLang, t } from './i18n.js';
 import { renderPushSettingsPage, bindPushSettingsHandlers } from './push-notifications.js';
 
 // ── Sub-page state ───────────────────────────────────────────
@@ -602,6 +603,7 @@ function renderSubPageBody(key) {
 
     case 'appearance': {
       const curPalette = getPalette();
+      const curLang = getLang();
       const PALETTES_LIST = [
         { id: 'default',  label: 'Зелений',    bg: 'linear-gradient(135deg,#2E7D5F,#4CAF50)', emoji: '🌿' },
         { id: 'ocean',    label: 'Океан',       bg: 'linear-gradient(135deg,#1A6FBF,#4A9FEF)', emoji: '🌊' },
@@ -626,7 +628,19 @@ function renderSubPageBody(key) {
         </div>
 
         <div class="settings-card" style="padding:16px">
-          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--c-text-3);margin-bottom:12px;padding-left:2px">Стиль теми</div>
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--c-text-3);margin-bottom:12px;padding-left:2px">${t('Мова')}</div>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px" id="lang-grid">
+            ${LANGUAGES.map(l => `
+              <button data-lang-id="${l.code}" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:14px 6px;border-radius:14px;border:2.5px solid ${l.code === curLang ? 'var(--c-accent)' : 'transparent'};background:${l.code === curLang ? 'var(--c-accent-soft)' : 'var(--c-bg-3)'};cursor:pointer;transition:all .15s">
+                <span style="font-size:22px">${l.flag}</span>
+                <span style="font-size:13px;font-weight:600;color:var(--c-text)">${l.label}</span>
+              </button>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="settings-card" style="padding:16px">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--c-text-3);margin-bottom:12px;padding-left:2px">${t('Стиль теми')}</div>
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px" id="palette-grid">
             ${PALETTES_LIST.map(p => `
               <button data-palette-id="${p.id}" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 6px;border-radius:14px;border:2.5px solid ${p.id === curPalette ? 'var(--c-accent)' : 'transparent'};background:${p.id === curPalette ? 'var(--c-accent-soft)' : 'var(--c-bg-3)'};cursor:pointer;transition:all .15s">
@@ -1262,6 +1276,13 @@ function bindSettingsHandlers(el) {
       setPalette(b.dataset.paletteId);
       applyPalette(b.dataset.paletteId);
       renderSettingsPage();
+    });
+  });
+
+  // Language
+  el.querySelectorAll('[data-lang-id]').forEach(b => {
+    b.addEventListener('click', () => {
+      if (b.dataset.langId !== getLang()) setLang(b.dataset.langId);
     });
   });
 
