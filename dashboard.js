@@ -7,6 +7,7 @@ import { getCards, getProfiles, getWalletTypeById, getFamilyName, getVisibleWall
 import { apiGet } from './api.js';
 import { esc, fmtMoney, fmtMoneyShort, fmtMoneyWithUah, setText, fmtDate, log, showToast } from './utils.js';
 import { openOperationDialog } from './operations.js';
+import { t } from './i18n.js';
 import { whoAmI } from './auth.js';
 // ── НОВІ ІМПОРТИ ────────────────────────────────────────────
 import { renderCreditCardsBlock, getCreditAlerts } from './credit-cards.js';
@@ -65,7 +66,7 @@ export function renderDashboard() {
   const viewAs = getViewAsMember();
 
   const hour = new Date().getHours();
-  const greet = hour < 6 ? 'Доброї ночі' : hour < 12 ? 'Доброго ранку' : hour < 18 ? 'Доброго дня' : 'Доброго вечора';
+  const greet = hour < 6 ? t('Доброї ночі') : hour < 12 ? t('Доброго ранку') : hour < 18 ? t('Доброго дня') : t('Доброго вечора');
   const me = whoAmI() || FAMILY_MEMBERS[0];
   const myName = profiles[me]?.name || me;
   const isPro = state.isPro === true;
@@ -101,21 +102,21 @@ export function renderDashboard() {
       <!-- HERO -->
       <div class="dash-hero-v2">
         <div class="dash-hero-left">
-          <div class="dash-greet">${greet}, ${esc(myName)}! 👋${isPro ? '<span class="pro-badge">PRO</span>' : ''}${viewAs ? ` <span class="dash-viewas-tag">дивлюсь як ${esc(profiles[viewAs]?.name || viewAs)}</span>` : ''}</div>
-          <div class="dash-hero-label">Можна витратити</div>
+          <div class="dash-greet">${greet}, ${esc(myName)}! 👋${isPro ? '<span class="pro-badge">PRO</span>' : ''}${viewAs ? ` <span class="dash-viewas-tag">${t('дивлюсь як')} ${esc(profiles[viewAs]?.name || viewAs)}</span>` : ''}</div>
+          <div class="dash-hero-label">${t('Можна витратити')}</div>
           <div class="dash-hero-balance" data-balance-target="${freeBalance + creditAvail}">
             ${fmtMoney(freeBalance + creditAvail, 'UAH')}
           </div>
           <div class="dash-hero-meta">
-            ${savingsBalance > 0 ? `<span class="dash-hero-pill pos"><i class="ti ti-coins"></i> Накопичення: ${fmtMoney(savingsBalance, 'UAH')}</span>` : ''}
+            ${savingsBalance > 0 ? `<span class="dash-hero-pill pos"><i class="ti ti-coins"></i> ${t('Накопичення')}: ${fmtMoney(savingsBalance, 'UAH')}</span>` : ''}
             <span class="dash-hero-pill">
-              <i class="ti ti-cash"></i> Готівка: ${fmtMoney(freeBalance, 'UAH')}
+              <i class="ti ti-cash"></i> ${t('Готівка')}: ${fmtMoney(freeBalance, 'UAH')}
             </span>
-            ${creditAvail > 0 ? `<span class="dash-hero-pill"><i class="ti ti-credit-card"></i> Кредит вільно: ${fmtMoney(creditAvail, 'UAH')}</span>` : ''}
-            ${recurringTotal > 0 ? `<span class="dash-hero-pill warn" data-go="recurring"><i class="ti ti-calendar-repeat"></i> Платежі: ${fmtMoney(recurringTotal, 'UAH')}</span>` : ''}
+            ${creditAvail > 0 ? `<span class="dash-hero-pill"><i class="ti ti-credit-card"></i> ${t('Кредит вільно')}: ${fmtMoney(creditAvail, 'UAH')}</span>` : ''}
+            ${recurringTotal > 0 ? `<span class="dash-hero-pill warn" data-go="recurring"><i class="ti ti-calendar-repeat"></i> ${t('Платежі')}: ${fmtMoney(recurringTotal, 'UAH')}</span>` : ''}
             <span class="dash-hero-pill ${savRate >= 0 ? 'pos' : 'neg'}">
               <i class="ti ${savRate >= 0 ? 'ti-trending-up' : 'ti-trending-down'}"></i>
-              ${savRate}% накопичено
+              ${savRate}% ${t('накопичено')}
             </span>
             <span class="dash-hero-month">${esc(periodLabel)}</span>
           </div>
@@ -127,11 +128,11 @@ export function renderDashboard() {
 
       <!-- Швидкі дії -->
       <div class="dash-quick-actions">
-        <button class="quick-action" data-quick="income"><div class="qa-icon"><i class="ti ti-arrow-down-circle"></i></div><span>Дохід</span></button>
-        <button class="quick-action" data-quick="expense"><div class="qa-icon"><i class="ti ti-arrow-up-circle"></i></div><span>Витрата</span></button>
-        <button class="quick-action" data-quick="transfer"><div class="qa-icon"><i class="ti ti-arrows-exchange"></i></div><span>Переказ</span></button>
-        <button class="quick-action" data-quick="exchange"><div class="qa-icon"><i class="ti ti-currency-dollar"></i></div><span>Обмін</span></button>
-        <button class="quick-action" data-quick="scanner"><div class="qa-icon"><i class="ti ti-scan"></i></div><span>Сканер</span></button>
+        <button class="quick-action" data-quick="income"><div class="qa-icon"><i class="ti ti-arrow-down-circle"></i></div><span>${t('Дохід')}</span></button>
+        <button class="quick-action" data-quick="expense"><div class="qa-icon"><i class="ti ti-arrow-up-circle"></i></div><span>${t('Витрата')}</span></button>
+        <button class="quick-action" data-quick="transfer"><div class="qa-icon"><i class="ti ti-arrows-exchange"></i></div><span>${t('Переказ')}</span></button>
+        <button class="quick-action" data-quick="exchange"><div class="qa-icon"><i class="ti ti-currency-dollar"></i></div><span>${t('Обмін')}</span></button>
+        <button class="quick-action" data-quick="scanner"><div class="qa-icon"><i class="ti ti-scan"></i></div><span>${t('Сканер')}</span></button>
       </div>
 
       <!-- Грід -->
@@ -215,14 +216,14 @@ function renderSpendPerDayCard(freeBalance, viewAs, recurringTotal) {
   return `
     <div class="spd-card">
       <div class="spd-left">
-        <div class="spd-label">Можна витрачати на день</div>
+        <div class="spd-label">${t('Можна витрачати на день')}</div>
         <div class="spd-amount ${good ? 'good' : warn ? 'warn' : 'bad'}">${fmtMoney(perDay, 'UAH')}</div>
-        <div class="spd-meta">Залишилось ${daysLeft} ${daysLeft === 1 ? 'день' : daysLeft < 5 ? 'дні' : 'днів'} у місяці</div>
+        <div class="spd-meta">${t('Залишилось')} ${daysLeft} ${daysLeft === 1 ? t('день') : daysLeft < 5 ? t('дні') : t('днів')} ${t('у місяці')}</div>
       </div>
       <div class="spd-right">
-        ${upcoming > 0 ? `<div class="spd-item"><i class="ti ti-calendar-repeat"></i><span>Платежі: −${fmtMoney(upcoming, 'UAH')}</span></div>` : ''}
-        ${goalsReserve > 0 ? `<div class="spd-item"><i class="ti ti-target"></i><span>Цілі: −${fmtMoney(goalsReserve, 'UAH')}</span></div>` : ''}
-        <div class="spd-item"><i class="ti ti-calendar-month"></i><span>Баланс: ${fmtMoney(freeBalance, 'UAH')}</span></div>
+        ${upcoming > 0 ? `<div class="spd-item"><i class="ti ti-calendar-repeat"></i><span>${t('Платежі')}: −${fmtMoney(upcoming, 'UAH')}</span></div>` : ''}
+        ${goalsReserve > 0 ? `<div class="spd-item"><i class="ti ti-target"></i><span>${t('Цілі')}: −${fmtMoney(goalsReserve, 'UAH')}</span></div>` : ''}
+        <div class="spd-item"><i class="ti ti-calendar-month"></i><span>${t('Баланс')}: ${fmtMoney(freeBalance, 'UAH')}</span></div>
       </div>
     </div>
   `;
@@ -286,7 +287,7 @@ function calcCreditAvailable(viewAs) {
 // ── Sparkline ───────────────────────────────────────────────
 function renderSparkline(byDay, color) {
   const days = Object.keys(byDay).map(Number).sort((a, b) => a - b);
-  if (!days.length) return `<div class="sparkline-empty">Немає даних</div>`;
+  if (!days.length) return `<div class="sparkline-empty">${t("Немає даних")}</div>`;
   const w = 280, h = 60;
   const max = Math.max(...days.map(d => byDay[d]), 1);
   const minDay = days[0], maxDay = days[days.length - 1];
@@ -321,7 +322,7 @@ function renderSparkline(byDay, color) {
 }
 
 // ── Drag handle HTML ───────────────────────────────────────
-const DRAG_HANDLE = '<span class="dash-drag-handle" title="Перетягнути"><i class="ti ti-grip-vertical"></i></span>';
+const DRAG_HANDLE = '<span class="dash-drag-handle"><i class="ti ti-grip-vertical"></i></span>';
 
 // ── Build sortable grid ────────────────────────────────────
 function buildDashGrid(w, periodLabel, totalExpense, totalIncome, byCategoryView, byDayView, byDayIncomeView, d, viewAs, profiles) {
@@ -331,7 +332,7 @@ function buildDashGrid(w, periodLabel, totalExpense, totalIncome, byCategoryView
     widgets.expenses = `
       <div class="dash-card dash-stat-card" data-widget="expenses" draggable="true">
         <div class="dash-card-head">
-          <span class="dash-card-title">Витрати · ${esc(periodLabel)}</span>
+          <span class="dash-card-title">${t("Витрати")} · ${esc(periodLabel)}</span>
           <span class="dash-card-amount c-red">${fmtMoney(totalExpense, 'UAH')}</span>
           ${DRAG_HANDLE}
         </div>
@@ -340,7 +341,7 @@ function buildDashGrid(w, periodLabel, totalExpense, totalIncome, byCategoryView
     widgets.income = `
       <div class="dash-card dash-stat-card" data-widget="income" draggable="true">
         <div class="dash-card-head">
-          <span class="dash-card-title">Доходи · ${esc(periodLabel)}</span>
+          <span class="dash-card-title">${t("Доходи")} · ${esc(periodLabel)}</span>
           <span class="dash-card-amount c-green">${fmtMoney(totalIncome, 'UAH')}</span>
           ${DRAG_HANDLE}
         </div>
@@ -365,10 +366,10 @@ function buildDashGrid(w, periodLabel, totalExpense, totalIncome, byCategoryView
       <div class="dash-card dash-wallets-card" data-widget="wallets" draggable="true">
         <div class="dash-card-head">
           ${DRAG_HANDLE}
-          <span class="dash-card-title">Гаманці${viewAs ? ' · ' + esc(profiles[viewAs]?.name || viewAs) : ''}</span>
+          <span class="dash-card-title">${t("Гаманці")}${viewAs ? ' · ' + esc(profiles[viewAs]?.name || viewAs) : ''}</span>
           <div class="dash-card-actions">
-            <button class="dash-card-icon-btn" data-config="wallets" title="Налаштувати"><i class="ti ti-adjustments"></i></button>
-            <a href="#" class="dash-card-action" data-go="wallets">Усі →</a>
+            <button class="dash-card-icon-btn" data-config="wallets" title="${t("Налаштувати")}"><i class="ti ti-adjustments"></i></button>
+            <a href="#" class="dash-card-action" data-go="wallets">${t("Усі →")}</a>
           </div>
         </div>
         ${renderWalletsBlock(viewAs)}
