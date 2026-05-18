@@ -60,7 +60,7 @@ self.addEventListener('fetch', e => {
   );
 });
 
-// ── Background Sync ─────────────────────────────────────────
+// ── Background Sync ─────────────────────────────────────────────
 self.addEventListener('sync', e => {
   if (e.tag === 'sync-operations') {
     e.waitUntil(
@@ -71,7 +71,7 @@ self.addEventListener('sync', e => {
   }
 });
 
-// ── Push notifications ───────────────────────────────────────
+// ── Push notifications ───────────────────────────────────────────
 self.addEventListener('push', e => {
   let data = { title: 'Money Budget', body: 'Нове сповіщення', icon: '/icon-192.png', tag: 'default' };
   try { if (e.data) Object.assign(data, e.data.json()); } catch {}
