@@ -1338,12 +1338,17 @@ function bindSettingsHandlers(el) {
   });
 
   // Subscription plan cards
-  el.querySelectorAll('.sub-plan-card').forEach(card => {
-    card.addEventListener('click', () => {
-      el.querySelectorAll('.sub-plan-card').forEach(c => c.classList.remove('selected'));
-      card.classList.add('selected');
+  const planCards = el.querySelectorAll('.sub-plan-card');
+  if (planCards.length) {
+    const defaultCard = el.querySelector('.sub-plan-card.sub-plan-featured') || planCards[0];
+    defaultCard.classList.add('selected');
+    planCards.forEach(card => {
+      card.addEventListener('click', () => {
+        planCards.forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+      });
     });
-  });
+  }
 
   // Subscribe button
   el.querySelector('#sub-page-subscribe-btn')?.addEventListener('click', () => {
