@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { FAMILY_MEMBERS, state } from './config.js';
-import { getCards, getProfiles, getWalletTypeById, getFamilyName, getVisibleWallets, setVisibleWallets, getViewAsMember, getCategoryLimits, getSpendingPlan, getDashWidgets } from './storage.js';
+import { getCards, getProfiles, getWalletTypeById, getFamilyName, getVisibleWallets, setVisibleWallets, getViewAsMember, getCategoryLimits, getSpendingPlan, getDashWidgets, getDashCardOrder, setDashCardOrder } from './storage.js';
 import { apiGet } from './api.js';
 import { esc, fmtMoney, fmtMoneyShort, fmtMoneyWithUah, setText, fmtDate, log, showToast } from './utils.js';
 import { openOperationDialog } from './operations.js';
@@ -135,55 +135,14 @@ export function renderDashboard() {
       </div>
 
       <!-- Грід -->
-      <div class="dash-grid">
-        <div class="dash-col">
-          ${w.chart ? `
-          <div class="dash-card dash-stat-card">
-            <div class="dash-card-head">
-              <span class="dash-card-title">Витрати · ${esc(periodLabel)}</span>
-              <span class="dash-card-amount c-red">${fmtMoney(totalExpense, 'UAH')}</span>
-            </div>
-            ${renderSparkline(byDayView, 'red')}
-          </div>
-          <div class="dash-card dash-stat-card">
-            <div class="dash-card-head">
-              <span class="dash-card-title">Доходи · ${esc(periodLabel)}</span>
-              <span class="dash-card-amount c-green">${fmtMoney(totalIncome, 'UAH')}</span>
-            </div>
-            ${renderSparkline(byDayIncomeView, 'green')}
-          </div>
-          ` : ''}
-
-          ${w.donut ? renderDonutCard(byCategoryView, totalExpense, periodLabel) : ''}
-
-          ${renderFxCard()}
-          ${renderForecastCard(totalExpense, totalIncome)}
-          ${w.limits ? renderCategoriesBlock(d, byCategoryView, totalExpense) : ''}
-        </div>
-
-        <div class="dash-col">
-          ${w.wallets ? `
-          <div class="dash-card dash-wallets-card">
-            <div class="dash-card-head">
-              <span class="dash-card-title">Гаманці${viewAs ? ' · ' + esc(profiles[viewAs]?.name || viewAs) : ''}</span>
-              <div class="dash-card-actions">
-                <button class="dash-card-icon-btn" data-config="wallets" title="Налаштувати"><i class="ti ti-adjustments"></i></button>
-                <a href="#" class="dash-card-action" data-go="wallets">Усі →</a>
-              </div>
-            </div>
-            ${renderWalletsBlock(viewAs)}
-          </div>
-          ` : ''}
-
-          ${w.credit ? renderCreditCardsBlock(viewAs) : ''}
-          ${w.recurring ? renderUpcomingPaymentsBlock(viewAs) : ''}
-          ${w.recent ? renderRecentBlock(d.recent || [], viewAs) : ''}
-        </div>
+      <div class="dash-grid" id="dash-sortable-grid">
+        ${buildDashGrid(w, periodLabel, totalExpense, totalIncome, byCategoryView, byDayView, byDayIncomeView, d, viewAs, profiles)}
       </div>
     </div>
   `;
 
   bindHandlers(el);
+  initDashSortable(el);
 
   // Анімація балансу — лічильник від 0 до реального значення
   requestAnimationFrame(() => {
@@ -359,6 +318,163 @@ function renderSparkline(byDay, color) {
       </svg>
     </div>
   `;
+}
+
+// ── Drag handle HTML ───────────────────────────────────────
+const DRAG_HANDLE = '<span class="dash-drag-handle" title="Перетягнути"><i class="ti ti-grip-vertical"></i></span>';
+
+// ── Build sortable grid ────────────────────────────────────
+function buildDashGrid(w, periodLabel, totalExpense, totalIncome, byCategoryView, byDayView, byDayIncomeView, d, viewAs, profiles) {
+  const widgets = {};
+
+  if (w.chart) {
+    widgets.expenses = `
+      <div class="dash-card dash-stat-card" data-widget="expenses" draggable="true">
+        <div class="dash-card-head">
+          <span class="dash-card-title">Витрати · ${esc(periodLabel)}</span>
+          <span class="dash-card-amount c-red">${fmtMoney(totalExpense, 'UAH')}</span>
+          ${DRAG_HANDLE}
+        </div>
+        ${renderSparkline(byDayView, 'red')}
+      </div>`;
+    widgets.income = `
+      <div class="dash-card dash-stat-card" data-widget="income" draggable="true">
+        <div class="dash-card-head">
+          <span class="dash-card-title">Доходи · ${esc(periodLabel)}</span>
+          <span class="dash-card-amount c-green">${fmtMoney(totalIncome, 'UAH')}</span>
+          ${DRAG_HANDLE}
+        </div>
+        ${renderSparkline(byDayIncomeView, 'green')}
+      </div>`;
+  }
+
+  const donutHtml = w.donut ? renderDonutCard(byCategoryView, totalExpense, periodLabel) : '';
+  if (donutHtml) widgets.donut = donutHtml.replace(/^<div /, '<div data-widget="donut" draggable="true" ').replace(/<div class="dash-card-head">/, `<div class="dash-card-head">${DRAG_HANDLE}`);
+
+  const fxHtml = renderFxCard();
+  if (fxHtml) widgets.fx = fxHtml.replace(/^<div /, '<div data-widget="fx" draggable="true" ').replace(/<div class="dash-card-head">/, `<div class="dash-card-head">${DRAG_HANDLE}`);
+
+  const forecastHtml = renderForecastCard(totalExpense, totalIncome);
+  if (forecastHtml) widgets.forecast = forecastHtml.replace(/^<div /, '<div data-widget="forecast" draggable="true" ').replace(/<div class="dash-card-head">/, `<div class="dash-card-head">${DRAG_HANDLE}`);
+
+  const limitsHtml = w.limits ? renderCategoriesBlock(d, byCategoryView, totalExpense) : '';
+  if (limitsHtml) widgets.limits = limitsHtml.replace(/^<div /, '<div data-widget="limits" draggable="true" ').replace(/<div class="dash-card-head">/, `<div class="dash-card-head">${DRAG_HANDLE}`);
+
+  if (w.wallets) {
+    widgets.wallets = `
+      <div class="dash-card dash-wallets-card" data-widget="wallets" draggable="true">
+        <div class="dash-card-head">
+          ${DRAG_HANDLE}
+          <span class="dash-card-title">Гаманці${viewAs ? ' · ' + esc(profiles[viewAs]?.name || viewAs) : ''}</span>
+          <div class="dash-card-actions">
+            <button class="dash-card-icon-btn" data-config="wallets" title="Налаштувати"><i class="ti ti-adjustments"></i></button>
+            <a href="#" class="dash-card-action" data-go="wallets">Усі →</a>
+          </div>
+        </div>
+        ${renderWalletsBlock(viewAs)}
+      </div>`;
+  }
+
+  const creditHtml = w.credit ? renderCreditCardsBlock(viewAs) : '';
+  if (creditHtml) widgets.credit = creditHtml.replace(/^<div /, '<div data-widget="credit" draggable="true" ').replace(/<div class="dash-card-head">/, `<div class="dash-card-head">${DRAG_HANDLE}`);
+
+  const recurringHtml = w.recurring ? renderUpcomingPaymentsBlock(viewAs) : '';
+  if (recurringHtml) widgets.recurring = recurringHtml.replace(/^<div /, '<div data-widget="recurring" draggable="true" ').replace(/<div class="dash-card-head">/, `<div class="dash-card-head">${DRAG_HANDLE}`);
+
+  const recentHtml = w.recent ? renderRecentBlock(d.recent || [], viewAs) : '';
+  if (recentHtml) widgets.recent = recentHtml.replace(/^<div /, '<div data-widget="recent" draggable="true" ').replace(/<div class="dash-card-head">/, `<div class="dash-card-head">${DRAG_HANDLE}`);
+
+  const order = getDashCardOrder();
+  const allIds = ['expenses','income','donut','fx','forecast','limits','wallets','credit','recurring','recent'];
+  const sortedIds = [...order, ...allIds.filter(id => !order.includes(id))];
+  return sortedIds.map(id => widgets[id] || '').join('');
+}
+
+// ── Drag-and-drop сортування ───────────────────────────────
+export function initDashSortable(el) {
+  const grid = el.querySelector('#dash-sortable-grid');
+  if (!grid) return;
+
+  let dragSrc = null;
+
+  function cards() { return [...grid.querySelectorAll('[data-widget]')]; }
+  function saveOrder() { setDashCardOrder(cards().map(c => c.dataset.widget)); }
+  function getCard(target) { return target?.closest('[data-widget]'); }
+  function swap(src, tgt) {
+    if (!src || !tgt || src === tgt) return;
+    const all = cards();
+    const si = all.indexOf(src), ti = all.indexOf(tgt);
+    if (si < ti) grid.insertBefore(src, tgt.nextSibling);
+    else grid.insertBefore(src, tgt);
+  }
+
+  // Desktop HTML5 drag
+  grid.addEventListener('dragstart', e => {
+    const c = getCard(e.target);
+    if (!c) return;
+    // Only allow drag from handle
+    if (!e.target.closest('.dash-drag-handle')) { e.preventDefault(); return; }
+    dragSrc = c;
+    c.classList.add('dash-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  grid.addEventListener('dragover', e => {
+    e.preventDefault();
+    const c = getCard(e.target);
+    if (c && dragSrc) swap(dragSrc, c);
+  });
+  grid.addEventListener('dragend', () => {
+    dragSrc?.classList.remove('dash-dragging');
+    dragSrc = null;
+    saveOrder();
+  });
+
+  // Mobile touch drag
+  let touchCard = null, holdTimer = null, touchActive = false;
+  let startX = 0, startY = 0;
+
+  grid.addEventListener('touchstart', e => {
+    const handle = e.target.closest('.dash-drag-handle');
+    const card = getCard(e.target);
+    if (!card) return;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    if (handle) {
+      touchCard = card;
+      touchActive = true;
+      card.classList.add('dash-dragging');
+      navigator.vibrate?.(40);
+    } else {
+      holdTimer = setTimeout(() => {
+        touchCard = card;
+        touchActive = true;
+        card.classList.add('dash-dragging');
+        navigator.vibrate?.(40);
+      }, 500);
+    }
+  }, { passive: true });
+
+  grid.addEventListener('touchmove', e => {
+    if (!touchActive) {
+      if (Math.abs(e.touches[0].clientX - startX) > 8 || Math.abs(e.touches[0].clientY - startY) > 8) {
+        clearTimeout(holdTimer); holdTimer = null;
+      }
+      return;
+    }
+    e.preventDefault();
+    const el2 = document.elementFromPoint(e.touches[0].clientX, e.touches[0].clientY);
+    const tgt = getCard(el2);
+    if (tgt && touchCard) swap(touchCard, tgt);
+  }, { passive: false });
+
+  grid.addEventListener('touchend', () => {
+    clearTimeout(holdTimer); holdTimer = null;
+    if (!touchActive) return;
+    touchCard?.classList.remove('dash-dragging');
+    touchCard = null;
+    touchActive = false;
+    saveOrder();
+  });
 }
 
 // ── Блок гаманців ──────────────────────────────────────────

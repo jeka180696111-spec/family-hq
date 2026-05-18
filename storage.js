@@ -194,6 +194,17 @@ export function setDashWidgets(w) {
   localStorage.setItem('budget_dash_widgets', JSON.stringify(w));
 }
 
+const DEFAULT_CARD_ORDER = ['expenses','income','donut','fx','forecast','limits','wallets','credit','recurring','recent'];
+export function getDashCardOrder() {
+  try {
+    const s = localStorage.getItem('budget_dash_card_order');
+    return s ? JSON.parse(s) : [...DEFAULT_CARD_ORDER];
+  } catch { return [...DEFAULT_CARD_ORDER]; }
+}
+export function setDashCardOrder(order) {
+  localStorage.setItem('budget_dash_card_order', JSON.stringify(order));
+}
+
 // ── Ім'я користувача та аватар ──────────────────────────────
 export function getUsername() {
   return localStorage.getItem(APP_CONFIG.USERNAME_KEY) || '';

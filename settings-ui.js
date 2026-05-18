@@ -1351,11 +1351,12 @@ function bindSettingsHandlers(el) {
   }
 
   // Subscribe button
+  const getSelectedPlan = () => (el.querySelector('.sub-plan-card.selected')?.dataset.plan) || 'month';
   el.querySelector('#sub-page-subscribe-btn')?.addEventListener('click', () => {
-    import('./paywall.js').then(m => m.showPaywall());
+    import('./paywall.js').then(m => m.showPaywall(getSelectedPlan()));
   });
   el.querySelector('#sub-page-trial-btn')?.addEventListener('click', () => {
-    import('./paywall.js').then(m => m.showPaywall());
+    import('./paywall.js').then(m => m.showPaywall(getSelectedPlan()));
   });
 
   // Family name

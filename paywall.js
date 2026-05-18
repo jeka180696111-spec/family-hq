@@ -13,7 +13,15 @@ const FEATURES = [
   { icon: 'ti-target',         label: 'Цілі та резерв' },
 ];
 
-export function showPaywall() {
+const PLANS = {
+  week:  { price: '$1.99', period: '/ 7 днів' },
+  month: { price: '$4.99', period: '/ місяць' },
+  year:  { price: '$49.99', period: '/ рік' },
+};
+
+export function showPaywall(plan = 'month') {
+  const { price, period } = PLANS[plan] || PLANS.month;
+
   const featuresHtml = FEATURES.map(f => `
     <div class="pw-feature-row">
       <div class="pw-feature-check">
@@ -39,8 +47,8 @@ export function showPaywall() {
 
     <div class="pw-actions">
       <button class="pw-btn-primary" id="pw-subscribe-btn">
-        <span class="pw-price">$4.99</span>
-        <span class="pw-period">/ місяць</span>
+        <span class="pw-price">${price}</span>
+        <span class="pw-period">${period}</span>
       </button>
       <button class="pw-btn-trial" id="pw-trial-btn">
         Спробувати 7 днів безкоштовно
