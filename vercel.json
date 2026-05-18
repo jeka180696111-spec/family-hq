@@ -4,6 +4,7 @@
   ],
   "crons": [
     { "path": "/api/telegram-remind",  "schedule": "0 6 * * *"  },
-    { "path": "/api/telegram-summary", "schedule": "0 19 * * *" }
+    { "path": "/api/telegram-summary", "schedule": "0 19 * * *" },
+    { "path": "/api/cron-push",        "schedule": "0 * * * *"  }
   ]
 }

@@ -60,6 +60,17 @@ self.addEventListener('fetch', e => {
   );
 });
 
+// ── Background Sync ─────────────────────────────────────────
+self.addEventListener('sync', e => {
+  if (e.tag === 'sync-operations') {
+    e.waitUntil(
+      self.clients.matchAll().then(clients =>
+        clients.forEach(c => c.postMessage({ type: 'FLUSH_QUEUE' }))
+      )
+    );
+  }
+});
+
 // ── Push notifications ───────────────────────────────────────
 self.addEventListener('push', e => {
   let data = { title: 'Money Budget', body: 'Нове сповіщення', icon: '/icon-192.png', tag: 'default' };

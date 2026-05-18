@@ -8,6 +8,7 @@ import { apiPost } from './api.js';
 import { esc, fmtMoney, showToast, uid } from './utils.js';
 import { openBottomSheet, closeModal } from './modals.js';
 import { whoAmI } from './auth.js';
+import { queueOperation } from './offline-queue.js';
 
 export function openOperationDialog(opts = {}) {
   let curType = opts.type || 'Витрата';
@@ -401,7 +402,60 @@ export function openOperationDialog(opts = {}) {
         import('./operations-list.js').then(m => m.loadOperations());
         if (window.refreshDashboard) window.refreshDashboard();
       } catch (e) {
-        showToast('Помилка: ' + e.message, 'error');
+        const isNetworkError = !navigator.onLine
+          || e.message === 'Failed to fetch'
+          || e.message?.includes('network')
+          || e.message?.includes('NetworkError');
+
+        if (isNetworkError) {
+          try {
+            let opBody;
+            if (curType === 'Переказ') {
+              const amt  = parseFloat(wrap.querySelector('#' + amtId)?.value || 0);
+              const desc = wrap.querySelector('#' + descId)?.value?.trim() || '';
+              const dt   = wrap.querySelector('#' + dateId)?.value;
+              const cur  = curCur;
+              const rate = parseFloat(wrap.querySelector('#' + rateId)?.value || 0);
+              const amountUah = cur !== 'UAH' && rate > 0 ? Math.round(amt * rate) : undefined;
+              opBody = {
+                action: 'addTransfer',
+                fromWho: curMember, fromCard: curCard,
+                toWho: curToMember, toCard: curToCard,
+                amount: amt, currency: cur,
+                ...(amountUah !== undefined ? { amountUah } : {}),
+                desc,
+              };
+            } else {
+              const amt  = parseFloat(wrap.querySelector('#' + amtId)?.value || 0);
+              const desc = wrap.querySelector('#' + descId)?.value?.trim() || '';
+              const dt   = wrap.querySelector('#' + dateId)?.value;
+              const cur  = curCur;
+              const rate = parseFloat(wrap.querySelector('#' + rateId)?.value || 0);
+              const amountUah = cur !== 'UAH' && rate > 0 ? Math.round(amt * rate) : undefined;
+              opBody = {
+                action: isEdit ? 'updateOperation' : 'addOperation',
+                type: curType, amount: amt, currency: cur,
+                ...(amountUah !== undefined ? { amountUah } : {}),
+                category: curCat, desc,
+                date: dt ? new Date(dt).toISOString() : new Date().toISOString(),
+                who: curMember, card: curCard,
+              };
+              if (isEdit) opBody.row = editing.row || editing.id;
+            }
+            await queueOperation(opBody);
+            // Register background sync if supported
+            if ('serviceWorker' in navigator && 'SyncManager' in window) {
+              const reg = await navigator.serviceWorker.ready;
+              await reg.sync.register('sync-operations');
+            }
+            closeModal(modalId);
+            showToast('Збережено офлайн, синхронізується автоматично');
+          } catch (queueErr) {
+            showToast('Помилка: ' + e.message, 'error');
+          }
+        } else {
+          showToast('Помилка: ' + e.message, 'error');
+        }
         btn.disabled = false;
         btn.textContent = isEdit ? 'Зберегти' : 'Додати';
       }

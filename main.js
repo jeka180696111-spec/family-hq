@@ -529,6 +529,18 @@ document.addEventListener('DOMContentLoaded', () => {
   // Register service worker for offline support
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
+
+    // Listen for FLUSH_QUEUE message from service worker (Background Sync)
+    navigator.serviceWorker.addEventListener('message', async (event) => {
+      if (event.data?.type === 'FLUSH_QUEUE') {
+        try {
+          const { flushQueue } = await import('./offline-queue.js');
+          await flushQueue();
+        } catch (e) {
+          console.warn('[main] flushQueue error:', e.message);
+        }
+      }
+    });
   }
 
   // Firebase Auth — слухаємо стан входу
