@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import structlog
+
+if TYPE_CHECKING:
+    from src.agents.news import NewsAgent
+    from src.db.memory import SharedMemory
+
+log = structlog.get_logger()
+
+
+async def send_morning_digest(news_agent: "NewsAgent", memory: "SharedMemory") -> None:
+    """
+    Send the morning news digest.
+    Scheduled daily at 08:00 Kyiv time.
+
+    Pulls recent news_posts from DB, asks Claude (via news agent)
+    to summarize, sends to group.
+    """
+    log.info("digest_starting")
+    try:
+        # Check if there's an active alert — if so, delay 30 min
+        async with memory._engine.connect() as conn:
+            from src.db.models import ActiveAlert
+            from sqlalchemy import select
+
+            alerts = await conn.execute(select(ActiveAlert))
+            active = list(alerts)
+
+        if active:
+            log.info("digest_delayed_due_to_alert", count=len(active))
+            # Scheduler will call again via the rescheduled job
+            return
+
+        # Get last 24h news from DB
+        async with memory._engine.connect() as conn:
+            from datetime import datetime, timedelta
+
+            from sqlalchemy import select
+
+            from src.db.models import NewsPost
+            from src.utils.time import KYIV_TZ
+
+            since = (datetime.now(KYIV_TZ) - timedelta(hours=24)).isoformat()
+            rows = await conn.execute(
+                select(NewsPost)
+                .where(NewsPost.date >= since)
+                .order_by(NewsPost.date.desc())
+                .limit(50)
+            )
+            posts = list(rows)
+
+        if not posts:
+            await news_agent.send("📰 Доброе утро! За ночь значимых событий не зафиксировано. 😌")
+            return
+
+        news_text = "\n".join(f"[{p.date[11:16]}] {p.text[:150]}" for p in posts[:20])
+
+        response = await news_agent._claude.complete(
+            model=news_agent._get_model(),
+            system=news_agent.get_system_prompt(),
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"Сформируй утренний дайджест на основе этих новостей за ночь:\n\n{news_text}",
+                }
+            ],
+            max_tokens=1024,
+        )
+        await news_agent.send(f"📰 Утренний дайджест:\n\n{response}")
+        log.info("digest_sent")
+
+    except Exception:
+        log.exception("digest_failed")
+
+
+def register_digest_job(
+    scheduler,
+    news_agent,
+    memory,
+    digest_time: str = "08:00",
+) -> None:
+    """Register the morning digest job with APScheduler."""
+    hour, minute = map(int, digest_time.split(":"))
+    scheduler.add_job(
+        send_morning_digest,
+        "cron",
+        hour=hour,
+        minute=minute,
+        timezone="Europe/Kiev",
+        args=[news_agent, memory],
+        id="morning_digest",
+        replace_existing=True,
+    )
+    log.info("digest_job_registered", time=digest_time)

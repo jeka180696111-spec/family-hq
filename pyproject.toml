@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "family-hq"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "python-telegram-bot[job-queue]>=21.0",
+    "telethon>=1.36",
+    "anthropic>=0.40",
+    "google-api-python-client",
+    "google-auth",
+    "google-auth-httplib2",
+    "gspread",
+    "sqlalchemy>=2.0",
+    "aiosqlite",
+    "httpx",
+    "python-dotenv",
+    "pydantic-settings",
+    "pydantic>=2.0",
+    "structlog",
+    "apscheduler>=3.10",
+    "jinja2",
+]
+
+[project.optional-dependencies]
+devops = [
+    "pygments",
+]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "mypy",
+    "black",
+]
+
+[tool.black]
+line-length = 100
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

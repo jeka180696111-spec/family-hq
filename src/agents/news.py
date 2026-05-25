@@ -1,0 +1,97 @@
+from __future__ import annotations
+from typing import Any
+import structlog
+
+from src.agents.base import BaseAgent
+
+log = structlog.get_logger()
+
+class NewsAgent(BaseAgent):
+    """
+    Дозорный — monitors news channels, alerts for air raid sirens.
+    """
+
+    agent_id = "news"
+    emoji = "📰"
+    name = "Дозорный"
+
+    def get_system_prompt(self) -> str:
+        from src.prompts.news import get_news_prompt
+        return get_news_prompt(
+            critical_regions=["Одесса", "Одесская область"],
+            important_regions=["Киев", "Харьков"],
+            digest_time="08:00",
+        )
+
+    def get_tools(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "name": "add_news_channel",
+                "description": "Добавить Telegram-канал для мониторинга",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "username": {"type": "string"},
+                        "category": {"type": "string", "enum": ["critical", "important", "background"]},
+                        "region": {"type": "string"},
+                    },
+                    "required": ["username", "category"],
+                },
+            },
+            {
+                "name": "get_recent_alerts",
+                "description": "Получить последние тревоги",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "hours": {"type": "integer", "default": 24},
+                        "region": {"type": "string"},
+                    },
+                },
+            },
+            {
+                "name": "set_region_priority",
+                "description": "Изменить приоритет региона",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "region": {"type": "string"},
+                        "category": {"type": "string", "enum": ["critical", "important", "background"]},
+                    },
+                    "required": ["region", "category"],
+                },
+            },
+        ]
+
+    async def _call_tool(self, tool_name: str, tool_input: dict[str, Any]) -> Any:
+        if tool_name == "add_news_channel":
+            async with self._memory._engine.begin() as conn:
+                from src.db.models import NewsChannel
+                from sqlalchemy import insert
+                from src.utils.time import iso_now
+                await conn.execute(
+                    insert(NewsChannel).prefix_with("OR IGNORE").values(
+                        channel_id=0,  # Will be resolved by userbot
+                        username=tool_input.get("username"),
+                        title=tool_input.get("username", ""),
+                        category=tool_input.get("category", "background"),
+                        region=tool_input.get("region"),
+                        mode="digest" if tool_input.get("category") == "background" else "alert",
+                        added_at=iso_now(),
+                    )
+                )
+            return {"success": True}
+
+        elif tool_name == "get_recent_alerts":
+            async with self._memory._engine.connect() as conn:
+                from src.db.models import NewsPost
+                from sqlalchemy import select
+                rows = await conn.execute(
+                    select(NewsPost)
+                    .where(NewsPost.is_alert == 1)
+                    .order_by(NewsPost.date.desc())
+                    .limit(10)
+                )
+                return [{"text": r.text[:200], "date": r.date, "region": r.alert_region} for r in rows]
+
+        return await super()._call_tool(tool_name, tool_input)

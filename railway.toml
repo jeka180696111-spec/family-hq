@@ -1,0 +1,14 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "python -m src.main"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5
+
+[environments.production.deploy]
+startCommand = "python -m src.main"
+
+[[volumes]]
+mountPath = "/data"
+name = "family-hq-data"

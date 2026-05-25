@@ -1,0 +1,41 @@
+from __future__ import annotations
+from typing import Any
+import structlog
+
+from src.agents.base import BaseAgent
+
+log = structlog.get_logger()
+
+class {{ class_name }}(BaseAgent):
+    """{{ description }}"""
+
+    agent_id = "{{ agent_id }}"
+    emoji = "{{ emoji }}"
+    name = "{{ name }}"
+
+    def get_system_prompt(self) -> str:
+        from src.prompts.{{ agent_id }} import get_{{ agent_id }}_prompt
+        return get_{{ agent_id }}_prompt()
+
+    def get_tools(self) -> list[dict[str, Any]]:
+        return [
+            # TODO: Define tools for {{ name }}
+            {% for tool in tools %}
+            {
+                "name": "{{ tool.name }}",
+                "description": "{{ tool.description }}",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+            {% endfor %}
+        ]
+
+    async def _call_tool(self, tool_name: str, tool_input: dict[str, Any]) -> Any:
+        # TODO: Implement tool handlers for {{ name }}
+        {% for tool in tools %}
+        if tool_name == "{{ tool.name }}":
+            pass  # TODO: implement {{ tool.name }}
+        {% endfor %}
+        return await super()._call_tool(tool_name, tool_input)

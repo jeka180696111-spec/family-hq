@@ -1,0 +1,102 @@
+from __future__ import annotations
+from pydantic_settings import BaseSettings
+from pydantic import Field
+import base64
+import json
+
+
+class Settings(BaseSettings):
+    # Telegram bots
+    nanny_bot_token: str = Field(default="")
+    news_bot_token: str = Field(default="")
+    finance_bot_token: str = Field(default="")
+    calendar_bot_token: str = Field(default="")
+    cook_bot_token: str = Field(default="")
+    health_bot_token: str = Field(default="")
+    devops_bot_token: str = Field(default="")
+
+    # Telethon
+    tg_api_id: int = Field(default=0)
+    tg_api_hash: str = Field(default="")
+    tg_session_name: str = Field(default="family_hq_user")
+    tg_phone: str = Field(default="")
+
+    # Group
+    hq_chat_id: int = Field(default=0)
+
+    # Owners
+    owner_husband_id: int = Field(default=0)
+    owner_wife_id: int = Field(default=0)
+    owner_husband_name: str = Field(default="Муж")
+    owner_wife_name: str = Field(default="Жена")
+
+    # Anthropic
+    anthropic_api_key_primary: str = Field(default="")
+    anthropic_api_key_backup: str = Field(default="")
+    model_main: str = Field(default="claude-sonnet-4-5-20250929")
+    model_cheap: str = Field(default="claude-haiku-4-5-20251001")
+
+    # Google
+    google_service_account_b64: str = Field(default="")
+    sheet_baby_id: str = Field(default="")
+    sheet_finance_id: str = Field(default="")
+    drive_backup_folder_id: str = Field(default="")
+    calendar_id: str = Field(default="")
+
+    # GitHub
+    github_token: str = Field(default="")
+    github_repo: str = Field(default="owner/family-hq")
+
+    # Railway
+    railway_api_token: str = Field(default="")
+    railway_project_id: str = Field(default="")
+    matveika_service_id: str = Field(default="")
+    finance_service_id: str = Field(default="")
+
+    # App settings
+    timezone: str = Field(default="Europe/Kiev")
+    digest_time: str = Field(default="08:00")
+    night_mode_start: str = Field(default="00:00")
+    night_mode_end: str = Field(default="06:00")
+    log_level: str = Field(default="INFO")
+    db_path: str = Field(default="/data/family_hq.db")
+
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "case_sensitive": False,
+    }
+
+    @property
+    def owner_ids(self) -> list[int]:
+        return [x for x in [self.owner_husband_id, self.owner_wife_id] if x]
+
+    @property
+    def google_service_account_json(self) -> dict:
+        if not self.google_service_account_b64:
+            return {}
+        return json.loads(base64.b64decode(self.google_service_account_b64))
+
+    def get_bot_token(self, agent_id: str) -> str:
+        """Get bot token for a given agent_id."""
+        mapping: dict[str, str] = {
+            "nanny": self.nanny_bot_token,
+            "news": self.news_bot_token,
+            "finance": self.finance_bot_token,
+            "calendar": self.calendar_bot_token,
+            "cook": self.cook_bot_token,
+            "health": self.health_bot_token,
+            "devops": self.devops_bot_token,
+        }
+        return mapping.get(agent_id, "")
+
+
+# Singleton
+_settings: Settings | None = None
+
+
+def get_settings() -> Settings:
+    global _settings
+    if _settings is None:
+        _settings = Settings()
+    return _settings
