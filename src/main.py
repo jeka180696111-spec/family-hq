@@ -228,20 +228,22 @@ async def run(dry_run: bool = False) -> None:
         await bot_manager.shutdown()
         return
 
-    # Start Telethon user-bot (only if explicitly enabled and session file exists)
+    # Start Telethon user-bot (needs ENABLE_USERBOT=true + session string or session file)
+    import os as _os
     session_path = f"/data/{settings.tg_session_name}.session"
+    has_session = bool(settings.tg_session_string) or _os.path.exists(session_path)
     userbot_ready = (
         settings.enable_userbot
         and settings.tg_api_id
         and settings.tg_api_hash
-        and __import__("os").path.exists(session_path)
+        and has_session
     )
 
     if not userbot_ready:
         reason = (
             "ENABLE_USERBOT=false" if not settings.enable_userbot
             else "TG_API_ID/TG_API_HASH missing" if not (settings.tg_api_id and settings.tg_api_hash)
-            else f"session file not found: {session_path}"
+            else "no TG_SESSION_STRING and no session file"
         )
         log.warning("userbot_skipped", reason=reason)
         _shutdown_event = asyncio.Event()
@@ -260,6 +262,7 @@ async def run(dry_run: bool = False) -> None:
         session_name=settings.tg_session_name,
         phone=settings.tg_phone,
         chat_id=chat_id,
+        session_string=settings.tg_session_string,
     )
 
     userbot.add_message_handler(

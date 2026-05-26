@@ -24,6 +24,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("tg_api_hash", "telegram_api_hash"),
     )
     tg_session_name: str = Field(default="family_hq_user")
+    tg_session_string: str = Field(default="")
     tg_phone: str = Field(default="")
 
     # Group — accepts HQ_CHAT_ID or TELEGRAM_GROUP_ID

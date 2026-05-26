@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Callable, Awaitable, Any
 
 from telethon import TelegramClient, events
+from telethon.sessions import StringSession
 from telethon.errors import ChannelPrivateError, UsernameInvalidError
 from telethon.tl.types import Message
 import structlog
@@ -28,12 +29,10 @@ class UserBot:
         session_name: str,
         phone: str,
         chat_id: int,
+        session_string: str = "",
     ) -> None:
-        self._client = TelegramClient(
-            f"/data/{session_name}",
-            api_id,
-            api_hash,
-        )
+        session = StringSession(session_string) if session_string else f"/data/{session_name}"
+        self._client = TelegramClient(session, api_id, api_hash)
         self._phone = phone
         self._chat_id = chat_id
         self._handlers: list[MessageHandler] = []
