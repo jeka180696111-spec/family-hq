@@ -4,7 +4,3 @@ builder = "nixpacks"
 [deploy]
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 5
-
-[[volumes]]
-mountPath = "/data"
-name = "family-hq-data"
