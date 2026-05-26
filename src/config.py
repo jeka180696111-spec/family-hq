@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     matveika_service_id: str = Field(default="")
 
     # App settings
-    timezone: str = Field(default="Europe/Kiev")
+    timezone: str = Field(default="Europe/Kyiv")
     digest_time: str = Field(default="08:00")
     night_mode_start: str = Field(default="00:00")
     night_mode_end: str = Field(default="06:00")
