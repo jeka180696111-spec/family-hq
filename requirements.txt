@@ -1,0 +1,17 @@
+python-telegram-bot[job-queue]>=21.0
+telethon>=1.36
+anthropic>=0.40
+google-api-python-client
+google-auth
+google-auth-httplib2
+gspread
+aiohttp
+sqlalchemy>=2.0
+aiosqlite
+httpx
+python-dotenv
+pydantic-settings
+pydantic>=2.0
+structlog
+apscheduler>=3.10
+jinja2
