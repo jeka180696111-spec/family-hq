@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     night_mode_end: str = Field(default="06:00")
     log_level: str = Field(default="INFO")
     db_path: str = Field(default="/data/family_hq.db")
+    enable_userbot: bool = Field(default=False)
 
     model_config = {
         "env_file": ".env",
