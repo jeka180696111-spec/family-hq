@@ -17,7 +17,7 @@ from src.db.memory import SharedMemory
 from src.integrations.claude_client import ClaudeClient, AIOfflineError
 from src.integrations.telegram_bots import BotManager
 from src.integrations.telegram_user import UserBot
-from src.integrations.supabase_baby import BabyDiaryClient
+from src.integrations.sheets import SheetsClient
 from src.integrations.gcalendar import CalendarClient
 from src.integrations.github_api import GitHubClient
 from src.integrations.web_search import WebSearchClient
@@ -159,17 +159,12 @@ async def run(dry_run: bool = False) -> None:
 
     bot_manager = BotManager()
 
-    # Supabase BabyDiary
-    baby_diary = None
-    if settings.supabase_url and settings.supabase_service_role_key:
-        baby_diary = BabyDiaryClient(
-            url=settings.supabase_url,
-            service_role_key=settings.supabase_service_role_key,
-            family_id=settings.supabase_family_id,
-        )
-
     # Google integrations (only if credentials available)
     sa_info = settings.google_service_account_json
+
+    sheets = None
+    if sa_info and settings.sheet_baby_id:
+        sheets = SheetsClient(sa_info, settings.sheet_baby_id, "")
 
     calendar_client = None
     if sa_info and settings.calendar_id:
@@ -199,10 +194,10 @@ async def run(dry_run: bool = False) -> None:
     base_args = dict(claude_client=claude, bot_manager=bot_manager, memory=memory, chat_id=chat_id)
 
     agents: dict[str, Any] = {
-        "nanny": NannyAgent(**base_args, baby_diary=baby_diary),
+        "nanny": NannyAgent(**base_args, sheets_client=sheets),
         "news": NewsAgent(**base_args),
         "calendar": CalendarAgent(**base_args, calendar_client=calendar_client),
-        "cook": CookAgent(**base_args, web_search=web_search, baby_diary=baby_diary),
+        "cook": CookAgent(**base_args, web_search=web_search),
         "health": HealthAgent(**base_args),
         "devops": DevOpsAgent(**base_args, github_client=github),
     }

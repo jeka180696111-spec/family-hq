@@ -35,13 +35,9 @@ class Settings(BaseSettings):
     model_main: str = Field(default="claude-sonnet-4-5-20250929")
     model_cheap: str = Field(default="claude-haiku-4-5-20251001")
 
-    # Supabase (BabyDiary)
-    supabase_url: str = Field(default="")
-    supabase_service_role_key: str = Field(default="")
-    supabase_family_id: str = Field(default="")
-
     # Google
     google_service_account_b64: str = Field(default="")
+    sheet_baby_id: str = Field(default="")  # Google Sheets — дневник малыша (Matveika-bot)
     drive_backup_folder_id: str = Field(default="")
     calendar_id: str = Field(default="")
 

@@ -13,10 +13,9 @@ class CookAgent(BaseAgent):
     emoji = "🍳"
     name = "Гурман"
 
-    def __init__(self, *args, web_search=None, baby_diary=None, **kwargs) -> None:
+    def __init__(self, *args, web_search=None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._search = web_search
-        self._baby_diary = baby_diary
 
     def get_system_prompt(self) -> str:
         from src.prompts.cook import get_cook_prompt
@@ -64,19 +63,25 @@ class CookAgent(BaseAgent):
             return [{"title": r.title, "snippet": r.snippet, "url": r.url} for r in results[:3]]
 
         elif tool_name == "log_new_food":
-            if self._baby_diary:
-                food = await self._baby_diary.upsert_introduced_food(
-                    food=tool_input["food"],
-                    reaction=tool_input.get("reaction", "unknown"),
-                    notes=tool_input.get("notes"),
+            from src.utils.time import iso_now
+            async with self._memory._engine.begin() as conn:
+                from src.db.models import IntroducedFood
+                from sqlalchemy import insert
+                await conn.execute(
+                    insert(IntroducedFood).prefix_with("OR REPLACE").values(
+                        food=tool_input["food"],
+                        first_tried_at=iso_now(),
+                        reaction=tool_input.get("reaction", "unknown"),
+                        notes=tool_input.get("notes"),
+                    )
                 )
-                return {"success": True, "food": food.food}
-            return {"success": True, "note": "baby_diary not configured"}
+            return {"success": True}
 
         elif tool_name == "get_introduced_foods":
-            if self._baby_diary:
-                foods = await self._baby_diary.get_introduced_foods()
-                return [{"food": f.food, "reaction": f.reaction, "tried": f.first_tried_at} for f in foods]
-            return []
+            async with self._memory._engine.connect() as conn:
+                from src.db.models import IntroducedFood
+                from sqlalchemy import select
+                rows = await conn.execute(select(IntroducedFood).order_by(IntroducedFood.first_tried_at.desc()))
+                return [{"food": r.food, "reaction": r.reaction, "tried": r.first_tried_at} for r in rows]
 
         return await super()._call_tool(tool_name, tool_input)
