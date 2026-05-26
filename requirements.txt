@@ -5,6 +5,7 @@ google-api-python-client
 google-auth
 google-auth-httplib2
 gspread
+aiofiles
 aiohttp
 sqlalchemy>=2.0
 aiosqlite
