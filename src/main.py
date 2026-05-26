@@ -227,7 +227,20 @@ async def run(dry_run: bool = False) -> None:
         await bot_manager.shutdown()
         return
 
-    # Start Telethon user-bot
+    # Start Telethon user-bot (only if credentials are configured)
+    if not settings.tg_api_id or not settings.tg_api_hash:
+        log.warning("userbot_not_configured", reason="TG_API_ID or TG_API_HASH missing — running without Telethon")
+        global _shutdown_event
+        _shutdown_event = asyncio.Event()
+        loop = asyncio.get_event_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, _shutdown_event.set)
+        log.info("family_hq_started_no_userbot", agents=list(agents.keys()))
+        await _shutdown_event.wait()
+        scheduler.shutdown(wait=False)
+        await bot_manager.shutdown()
+        return
+
     userbot = UserBot(
         api_id=settings.tg_api_id,
         api_hash=settings.tg_api_hash,
