@@ -54,7 +54,7 @@ class AgentRegistry:
         """Load agent metadata from the agents table."""
         registry = cls()
         async with memory._engine.connect() as conn:
-            from src.db.models import AgentModel
+            from src.db.models import Agent as AgentModel
             from sqlalchemy import select
             rows = await conn.execute(
                 select(AgentModel).where(AgentModel.status == "active")
