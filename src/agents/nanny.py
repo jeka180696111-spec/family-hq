@@ -113,7 +113,7 @@ class NannyAgent(BaseAgent):
                     days=tool_input.get("days", 7),
                     kind=tool_input.get("kind"),
                 )
-                return [r.data for r in rows[-20:]]
+                return [r.data for r in rows[-100:]]
             return []
 
         elif tool_name == "ask_user":

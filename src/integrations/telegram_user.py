@@ -36,23 +36,40 @@ class UserBot:
         self._phone = phone
         self._chat_id = chat_id
         self._handlers: list[MessageHandler] = []
+        self._news_handlers: list[MessageHandler] = []
 
     def add_message_handler(self, handler: MessageHandler) -> None:
-        """Register a callable to be invoked for each new message."""
+        """Register a callable to be invoked for each new HQ-group message."""
         self._handlers.append(handler)
         log.debug("message_handler_registered", total_handlers=len(self._handlers))
+
+    def add_news_handler(self, handler: MessageHandler) -> None:
+        """Register a callable to be invoked for each new post from a tracked news channel."""
+        self._news_handlers.append(handler)
+        log.debug("news_handler_registered", total_handlers=len(self._news_handlers))
 
     async def start(self) -> None:
         """Connect to Telegram and start listening for new messages."""
         await self._client.start(phone=self._phone)
 
-        @self._client.on(events.NewMessage(chats=self._chat_id))
+        hq_chat_id = self._chat_id
+
+        @self._client.on(events.NewMessage())
         async def on_new_message(event: events.NewMessage.Event) -> None:
-            for handler in self._handlers:
-                try:
-                    await handler(event.message)
-                except Exception:
-                    log.exception("message_handler_error")
+            chat = event.chat_id
+            if chat == hq_chat_id:
+                for handler in self._handlers:
+                    try:
+                        await handler(event.message)
+                    except Exception:
+                        log.exception("message_handler_error")
+            else:
+                # Likely a tracked news channel — let news handlers decide
+                for handler in self._news_handlers:
+                    try:
+                        await handler(event.message)
+                    except Exception:
+                        log.exception("news_handler_error")
 
         log.info("userbot_started", chat_id=self._chat_id)
 

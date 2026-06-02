@@ -40,12 +40,24 @@ class NewsAgent(BaseAgent):
             },
             {
                 "name": "get_recent_alerts",
-                "description": "Получить последние тревоги",
+                "description": "Получить только тревоги (повітряна тривога, шахеди, ракети) за период",
                 "input_schema": {
                     "type": "object",
                     "properties": {
                         "hours": {"type": "integer", "default": 24},
                         "region": {"type": "string"},
+                    },
+                },
+            },
+            {
+                "name": "get_recent_news",
+                "description": "Получить ВСЕ посты из каналов (не только тревоги) за период, сгруппированные по каналу. Используй когда просят 'последние новости', 'что нового', 'сводку'.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "hours": {"type": "integer", "default": 1, "description": "За сколько часов назад"},
+                        "region": {"type": "string", "description": "Фильтр по региону (опционально): Одесса, Киев, Украина и т.д."},
+                        "category": {"type": "string", "enum": ["critical", "important", "background"]},
                     },
                 },
             },
@@ -75,22 +87,30 @@ class NewsAgent(BaseAgent):
 
     async def _call_tool(self, tool_name: str, tool_input: dict[str, Any]) -> Any:
         if tool_name == "add_news_channel":
+            import hashlib
+            username = (tool_input.get("username") or "").lstrip("@").strip()
+            if not username:
+                return {"success": False, "error": "empty username"}
+            # Stable placeholder channel_id from username hash (negative to avoid
+            # collisions with real Telegram channel IDs). Will be updated to the
+            # real ID once the user-bot resolves it on startup.
+            placeholder_id = -(int(hashlib.sha1(username.encode()).hexdigest()[:12], 16) % (10**11))
             async with self._memory._engine.begin() as conn:
                 from src.db.models import NewsChannel
                 from sqlalchemy import insert
                 from src.utils.time import iso_now
                 await conn.execute(
                     insert(NewsChannel).prefix_with("OR IGNORE").values(
-                        channel_id=0,  # Will be resolved by userbot
-                        username=tool_input.get("username"),
-                        title=tool_input.get("username", ""),
+                        channel_id=placeholder_id,
+                        username=username,
+                        title=username,
                         category=tool_input.get("category", "background"),
                         region=tool_input.get("region"),
                         mode="digest" if tool_input.get("category") == "background" else "alert",
                         added_at=iso_now(),
                     )
                 )
-            return {"success": True}
+            return {"success": True, "username": username, "note": "User-bot will subscribe on next restart"}
 
         elif tool_name == "list_news_channels":
             async with self._memory._engine.connect() as conn:
@@ -113,15 +133,72 @@ class NewsAgent(BaseAgent):
                 return {"count": len(channels), "channels": channels}
 
         elif tool_name == "get_recent_alerts":
+            from datetime import timedelta
+            from src.utils.time import now_kyiv
             async with self._memory._engine.connect() as conn:
                 from src.db.models import NewsPost
                 from sqlalchemy import select
-                rows = await conn.execute(
+                hours = int(tool_input.get("hours", 24))
+                since = (now_kyiv() - timedelta(hours=hours)).isoformat()
+                stmt = (
                     select(NewsPost)
                     .where(NewsPost.is_alert == 1)
+                    .where(NewsPost.date >= since)
                     .order_by(NewsPost.date.desc())
-                    .limit(10)
+                    .limit(30)
                 )
-                return [{"text": r.text[:200], "date": r.date, "region": r.alert_region} for r in rows]
+                region = tool_input.get("region")
+                if region:
+                    stmt = stmt.where(NewsPost.alert_region == region)
+                rows = await conn.execute(stmt)
+                items = [{"text": r.text[:200], "date": r.date, "region": r.alert_region} for r in rows]
+                return {"count": len(items), "hours": hours, "alerts": items}
+
+        elif tool_name == "get_recent_news":
+            from datetime import timedelta
+            from src.utils.time import now_kyiv
+            from src.db.models import NewsPost, NewsChannel
+            from sqlalchemy import select
+            hours = int(tool_input.get("hours", 1))
+            since = (now_kyiv() - timedelta(hours=hours)).isoformat()
+            async with self._memory._engine.connect() as conn:
+                # Build channel lookup
+                ch_rows = await conn.execute(select(NewsChannel))
+                ch_by_id = {r.channel_id: r for r in ch_rows}
+
+                stmt = (
+                    select(NewsPost)
+                    .where(NewsPost.date >= since)
+                    .order_by(NewsPost.date.desc())
+                    .limit(200)
+                )
+                rows = list(await conn.execute(stmt))
+
+            category = tool_input.get("category")
+            region_filter = tool_input.get("region", "").lower()
+
+            grouped: dict[str, list[dict]] = {}
+            for r in rows:
+                ch = ch_by_id.get(r.channel_id)
+                if category and ch and ch.category != category:
+                    continue
+                if region_filter:
+                    text_l = (r.text or "").lower()
+                    ch_region = (ch.region or "").lower() if ch else ""
+                    if region_filter not in text_l and region_filter not in ch_region:
+                        continue
+                ch_key = (ch.username or ch.title or f"id{r.channel_id}") if ch else f"id{r.channel_id}"
+                grouped.setdefault(ch_key, []).append({
+                    "text": (r.text or "")[:400],
+                    "date": r.date,
+                    "is_alert": bool(r.is_alert),
+                })
+
+            return {
+                "hours": hours,
+                "channels_count": len(grouped),
+                "total_posts": sum(len(v) for v in grouped.values()),
+                "by_channel": grouped,
+            }
 
         return await super()._call_tool(tool_name, tool_input)
