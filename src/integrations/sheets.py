@@ -25,15 +25,45 @@ SCOPES = [
 #   G=Примечания ([Author] + details)
 _BABY_COLS = ["num", "date", "time", "kind", "event", "amount", "notes"]
 
+# Categories recognized by the Apps Script dashboard (after emoji strip):
+# 'Сон', 'Еда', 'Подгузник', 'Прогулка', 'Поездка'.
+# Anything else won't get scored — keep these labels exact.
 _KIND_LABELS = {
     "sleep": "😴 Сон",
     "food": "🍼 Еда",
+    "diaper": "💧 Подгузник",
+    "walk": "🚶 Прогулка",
+    "trip": "🚗 Поездка",
     "medicine": "💊 Лекарство",
-    "note": "📝 Заметка",
     "symptom": "🌡️ Симптом",
     "milestone": "⭐ Веха",
-    "diaper": "💧 Подгузник",
+    "note": "📝 Заметка",
 }
+
+# Event labels (column E) — dashboard strips these prefixes too.
+_EVENT_PREFIX = {
+    "Уснул": "💤 ",
+    "Проснулся": "☀️ ",
+    "Грудь Л": "🤱 ",
+    "Грудь П": "🤱 ",
+    "Смесь": "🍼 ",
+    "Мокрый": "💧 ",
+    "Какал": "💩 ",
+    "Смешанный": "🔄 ",
+    "Вышли": "🚶 ",
+    "Вернулись": "🏠 ",
+    "Поехали": "🚗 ",
+    "Приехали": "🏁 ",
+}
+
+
+def _prefix_event(event: str) -> str:
+    """Add the standard emoji prefix when the event matches a known label."""
+    stripped = (event or "").strip()
+    prefix = _EVENT_PREFIX.get(stripped)
+    if prefix:
+        return prefix + stripped
+    return stripped
 
 # Finance sheet columns:
 #   A=date, B=amount, C=category, D=description, E=member
@@ -128,6 +158,7 @@ class SheetsClient:
         date_str = time.strftime("%d.%m.%Y")
         time_str = time.strftime("%H:%M")
         kind_label = _KIND_LABELS.get(kind, kind)
+        event_label = _prefix_event(event)
         author_label = f"[{author}]" if author and not author.startswith("[") else (author or "")
         notes_parts = [p for p in (author_label, details) if p]
         notes_str = " ".join(notes_parts)
@@ -150,7 +181,7 @@ class SheetsClient:
                 date_str,
                 time_str,
                 kind_label,
-                event,
+                event_label,
                 amount_str,
                 notes_str,
             ]
@@ -165,7 +196,7 @@ class SheetsClient:
 
         row_index, next_num = await self._run_sync(_append)
         row_values = [
-            str(next_num), date_str, time_str, kind_label, event,
+            str(next_num), date_str, time_str, kind_label, event_label,
             amount_str, notes_str,
         ]
         data = dict(zip(_BABY_COLS, row_values))

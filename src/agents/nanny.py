@@ -45,7 +45,7 @@ class NannyAgent(BaseAgent):
                 "input_schema": {
                     "type": "object",
                     "properties": {
-                        "kind": {"type": "string", "enum": ["sleep", "food", "medicine", "diaper", "note", "symptom", "milestone"]},
+                        "kind": {"type": "string", "enum": ["sleep", "food", "diaper", "walk", "trip", "medicine", "symptom", "milestone", "note"]},
                         "event": {"type": "string", "description": "Описание события"},
                         "time": {"type": "string", "description": "Время в формате HH:MM или 'now'"},
                         "amount": {"type": "number"},
