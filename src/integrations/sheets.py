@@ -19,11 +19,11 @@ SCOPES = [
 
 # Column layouts ----------------------------------------------------------------
 # Baby diary sheet (matching the actual Matveika sheet):
-#   A=№ (auto-incremented), B=date DD.MM.YYYY, C=time HH:MM,
+#   A=№ (auto-incremented), B=Дата DD.MM.YYYY, C=Время HH:MM,
 #   D=Категория (emoji + Russian), E=Тип/Детали (event),
 #   F=Кол-во (мл) — only for food/medicine amount, else empty,
-#   G=empty, H=empty, I=Примечания ([Author] + details)
-_BABY_COLS = ["num", "date", "time", "kind", "event", "amount", "g", "h", "notes"]
+#   G=Примечания ([Author] + details)
+_BABY_COLS = ["num", "date", "time", "kind", "event", "amount", "notes"]
 
 _KIND_LABELS = {
     "sleep": "😴 Сон",
@@ -152,8 +152,6 @@ class SheetsClient:
                 kind_label,
                 event,
                 amount_str,
-                "",
-                "",
                 notes_str,
             ]
             # Force append starting from column A — otherwise gspread guesses
@@ -168,7 +166,7 @@ class SheetsClient:
         row_index, next_num = await self._run_sync(_append)
         row_values = [
             str(next_num), date_str, time_str, kind_label, event,
-            amount_str, "", "", notes_str,
+            amount_str, notes_str,
         ]
         data = dict(zip(_BABY_COLS, row_values))
 
