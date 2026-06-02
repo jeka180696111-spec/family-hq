@@ -65,6 +65,63 @@ def _prefix_event(event: str) -> str:
         return prefix + stripped
     return stripped
 
+# Other Matveika worksheets (their actual headers):
+#   Заметки    : A=Дата, B=Время, C=Автор, D=Заметка
+#   Достижения : A=Дата, B=Возраст, C=Достижение, D=Примечание, E=Автор
+#   Рост       : A=Дата, B=Возраст, C=Вес (г), D=Рост (см), E=Примечание
+#   Здоровье   : A=№, B=Дата, C=Время, D=Тип, E=Название, F=Значение, G=Примечание
+#   Врач       : A=№, B=Дата, C=Тип, D=Название, E=Возраст, F=Следующий, G=Примечание
+_NOTES_WORKSHEET = "Заметки"
+_MILESTONES_WORKSHEET = "Достижения"
+_GROWTH_WORKSHEET = "Рост"
+_HEALTH_WORKSHEET = "Здоровье"
+_DOCTOR_WORKSHEET = "Врач"
+
+# Emoji prefixes for the "Достижение" column (D in Достижения sheet)
+_MILESTONE_PREFIX = {
+    "Перевернулся": "🔄 ",
+    "Пытается ползать": "🐢 ",
+    "Пополз": "🐢 ",
+    "Сел": "🪑 ",
+    "Сел сам": "🪑 ",
+    "Встал": "🧍 ",
+    "Пошёл": "🚶 ",
+    "Первый зуб": "🦷 ",
+    "Первое слово": "🗣️ ",
+    "Улыбнулся": "😊 ",
+    "Засмеялся": "😄 ",
+    "Другое": "▪ ",
+}
+
+# Emoji prefixes for the Здоровье «Тип» column (D)
+_HEALTH_TYPE_PREFIX = {
+    "Лекарство": "💊 ",
+    "Симптом": "🤒 ",
+    "Рвота": "🤮 ",
+    "Сильный плач": "😢 ",
+    "Сон беспокойный": "😴 ",
+    "Температура": "🌡️ ",
+    "Сыпь": "🔴 ",
+    "Кашель": "😷 ",
+    "Другое": "▪ ",
+}
+
+# Emoji prefixes for the Врач «Тип» column (C)
+_DOCTOR_TYPE_PREFIX = {
+    "Прививка": "💉 ",
+    "Осмотр": "🩺 ",
+    "Анализ": "🧪 ",
+    "УЗИ": "📡 ",
+    "Консультация": "💬 ",
+    "Другое": "▪ ",
+}
+
+
+def _prefix(value: str, table: dict[str, str]) -> str:
+    stripped = (value or "").strip()
+    return table.get(stripped, "") + stripped
+
+
 # Finance sheet columns:
 #   A=date, B=amount, C=category, D=description, E=member
 _FINANCE_COLS = ["date", "amount", "category", "description", "member"]
@@ -275,6 +332,163 @@ class SheetsClient:
             returned=len(results),
         )
         return results
+
+    # ------------------------------------------------------------------
+    # Notes, Milestones, Growth, Health, Doctor
+    # ------------------------------------------------------------------
+
+    async def append_note(
+        self,
+        text: str,
+        time: datetime,
+        author: str = "family_hq",
+    ) -> dict:
+        """Append a row to «Заметки» (A=Дата, B=Время, C=Автор, D=Заметка)."""
+        ws = await self._open_worksheet(self._baby_sheet_id, _NOTES_WORKSHEET)
+        row_values = [
+            time.strftime("%d.%m.%Y"),
+            time.strftime("%H:%M"),
+            author,
+            text,
+        ]
+
+        def _append() -> int:
+            ws.append_row(row_values, value_input_option="USER_ENTERED", table_range="A1")
+            return len(ws.get_all_values())
+
+        row_index = await self._run_sync(_append)
+        log.info("note_appended", row=row_index, preview=text[:60])
+        return {"row": row_index, "sheet": _NOTES_WORKSHEET}
+
+    async def append_milestone(
+        self,
+        milestone: str,
+        time: datetime,
+        details: str = "",
+        author: str = "family_hq",
+    ) -> dict:
+        """Append to «Достижения» (A=Дата, B=Возраст, C=Достижение, D=Примечание, E=Автор)."""
+        from src.utils.baby import matvey_age_short
+        ws = await self._open_worksheet(self._baby_sheet_id, _MILESTONES_WORKSHEET)
+        milestone_label = _prefix(milestone, _MILESTONE_PREFIX) or f"▪ {milestone}"
+        row_values = [
+            time.strftime("%d.%m.%Y"),
+            matvey_age_short(time.date()),
+            milestone_label,
+            details,
+            author,
+        ]
+
+        def _append() -> int:
+            ws.append_row(row_values, value_input_option="USER_ENTERED", table_range="A1")
+            return len(ws.get_all_values())
+
+        row_index = await self._run_sync(_append)
+        log.info("milestone_appended", row=row_index, milestone=milestone)
+        return {"row": row_index, "sheet": _MILESTONES_WORKSHEET}
+
+    async def append_growth(
+        self,
+        weight_g: int | None,
+        height_cm: float | None,
+        time: datetime,
+        details: str = "",
+    ) -> dict:
+        """Append to «Рост» (A=Дата, B=Возраст, C=Вес (г), D=Рост (см), E=Примечание)."""
+        from src.utils.baby import matvey_age_short
+        ws = await self._open_worksheet(self._baby_sheet_id, _GROWTH_WORKSHEET)
+        row_values = [
+            time.strftime("%d.%m.%Y"),
+            matvey_age_short(time.date()),
+            str(weight_g) if weight_g is not None else "",
+            str(height_cm) if height_cm is not None else "",
+            details,
+        ]
+
+        def _append() -> int:
+            ws.append_row(row_values, value_input_option="USER_ENTERED", table_range="A1")
+            return len(ws.get_all_values())
+
+        row_index = await self._run_sync(_append)
+        log.info("growth_appended", row=row_index, weight=weight_g, height=height_cm)
+        return {"row": row_index, "sheet": _GROWTH_WORKSHEET}
+
+    async def append_health(
+        self,
+        type_: str,
+        name: str,
+        time: datetime,
+        value: str = "",
+        details: str = "",
+    ) -> dict:
+        """Append to «Здоровье» (A=№, B=Дата, C=Время, D=Тип, E=Название, F=Значение, G=Примечание)."""
+        ws = await self._open_worksheet(self._baby_sheet_id, _HEALTH_WORKSHEET)
+        type_label = _prefix(type_, _HEALTH_TYPE_PREFIX) or type_
+        # Name in column E often mirrors type emoji; keep it as written (Nanny passes the right thing)
+        name_label = name
+
+        def _append() -> tuple[int, int]:
+            existing = ws.col_values(1)
+            next_num = 1
+            for val in reversed(existing):
+                try:
+                    next_num = int(val) + 1
+                    break
+                except (ValueError, TypeError):
+                    continue
+            row_values = [
+                str(next_num),
+                time.strftime("%d.%m.%Y"),
+                time.strftime("%H:%M"),
+                type_label,
+                name_label,
+                value,
+                details,
+            ]
+            ws.append_row(row_values, value_input_option="USER_ENTERED", table_range="A1")
+            return len(ws.get_all_values()), next_num
+
+        row_index, next_num = await self._run_sync(_append)
+        log.info("health_appended", row=row_index, num=next_num, type=type_, name=name)
+        return {"row": row_index, "num": next_num, "sheet": _HEALTH_WORKSHEET}
+
+    async def append_doctor(
+        self,
+        type_: str,
+        name: str,
+        time: datetime,
+        next_due: str = "",
+        details: str = "",
+    ) -> dict:
+        """Append to «Врач» (A=№, B=Дата, C=Тип, D=Название, E=Возраст, F=Следующий, G=Примечание)."""
+        from src.utils.baby import matvey_age_short
+        ws = await self._open_worksheet(self._baby_sheet_id, _DOCTOR_WORKSHEET)
+        type_label = _prefix(type_, _DOCTOR_TYPE_PREFIX) or type_
+
+        def _append() -> tuple[int, int]:
+            existing = ws.col_values(1)
+            next_num = 1
+            for val in reversed(existing):
+                try:
+                    next_num = int(val) + 1
+                    break
+                except (ValueError, TypeError):
+                    continue
+            row_values = [
+                str(next_num),
+                time.strftime("%d.%m.%Y"),
+                type_label,
+                name,
+                matvey_age_short(time.date()),
+                next_due,
+                details,
+            ]
+            ws.append_row(row_values, value_input_option="USER_ENTERED", table_range="A1")
+            return len(ws.get_all_values()), next_num
+
+        row_index, next_num = await self._run_sync(_append)
+        log.info("doctor_appended", row=row_index, num=next_num, type=type_, name=name)
+        return {"row": row_index, "num": next_num, "sheet": _DOCTOR_WORKSHEET}
 
     # ------------------------------------------------------------------
     # Finances
