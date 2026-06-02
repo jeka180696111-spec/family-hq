@@ -16,8 +16,9 @@ class DevOpsAgent(BaseAgent):
     emoji = "🛠️"
     name = "Прораб"
 
-    def __init__(self, *args, github_client=None, **kwargs) -> None:
+    def __init__(self, *args, github_client=None, railway_client=None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        self._railway = railway_client
         self._github = github_client
 
     def get_system_prompt(self) -> str:
@@ -83,6 +84,17 @@ class DevOpsAgent(BaseAgent):
                     "required": ["path"],
                 },
             },
+            {
+                "name": "restart_main_service",
+                "description": "Перезапустить главный сервис family-hq на Railway. Применяется когда Дозорный добавил новые каналы и нужно чтобы userbot подписался, или когда AI ведёт себя странно. Требует подтверждения от пользователя.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "reason": {"type": "string", "description": "Кратко зачем рестарт"},
+                    },
+                    "required": ["reason"],
+                },
+            },
         ]
 
     async def _call_tool(self, tool_name: str, tool_input: dict[str, Any]) -> Any:
@@ -143,6 +155,20 @@ class DevOpsAgent(BaseAgent):
                 return {"content": content[:5000], "truncated": len(content) > 5000}
             except FileNotFoundError:
                 return {"error": f"File not found: {path}"}
+
+        elif tool_name == "restart_main_service":
+            if not self._railway:
+                return {"error": "Railway не настроен (нет RAILWAY_API_TOKEN или RAILWAY_PROJECT_ID или MATVEIKA_SERVICE_ID в env)"}
+            try:
+                from src.config import get_settings
+                settings = get_settings()
+                service_id = settings.matveika_service_id
+                if not service_id:
+                    return {"error": "MATVEIKA_SERVICE_ID не задан"}
+                ok = await self._railway.restart_service(service_id, environment_id="")
+                return {"success": ok, "reason": tool_input.get("reason", "")}
+            except Exception as e:
+                return {"error": str(e)}
 
         return await super()._call_tool(tool_name, tool_input)
 

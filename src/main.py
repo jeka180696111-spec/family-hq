@@ -175,6 +175,11 @@ async def run(dry_run: bool = False) -> None:
     if settings.github_token:
         github = GitHubClient(settings.github_token, settings.github_repo)
 
+    railway = None
+    if settings.railway_api_token and settings.railway_project_id:
+        from src.integrations.railway_api import RailwayClient
+        railway = RailwayClient(settings.railway_api_token, settings.railway_project_id)
+
     web_search = WebSearchClient()
 
     # Register all bots (6 internal agents; Фінн is external)
@@ -200,7 +205,7 @@ async def run(dry_run: bool = False) -> None:
         "calendar": CalendarAgent(**base_args, calendar_client=calendar_client),
         "cook": CookAgent(**base_args, web_search=web_search),
         "health": HealthAgent(**base_args),
-        "devops": DevOpsAgent(**base_args, github_client=github),
+        "devops": DevOpsAgent(**base_args, github_client=github, railway_client=railway),
     }
 
     # Load registry from DB
