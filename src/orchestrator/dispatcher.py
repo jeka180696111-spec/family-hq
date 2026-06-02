@@ -63,15 +63,25 @@ class Dispatcher:
         Returns is_external=True for finance intent (Фінн handles it, dispatcher stays silent).
         Falls back to ["nanny"] if classification fails.
         """
+        def _label(m: dict) -> str:
+            aid = m.get("agent_id")
+            if aid:
+                return f"[{aid}]"
+            uid = m.get("user_id")
+            return f"user#{uid}" if uid else "user"
+
         messages = []
         if recent_context:
             ctx_str = "\n".join(
-                f"{m.get('sender', '?')}: {m.get('text', '')[:100]}"
-                for m in recent_context[-5:]
+                f"{_label(m)}: {m.get('text', '')[:150]}"
+                for m in recent_context[-6:]
             )
             messages.append({
                 "role": "user",
-                "content": f"Контекст последних сообщений:\n{ctx_str}\n\nНовое сообщение от {sender_name}:\n{message_text}"
+                "content": (
+                    f"Контекст последних сообщений (агенты в [скобках]):\n{ctx_str}\n\n"
+                    f"Новое сообщение от {sender_name}:\n{message_text}"
+                )
             })
         else:
             messages.append({
