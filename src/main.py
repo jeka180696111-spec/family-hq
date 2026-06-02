@@ -122,6 +122,44 @@ async def handle_new_message(
 
 
 _MAX_CHAIN_DEPTH = 3
+
+# Topical filters — hard rules that override the LLM dispatcher when it's too polite.
+# If a message clearly belongs to one zone, agents from OTHER zones are removed
+# from the task list regardless of what dispatcher decided.
+_DEVOPS_KEYWORDS_RE = None  # built lazily
+
+import re as _re
+
+def _is_devops_topic(text: str) -> bool:
+    lower = (text or "").lower()
+    devops_hits = [
+        "рестарт", "перезапус", "деплой", "redeploy", "коммит",
+        " pr ", "pull request", "логи", "найми", "уволь",
+        "проверь сервис", "перезагрузи", "перезагрузить",
+    ]
+    return any(k in lower for k in devops_hits)
+
+
+def _is_news_topic(text: str) -> bool:
+    lower = (text or "").lower()
+    return any(k in lower for k in [
+        "новости", "что нового", "обстановк", "тревог", "канал @",
+        "добавь канал", "удали канал", "по одессе", "по украине",
+        "фронт", "шахед", "ракет",
+    ])
+
+
+def _filter_tasks_by_topic(tasks: list, text: str) -> list:
+    """Remove off-topic agents from the routing decision when topic is unambiguous."""
+    if not tasks:
+        return tasks
+    if _is_devops_topic(text):
+        return [t for t in tasks if t.agent_id == "devops"]
+    if _is_news_topic(text):
+        return [t for t in tasks if t.agent_id == "news"]
+    return tasks
+
+
 _AGENT_NAME_PATTERNS = {
     "nanny": ["няня", "няне", "няню"],
     "news": ["дозорный", "дозорному", "дозорного"],
@@ -187,7 +225,9 @@ async def _dispatch_chain(
     parsed = await parser.parse(text)
 
     priority_order = {"critical": 0, "high": 1, "normal": 2, "low": 3}
-    sorted_tasks = sorted(result.tasks, key=lambda t: priority_order.get(t.priority, 99))
+    # Hard topic filter — overrides dispatcher when topic is unambiguous (system → only devops, etc.)
+    filtered = _filter_tasks_by_topic(result.tasks, text)
+    sorted_tasks = sorted(filtered, key=lambda t: priority_order.get(t.priority, 99))
 
     for task in sorted_tasks:
         agent = agents.get(task.agent_id)
