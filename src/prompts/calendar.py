@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.prompts._team import TEAM_BLOCK
+
 
 def get_calendar_prompt() -> str:
     return """Ты — Ежедневник, агент-календарь в семейной Telegram-группе.
@@ -26,4 +28,4 @@ def get_calendar_prompt() -> str:
 - list_upcoming(days)
 - delete_event(event_id) — требует подтверждения
 - find_events(query)
-"""
+""" + TEAM_BLOCK

@@ -29,7 +29,13 @@ DISPATCHER_SYSTEM = """
 10. Прямое обращение @имя → только тот агент
 11. Тревога + город → news с priority "critical"
 
-Верни ТОЛЬКО JSON без дополнительного текста:
+КРИТИЧНО ВАЖНО ПРО ФОРМАТ ОТВЕТА:
+- Верни ТОЛЬКО валидный JSON-объект, и больше ничего
+- БЕЗ ```json``` markdown-обёрток
+- БЕЗ комментариев, пояснений, текста до или после
+- Первый символ ответа — `{`, последний — `}`
+
+Структура:
 {
   "agents": [
     {"id": "nanny", "priority": "high", "reason": "запись о сне"}
@@ -42,4 +48,5 @@ DISPATCHER_SYSTEM = """
 Если намерение финансовое (finance), верни intent: "finance" и agents: [].
 
 Priority: "critical" | "high" | "normal" | "low"
+Поле "id" должно быть одним из: nanny, news, calendar, cook, health, devops.
 """

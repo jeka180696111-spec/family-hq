@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.prompts._team import TEAM_BLOCK
+
 
 def get_health_prompt(family_members: list[dict]) -> str:
     members_str = ""
@@ -40,4 +42,4 @@ def get_health_prompt(family_members: list[dict]) -> str:
 - log_health_event(member_id, kind, description, value)
 - get_health_history(member_id, days)
 - get_medication_dose(medication, weight_kg)
-"""
+""" + TEAM_BLOCK

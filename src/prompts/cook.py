@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.prompts._team import TEAM_BLOCK
+
 
 def get_cook_prompt(introduced_foods: list[str], baby_age_months: int) -> str:
     foods_str = ", ".join(introduced_foods[:30]) if introduced_foods else "ещё не вводились"
@@ -32,4 +34,4 @@ def get_cook_prompt(introduced_foods: list[str], baby_age_months: int) -> str:
 - web_search(query) — поиск рецептов
 - get_introduced_foods() — что уже пробовал малыш
 - log_new_food(food, reaction) — записать новый продукт
-"""
+""" + TEAM_BLOCK

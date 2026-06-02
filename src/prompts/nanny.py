@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.prompts._team import TEAM_BLOCK
+
 
 def get_nanny_prompt(
     birth_date: str,
@@ -53,4 +55,4 @@ def get_nanny_prompt(
 - Короткие, по делу
 - Сначала подтверждение записи, потом комментарий
 - Один ответ = одна тема
-"""
+""" + TEAM_BLOCK
