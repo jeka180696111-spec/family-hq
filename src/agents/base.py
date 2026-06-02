@@ -106,6 +106,12 @@ class BaseAgent(abc.ABC):
                 )
                 actions = []
 
+            response_text = (response_text or "").strip()
+            if not response_text:
+                # Agent chose to stay silent — don't send a stub message
+                self._log.info("agent_silent", message=message_text[:50])
+                return AgentResponse(text="", agent_id=self.agent_id, actions_taken=actions)
+
             sent = await self.send(response_text)
             try:
                 await context.save_message(
@@ -164,7 +170,7 @@ class BaseAgent(abc.ABC):
 
         # Extract text from final response
         text_blocks = [b.text for b in current_message.content if hasattr(b, "text")]
-        return "\n".join(text_blocks) or "✅ Готово.", actions_taken
+        return "\n".join(text_blocks).strip(), actions_taken
 
     async def _call_tool(self, tool_name: str, tool_input: dict[str, Any]) -> Any:
         """Dispatch a tool call to the appropriate handler. Override in subclasses."""
