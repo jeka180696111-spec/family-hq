@@ -19,10 +19,11 @@ SCOPES = [
 
 # Column layouts ----------------------------------------------------------------
 # Baby diary sheet (matching the actual Matveika sheet):
-#   A=# (row number, left empty), B=date DD.MM.YYYY, C=time HH:MM,
-#   D=kind (emoji + Russian), E=event, F=author "[Name]",
-#   G=amount, H=unit, I=details, J=source
-_BABY_COLS = ["num", "date", "time", "kind", "event", "author", "amount", "unit", "details", "source"]
+#   A=№ (auto-incremented), B=date DD.MM.YYYY, C=time HH:MM,
+#   D=Категория (emoji + Russian), E=Тип/Детали (event),
+#   F=Кол-во (мл) — only for food/medicine amount, else empty,
+#   G=empty, H=empty, I=Примечания ([Author] + details)
+_BABY_COLS = ["num", "date", "time", "kind", "event", "amount", "g", "h", "notes"]
 
 _KIND_LABELS = {
     "sleep": "😴 Сон",
@@ -128,27 +129,41 @@ class SheetsClient:
         time_str = time.strftime("%H:%M")
         kind_label = _KIND_LABELS.get(kind, kind)
         author_label = f"[{author}]" if author and not author.startswith("[") else (author or "")
-        row_values = [
-            "",  # A: row number column, leave blank
-            date_str,
-            time_str,
-            kind_label,
-            event,
-            author_label,
-            str(amount) if amount is not None else "",
-            unit or "",
-            details,
-            "family_hq",
-        ]
+        notes_parts = [p for p in (author_label, details) if p]
+        notes_str = " ".join(notes_parts)
+        amount_str = str(amount) if amount is not None else ""
 
         ws = await self._open_worksheet(self._baby_sheet_id, _BABY_WORKSHEET)
 
-        def _append() -> int:
+        def _append() -> tuple[int, int]:
+            # Compute next sequential № from column A
+            existing = ws.col_values(1)
+            next_num = 1
+            for val in reversed(existing):
+                try:
+                    next_num = int(val) + 1
+                    break
+                except (ValueError, TypeError):
+                    continue
+            row_values = [
+                str(next_num),
+                date_str,
+                time_str,
+                kind_label,
+                event,
+                amount_str,
+                "",
+                "",
+                notes_str,
+            ]
             ws.append_row(row_values, value_input_option="USER_ENTERED")
-            # Return the new last row index
-            return len(ws.get_all_values())
+            return len(ws.get_all_values()), next_num
 
-        row_index = await self._run_sync(_append)
+        row_index, next_num = await self._run_sync(_append)
+        row_values = [
+            str(next_num), date_str, time_str, kind_label, event,
+            amount_str, "", "", notes_str,
+        ]
         data = dict(zip(_BABY_COLS, row_values))
 
         log.info(
