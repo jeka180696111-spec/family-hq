@@ -48,6 +48,16 @@ class BotManager:
                 error=str(exc),
             )
 
+    async def send_typing(self, agent_id: str, chat_id: int) -> None:
+        """Send 'typing' chat action — shows 'NyaName печатает...' to users. Lasts ~5 seconds."""
+        bot = self._bots.get(agent_id)
+        if bot is None:
+            return
+        try:
+            await bot.send_chat_action(chat_id=chat_id, action="typing")
+        except Exception:
+            log.debug("send_typing_failed", agent_id=agent_id)
+
     async def send_message(
         self,
         agent_id: str,

@@ -65,6 +65,8 @@ class BaseAgent(abc.ABC):
         Main message handler. Builds Claude request, processes tool calls,
         sends the response via Telegram.
         """
+        import asyncio
+
         recent = await context.get_recent(10)
         history = context.format_for_agent(recent)
         self._current_sender = sender_name
@@ -73,6 +75,17 @@ class BaseAgent(abc.ABC):
         history.append({"role": "user", "content": f"{sender_name}: {message_text}"})
 
         tools = self.get_tools()
+
+        async def _typing_loop() -> None:
+            """Keep '<agent> печатает...' visible to users while we think."""
+            while True:
+                try:
+                    await self._bots.send_typing(self.agent_id, self._chat_id)
+                except Exception:
+                    pass
+                await asyncio.sleep(4)
+
+        typing_task = asyncio.create_task(_typing_loop())
 
         try:
             if tools:
@@ -110,6 +123,12 @@ class BaseAgent(abc.ABC):
             error_text = f"{self.emoji} Произошла ошибка при обработке. Попробуй ещё раз."
             await self.send(error_text)
             return AgentResponse(text=error_text, agent_id=self.agent_id)
+        finally:
+            typing_task.cancel()
+            try:
+                await typing_task
+            except (asyncio.CancelledError, Exception):
+                pass
 
     async def _process_tool_calls(
         self, message: Any, history: list[dict]

@@ -62,6 +62,15 @@ class NewsAgent(BaseAgent):
                 },
             },
             {
+                "name": "remove_news_channel",
+                "description": "Удалить канал из списка отслеживаемых (по username)",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"username": {"type": "string"}},
+                    "required": ["username"],
+                },
+            },
+            {
                 "name": "list_news_channels",
                 "description": "Получить полный список каналов которые читает Дозорный из БД. Используй ВСЕГДА когда спрашивают «какие каналы», «сколько каналов», «список каналов».",
                 "input_schema": {
@@ -111,6 +120,19 @@ class NewsAgent(BaseAgent):
                     )
                 )
             return {"success": True, "username": username, "note": "User-bot will subscribe on next restart"}
+
+        elif tool_name == "remove_news_channel":
+            username = (tool_input.get("username") or "").lstrip("@").strip()
+            if not username:
+                return {"success": False, "error": "empty username"}
+            async with self._memory._engine.begin() as conn:
+                from src.db.models import NewsChannel
+                from sqlalchemy import delete
+                result = await conn.execute(
+                    delete(NewsChannel).where(NewsChannel.username == username)
+                )
+                deleted = result.rowcount or 0
+            return {"success": True, "deleted": deleted, "username": username}
 
         elif tool_name == "list_news_channels":
             async with self._memory._engine.connect() as conn:
