@@ -91,13 +91,45 @@ class RailwayClient:
             instances=instances,
         )
 
-    async def restart_service(self, service_id: str, environment_id: str) -> bool:
-        """Trigger a redeploy (restart) for a service instance."""
+    async def get_project_environment_id(self) -> str | None:
+        """Return the first environment id of the configured project (usually 'production')."""
+        query = """
+        query GetEnvs($projectId: String!) {
+          project(id: $projectId) {
+            environments {
+              edges { node { id name } }
+            }
+          }
+        }
+        """
+        data = await self._gql(query, {"projectId": self._project_id})
+        edges = data.get("project", {}).get("environments", {}).get("edges", [])
+        # Prefer 'production', otherwise first
+        for edge in edges:
+            node = edge.get("node", {})
+            if (node.get("name") or "").lower() == "production":
+                return node.get("id")
+        if edges:
+            return edges[0].get("node", {}).get("id")
+        return None
+
+    async def restart_service(self, service_id: str, environment_id: str = "") -> bool:
+        """Trigger a redeploy (restart) for a service instance.
+
+        If environment_id is empty, auto-discover via project.environments.
+        """
+        if not environment_id:
+            env_id = await self.get_project_environment_id()
+            if not env_id:
+                raise RuntimeError("Could not resolve environment_id for the project")
+            environment_id = env_id
+            log.info("railway.env_id_resolved", environment_id=env_id)
+
         await self._gql(
             _REDEPLOY_MUTATION,
             {"serviceId": service_id, "environmentId": environment_id},
         )
-        log.info("railway.service_restarted", service_id=service_id)
+        log.info("railway.service_restarted", service_id=service_id, environment_id=environment_id)
         return True
 
     async def get_project_services(self) -> list[ServiceStatus]:
