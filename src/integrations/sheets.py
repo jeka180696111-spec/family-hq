@@ -156,7 +156,13 @@ class SheetsClient:
                 "",
                 notes_str,
             ]
-            ws.append_row(row_values, value_input_option="USER_ENTERED")
+            # Force append starting from column A — otherwise gspread guesses
+            # the table range from the last non-empty cell and offsets right.
+            ws.append_row(
+                row_values,
+                value_input_option="USER_ENTERED",
+                table_range="A1",
+            )
             return len(ws.get_all_values()), next_num
 
         row_index, next_num = await self._run_sync(_append)
@@ -265,7 +271,11 @@ class SheetsClient:
         ws = await self._open_worksheet(self._finance_sheet_id, _FINANCE_WORKSHEET)
 
         def _append() -> int:
-            ws.append_row(row_values, value_input_option="USER_ENTERED")
+            ws.append_row(
+                row_values,
+                value_input_option="USER_ENTERED",
+                table_range="A1",
+            )
             return len(ws.get_all_values())
 
         row_index = await self._run_sync(_append)
