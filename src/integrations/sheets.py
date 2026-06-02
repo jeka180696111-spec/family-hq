@@ -288,6 +288,15 @@ class SheetsClient:
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         results: list[SheetRow] = []
 
+        # Map English kind key from agent → expected Категория label in sheet
+        kind_to_label = {
+            "sleep": "Сон", "food": "Еда", "diaper": "Подгузник",
+            "walk": "Прогулка", "trip": "Поездка",
+            "medicine": "Лекарство", "symptom": "Симптом",
+            "milestone": "Веха", "note": "Заметка",
+        }
+        target_label = kind_to_label.get(kind, kind) if kind else None
+
         for i, row in enumerate(all_values, start=1):
             if not row:
                 continue
@@ -295,26 +304,38 @@ class SheetsClient:
             padded = row + [""] * (len(_BABY_COLS) - len(row))
             data = dict(zip(_BABY_COLS, padded))
 
-            # Parse date
-            try:
-                row_dt = datetime.strptime(
-                    f"{data['date']} {data['time']}", "%Y-%m-%d %H:%M"
-                ).replace(tzinfo=timezone.utc)
-            except ValueError:
-                continue  # skip header or malformed rows
+            # Parse date — sheet uses DD.MM.YYYY HH:MM
+            date_str = data.get("date", "").strip()
+            time_str = data.get("time", "").strip() or "00:00"
+            row_dt = None
+            for fmt in ("%d.%m.%Y %H:%M", "%Y-%m-%d %H:%M"):
+                try:
+                    row_dt = datetime.strptime(f"{date_str} {time_str}", fmt).replace(tzinfo=timezone.utc)
+                    break
+                except ValueError:
+                    continue
+            if row_dt is None:
+                continue  # header or malformed
 
             if row_dt < cutoff:
                 continue
 
-            if kind is not None and data.get("kind") != kind:
-                continue
+            # kind cell contains emoji + Russian label ("😴 Сон"); strip emoji to compare
+            if target_label is not None:
+                cell_kind = data.get("kind", "")
+                # Drop leading non-letter chars (emoji + spaces)
+                cleaned = cell_kind
+                for ch in cell_kind:
+                    if ch.isalpha():
+                        break
+                    cleaned = cleaned[1:]
+                cleaned = cleaned.strip()
+                if cleaned != target_label:
+                    continue
 
-            # Tag rows that were written by Matveika-bot (not us)
-            source = (
-                data.get("author", "")
-                if data.get("author", "") != "family_hq"
-                else "family_hq:nanny"
-            )
+            # Author is in 'notes' column as "[Name]"; treat anything not 'family_hq' as source
+            notes = data.get("notes", "")
+            source = "family_hq:nanny" if "family_hq" in notes else (notes or "manual")
 
             results.append(
                 SheetRow(
