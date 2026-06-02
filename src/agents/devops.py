@@ -157,18 +157,47 @@ class DevOpsAgent(BaseAgent):
                 return {"error": f"File not found: {path}"}
 
         elif tool_name == "restart_main_service":
-            if not self._railway:
-                return {"error": "Railway не настроен (нет RAILWAY_API_TOKEN или RAILWAY_PROJECT_ID или MATVEIKA_SERVICE_ID в env)"}
-            try:
-                from src.config import get_settings
-                settings = get_settings()
-                service_id = settings.matveika_service_id
-                if not service_id:
-                    return {"error": "MATVEIKA_SERVICE_ID не задан"}
-                ok = await self._railway.restart_service(service_id, environment_id="")
-                return {"success": ok, "reason": tool_input.get("reason", "")}
-            except Exception as e:
-                return {"error": str(e)}
+            from src.config import get_settings
+            settings = get_settings()
+            reason = tool_input.get("reason", "")
+
+            # Strategy 1: Railway GraphQL API (fails on Hobby plan)
+            railway_error: str | None = None
+            if self._railway and settings.matveika_service_id:
+                try:
+                    await self._railway.restart_service(
+                        settings.matveika_service_id, environment_id=""
+                    )
+                    return {"success": True, "via": "railway_api", "reason": reason}
+                except Exception as e:
+                    railway_error = str(e)
+                    log.warning("railway_restart_failed", error=railway_error)
+
+            # Strategy 2: trigger redeploy via empty commit on main (works on Hobby)
+            if self._github:
+                try:
+                    sha = await self._github.trigger_redeploy_via_commit(
+                        branch="main", reason=reason or "devops restart"
+                    )
+                    return {
+                        "success": True,
+                        "via": "github_empty_commit",
+                        "sha": sha,
+                        "reason": reason,
+                        "note": "Railway autodeploy picks this up in 1-2 min",
+                        "railway_api_error": railway_error,
+                    }
+                except Exception as e:
+                    return {
+                        "error": "Both Railway API and GitHub fallback failed",
+                        "railway_api_error": railway_error,
+                        "github_error": str(e),
+                    }
+
+            return {
+                "error": "No restart method available — Railway не настроен и GitHub-токен отсутствует",
+                "railway_api_error": railway_error,
+            }
 
         return await super()._call_tool(tool_name, tool_input)
 

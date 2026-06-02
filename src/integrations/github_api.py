@@ -208,6 +208,39 @@ class GitHubClient:
         log.debug("github_open_prs_listed", count=len(prs))
         return prs
 
+    async def trigger_redeploy_via_commit(self, branch: str = "main", reason: str = "manual redeploy") -> str:
+        """Create an empty commit on `branch` so Railway picks it up and redeploys.
+
+        Returns the new commit SHA.
+        """
+        from datetime import datetime, timezone
+
+        ref = await self._request("GET", f"/repos/{self._repo}/git/ref/heads/{branch}")
+        parent_sha = ref["object"]["sha"]
+
+        parent_commit = await self._request("GET", f"/repos/{self._repo}/git/commits/{parent_sha}")
+        tree_sha = parent_commit["tree"]["sha"]
+
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        new_commit = await self._request(
+            "POST",
+            f"/repos/{self._repo}/git/commits",
+            json={
+                "message": f"chore: trigger redeploy ({reason}) — {ts}",
+                "tree": tree_sha,
+                "parents": [parent_sha],
+            },
+        )
+        new_sha = new_commit["sha"]
+
+        await self._request(
+            "PATCH",
+            f"/repos/{self._repo}/git/refs/heads/{branch}",
+            json={"sha": new_sha, "force": False},
+        )
+        log.info("github_redeploy_commit", sha=new_sha, branch=branch)
+        return new_sha
+
     # ------------------------------------------------------------------
     # Low-level request helper
     # ------------------------------------------------------------------
@@ -215,12 +248,7 @@ class GitHubClient:
     async def _request(
         self, method: str, path: str, **kwargs
     ) -> dict | list:
-        """
-        Make an authenticated API request with exponential-backoff retry.
-
-        Raises ``httpx.HTTPStatusError`` on non-retryable errors or after
-        exhausting all 3 attempts.
-        """
+        """Make an authenticated API request with exponential-backoff retry."""
         url = f"{self.BASE_URL}/{path}"
         async with httpx.AsyncClient() as client:
             for attempt in range(3):
