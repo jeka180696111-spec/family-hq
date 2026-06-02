@@ -104,6 +104,7 @@ class NannyAgent(BaseAgent):
                     kind=tool_input.get("kind", "note"),
                     event=tool_input.get("event", ""),
                     time=dt,
+                    author=getattr(self, "_current_sender", "") or "family_hq",
                     amount=tool_input.get("amount"),
                     unit=tool_input.get("unit"),
                     details=tool_input.get("details", ""),

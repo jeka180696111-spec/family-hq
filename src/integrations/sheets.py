@@ -18,9 +18,21 @@ SCOPES = [
 ]
 
 # Column layouts ----------------------------------------------------------------
-# Baby diary sheet columns (1-indexed, matching Matveika-bot convention):
-#   A=date, B=time, C=kind, D=event, E=amount, F=unit, G=details, H=author
-_BABY_COLS = ["date", "time", "kind", "event", "amount", "unit", "details", "author"]
+# Baby diary sheet (matching the actual Matveika sheet):
+#   A=# (row number, left empty), B=date DD.MM.YYYY, C=time HH:MM,
+#   D=kind (emoji + Russian), E=event, F=author "[Name]",
+#   G=amount, H=unit, I=details, J=source
+_BABY_COLS = ["num", "date", "time", "kind", "event", "author", "amount", "unit", "details", "source"]
+
+_KIND_LABELS = {
+    "sleep": "😴 Сон",
+    "food": "🍼 Еда",
+    "medicine": "💊 Лекарство",
+    "note": "📝 Заметка",
+    "symptom": "🌡️ Симптом",
+    "milestone": "⭐ Веха",
+    "diaper": "💧 Подгузник",
+}
 
 # Finance sheet columns:
 #   A=date, B=amount, C=category, D=description, E=member
@@ -112,17 +124,21 @@ class SheetsClient:
 
         The appended row is tagged with source ``'family_hq:nanny'``.
         """
-        date_str = time.strftime("%Y-%m-%d")
+        date_str = time.strftime("%d.%m.%Y")
         time_str = time.strftime("%H:%M")
+        kind_label = _KIND_LABELS.get(kind, kind)
+        author_label = f"[{author}]" if author and not author.startswith("[") else (author or "")
         row_values = [
+            "",  # A: row number column, leave blank
             date_str,
             time_str,
-            kind,
+            kind_label,
             event,
+            author_label,
             str(amount) if amount is not None else "",
             unit or "",
             details,
-            author,
+            "family_hq",
         ]
 
         ws = await self._open_worksheet(self._baby_sheet_id, _BABY_WORKSHEET)

@@ -61,6 +61,7 @@ class BaseAgent(abc.ABC):
         """
         recent = await context.get_recent(10)
         history = context.format_for_agent(recent)
+        self._current_sender = sender_name
 
         # Append current message
         history.append({"role": "user", "content": f"{sender_name}: {message_text}"})
