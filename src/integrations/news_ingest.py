@@ -76,10 +76,25 @@ class NewsIngestor:
         chat_id = getattr(message, "chat_id", None) or getattr(message, "peer_id", None)
         if chat_id is None:
             return
-        # Telethon channel IDs can be negative or positive depending on peer type
-        normalized = abs(int(chat_id))
-        if normalized not in self._channel_ids and chat_id not in self._channel_ids:
+        # Telethon event.chat_id for channels is the full form like -1001004300467,
+        # but entity.id (what we stored on subscribe) is the bare form 1004300467.
+        # Try both forms when matching.
+        candidates: set[int] = set()
+        try:
+            raw = int(chat_id)
+        except Exception:
             return
+        candidates.add(raw)
+        absolute = abs(raw)
+        candidates.add(absolute)
+        # Strip the leading 100 if present (channels)
+        if absolute > 1_000_000_000_000:
+            candidates.add(absolute - 1_000_000_000_000)
+
+        match_id = next((c for c in candidates if c in self._channel_ids), None)
+        if match_id is None:
+            return
+        normalized = match_id
 
         text = getattr(message, "text", "") or getattr(message, "message", "") or ""
         if not text.strip():
