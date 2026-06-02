@@ -87,7 +87,16 @@ class BaseAgent(abc.ABC):
                 )
                 actions = []
 
-            await self.send(response_text)
+            sent = await self.send(response_text)
+            try:
+                await context.save_message(
+                    tg_message_id=getattr(sent, "message_id", 0) or 0,
+                    user_id=None,
+                    agent_id=self.agent_id,
+                    text=response_text,
+                )
+            except Exception:
+                self._log.exception("save_agent_response_failed")
             return AgentResponse(text=response_text, agent_id=self.agent_id, actions_taken=actions)
 
         except Exception:
@@ -141,9 +150,9 @@ class BaseAgent(abc.ABC):
         from src.config import get_settings
         return get_settings().model_main
 
-    async def send(self, text: str, reply_to: int | None = None) -> None:
-        """Send a message from this agent's bot to the HQ group."""
-        await self._bots.send_message(
+    async def send(self, text: str, reply_to: int | None = None) -> Any:
+        """Send a message from this agent's bot to the HQ group. Returns the tg Message."""
+        return await self._bots.send_message(
             agent_id=self.agent_id,
             chat_id=self._chat_id,
             text=text,
