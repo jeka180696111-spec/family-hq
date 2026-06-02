@@ -102,6 +102,31 @@ def iso_now() -> str:
     return now_kyiv().isoformat()
 
 
+_WEEKDAY_RU = {
+    0: "понедельник", 1: "вторник", 2: "среда", 3: "четверг",
+    4: "пятница", 5: "суббота", 6: "воскресенье",
+}
+_MONTH_RU = {
+    1: "января", 2: "февраля", 3: "марта", 4: "апреля", 5: "мая", 6: "июня",
+    7: "июля", 8: "августа", 9: "сентября", 10: "октября", 11: "ноября", 12: "декабря",
+}
+
+
+def current_context_block() -> str:
+    """Date/time context every agent prepends to its system prompt."""
+    now = now_kyiv()
+    weekday = _WEEKDAY_RU[now.weekday()]
+    month = _MONTH_RU[now.month]
+    return (
+        "═══ ТЕКУЩЕЕ ВРЕМЯ ═══\n"
+        f"Сегодня: {weekday}, {now.day} {month} {now.year}\n"
+        f"Время сейчас: {now.strftime('%H:%M')} (Киев)\n"
+        f"ISO: {now.strftime('%Y-%m-%dT%H:%M:%S')}\n"
+        "Используй эти значения для «сегодня», «завтра», «вчера», «в пятницу». "
+        "Никогда не угадывай дату — бери отсюда.\n\n"
+    )
+
+
 def parse_message_time(text: str, reference: datetime | None = None) -> datetime | None:
     """Try to parse time mentions from user messages.
 

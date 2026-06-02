@@ -4,6 +4,8 @@ from typing import Any, TYPE_CHECKING
 from pydantic import BaseModel
 import structlog
 
+from src.utils.time import current_context_block
+
 if TYPE_CHECKING:
     from src.integrations.claude_client import ClaudeClient
     from src.integrations.telegram_bots import BotManager
@@ -42,7 +44,11 @@ class BaseAgent(abc.ABC):
 
     @abc.abstractmethod
     def get_system_prompt(self) -> str:
-        """Return the system prompt for this agent."""
+        """Return the agent-specific system prompt (without shared time/team blocks)."""
+
+    def _full_system_prompt(self) -> str:
+        """System prompt with current date/time prepended — shared for all agents."""
+        return current_context_block() + self.get_system_prompt()
 
     @abc.abstractmethod
     def get_tools(self) -> list[dict[str, Any]]:
@@ -72,7 +78,7 @@ class BaseAgent(abc.ABC):
             if tools:
                 message = await self._claude.complete_with_tools(
                     model=self._get_model(),
-                    system=self.get_system_prompt(),
+                    system=self._full_system_prompt(),
                     messages=history,
                     tools=tools,
                     max_tokens=2048,
@@ -81,7 +87,7 @@ class BaseAgent(abc.ABC):
             else:
                 response_text = await self._claude.complete(
                     model=self._get_model(),
-                    system=self.get_system_prompt(),
+                    system=self._full_system_prompt(),
                     messages=history,
                     max_tokens=1024,
                 )
@@ -131,7 +137,7 @@ class BaseAgent(abc.ABC):
 
             current_message = await self._claude.complete_with_tools(
                 model=self._get_model(),
-                system=self.get_system_prompt(),
+                system=self._full_system_prompt(),
                 messages=current_history,
                 tools=self.get_tools(),
                 max_tokens=2048,
