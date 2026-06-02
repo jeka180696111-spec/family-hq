@@ -59,6 +59,17 @@ class CalendarAgent(BaseAgent):
                     "required": ["query"],
                 },
             },
+            {
+                "name": "delete_event",
+                "description": "Удалить событие из Google Calendar по его ID. ID бери из find_events / list_upcoming. ВАЖНО: перед удалением переспроси у пользователя «удалить событие X — подтверди?» и удаляй только после явного «да».",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "event_id": {"type": "string", "description": "Google Calendar event ID"},
+                    },
+                    "required": ["event_id"],
+                },
+            },
         ]
 
     async def _call_tool(self, tool_name: str, tool_input: dict[str, Any]) -> Any:
@@ -90,5 +101,9 @@ class CalendarAgent(BaseAgent):
         elif tool_name == "find_events":
             events = await self._calendar.find_events(tool_input["query"])
             return [{"title": e.title, "start": e.start.isoformat(), "id": e.event_id} for e in events]
+
+        elif tool_name == "delete_event":
+            ok = await self._calendar.delete_event(tool_input["event_id"])
+            return {"deleted": ok, "event_id": tool_input["event_id"]}
 
         return await super()._call_tool(tool_name, tool_input)
