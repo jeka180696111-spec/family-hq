@@ -100,12 +100,31 @@ class NewsAgent(BaseAgent):
             username = (tool_input.get("username") or "").lstrip("@").strip()
             if not username:
                 return {"success": False, "error": "empty username"}
+
+            # Check if already exists
+            from src.db.models import NewsChannel
+            from sqlalchemy import select
+            async with self._memory._engine.connect() as conn:
+                existing = await conn.execute(
+                    select(NewsChannel).where(NewsChannel.username == username)
+                )
+                existing_row = existing.first()
+            if existing_row:
+                return {
+                    "success": False,
+                    "already_exists": True,
+                    "username": username,
+                    "category": existing_row.category,
+                    "region": existing_row.region,
+                    "active": bool(existing_row.active),
+                    "message": f"Канал @{username} уже отслеживается (категория {existing_row.category}).",
+                }
+
             # Stable placeholder channel_id from username hash (negative to avoid
             # collisions with real Telegram channel IDs). Will be updated to the
             # real ID once the user-bot resolves it on startup.
             placeholder_id = -(int(hashlib.sha1(username.encode()).hexdigest()[:12], 16) % (10**11))
             async with self._memory._engine.begin() as conn:
-                from src.db.models import NewsChannel
                 from sqlalchemy import insert
                 from src.utils.time import iso_now
                 await conn.execute(
