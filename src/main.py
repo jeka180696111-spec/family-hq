@@ -363,29 +363,6 @@ async def run(dry_run: bool = False) -> None:
     await news_ingestor.load_tracked_channels()
     userbot.add_news_handler(news_ingestor.handle)
 
-    # Subscribe to all tracked channels that we're not already in
-    from sqlalchemy import select
-    from src.db.models import NewsChannel
-    async with memory._engine.connect() as conn:
-        channel_rows = list(await conn.execute(select(NewsChannel)))
-    for ch in channel_rows:
-        if ch.username:
-            try:
-                resolved_id = await userbot.subscribe_to_channel(ch.username)
-                if resolved_id and resolved_id != ch.channel_id:
-                    # Update DB with the real channel_id from Telegram
-                    from sqlalchemy import update
-                    async with memory._engine.begin() as conn:
-                        await conn.execute(
-                            update(NewsChannel)
-                            .where(NewsChannel.username == ch.username)
-                            .values(channel_id=resolved_id)
-                        )
-            except Exception:
-                log.exception("channel_join_failed", username=ch.username)
-    # Refresh after possible channel_id updates
-    await news_ingestor.load_tracked_channels()
-
     # Graceful shutdown handler
     _shutdown_event = asyncio.Event()
 
@@ -396,6 +373,31 @@ async def run(dry_run: bool = False) -> None:
     try:
         await userbot.start()
         log.info("family_hq_started", agents=list(agents.keys()), chat_id=chat_id)
+
+        # Subscribe to tracked channels AFTER userbot is connected.
+        # Throttle: Telegram floods with ~20 joins/min, sleep 4s between.
+        from sqlalchemy import select, update
+        from src.db.models import NewsChannel
+        async with memory._engine.connect() as conn:
+            channel_rows = list(await conn.execute(select(NewsChannel)))
+        for ch in channel_rows:
+            if not ch.username:
+                continue
+            try:
+                resolved_id = await userbot.subscribe_to_channel(ch.username)
+                if resolved_id and resolved_id != ch.channel_id:
+                    async with memory._engine.begin() as conn:
+                        await conn.execute(
+                            update(NewsChannel)
+                            .where(NewsChannel.username == ch.username)
+                            .values(channel_id=resolved_id)
+                        )
+            except Exception:
+                log.exception("channel_join_failed", username=ch.username)
+            await asyncio.sleep(4)
+        await news_ingestor.load_tracked_channels()
+        log.info("news_subscriptions_done", count=len(channel_rows))
+
         await _shutdown_event.wait()
     finally:
         log.info("family_hq_shutting_down")
