@@ -45,19 +45,47 @@ class ConversationContext:
             "parsed_actions": json.dumps(parsed_actions) if parsed_actions else None,
         })
 
-    def format_for_agent(self, messages: list[dict[str, Any]], max_messages: int = 10) -> list[dict]:
+    def format_for_agent(
+        self,
+        messages: list[dict[str, Any]],
+        max_messages: int = 10,
+        self_agent_id: str | None = None,
+    ) -> list[dict]:
         """
         Format recent messages as Claude conversation history.
-        Returns list of {"role": "user"|"assistant", "content": "..."} dicts.
+
+        From the viewpoint of *self_agent_id*:
+        - messages this agent posted earlier → role 'assistant' (his own words)
+        - messages from other agents → role 'user' with '[agent_id]:' prefix
+          so he knows whose words they are and doesn't echo them as his own
+        - human messages → role 'user'
+
+        If self_agent_id is None (legacy), all agent messages get 'assistant'.
         """
-        result = []
+        result: list[dict] = []
         for msg in messages[-max_messages:]:
-            if msg.get("agent_id"):
-                role = "assistant"
-                content = f"[{msg['agent_id']}]: {msg.get('text', '')}"
+            aid = msg.get("agent_id")
+            text = msg.get("text", "")
+            if not text:
+                continue
+            if aid:
+                if self_agent_id and aid == self_agent_id:
+                    result.append({"role": "assistant", "content": text})
+                else:
+                    result.append({"role": "user", "content": f"[{aid}]: {text}"})
             else:
-                role = "user"
-                content = msg.get("text", "")
-            if content:
-                result.append({"role": role, "content": content})
-        return result
+                result.append({"role": "user", "content": text})
+
+        # Anthropic API requires the first message to be 'user'. If the recent
+        # window starts with an 'assistant' message (rare edge case), drop it.
+        while result and result[0]["role"] == "assistant":
+            result.pop(0)
+
+        # Also collapse consecutive same-role messages by joining content
+        merged: list[dict] = []
+        for m in result:
+            if merged and merged[-1]["role"] == m["role"]:
+                merged[-1]["content"] = merged[-1]["content"] + "\n" + m["content"]
+            else:
+                merged.append(m)
+        return merged

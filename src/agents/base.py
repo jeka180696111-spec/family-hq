@@ -68,7 +68,7 @@ class BaseAgent(abc.ABC):
         import asyncio
 
         recent = await context.get_recent(10)
-        history = context.format_for_agent(recent)
+        history = context.format_for_agent(recent, self_agent_id=self.agent_id)
         self._current_sender = sender_name
 
         # Append current message
