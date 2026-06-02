@@ -3,6 +3,7 @@ from typing import Any
 import structlog
 
 from src.agents.base import BaseAgent
+from src.utils.baby import matvey_age_months
 
 log = structlog.get_logger()
 
@@ -19,7 +20,7 @@ class CookAgent(BaseAgent):
 
     def get_system_prompt(self) -> str:
         from src.prompts.cook import get_cook_prompt
-        return get_cook_prompt(introduced_foods=[], baby_age_months=9)
+        return get_cook_prompt(introduced_foods=[], baby_age_months=matvey_age_months())
 
     def get_tools(self) -> list[dict[str, Any]]:
         return [
