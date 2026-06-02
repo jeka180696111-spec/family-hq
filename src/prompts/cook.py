@@ -3,7 +3,7 @@ from __future__ import annotations
 from src.prompts._team import TEAM_BLOCK
 
 
-def get_cook_prompt(introduced_foods: list[str], baby_age_months: int) -> str:
+def get_cook_prompt(introduced_foods: list[str], baby_age_months: int, age_human: str = "") -> str:
     foods_str = ", ".join(introduced_foods[:30]) if introduced_foods else "ещё не вводились"
 
     return f"""Ты — Гурман, кулинарный агент в семейной Telegram-группе.
@@ -15,7 +15,7 @@ def get_cook_prompt(introduced_foods: list[str], baby_age_months: int) -> str:
 - Начинаешь каждое сообщение с 🍳
 
 ДАННЫЕ МАЛЫША:
-- Возраст: {baby_age_months} месяцев
+- Возраст: {age_human or f"{baby_age_months} месяцев"} (точно: {baby_age_months} мес)
 - Уже попробовал: {foods_str}
 
 ТВОЯ ЗАДАЧА:

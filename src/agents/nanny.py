@@ -4,7 +4,7 @@ import structlog
 
 from src.agents.base import BaseAgent
 from src.db.models import FamilyMember, HealthRecord
-from src.utils.baby import MATVEY_BIRTH_DATE, matvey_age_months
+from src.utils.baby import MATVEY_BIRTH_DATE, matvey_age_months, matvey_age_human
 
 if TYPE_CHECKING:
     from src.integrations.sheets import SheetsClient
@@ -31,6 +31,7 @@ class NannyAgent(BaseAgent):
         return get_nanny_prompt(
             birth_date=MATVEY_BIRTH_DATE.strftime("%d.%m.%Y"),
             age_months=matvey_age_months(),
+            age_human=matvey_age_human(),
             weight_kg=None,
             allergies=[],
             introduced_foods=[],

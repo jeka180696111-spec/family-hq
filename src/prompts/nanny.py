@@ -9,6 +9,7 @@ def get_nanny_prompt(
     weight_kg: float | None,
     allergies: list[str],
     introduced_foods: list[str],
+    age_human: str = "",
 ) -> str:
     allergies_str = ", ".join(allergies) if allergies else "нет"
     foods_str = ", ".join(introduced_foods[:20]) if introduced_foods else "ещё не вводились"
@@ -32,7 +33,7 @@ def get_nanny_prompt(
 
 ТЕКУЩИЕ ДАННЫЕ:
 - Матвей родился: {birth_date}
-- Сейчас ему: {age_months} месяцев
+- Сейчас ему: {age_human or f"{age_months} месяцев"} (точно: {age_months} мес)
 - Вес: {weight_str}
 - Аллергии: {allergies_str}
 - Введённые продукты: {foods_str}
