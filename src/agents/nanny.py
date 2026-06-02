@@ -1,9 +1,12 @@
 from __future__ import annotations
+from datetime import date
 from typing import Any, TYPE_CHECKING
 import structlog
 
 from src.agents.base import BaseAgent
 from src.db.models import FamilyMember, HealthRecord
+
+MATVEY_BIRTH_DATE = date(2025, 12, 2)
 
 if TYPE_CHECKING:
     from src.integrations.sheets import SheetsClient
@@ -27,10 +30,13 @@ class NannyAgent(BaseAgent):
 
     def get_system_prompt(self) -> str:
         from src.prompts.nanny import get_nanny_prompt
-        # Load baby data from memory (sync-ish, defaults if not available)
+        today = date.today()
+        age_months = (today.year - MATVEY_BIRTH_DATE.year) * 12 + (today.month - MATVEY_BIRTH_DATE.month)
+        if today.day < MATVEY_BIRTH_DATE.day:
+            age_months -= 1
         return get_nanny_prompt(
-            birth_date="2025-08-01",  # Will be loaded from DB
-            age_months=9,
+            birth_date=MATVEY_BIRTH_DATE.strftime("%d.%m.%Y"),
+            age_months=max(age_months, 0),
             weight_kg=None,
             allergies=[],
             introduced_foods=[],

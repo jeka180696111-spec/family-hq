@@ -5,6 +5,7 @@ from pydantic import BaseModel
 import structlog
 
 from src.integrations.claude_client import ClaudeClient
+from src.orchestrator.dispatcher import _extract_json
 from src.prompts.parser import PARSER_SYSTEM
 
 log = structlog.get_logger()
@@ -50,7 +51,7 @@ class MessageParser:
                 messages=[{"role": "user", "content": content}],
                 max_tokens=1024,
             )
-            data = json.loads(response)
+            data = json.loads(_extract_json(response))
             return ParsedMessage(
                 actions=[ParsedAction(**a) for a in data.get("actions", [])],
                 needs_clarification=data.get("needs_clarification", False),

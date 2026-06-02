@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import re
 from typing import Any
 from pydantic import BaseModel
 import structlog
@@ -10,6 +11,19 @@ from src.prompts.dispatcher import DISPATCHER_SYSTEM
 log = structlog.get_logger()
 
 EXTERNAL_AGENT = "EXTERNAL_AGENT"
+
+
+def _extract_json(text: str) -> str:
+    """Strip markdown code fences and return the first {...} block."""
+    text = text.strip()
+    fence = re.match(r"^```(?:json)?\s*(.*?)\s*```$", text, re.DOTALL)
+    if fence:
+        text = fence.group(1).strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return text[start:end + 1]
+    return text
 
 
 class AgentTask(BaseModel):
@@ -72,7 +86,7 @@ class Dispatcher:
                 messages=messages,
                 max_tokens=512,
             )
-            data = json.loads(response)
+            data = json.loads(_extract_json(response))
             intent = data.get("intent", "")
 
             # Finance → external agent (Фінн), dispatcher stays silent
