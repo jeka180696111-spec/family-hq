@@ -5,7 +5,7 @@ from typing import Callable, Awaitable, Any
 
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-from telethon.errors import ChannelPrivateError, UsernameInvalidError
+from telethon.errors import ChannelPrivateError, UsernameInvalidError, UsernameNotOccupiedError
 from telethon.tl.types import Message
 import structlog
 
@@ -99,8 +99,8 @@ class UserBot:
                 channel_id=channel_id,
             )
             return channel_id
-        except UsernameInvalidError:
-            log.error("channel_username_invalid", username=channel_username)
+        except (UsernameInvalidError, UsernameNotOccupiedError):
+            log.warning("channel_username_does_not_exist", username=channel_username)
             return None
         except ChannelPrivateError:
             log.error("channel_private", username=channel_username)

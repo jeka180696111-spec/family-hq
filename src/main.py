@@ -385,12 +385,21 @@ async def run(dry_run: bool = False) -> None:
                 continue
             try:
                 resolved_id = await userbot.subscribe_to_channel(ch.username)
-                if resolved_id and resolved_id != ch.channel_id:
+                if resolved_id is None:
+                    # Channel doesn't exist / is private — mark inactive in DB
                     async with memory._engine.begin() as conn:
                         await conn.execute(
                             update(NewsChannel)
                             .where(NewsChannel.username == ch.username)
-                            .values(channel_id=resolved_id)
+                            .values(active=0)
+                        )
+                    log.warning("channel_marked_inactive", username=ch.username)
+                elif resolved_id != ch.channel_id:
+                    async with memory._engine.begin() as conn:
+                        await conn.execute(
+                            update(NewsChannel)
+                            .where(NewsChannel.username == ch.username)
+                            .values(channel_id=resolved_id, active=1)
                         )
             except Exception:
                 log.exception("channel_join_failed", username=ch.username)
