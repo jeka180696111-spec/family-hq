@@ -104,40 +104,117 @@ async def handle_new_message(
             "Пользователь"
         )
 
-        # Dispatch to agents
-        recent = await context.get_recent(5)
-        result = await dispatcher.dispatch(
-            message_text=text,
+        # Dispatch loop with peer-to-peer chaining (max 3 hops)
+        await _dispatch_chain(
+            text=text,
             sender_name=sender_name,
-            active_agent_ids=registry.active_ids(),
-            recent_context=recent,
+            dispatcher=dispatcher,
+            parser=parser,
+            agents=agents,
+            registry=registry,
+            context=context,
+            chain_depth=0,
+            origin_agent=None,
         )
-
-        # Parse message for structured actions
-        parsed = await parser.parse(text)
-
-        # Execute each assigned agent (sorted by priority)
-        priority_order = {"critical": 0, "high": 1, "normal": 2, "low": 3}
-        sorted_tasks = sorted(result.tasks, key=lambda t: priority_order.get(t.priority, 99))
-
-        for task in sorted_tasks:
-            agent = agents.get(task.agent_id)
-            if not agent:
-                log.warning("agent_not_found", agent_id=task.agent_id)
-                continue
-
-            try:
-                await agent.handle(
-                    message_text=text,
-                    sender_name=sender_name,
-                    context=context,
-                    parsed_actions=[a.model_dump() for a in parsed.actions],
-                )
-            except Exception:
-                log.exception("agent_handle_failed", agent_id=task.agent_id)
 
     except Exception:
         log.exception("message_handler_error")
+
+
+_MAX_CHAIN_DEPTH = 3
+_AGENT_NAME_PATTERNS = {
+    "nanny": ["няня", "няне", "няню"],
+    "news": ["дозорный", "дозорному", "дозорного"],
+    "calendar": ["ежедневник", "ежедневнику", "календарь"],
+    "cook": ["гурман", "гурману", "гурмана"],
+    "health": ["айболит", "айболиту"],
+    "devops": ["прораб", "прорабу", "прораба"],
+}
+_ACTION_HINTS = [
+    "нужен рестарт", "перезапусти", "рестарт системы", "рестарт сервиса",
+    "проверь", "сделай", "помоги", "запусти", "уточни", "посмотри",
+    "поправь", "почини", "почини", "пингуй", "обнови",
+]
+
+
+def _find_addressed_agent(text: str, exclude: str | None) -> str | None:
+    """Detect if `text` addresses another agent by name AND contains an action verb."""
+    if not text:
+        return None
+    lower = text.lower()
+    has_action = any(hint in lower for hint in _ACTION_HINTS)
+    if not has_action:
+        return None
+    for agent_id, names in _AGENT_NAME_PATTERNS.items():
+        if agent_id == exclude:
+            continue
+        if any(name in lower for name in names):
+            return agent_id
+    return None
+
+
+async def _dispatch_chain(
+    text: str,
+    sender_name: str,
+    dispatcher: Dispatcher,
+    parser: MessageParser,
+    agents: dict[str, Any],
+    registry: AgentRegistry,
+    context: ConversationContext,
+    chain_depth: int,
+    origin_agent: str | None,
+) -> None:
+    """Dispatch a message to agents; if an agent's reply addresses another, recurse."""
+    recent = await context.get_recent(8)
+    result = await dispatcher.dispatch(
+        message_text=text,
+        sender_name=sender_name,
+        active_agent_ids=registry.active_ids(),
+        recent_context=recent,
+    )
+    parsed = await parser.parse(text)
+
+    priority_order = {"critical": 0, "high": 1, "normal": 2, "low": 3}
+    sorted_tasks = sorted(result.tasks, key=lambda t: priority_order.get(t.priority, 99))
+
+    for task in sorted_tasks:
+        agent = agents.get(task.agent_id)
+        if not agent:
+            log.warning("agent_not_found", agent_id=task.agent_id)
+            continue
+        # Don't let an agent answer itself within the same chain
+        if task.agent_id == origin_agent:
+            continue
+
+        try:
+            response = await agent.handle(
+                message_text=text,
+                sender_name=sender_name,
+                context=context,
+                parsed_actions=[a.model_dump() for a in parsed.actions],
+            )
+        except Exception:
+            log.exception("agent_handle_failed", agent_id=task.agent_id)
+            continue
+
+        # Peer-to-peer chain: if agent's reply addresses someone with an action
+        if chain_depth + 1 >= _MAX_CHAIN_DEPTH:
+            continue
+        reply_text = getattr(response, "text", "") or ""
+        addressed = _find_addressed_agent(reply_text, exclude=task.agent_id)
+        if addressed and addressed in agents:
+            log.info("peer_chain", from_agent=task.agent_id, to_agent=addressed, depth=chain_depth + 1)
+            await _dispatch_chain(
+                text=reply_text,
+                sender_name=f"[{task.agent_id}]",
+                dispatcher=dispatcher,
+                parser=parser,
+                agents=agents,
+                registry=registry,
+                context=context,
+                chain_depth=chain_depth + 1,
+                origin_agent=task.agent_id,
+            )
 
 
 async def run(dry_run: bool = False) -> None:
