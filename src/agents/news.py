@@ -50,6 +50,16 @@ class NewsAgent(BaseAgent):
                 },
             },
             {
+                "name": "list_news_channels",
+                "description": "Получить полный список каналов которые читает Дозорный из БД. Используй ВСЕГДА когда спрашивают «какие каналы», «сколько каналов», «список каналов».",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "category": {"type": "string", "enum": ["critical", "important", "background"]},
+                    },
+                },
+            },
+            {
                 "name": "set_region_priority",
                 "description": "Изменить приоритет региона",
                 "input_schema": {
@@ -81,6 +91,26 @@ class NewsAgent(BaseAgent):
                     )
                 )
             return {"success": True}
+
+        elif tool_name == "list_news_channels":
+            async with self._memory._engine.connect() as conn:
+                from src.db.models import NewsChannel
+                from sqlalchemy import select
+                stmt = select(NewsChannel).order_by(NewsChannel.category, NewsChannel.username)
+                category = tool_input.get("category")
+                if category:
+                    stmt = stmt.where(NewsChannel.category == category)
+                rows = await conn.execute(stmt)
+                channels = [
+                    {
+                        "username": r.username,
+                        "title": r.title,
+                        "category": r.category,
+                        "region": r.region,
+                    }
+                    for r in rows
+                ]
+                return {"count": len(channels), "channels": channels}
 
         elif tool_name == "get_recent_alerts":
             async with self._memory._engine.connect() as conn:
