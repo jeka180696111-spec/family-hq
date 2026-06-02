@@ -102,10 +102,12 @@ class CalendarClient:
         """Produce an API-compatible start/end body fragment."""
         if dt is None:
             return {}
-        # Always send dateTime with timezone offset
+        # Naive datetime (no tzinfo) is treated as Kyiv local time — that's
+        # what the agent passes when the user says 'today at 23:00'.
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return {"dateTime": dt.isoformat(), "timeZone": "UTC"}
+            from src.utils.time import KYIV_TZ
+            dt = dt.replace(tzinfo=KYIV_TZ)
+        return {"dateTime": dt.isoformat(), "timeZone": "Europe/Kyiv"}
 
     # ------------------------------------------------------------------
     # Public API
