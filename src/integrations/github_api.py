@@ -215,16 +215,16 @@ class GitHubClient:
         """
         from datetime import datetime, timezone
 
-        ref = await self._request("GET", f"/repos/{self._repo}/git/ref/heads/{branch}")
+        ref = await self._request("GET", f"repos/{self._repo}/git/ref/heads/{branch}")
         parent_sha = ref["object"]["sha"]
 
-        parent_commit = await self._request("GET", f"/repos/{self._repo}/git/commits/{parent_sha}")
+        parent_commit = await self._request("GET", f"repos/{self._repo}/git/commits/{parent_sha}")
         tree_sha = parent_commit["tree"]["sha"]
 
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         new_commit = await self._request(
             "POST",
-            f"/repos/{self._repo}/git/commits",
+            f"repos/{self._repo}/git/commits",
             json={
                 "message": f"chore: trigger redeploy ({reason}) — {ts}",
                 "tree": tree_sha,
@@ -235,7 +235,7 @@ class GitHubClient:
 
         await self._request(
             "PATCH",
-            f"/repos/{self._repo}/git/refs/heads/{branch}",
+            f"repos/{self._repo}/git/refs/heads/{branch}",
             json={"sha": new_sha, "force": False},
         )
         log.info("github_redeploy_commit", sha=new_sha, branch=branch)
