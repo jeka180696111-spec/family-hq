@@ -51,6 +51,44 @@ _REGION_KEYWORDS = {
 }
 
 
+_PROMO_PATTERNS = re.compile(
+    r"(прислати?ь?\s+новост|"
+    r"плат(им|ять)\s+за\s+контент|"
+    r"реклам[аи]?|sponsorship|"
+    r"наш(а|и)\s+ресурс|"
+    r"подп[иі]ши(сь|тесь)|"
+    r"будь?те\s+в\s+курсе|"
+    r"оперативные?\s+новости|"
+    r"ссылка\s+на\s+канал|"
+    r"в\s+режиме\s+онлайн|"
+    r"24/?7)",
+    re.IGNORECASE | re.UNICODE,
+)
+
+
+def _strip_promo(text: str) -> str:
+    """Cut promotional footer from a channel post."""
+    lines = text.splitlines()
+    clean: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        # Stop at the first promo line — everything after is usually promo footer
+        if _PROMO_PATTERNS.search(stripped):
+            break
+        # Drop bare t.me links and channel handles surrounded by markdown
+        if stripped.startswith("https://t.me/") or stripped.startswith("t.me/"):
+            continue
+        # Drop separator-only lines
+        if stripped in ("—", "---", "===", "~~~", "***"):
+            continue
+        clean.append(line)
+    # Trim trailing empty lines
+    while clean and not clean[-1].strip():
+        clean.pop()
+    result = "\n".join(clean).strip()
+    return result or text.strip()
+
+
 def _detect_alert(text: str) -> tuple[bool, str | None]:
     """Returns (is_alert, region)."""
     if not text:
@@ -201,7 +239,7 @@ class NewsIngestor:
                 pass
         self._last_alert_push[key] = now.isoformat()
 
-        snippet = text.strip()
+        snippet = _strip_promo(text)
         if len(snippet) > 600:
             snippet = snippet[:600] + "…"
         region_label = region or "регион"

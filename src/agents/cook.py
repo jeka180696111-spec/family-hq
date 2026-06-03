@@ -59,13 +59,28 @@ class CookAgent(BaseAgent):
             },
             {
                 "name": "write_cooking_note",
-                "description": "Записать короткое наблюдение про еду/прикорм в лист «Заметки». Используй для рецептов которые понравились, идей на завтра, реакций ребёнка на продукт. Это видимая запись в Google Sheets.",
+                "description": "Записать короткое наблюдение в лист «Заметки» (для свободных мыслей и идей).",
                 "input_schema": {
                     "type": "object",
                     "properties": {
                         "text": {"type": "string", "description": "Текст заметки"},
                     },
                     "required": ["text"],
+                },
+            },
+            {
+                "name": "write_feeding",
+                "description": "Записать в лист «Прикорм» — твой основной журнал по питанию малыша. Используй для: новых продуктов прикорма, перекусов, рецептов которые приготовили, реакции на еду. ВАЖНО: для базового события «съел X» в общий Дневник пишет Няня, ты дополняешь в «Прикорм» с деталями реакции/порции.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "type": {"type": "string", "description": "Тип: Прикорм / Перекус / Рецепт / Напиток / Десерт / Другое"},
+                        "product": {"type": "string", "description": "Название продукта/блюда («Кабачок», «Брокколи в пюре», «Овсяная каша»)"},
+                        "portion": {"type": "string", "description": "Порция: «1/2 ч.л.», «100 мл», «1 ст.л.»"},
+                        "reaction": {"type": "string", "description": "Реакция: Отличная / Хорошая / Нейтральная / Отказался / Сыпь / Аллергия"},
+                        "details": {"type": "string", "description": "Подробности: способ приготовления, рецепт, наблюдения"},
+                    },
+                    "required": ["type", "product"],
                 },
             },
         ]
@@ -79,6 +94,21 @@ class CookAgent(BaseAgent):
             return await self._sheets.append_note(
                 text=tool_input.get("text", ""),
                 time=now_kyiv(),
+                author=author,
+            )
+
+        if tool_name == "write_feeding":
+            if not self._sheets:
+                return {"error": "Google Sheets не настроен"}
+            from src.utils.time import now_kyiv
+            author = getattr(self, "_current_sender", "") or "Гурман"
+            return await self._sheets.append_feeding(
+                type_=tool_input.get("type", "Прикорм"),
+                product=tool_input.get("product", ""),
+                time=now_kyiv(),
+                portion=tool_input.get("portion", ""),
+                reaction=tool_input.get("reaction", ""),
+                details=tool_input.get("details", ""),
                 author=author,
             )
 

@@ -76,6 +76,26 @@ _MILESTONES_WORKSHEET = "Достижения"
 _GROWTH_WORKSHEET = "Рост"
 _HEALTH_WORKSHEET = "Здоровье"
 _DOCTOR_WORKSHEET = "Врач"
+_FEEDING_WORKSHEET = "Прикорм"
+
+# Feeding sheet (created for Гурман):
+#   A=№ B=Дата C=Возраст D=Тип E=Продукт/Блюдо F=Порция G=Реакция H=Примечание I=Автор
+_FEEDING_TYPE_PREFIX = {
+    "Прикорм": "🥄 ",
+    "Перекус": "🍎 ",
+    "Рецепт": "🍳 ",
+    "Напиток": "🥤 ",
+    "Десерт": "🍮 ",
+    "Другое": "▪ ",
+}
+_FEEDING_REACTION_PREFIX = {
+    "Отличная": "✅ ",
+    "Хорошая": "👍 ",
+    "Нейтральная": "😐 ",
+    "Отказался": "🚫 ",
+    "Сыпь": "🔴 ",
+    "Аллергия": "⚠️ ",
+}
 
 # Emoji prefixes for the "Достижение" column (D in Достижения sheet)
 _MILESTONE_PREFIX = {
@@ -510,6 +530,49 @@ class SheetsClient:
         row_index, next_num = await self._run_sync(_append)
         log.info("doctor_appended", row=row_index, num=next_num, type=type_, name=name)
         return {"row": row_index, "num": next_num, "sheet": _DOCTOR_WORKSHEET}
+
+    async def append_feeding(
+        self,
+        type_: str,
+        product: str,
+        time: datetime,
+        portion: str = "",
+        reaction: str = "",
+        details: str = "",
+        author: str = "Гурман",
+    ) -> dict:
+        """Append to «Прикорм» — Гурман's feeding diary."""
+        from src.utils.baby import matvey_age_short
+        ws = await self._open_worksheet(self._baby_sheet_id, _FEEDING_WORKSHEET)
+        type_label = _prefix(type_, _FEEDING_TYPE_PREFIX) or f"▪ {type_}"
+        reaction_label = _prefix(reaction, _FEEDING_REACTION_PREFIX) if reaction else ""
+
+        def _append() -> tuple[int, int]:
+            existing = ws.col_values(1)
+            next_num = 1
+            for val in reversed(existing):
+                try:
+                    next_num = int(val) + 1
+                    break
+                except (ValueError, TypeError):
+                    continue
+            row_values = [
+                str(next_num),
+                time.strftime("%d.%m.%Y"),
+                matvey_age_short(time.date()),
+                type_label,
+                product,
+                portion,
+                reaction_label,
+                details,
+                author,
+            ]
+            ws.append_row(row_values, value_input_option="USER_ENTERED", table_range="A1")
+            return len(ws.get_all_values()), next_num
+
+        row_index, next_num = await self._run_sync(_append)
+        log.info("feeding_appended", row=row_index, num=next_num, product=product, type=type_)
+        return {"row": row_index, "num": next_num, "sheet": _FEEDING_WORKSHEET}
 
     # ------------------------------------------------------------------
     # Finances
