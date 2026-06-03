@@ -332,7 +332,7 @@ async def run(dry_run: bool = False) -> None:
         "nanny": NannyAgent(**base_args, sheets_client=sheets),
         "news": NewsAgent(**base_args),
         "calendar": CalendarAgent(**base_args, calendar_client=calendar_client),
-        "cook": CookAgent(**base_args, web_search=web_search),
+        "cook": CookAgent(**base_args, web_search=web_search, sheets_client=sheets),
         "health": HealthAgent(**base_args),
         "devops": DevOpsAgent(**base_args, github_client=github, railway_client=railway),
     }
@@ -407,7 +407,7 @@ async def run(dry_run: bool = False) -> None:
 
     # News ingestion: save posts from tracked channels and detect alerts
     from src.integrations.news_ingest import NewsIngestor
-    news_ingestor = NewsIngestor(memory)
+    news_ingestor = NewsIngestor(memory, bot_manager=bot_manager, chat_id=chat_id)
     await news_ingestor.load_tracked_channels()
     userbot.add_news_handler(news_ingestor.handle)
 

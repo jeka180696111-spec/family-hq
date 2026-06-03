@@ -58,17 +58,34 @@ def _detect_alert(text: str) -> tuple[bool, str | None]:
 
 
 class NewsIngestor:
-    """Saves messages from tracked channels to news_posts, flags alerts."""
+    """Saves messages from tracked channels to news_posts, flags alerts, pushes critical alerts."""
 
-    def __init__(self, memory: SharedMemory) -> None:
+    def __init__(self, memory: SharedMemory, bot_manager: Any = None, chat_id: int | None = None) -> None:
         self._memory = memory
         self._channel_ids: set[int] = set()
+        self._channel_meta: dict[int, dict] = {}
+        self._bots = bot_manager
+        self._chat_id = chat_id
+        # Dedup window for alerts: don't push more than once per region per 5 minutes
+        self._last_alert_push: dict[str, str] = {}
 
     async def load_tracked_channels(self) -> None:
-        """Refresh the in-memory set of tracked channel IDs from DB."""
+        """Refresh the in-memory set of tracked channel IDs + metadata from DB."""
         async with self._memory._engine.connect() as conn:
-            rows = await conn.execute(select(NewsChannel.channel_id))
-            self._channel_ids = {r[0] for r in rows if r[0]}
+            rows = list(await conn.execute(select(NewsChannel)))
+        ids: set[int] = set()
+        meta: dict[int, dict] = {}
+        for r in rows:
+            if r.channel_id:
+                ids.add(r.channel_id)
+                meta[r.channel_id] = {
+                    "username": r.username,
+                    "title": r.title,
+                    "category": r.category,
+                    "region": r.region,
+                }
+        self._channel_ids = ids
+        self._channel_meta = meta
         log.info("news_channels_loaded", count=len(self._channel_ids))
 
     async def handle(self, message: Any) -> None:
@@ -76,9 +93,6 @@ class NewsIngestor:
         chat_id = getattr(message, "chat_id", None) or getattr(message, "peer_id", None)
         if chat_id is None:
             return
-        # Telethon event.chat_id for channels is the full form like -1001004300467,
-        # but entity.id (what we stored on subscribe) is the bare form 1004300467.
-        # Try both forms when matching.
         candidates: set[int] = set()
         try:
             raw = int(chat_id)
@@ -87,7 +101,6 @@ class NewsIngestor:
         candidates.add(raw)
         absolute = abs(raw)
         candidates.add(absolute)
-        # Strip the leading 100 if present (channels)
         if absolute > 1_000_000_000_000:
             candidates.add(absolute - 1_000_000_000_000)
 
@@ -97,10 +110,33 @@ class NewsIngestor:
         normalized = match_id
 
         text = getattr(message, "text", "") or getattr(message, "message", "") or ""
+        has_media = bool(getattr(message, "media", None) or getattr(message, "photo", None))
+
+        # Variant A: track media-only posts as activity markers (no analysis yet)
         if not text.strip():
+            if has_media:
+                try:
+                    async with self._memory._engine.begin() as conn:
+                        await conn.execute(
+                            insert(NewsPost).prefix_with("OR IGNORE").values(
+                                channel_id=normalized,
+                                tg_message_id=int(getattr(message, "id", 0) or 0),
+                                text="[медиа без подписи]",
+                                date=iso_now(),
+                                is_alert=0,
+                                alert_region=None,
+                            )
+                        )
+                    log.info("news_post_media_only", channel_id=normalized)
+                except Exception:
+                    log.exception("news_media_save_failed", channel_id=normalized)
             return
 
         is_alert, region = _detect_alert(text)
+        # If channel itself is tagged as a region, inherit it
+        meta = self._channel_meta.get(normalized, {})
+        if is_alert and not region:
+            region = meta.get("region")
 
         try:
             async with self._memory._engine.begin() as conn:
@@ -123,3 +159,46 @@ class NewsIngestor:
             )
         except Exception:
             log.exception("news_post_save_failed", channel_id=normalized)
+
+        # Proactive push: alerts from critical-category channels go straight to HQ group
+        if is_alert and self._bots and self._chat_id:
+            category = meta.get("category", "")
+            if category == "critical":
+                await self._maybe_push_alert(text, region, meta)
+
+    async def _maybe_push_alert(self, text: str, region: str | None, meta: dict) -> None:
+        """Send a Дозорный bot message to HQ for a critical alert, deduped per region."""
+        from datetime import datetime, timedelta
+        from src.utils.time import now_kyiv
+        now = now_kyiv()
+        key = region or meta.get("username", "global")
+        last_iso = self._last_alert_push.get(key)
+        if last_iso:
+            try:
+                last = datetime.fromisoformat(last_iso)
+                if (now - last) < timedelta(minutes=5):
+                    log.info("alert_push_skipped_dedup", region=key)
+                    return
+            except Exception:
+                pass
+        self._last_alert_push[key] = now.isoformat()
+
+        snippet = text.strip()
+        if len(snippet) > 600:
+            snippet = snippet[:600] + "…"
+        region_label = region or "регион"
+        src = meta.get("username") or meta.get("title") or "канал"
+        message = (
+            f"🚨🚨🚨 <b>ТРЕВОГА — {region_label}</b>\n\n"
+            f"{snippet}\n\n"
+            f"<i>Источник: @{src}</i>"
+        )
+        try:
+            await self._bots.send_message(
+                agent_id="news",
+                chat_id=self._chat_id,
+                text=message,
+            )
+            log.info("alert_pushed", region=region_label, source=src)
+        except Exception:
+            log.exception("alert_push_failed")

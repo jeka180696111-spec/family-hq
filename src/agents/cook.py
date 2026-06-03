@@ -14,9 +14,10 @@ class CookAgent(BaseAgent):
     emoji = "🍳"
     name = "Гурман"
 
-    def __init__(self, *args, web_search=None, **kwargs) -> None:
+    def __init__(self, *args, web_search=None, sheets_client=None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._search = web_search
+        self._sheets = sheets_client
 
     def get_system_prompt(self) -> str:
         from src.prompts.cook import get_cook_prompt
@@ -56,9 +57,31 @@ class CookAgent(BaseAgent):
                     "properties": {},
                 },
             },
+            {
+                "name": "write_cooking_note",
+                "description": "Записать короткое наблюдение про еду/прикорм в лист «Заметки». Используй для рецептов которые понравились, идей на завтра, реакций ребёнка на продукт. Это видимая запись в Google Sheets.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "Текст заметки"},
+                    },
+                    "required": ["text"],
+                },
+            },
         ]
 
     async def _call_tool(self, tool_name: str, tool_input: dict[str, Any]) -> Any:
+        if tool_name == "write_cooking_note":
+            if not self._sheets:
+                return {"error": "Google Sheets не настроен"}
+            from src.utils.time import now_kyiv
+            author = getattr(self, "_current_sender", "") or "Гурман"
+            return await self._sheets.append_note(
+                text=tool_input.get("text", ""),
+                time=now_kyiv(),
+                author=author,
+            )
+
         if tool_name == "web_search" and self._search:
             results = await self._search.search(tool_input["query"])
             return [{"title": r.title, "snippet": r.snippet, "url": r.url} for r in results[:3]]
