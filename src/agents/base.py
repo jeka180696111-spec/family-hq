@@ -5,6 +5,7 @@ from pydantic import BaseModel
 import structlog
 
 from src.utils.time import current_context_block
+from src.utils.family import family_context_block
 
 if TYPE_CHECKING:
     from src.integrations.claude_client import ClaudeClient
@@ -47,8 +48,8 @@ class BaseAgent(abc.ABC):
         """Return the agent-specific system prompt (without shared time/team blocks)."""
 
     def _full_system_prompt(self) -> str:
-        """System prompt with current date/time prepended — shared for all agents."""
-        return current_context_block() + self.get_system_prompt()
+        """System prompt with current date/time + family profile prepended."""
+        return current_context_block() + family_context_block() + "\n\n" + self.get_system_prompt()
 
     @abc.abstractmethod
     def get_tools(self) -> list[dict[str, Any]]:
