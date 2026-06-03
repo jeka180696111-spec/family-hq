@@ -102,15 +102,22 @@ class CookAgent(BaseAgent):
                 return {"error": "Google Sheets не настроен"}
             from src.utils.time import now_kyiv
             author = getattr(self, "_current_sender", "") or "Гурман"
-            return await self._sheets.append_feeding(
-                type_=tool_input.get("type", "Прикорм"),
-                product=tool_input.get("product", ""),
-                time=now_kyiv(),
-                portion=tool_input.get("portion", ""),
-                reaction=tool_input.get("reaction", ""),
-                details=tool_input.get("details", ""),
-                author=author,
-            )
+            try:
+                return await self._sheets.append_feeding(
+                    type_=tool_input.get("type", "Прикорм"),
+                    product=tool_input.get("product", ""),
+                    time=now_kyiv(),
+                    portion=tool_input.get("portion", ""),
+                    reaction=tool_input.get("reaction", ""),
+                    details=tool_input.get("details", ""),
+                    author=author,
+                )
+            except Exception as e:
+                log.exception("write_feeding_failed")
+                return {
+                    "error": str(e),
+                    "hint": "Возможно лист 'Прикорм' не существует. Скажи пользователю создать его."
+                }
 
         if tool_name == "web_search" and self._search:
             results = await self._search.search(tool_input["query"])

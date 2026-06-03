@@ -108,9 +108,14 @@ class BaseAgent(abc.ABC):
 
             response_text = (response_text or "").strip()
             if not response_text:
-                # Agent chose to stay silent — don't send a stub message
-                self._log.info("agent_silent", message=message_text[:50])
-                return AgentResponse(text="", agent_id=self.agent_id, actions_taken=actions)
+                # If agent actually took actions (tool calls), produce a minimal
+                # confirmation so user knows something happened. If no actions,
+                # this is a genuine 'topic not mine' silence — stay quiet.
+                if actions:
+                    response_text = f"{self.emoji} Готово."
+                else:
+                    self._log.info("agent_silent", message=message_text[:50])
+                    return AgentResponse(text="", agent_id=self.agent_id, actions_taken=actions)
 
             sent = await self.send(response_text)
             try:
