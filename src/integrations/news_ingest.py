@@ -14,19 +14,26 @@ from src.utils.time import iso_now
 log = structlog.get_logger()
 
 _ALERT_PATTERNS = re.compile(
-    r"\b("
-    r"повітр[яr]на\s+тривога|"
-    r"повітр[яr]на\s+загроза|"
-    r"тривога|"
-    r"відб[іi]й\s+тривоги|"
-    r"air\s+raid|air\s+alert|"
-    r"шахед|шахеди|"
-    r"крилат[аи]\s+ракет[аи]|"
-    r"балістичн[аи]\s+ракет[аи]|"
-    r"балістика|"
-    r"загроза\s+удару|"
-    r"запуск\s+ракет"
-    r")\b",
+    r"("
+    r"\bповітр[яr]на\s+тривога\b|"
+    r"\bповітр[яr]на\s+загроза\b|"
+    r"\bтривога\b|"
+    r"\bтревога\b|"
+    r"\bвідб[іi]й\b|"
+    r"\bотбой\b|"
+    r"\bair\s+raid\b|\bair\s+alert\b|"
+    r"\bшахед\w*|шахіб\w*|"
+    r"\bкалібр\w*|калибр\w*|"
+    r"\bкрилат[аи]?\s+ракет\w*|"
+    r"\bбалістичн[аи]?\s+ракет\w*|"
+    r"\bбалістика\b|"
+    r"\bзагроза\s+удару\b|"
+    r"\bзапуск\s+ракет\w*|"
+    r"\bвибух\w*|взрыв\w*|"
+    r"\bобстріл\w*|обстрел\w*|"
+    r"\bкаб\w*\s*ракет\w*|"
+    r"🚨|⚠️\s*тривога|⚠️\s*тревога"
+    r")",
     re.IGNORECASE | re.UNICODE,
 )
 
@@ -133,8 +140,19 @@ class NewsIngestor:
             return
 
         is_alert, region = _detect_alert(text)
-        # If channel itself is tagged as a region, inherit it
         meta = self._channel_meta.get(normalized, {})
+
+        # Heuristic: short urgent-looking posts from CRITICAL channels are alerts even
+        # if our regex didn't match (e.g. "🚨🚨🚨 Одеса, ховаємось"). Avoids missing
+        # alerts when source posts in shorthand.
+        if not is_alert and meta.get("category") == "critical":
+            short = len(text) <= 200
+            urgent_marker = ("🚨" in text or "❗" in text or "⚠️" in text
+                             or text.strip().endswith("!!!"))
+            if short and urgent_marker:
+                is_alert = True
+
+        # If channel itself is tagged as a region, inherit it
         if is_alert and not region:
             region = meta.get("region")
 
