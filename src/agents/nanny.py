@@ -102,6 +102,20 @@ class NannyAgent(BaseAgent):
                 },
             },
             {
+                "name": "who_check",
+                "description": (
+                    "Сравнить вес/рост Матвея с нормами ВОЗ и вернуть перцентиль. "
+                    "Вызывай КАЖДЫЙ РАЗ когда пишут новый вес или рост и после write_growth."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "weight_kg": {"type": "number"},
+                        "height_cm": {"type": "number"},
+                    },
+                },
+            },
+            {
                 "name": "write_growth",
                 "description": "Записать измерение веса и/или роста в лист «Рост». Минимум одно из weight_g или height_cm.",
                 "input_schema": {
@@ -211,6 +225,21 @@ class NannyAgent(BaseAgent):
                     details=tool_input.get("details", ""),
                     author=author,
                 )
+            if tool_name == "who_check":
+                from src.utils.who import weight_percentile, height_percentile
+                from src.utils.baby import matvey_age_months
+                age = matvey_age_months()
+                result = {"age_months": age}
+                w = tool_input.get("weight_kg")
+                if w:
+                    result["weight"] = weight_percentile(float(w), age)
+                h = tool_input.get("height_cm")
+                if h:
+                    result["height"] = height_percentile(float(h), age)
+                if not w and not h:
+                    return {"error": "укажи weight_kg или height_cm"}
+                return result
+
             if tool_name == "write_growth":
                 return await self._sheets.append_growth(
                     weight_g=tool_input.get("weight_g"),

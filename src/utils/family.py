@@ -94,19 +94,65 @@ def _age(birth: date) -> str:
     return f"{years} лет"
 
 
+# ─── Runtime overrides (synced from family_overrides table) ────────────────
+# Keys with dotted notation: 'matvey.weight_g', 'current_location.city',
+# 'current_location.until_date', etc.
+
+_OVERRIDES: dict[str, str] = {}
+
+
+def apply_overrides(overrides: dict[str, str]) -> None:
+    """Replace the in-memory override map. Called by main on startup + after edits."""
+    _OVERRIDES.clear()
+    _OVERRIDES.update(overrides)
+
+
+def get_override(key: str, default=None):
+    return _OVERRIDES.get(key, default)
+
+
+def _current_location() -> dict:
+    city = get_override("current_location.city")
+    if not city:
+        return LOCATION
+    return {
+        "city": city,
+        "district": get_override("current_location.district", ""),
+        "country": get_override("current_location.country", LOCATION["country"]),
+        "until": get_override("current_location.until_date", ""),
+    }
+
+
+def _override_int(key: str, default: int) -> int:
+    raw = get_override(key)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
+
 def family_context_block() -> str:
     """Formatted summary inserted into agent system prompts."""
     matvey_age = matvey_age_short()
     father_age = _age(FATHER["birth_date"])
     mother_age = _age(MOTHER["birth_date"])
+    loc = _current_location()
+    weight_g = _override_int("matvey.weight_g", CHILD["weight_g"])
+    height_cm = _override_int("matvey.height_cm", CHILD["height_cm"])
+
+    loc_line = f"📍 {loc['city']}, {loc['district']} ({loc['country']})".rstrip(", )")
+    if loc.get("until"):
+        loc_line += f"  ⚠️ временно до {loc['until']} (дома: {LOCATION['city']})"
 
     lines = [
         "═══ СЕМЬЯ ═══",
-        f"📍 {LOCATION['city']}, {LOCATION['district']} ({LOCATION['country']})",
+        loc_line,
         "",
         f"👶 Малыш: {CHILD['full_name']}",
         f"   род. {CHILD['birth_date'].strftime('%d.%m.%Y')}, сейчас {matvey_age}",
-        f"   {CHILD['delivery']}; {CHILD['feeding']}; {CHILD['weight_g']}г / {CHILD['height_cm']}см",
+        f"   {CHILD['delivery']}; {CHILD['feeding']}; {weight_g}г / {height_cm}см",
         f"   Пробовал: {', '.join(CHILD['introduced_foods']) or 'ничего'}",
         f"   Аллергий: {', '.join(CHILD['allergies']) or 'нет'}",
         f"   Прививки: {'; '.join(CHILD['vaccines_done'])}",

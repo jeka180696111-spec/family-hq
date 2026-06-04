@@ -192,6 +192,38 @@ class ShoppingItem(Base):
 
 
 # ---------------------------------------------------------------------------
+# family_overrides — runtime edits to family.py defaults (trip mode, updated weight, etc.)
+# ---------------------------------------------------------------------------
+
+
+class FamilyOverride(Base):
+    __tablename__ = "family_overrides"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False)
+    updated_by: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# api_usage — per-day Anthropic token counters for cost tracking
+# ---------------------------------------------------------------------------
+
+
+class ApiUsage(Base):
+    __tablename__ = "api_usage"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    date: Mapped[str] = mapped_column(String, nullable=False, index=True)  # YYYY-MM-DD
+    agent_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    model: Mapped[str] = mapped_column(String, nullable=False)
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cache_creation_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cache_read_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+# ---------------------------------------------------------------------------
 # user_rules
 # ---------------------------------------------------------------------------
 

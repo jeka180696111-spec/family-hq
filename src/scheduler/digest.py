@@ -96,3 +96,56 @@ def register_digest_job(
         replace_existing=True,
     )
     log.info("digest_job_registered", time=digest_time)
+
+
+async def send_baby_morning_digest(nanny_agent, memory) -> None:
+    """Daily ~09:00 summary of baby's day from Дневник sheet."""
+    try:
+        if not nanny_agent._sheets:
+            log.info("baby_digest_skipped_no_sheets")
+            return
+
+        from datetime import timedelta
+        from src.integrations.history_search import _search_sheet
+        from src.utils.time import now_kyiv
+        cutoff = now_kyiv() - timedelta(hours=18)  # yesterday evening → today morning
+        rows = await _search_sheet(nanny_agent._sheets, "Дневник", "", cutoff, 200)
+        if not rows:
+            await nanny_agent.send("🤱 Доброе утро! За ночь записей нет — поделись как малыш спал.")
+            return
+
+        # Summarize via Claude
+        import json
+        prompt = (
+            "На основе записей дневника малыша за прошедшие 18 часов сделай короткую сводку. "
+            "Структура: 😴 сон (сколько раз/общая длительность ночь+день), 🍼 кормления "
+            "(сколько раз, грудь Л/П/смесь, мл если указано), 💧 подгузники (количество, "
+            "был ли кал), особенности (температура/симптомы/вехи если есть). "
+            "Без воды. Без выдумок. Если каких-то данных нет — пропусти секцию.\n\n"
+            f"ЗАПИСИ:\n{json.dumps(rows, ensure_ascii=False, default=str)[:5000]}"
+        )
+        response = await nanny_agent._claude.complete(
+            model=nanny_agent._get_model(),
+            system="Ты — Няня. Краткая ежедневная сводка по малышу. Тёплый тон, но по делу.",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=600,
+        )
+        await nanny_agent.send(f"🤱 Доброе утро! Сводка за ночь и утро:\n\n{response.strip()}")
+        log.info("baby_digest_sent", rows=len(rows))
+    except Exception:
+        log.exception("baby_digest_failed")
+
+
+def register_baby_digest_job(scheduler, nanny_agent, memory, digest_time: str = "09:00") -> None:
+    hour, minute = map(int, digest_time.split(":"))
+    scheduler.add_job(
+        send_baby_morning_digest,
+        "cron",
+        hour=hour,
+        minute=minute,
+        timezone="Europe/Kiev",
+        args=[nanny_agent, memory],
+        id="baby_morning_digest",
+        replace_existing=True,
+    )
+    log.info("baby_digest_job_registered", time=digest_time)

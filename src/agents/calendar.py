@@ -104,6 +104,36 @@ class CalendarAgent(BaseAgent):
                 },
             },
             {
+                "name": "schedule_vaccine_calendar",
+                "description": (
+                    "Создать события в Google Calendar для всех предстоящих прививок Матвея "
+                    "из его профиля. Используй когда: «составь календарь прививок», "
+                    "«запланируй прививки», «график прививок». Все события создаются с категорией "
+                    "baby_medical (тёмно-красный) и адресом педиатрической поликлиники."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "hour": {"type": "integer", "description": "Час визита (по умолчанию 9)"},
+                    },
+                },
+            },
+            {
+                "name": "check_event_conflict",
+                "description": (
+                    "Проверить попадает ли время на типичные часы сна Матвея (для 6-9 мес: "
+                    "09:00-10:00 и 13:00-14:30). Используй ПЕРЕД create_event если событие "
+                    "касается посещения врача или активности с малышом."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "start_iso": {"type": "string"},
+                    },
+                    "required": ["start_iso"],
+                },
+            },
+            {
                 "name": "add_shopping_item",
                 "description": (
                     "Добавить в список покупок. Используй когда пользователь говорит "
@@ -215,6 +245,50 @@ class CalendarAgent(BaseAgent):
         elif tool_name == "delete_event":
             ok = await self._calendar.delete_event(tool_input["event_id"])
             return {"deleted": ok, "event_id": tool_input["event_id"]}
+
+        elif tool_name == "schedule_vaccine_calendar":
+            from src.utils.family import CHILD, PEDIATRICS
+            hour = int(tool_input.get("hour", 9))
+            created = []
+            for vname, vdate in CHILD["vaccines_upcoming"]:
+                start = datetime(vdate.year, vdate.month, vdate.day, hour, 0)
+                try:
+                    event = await self._calendar.create_event(
+                        title=f"Прививка: {vname}",
+                        start=start,
+                        description="Автоматически создано Ежедневником из календаря прививок Матвея.",
+                        location=f"{PEDIATRICS['clinic']}, {PEDIATRICS['address']}",
+                        color_id="11",  # baby_medical → tomato dark red
+                    )
+                    created.append({
+                        "name": vname,
+                        "date": vdate.isoformat(),
+                        "event_id": event.event_id,
+                    })
+                except Exception as e:
+                    created.append({"name": vname, "date": vdate.isoformat(), "error": str(e)})
+            return {"scheduled": created, "count": len(created)}
+
+        elif tool_name == "check_event_conflict":
+            try:
+                start = datetime.fromisoformat(tool_input["start_iso"])
+            except Exception:
+                return {"error": "bad start_iso"}
+            h, m = start.hour, start.minute
+            mins = h * 60 + m
+            # Typical 6-9mo nap windows
+            morning = (9 * 60, 10 * 60)
+            afternoon = (13 * 60, 14 * 60 + 30)
+            conflict = None
+            if morning[0] <= mins <= morning[1]:
+                conflict = "утренний сон (09:00-10:00)"
+            elif afternoon[0] <= mins <= afternoon[1]:
+                conflict = "дневной сон (13:00-14:30)"
+            return {
+                "start_iso": tool_input["start_iso"],
+                "conflict": conflict,
+                "note": "Сон у Матвея нерегулярный — это ориентир, а не правило",
+            }
 
         elif tool_name == "add_shopping_item":
             from sqlalchemy import insert

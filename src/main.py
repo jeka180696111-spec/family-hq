@@ -279,6 +279,18 @@ async def run(dry_run: bool = False) -> None:
 
     # Init DB
     engine = await init_db(settings.db_path)
+
+    # Load family overrides from DB (location, updated weights, etc.)
+    try:
+        from sqlalchemy import select
+        from src.db.models import FamilyOverride
+        from src.utils.family import apply_overrides
+        async with engine.begin() as conn:
+            rows = list(await conn.execute(select(FamilyOverride)))
+        apply_overrides({r.key: r.value for r in rows})
+        log.info("family_overrides_loaded", count=len(rows))
+    except Exception:
+        log.exception("family_overrides_load_failed")
     memory = SharedMemory(engine)
 
     # Init integrations
@@ -286,6 +298,7 @@ async def run(dry_run: bool = False) -> None:
         primary_key=settings.anthropic_api_key_primary,
         backup_key=settings.anthropic_api_key_backup,
     )
+    claude.attach_memory(memory)
 
     bot_manager = BotManager()
 
@@ -350,6 +363,8 @@ async def run(dry_run: bool = False) -> None:
     # Scheduler
     scheduler = AsyncIOScheduler()
     register_digest_job(scheduler, agents["news"], memory, settings.digest_time)
+    from src.scheduler.digest import register_baby_digest_job
+    register_baby_digest_job(scheduler, agents["nanny"], memory, "09:00")
     register_backup_job(scheduler, memory, settings.db_path, settings.drive_backup_folder_id, sa_info or {})
     register_healthcheck_jobs(scheduler, claude, memory, bot_manager, chat_id)
     register_reminder_jobs(scheduler, agents["calendar"], bot_manager, chat_id, memory)

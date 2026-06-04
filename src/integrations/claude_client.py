@@ -33,6 +33,36 @@ class ClaudeClient:
         self._primary = anthropic.AsyncAnthropic(api_key=primary_key)
         self._backup = anthropic.AsyncAnthropic(api_key=backup_key)
         self._using_backup = False
+        self._memory = None  # set later for usage logging
+
+    def attach_memory(self, memory: Any) -> None:
+        """Inject SharedMemory so usage rows can be persisted to api_usage."""
+        self._memory = memory
+
+    async def _log_usage(self, model: str, message: Any) -> None:
+        if self._memory is None or message is None:
+            return
+        try:
+            usage = getattr(message, "usage", None)
+            if usage is None:
+                return
+            from datetime import date
+            from sqlalchemy import insert
+            from src.db.models import ApiUsage
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(
+                    insert(ApiUsage).values(
+                        date=date.today().isoformat(),
+                        agent_id=None,
+                        model=model,
+                        input_tokens=getattr(usage, "input_tokens", 0) or 0,
+                        output_tokens=getattr(usage, "output_tokens", 0) or 0,
+                        cache_creation_tokens=getattr(usage, "cache_creation_input_tokens", 0) or 0,
+                        cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
+                    )
+                )
+        except Exception:
+            log.exception("usage_log_failed")
 
     async def complete(
         self,
@@ -109,6 +139,7 @@ class ClaudeClient:
                     if attempt_index == 1:
                         self._using_backup = True
                         log.info("claude_using_backup_key")
+                    await self._log_usage(model, message)
                     return message
 
                 except (anthropic.APIStatusError, anthropic.APIConnectionError, asyncio.TimeoutError) as exc:
