@@ -56,8 +56,24 @@ class BaseAgent(abc.ABC):
         """Return Claude tool definitions for this agent."""
 
     def _universal_tools(self) -> list[dict[str, Any]]:
-        """Tools every agent gets automatically (Архивариус)."""
+        """Tools every agent gets automatically (Архивариус + forget/undo/help)."""
         return [
+            {
+                "name": "helper",
+                "description": (
+                    "Перечислить что ты умеешь и какие инструменты. Используй когда "
+                    "спрашивают «что умеешь», «помощник», «справка», «помощь», «команды»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "forget_last_message",
+                "description": (
+                    "Удалить последнюю сохранённую запись пользователя из conversation memory. "
+                    "Используй когда: «забудь последнее», «забудь что я писал», «отмени последнее»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
             {
                 "name": "search_history",
                 "description": (
@@ -217,6 +233,29 @@ class BaseAgent(abc.ABC):
 
     async def _call_tool(self, tool_name: str, tool_input: dict[str, Any]) -> Any:
         """Dispatch a tool call to the appropriate handler. Override in subclasses."""
+        if tool_name == "helper":
+            tools = self._full_tools()
+            return {
+                "agent": f"{self.emoji} {self.name}",
+                "tools": [{"name": t["name"], "description": t.get("description", "")[:200]} for t in tools],
+            }
+        if tool_name == "forget_last_message":
+            from sqlalchemy import delete, select
+            from src.db.models import EventLog  # noqa: F401
+            try:
+                async with self._memory._engine.begin() as conn:
+                    # Delete latest user message (no agent_id) from messages table
+                    from src.db.models import Message
+                    last = (await conn.execute(
+                        select(Message).where(Message.agent_id.is_(None))
+                        .order_by(Message.id.desc()).limit(1)
+                    )).first()
+                    if last:
+                        await conn.execute(delete(Message).where(Message.id == last.id))
+                        return {"success": True, "deleted_text": (last.text or "")[:120]}
+                    return {"success": False, "error": "Нет сообщений для удаления"}
+            except Exception as e:
+                return {"error": str(e)}
         if tool_name == "search_history":
             from src.integrations.history_search import search_history
             sheets = getattr(self, "_sheets", None)

@@ -224,6 +224,94 @@ class ApiUsage(Base):
 
 
 # ---------------------------------------------------------------------------
+# Lightweight trackers: документы, подписки, коммуналка, отключения света,
+# сон родителей, ночная смена, реакции на еду
+# ---------------------------------------------------------------------------
+
+
+class Document(Base):
+    __tablename__ = "documents"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    member: Mapped[str] = mapped_column(String, nullable=False)  # eugene/marina/matvey
+    kind: Mapped[str] = mapped_column(String, nullable=False)    # passport/ВУ/military/insurance/visa
+    number: Mapped[str | None] = mapped_column(String, nullable=True)
+    issued_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    expires_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    notes: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    amount: Mapped[float] = mapped_column(Integer, nullable=False)  # SQLite REAL
+    currency: Mapped[str] = mapped_column(String, nullable=False, default="UAH")
+    billing_day: Mapped[int] = mapped_column(Integer, nullable=False, default=1)  # 1-28
+    next_charge: Mapped[str | None] = mapped_column(String, nullable=True)
+    active: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    notes: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class UtilityBill(Base):
+    __tablename__ = "utility_bills"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String, nullable=False)  # газ/свет/вода/интернет/квартплата
+    amount: Mapped[float] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String, nullable=False, default="UAH")
+    paid_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    due_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    notes: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class PowerOutage(Base):
+    __tablename__ = "power_outages"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    started_at: Mapped[str] = mapped_column(String, nullable=False)
+    ended_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    duration_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    notes: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class ParentSleep(Base):
+    __tablename__ = "parent_sleep"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    member: Mapped[str] = mapped_column(String, nullable=False)  # eugene/marina
+    bedtime: Mapped[str | None] = mapped_column(String, nullable=True)
+    wake_time: Mapped[str | None] = mapped_column(String, nullable=True)
+    quality: Mapped[str | None] = mapped_column(String, nullable=True)  # ok/awakened/bad
+    date: Mapped[str] = mapped_column(String, nullable=False, index=True)
+
+
+class NightShift(Base):
+    __tablename__ = "night_shifts"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    date: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    on_duty: Mapped[str] = mapped_column(String, nullable=False)  # eugene/marina
+    notes: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class FoodReaction(Base):
+    __tablename__ = "food_reactions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    food: Mapped[str] = mapped_column(String, nullable=False)
+    first_tried_at: Mapped[str] = mapped_column(String, nullable=False)
+    reaction: Mapped[str | None] = mapped_column(String, nullable=True)
+    onset_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    severity: Mapped[str | None] = mapped_column(String, nullable=True)  # mild/moderate/severe
+    notes: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class FamilyMode(Base):
+    """Active modes: trip / sick / quiet. Loaded into context."""
+    __tablename__ = "family_modes"
+    name: Mapped[str] = mapped_column(String, primary_key=True)  # trip/sick/quiet
+    enabled: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    payload: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
+    started_at: Mapped[str] = mapped_column(String, nullable=False)
+    expires_at: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+# ---------------------------------------------------------------------------
 # user_rules
 # ---------------------------------------------------------------------------
 

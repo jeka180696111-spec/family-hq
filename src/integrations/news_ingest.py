@@ -401,6 +401,11 @@ class NewsIngestor:
             log.exception("alert_update_push_failed")
 
     async def _push_utility(self, text: str, meta: dict) -> None:
+        from src.scheduler.wave3 import is_quiet_now
+        if is_quiet_now():
+            # Address-related, but not life-critical → suppress at night
+            log.info("utility_push_suppressed_quiet")
+            return
         snippet = _strip_promo(text)
         if len(snippet) > 600:
             snippet = snippet[:600] + "…"

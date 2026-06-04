@@ -365,6 +365,9 @@ async def run(dry_run: bool = False) -> None:
     register_digest_job(scheduler, agents["news"], memory, settings.digest_time)
     from src.scheduler.digest import register_baby_digest_job
     register_baby_digest_job(scheduler, agents["nanny"], memory, "09:00")
+    from src.scheduler.wave3 import register_today_important_job, register_weekly_digest_job
+    register_today_important_job(scheduler, agents["news"], agents["nanny"], agents["calendar"], memory)
+    register_weekly_digest_job(scheduler, agents["news"], agents["nanny"], memory)
     register_backup_job(scheduler, memory, settings.db_path, settings.drive_backup_folder_id, sa_info or {})
     register_healthcheck_jobs(scheduler, claude, memory, bot_manager, chat_id)
     register_reminder_jobs(scheduler, agents["calendar"], bot_manager, chat_id, memory)
