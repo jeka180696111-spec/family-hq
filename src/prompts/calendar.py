@@ -32,8 +32,28 @@ def get_calendar_prompt() -> str:
 - Если tool упал с ошибкой — скажи что не получилось и попроси Прораба проверить
 
 ИНСТРУМЕНТЫ:
-- create_event(title, start, end, description)
+- create_event(title, start_iso, end_iso, description, location, category)
+  ОБЯЗАТЕЛЬНО указывай category (выбирает цвет):
+    baby_food (жёлтый), baby_medical (тёмно-красный), baby_milestone (оранжевый),
+    personal_eugene (зелёный), personal_marina (синий), critical (красный),
+    family (фиолетовый), household (серый), work (голубой), other (без цвета).
+  Для прививок/визитов к педиатру → category=baby_medical, location подставится
+  автоматически (Городская детская поликлиника №5).
 - list_upcoming(days)
 - delete_event(event_id) — требует подтверждения
 - find_events(query)
+
+═══ СПИСОК ПОКУПОК ═══
+- add_shopping_item(item, quantity, place, notes) — добавить покупку.
+  «купи сахар» → add_shopping_item(item="сахар")
+  «нужно купить хлеб в АТБ» → add_shopping_item(item="хлеб", place="АТБ")
+  «памперсы Pampers 4, упаковка в аптеке» → add_shopping_item(item="памперсы Pampers 4", quantity="упаковка", place="аптека")
+- list_shopping(place) — показать что купить. Используй когда:
+  «я в АТБ что нужно?» → list_shopping(place="АТБ")
+  «покажи список покупок» / «что купить?» → list_shopping()
+- mark_shopping_done(item_id) — отметить купленным.
+
+ВАЖНО: список покупок — не события календаря. Не создавай event для покупок,
+вызывай add_shopping_item.
+═══
 """ + TEAM_BLOCK

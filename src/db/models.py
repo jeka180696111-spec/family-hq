@@ -171,6 +171,27 @@ class ActiveAlert(Base):
 
 
 # ---------------------------------------------------------------------------
+# shopping_list — geo-aware shopping reminders
+# ---------------------------------------------------------------------------
+
+
+class ShoppingItem(Base):
+    __tablename__ = "shopping_list"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    item: Mapped[str] = mapped_column(String, nullable=False)
+    quantity: Mapped[str | None] = mapped_column(String, nullable=True)
+    place: Mapped[str | None] = mapped_column(
+        String, nullable=True
+    )  # 'АТБ' | 'Сільпо' | 'аптека' | None=anywhere
+    added_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    added_at: Mapped[str] = mapped_column(String, nullable=False)
+    notified_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    done_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    notes: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+# ---------------------------------------------------------------------------
 # user_rules
 # ---------------------------------------------------------------------------
 

@@ -120,8 +120,15 @@ class CalendarClient:
         end: datetime | None = None,
         description: str = "",
         location: str = "",
+        color_id: str | None = None,
     ) -> CalendarEvent:
-        """Create a new calendar event and return it."""
+        """Create a new calendar event and return it.
+
+        color_id values (Google Calendar):
+          1=Lavender 2=Sage 3=Grape(purple) 4=Flamingo(red)
+          5=Banana(yellow) 6=Tangerine(orange) 7=Peacock(cyan)
+          8=Graphite(gray) 9=Blueberry(blue) 10=Basil(green) 11=Tomato(red-dark)
+        """
         svc = await self._get_service()
 
         if end is None:
@@ -134,6 +141,8 @@ class CalendarClient:
             "start": self._dt_to_body(start),
             "end": self._dt_to_body(end),
         }
+        if color_id:
+            body["colorId"] = str(color_id)
 
         def _create():
             return (
