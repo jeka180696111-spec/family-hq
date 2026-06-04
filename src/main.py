@@ -407,9 +407,24 @@ async def run(dry_run: bool = False) -> None:
 
     # News ingestion: save posts from tracked channels and detect alerts
     from src.integrations.news_ingest import NewsIngestor
-    news_ingestor = NewsIngestor(memory, bot_manager=bot_manager, chat_id=chat_id)
+    news_ingestor = NewsIngestor(
+        memory,
+        bot_manager=bot_manager,
+        chat_id=chat_id,
+        claude_client=claude,
+        model_cheap=settings.model_cheap,
+    )
     await news_ingestor.load_tracked_channels()
     userbot.add_news_handler(news_ingestor.handle)
+
+    # Auto-close stale alerts every 5 min
+    scheduler.add_job(
+        news_ingestor.auto_close_stale,
+        "interval",
+        minutes=5,
+        id="auto_close_stale_alerts",
+        replace_existing=True,
+    )
 
     # Graceful shutdown handler
     _shutdown_event = asyncio.Event()

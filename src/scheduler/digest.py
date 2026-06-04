@@ -43,12 +43,13 @@ async def send_morning_digest(news_agent: "NewsAgent", memory: "SharedMemory") -
             from src.db.models import NewsPost
             from src.utils.time import KYIV_TZ
 
-            since = (datetime.now(KYIV_TZ) - timedelta(hours=24)).isoformat()
+            # 10h window covers the user's sleep cycle (22:00 → 08:00)
+            since = (datetime.now(KYIV_TZ) - timedelta(hours=10)).isoformat()
             rows = await conn.execute(
                 select(NewsPost)
                 .where(NewsPost.date >= since)
                 .order_by(NewsPost.date.desc())
-                .limit(50)
+                .limit(100)
             )
             posts = list(rows)
 
@@ -56,7 +57,7 @@ async def send_morning_digest(news_agent: "NewsAgent", memory: "SharedMemory") -
             await news_agent.send("📰 Доброе утро! За ночь значимых событий не зафиксировано. 😌")
             return
 
-        news_text = "\n".join(f"[{p.date[11:16]}] {p.text[:150]}" for p in posts[:20])
+        news_text = "\n".join(f"[{p.date[11:16]}] {p.text[:200]}" for p in posts[:50])
 
         response = await news_agent._claude.complete(
             model=news_agent._get_model(),

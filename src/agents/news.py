@@ -32,7 +32,7 @@ class NewsAgent(BaseAgent):
                     "type": "object",
                     "properties": {
                         "username": {"type": "string"},
-                        "category": {"type": "string", "enum": ["critical", "important", "background"]},
+                        "category": {"type": "string", "enum": ["critical", "important", "background", "utility"]},
                         "region": {"type": "string"},
                     },
                     "required": ["username", "category"],
@@ -57,7 +57,7 @@ class NewsAgent(BaseAgent):
                     "properties": {
                         "hours": {"type": "integer", "default": 1, "description": "За сколько часов назад"},
                         "region": {"type": "string", "description": "Фильтр по региону (опционально): Одесса, Киев, Украина и т.д."},
-                        "category": {"type": "string", "enum": ["critical", "important", "background"]},
+                        "category": {"type": "string", "enum": ["critical", "important", "background", "utility"]},
                     },
                 },
             },
@@ -76,7 +76,7 @@ class NewsAgent(BaseAgent):
                 "input_schema": {
                     "type": "object",
                     "properties": {
-                        "category": {"type": "string", "enum": ["critical", "important", "background"]},
+                        "category": {"type": "string", "enum": ["critical", "important", "background", "utility"]},
                     },
                 },
             },
@@ -87,7 +87,7 @@ class NewsAgent(BaseAgent):
                     "type": "object",
                     "properties": {
                         "region": {"type": "string"},
-                        "category": {"type": "string", "enum": ["critical", "important", "background"]},
+                        "category": {"type": "string", "enum": ["critical", "important", "background", "utility"]},
                     },
                     "required": ["region", "category"],
                 },
