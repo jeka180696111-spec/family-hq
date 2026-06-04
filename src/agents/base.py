@@ -55,6 +55,43 @@ class BaseAgent(abc.ABC):
     def get_tools(self) -> list[dict[str, Any]]:
         """Return Claude tool definitions for this agent."""
 
+    def _universal_tools(self) -> list[dict[str, Any]]:
+        """Tools every agent gets automatically (Архивариус)."""
+        return [
+            {
+                "name": "search_history",
+                "description": (
+                    "Поиск по всей семейной истории: Дневник Матвея, Здоровье, Прививки, "
+                    "Прикорм, Достижения, Рост, Заметки + новостные посты + список покупок. "
+                    "Используй когда спрашивают «когда последний раз X», «что было Y назад», "
+                    "«как часто Z», «какая реакция на банан», «когда болело X»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Что искать. Без кавычек, ключевые слова: «банан», «температура», «нурофен», «прививка», «АТБ»",
+                        },
+                        "scope": {
+                            "type": "string",
+                            "enum": ["all", "diary", "health", "doctor", "feeding", "milestones", "growth", "notes", "news", "shopping"],
+                            "description": "Где искать. По умолчанию all.",
+                        },
+                        "days": {
+                            "type": "integer",
+                            "description": "Глубина поиска в днях (по умолчанию 90)",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+        ]
+
+    def _full_tools(self) -> list[dict[str, Any]]:
+        """Subclass tools + universal tools — used by handle() and tool loop."""
+        return (self.get_tools() or []) + self._universal_tools()
+
     async def handle(
         self,
         message_text: str,
@@ -75,7 +112,7 @@ class BaseAgent(abc.ABC):
         # Append current message
         history.append({"role": "user", "content": f"{sender_name}: {message_text}"})
 
-        tools = self.get_tools()
+        tools = self._full_tools()
 
         async def _typing_loop() -> None:
             """Keep '<agent> печатает...' visible to users while we think."""
@@ -170,7 +207,7 @@ class BaseAgent(abc.ABC):
                 model=self._get_model(),
                 system=self._full_system_prompt(),
                 messages=current_history,
-                tools=self.get_tools(),
+                tools=self._full_tools(),
                 max_tokens=2048,
             )
 
@@ -180,6 +217,16 @@ class BaseAgent(abc.ABC):
 
     async def _call_tool(self, tool_name: str, tool_input: dict[str, Any]) -> Any:
         """Dispatch a tool call to the appropriate handler. Override in subclasses."""
+        if tool_name == "search_history":
+            from src.integrations.history_search import search_history
+            sheets = getattr(self, "_sheets", None)
+            return await search_history(
+                query=tool_input.get("query", ""),
+                memory=self._memory,
+                sheets_client=sheets,
+                scope=tool_input.get("scope", "all"),
+                days=int(tool_input.get("days", 90)),
+            )
         self._log.warning("unknown_tool", tool_name=tool_name)
         return {"error": f"Unknown tool: {tool_name}"}
 

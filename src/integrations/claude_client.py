@@ -153,14 +153,27 @@ class ClaudeClient:
         tools: list[dict] | None,
     ) -> anthropic.types.Message:
         """Internal: attempt a single completion with a specific client."""
+        # Prompt caching: large stable system prompts → cache for 5 min.
+        # Saves ~90% on input tokens for cached portion.
+        system_payload: Any = system
+        if isinstance(system, str) and len(system) > 1024:
+            system_payload = [
+                {
+                    "type": "text",
+                    "text": system,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
+
         kwargs: dict[str, Any] = {
             "model": model,
-            "system": system,
+            "system": system_payload,
             "messages": messages,
             "max_tokens": max_tokens,
         }
         if tools:
-            kwargs["tools"] = tools
+            # Tools are also a stable part — cache them by marking the last tool
+            kwargs["tools"] = [*tools[:-1], {**tools[-1], "cache_control": {"type": "ephemeral"}}] if tools else tools
 
         return await asyncio.wait_for(
             client.messages.create(**kwargs),

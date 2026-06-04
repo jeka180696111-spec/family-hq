@@ -333,7 +333,7 @@ async def run(dry_run: bool = False) -> None:
         "news": NewsAgent(**base_args),
         "calendar": CalendarAgent(**base_args, calendar_client=calendar_client),
         "cook": CookAgent(**base_args, web_search=web_search, sheets_client=sheets),
-        "health": HealthAgent(**base_args),
+        "health": HealthAgent(**base_args, sheets_client=sheets),
         "devops": DevOpsAgent(**base_args, github_client=github, railway_client=railway),
     }
 
