@@ -45,15 +45,60 @@ class GridWatcher:
             return
 
         raw = data.get("raw", {}) or {}
-        grid_voltage = raw.get("vGrid") or raw.get("gridVoltage") or raw.get("vac") or None
+
+        # ── Multi-signal grid detection ────────────────────────────────
+        #
+        # Главное правило: если есть напряжение сети > 100V — сеть ЕСТЬ,
+        # вне зависимости от того, есть ли потребление.
+        # Если напряжения нет/невозможно прочитать — смотрим на разряд
+        # батареи как индикатор перехода на резерв.
+        #
+        # НИКОГДА не делаем вывод «света нет» по «import_w==0 and export_w==0» —
+        # это норма для standby режима ночью когда дом ничего не потребляет.
+
+        def first_present(d: dict, keys: list[str]) -> float | None:
+            for k in keys:
+                v = d.get(k)
+                if v is None:
+                    continue
+                try:
+                    fv = float(v)
+                    if fv > 0:  # voltage 0 isn't valid either — skip
+                        return fv
+                except (TypeError, ValueError):
+                    continue
+            return None
+
+        grid_voltage = first_present(raw, [
+            "vac", "vacr", "vac1", "vGrid", "gridVoltage",
+            "voltageGrid", "gridVolt", "vacR", "v_grid",
+        ])
+        battery_discharge_w = float(data.get("battery_discharge_w") or 0)
+        battery_charge_w = float(data.get("battery_charge_w") or 0)
+        home_w = float(data.get("home_consumption_w") or 0)
         import_w = float(data.get("grid_import_w") or 0)
         export_w = float(data.get("grid_export_w") or 0)
 
-        # Grid is OFF when voltage is 0 (preferred) OR both flows are zero
-        if grid_voltage is not None:
-            grid_off = float(grid_voltage) < 50
+        # Priority 1: explicit grid voltage
+        if grid_voltage is not None and grid_voltage > 100:
+            grid_off = False
+        elif grid_voltage is not None and grid_voltage < 50 and battery_discharge_w > 30:
+            # Voltage gone AND battery is actively discharging → real outage
+            grid_off = True
+        elif grid_voltage is None:
+            # Voltage field not available in this Lux response.
+            # Use battery discharge ONLY when there's meaningful consumption.
+            # Cooldown floor to avoid false positives on micro-discharges.
+            grid_off = battery_discharge_w > 80 and home_w > 50 and import_w == 0
         else:
-            grid_off = (import_w == 0 and export_w == 0)
+            grid_off = False
+
+        log.debug(
+            "grid_watcher_signals",
+            vgrid=grid_voltage, batt_dis=battery_discharge_w,
+            batt_chg=battery_charge_w, home=home_w,
+            imp=import_w, exp=export_w, grid_off=grid_off,
+        )
 
         if grid_off:
             self._down_streak += 1
@@ -62,7 +107,6 @@ class GridWatcher:
             self._up_streak += 1
             self._down_streak = 0
 
-        # Sync DB state once per tick
         await self._sync_state_with_db()
 
         if not self._outage_active and self._down_streak >= self.THRESHOLD_DOWN:
