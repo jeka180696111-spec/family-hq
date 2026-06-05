@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     luxcloud_region: str = Field(default="eu")
     lux_inverter_serial: str = Field(default="")
 
+    # SmartThings (Samsung POWERbot, other ST-connected devices)
+    smartthings_token: str = Field(default="")
+
     # App settings
     timezone: str = Field(default="Europe/Kyiv")
     digest_time: str = Field(default="08:00")

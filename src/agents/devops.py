@@ -251,6 +251,42 @@ class DevOpsAgent(BaseAgent):
                 "input_schema": {"type": "object", "properties": {}},
             },
             {
+                "name": "vacuum_status",
+                "description": (
+                    "Статус робота-пылесоса Samsung POWERbot (через SmartThings). "
+                    "Возвращает заряд батареи, режим уборки, текущее движение."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Имя устройства если их несколько (опционально)"},
+                    },
+                },
+            },
+            {
+                "name": "vacuum_start",
+                "description": (
+                    "Запустить уборку. Режимы: auto (вся квартира), part (точечная), "
+                    "repeat (повторно), manual, map (по карте). Триггер: «запусти пылесос», "
+                    "«пропылесось», «убери»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "mode": {"type": "string", "enum": ["auto", "part", "repeat", "manual", "map"]},
+                        "name": {"type": "string"},
+                    },
+                },
+            },
+            {
+                "name": "vacuum_stop",
+                "description": "Отправить пылесос на базу. Триггер: «стоп пылесос», «домой», «на базу».",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                },
+            },
+            {
                 "name": "plan_trip",
                 "description": (
                     "Запланировать поездку: создаст автоматические правила для "
@@ -545,6 +581,13 @@ class DevOpsAgent(BaseAgent):
 
         elif tool_name == "list_smart_devices":
             return await self._smart_list()
+
+        elif tool_name == "vacuum_status":
+            return await self._vacuum_status(tool_input.get("name", ""))
+        elif tool_name == "vacuum_start":
+            return await self._vacuum_start(tool_input.get("name", ""), tool_input.get("mode", "auto"))
+        elif tool_name == "vacuum_stop":
+            return await self._vacuum_stop(tool_input.get("name", ""))
 
         elif tool_name == "solar_status":
             return await self._solar_status()
@@ -1313,3 +1356,65 @@ class DevOpsAgent(BaseAgent):
             "rules_created": rules_created,
             "note": "Все правила одноразовые: сработают в указанные моменты. После приезда можно удалить через delete_automation_rule.",
         }
+
+    # ─── SmartThings (vacuum) ────────────────────────────────────────
+
+    async def _vacuum_status(self, name: str) -> dict:
+        from src.config import get_settings
+        from src.integrations.smartthings import SmartThingsClient
+        client = SmartThingsClient.from_settings(get_settings())
+        if not client:
+            return {
+                "error": "SmartThings не настроен",
+                "setup_instructions": (
+                    "1. Открой https://account.smartthings.com/tokens\n"
+                    "2. Generate new token. Scopes: r:devices:* и x:devices:*\n"
+                    "3. Скопируй токен (показывается один раз)\n"
+                    "4. В Railway env: SMARTTHINGS_TOKEN = <твой токен>\n"
+                    "5. Если пылесоса нет в SmartThings — в приложении SmartThings на телефоне:\n"
+                    "   + Add device → Samsung → Vacuum → POWERbot → следуй мастеру"
+                ),
+            }
+        try:
+            devices = await client.list_devices()
+            vacuum = client.find_vacuum(devices, needle=name)
+            if not vacuum:
+                return {
+                    "error": "Пылесос не найден в SmartThings",
+                    "available_devices": [{"name": d["name"], "type": d["type"]} for d in devices],
+                }
+            return await client.vacuum_summary(vacuum)
+        except Exception as e:
+            return {"error": str(e)}
+
+    async def _vacuum_start(self, name: str, mode: str) -> dict:
+        from src.config import get_settings
+        from src.integrations.smartthings import SmartThingsClient
+        client = SmartThingsClient.from_settings(get_settings())
+        if not client:
+            return {"error": "SmartThings не настроен"}
+        try:
+            devices = await client.list_devices()
+            vacuum = client.find_vacuum(devices, needle=name)
+            if not vacuum:
+                return {"error": "Пылесос не найден"}
+            await client.vacuum_start(vacuum["id"], mode)
+            return {"success": True, "started": vacuum["name"], "mode": mode}
+        except Exception as e:
+            return {"error": str(e)}
+
+    async def _vacuum_stop(self, name: str) -> dict:
+        from src.config import get_settings
+        from src.integrations.smartthings import SmartThingsClient
+        client = SmartThingsClient.from_settings(get_settings())
+        if not client:
+            return {"error": "SmartThings не настроен"}
+        try:
+            devices = await client.list_devices()
+            vacuum = client.find_vacuum(devices, needle=name)
+            if not vacuum:
+                return {"error": "Пылесос не найден"}
+            await client.vacuum_stop(vacuum["id"])
+            return {"success": True, "stopped": vacuum["name"], "action": "homing"}
+        except Exception as e:
+            return {"error": str(e)}
