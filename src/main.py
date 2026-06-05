@@ -70,6 +70,10 @@ async def handle_new_message(
 
         user_id = getattr(message, "sender_id", None)
         text = getattr(message, "text", "") or ""
+
+        # Slash-command routing: expand short commands into full LLM prompts
+        # so existing dispatcher/agents pick them up naturally.
+        text = _expand_slash_command(text)
         message_id = getattr(message, "id", 0)
 
         if not text.strip():
@@ -122,6 +126,49 @@ async def handle_new_message(
 
 
 _MAX_CHAIN_DEPTH = 3
+
+# ─── Slash and reaction shortcuts ───────────────────────────────────
+_SLASH_EXPAND = {
+    "/profile": "Прораб, покажи family_wiki (всё)",
+    "/wiki": "Прораб, покажи family_wiki (всё)",
+    "/status": "Прораб, system_status",
+    "/cost": "Прораб, cost_report за 30 дней",
+    "/shopping": "Ежедневник, list_shopping — что нужно купить?",
+    "/turn": "Няня, whose_turn_tonight — чья очередь ночью?",
+    "/handoff": "Няня, babysitter_handoff — собери сводку для бабушки",
+    "/news": "Дозорный, get_recent_news за 3 часа",
+    "/alerts": "Дозорный, get_recent_alerts за 24 часа",
+    "/modes": "Прораб, list_active_modes",
+    "/docs": "Прораб, list_documents — покажи документы",
+    "/subs": "Прораб, list_subscriptions — покажи подписки",
+    "/light": "Прораб, power_outage_stats за неделю",
+    "/devices": "Прораб, list_smart_devices",
+    "/sos": "Прораб, покажи family_wiki emergency",
+    "/sleep": "Айболит, parent_sleep_stats за 7 дней",
+    "/foods": "Айболит, list_food_reactions",
+    "/help": "Прораб, helper",
+    "💧": "Няня, поменяли подгузник сейчас",
+    "🍼": "Няня, кормление сейчас",
+    "😴": "Няня, уснул сейчас",
+    "🌅": "Няня, проснулся сейчас",
+}
+
+
+def _expand_slash_command(text: str) -> str:
+    """Map short commands to natural-language prompts so the existing pipeline handles them."""
+    if not text:
+        return text
+    stripped = text.strip()
+    if stripped in _SLASH_EXPAND:
+        return _SLASH_EXPAND[stripped]
+    # /something arg → look up base and prepend
+    if stripped.startswith("/"):
+        head = stripped.split()[0]
+        if head in _SLASH_EXPAND:
+            rest = stripped[len(head):].strip()
+            return _SLASH_EXPAND[head] + (f" {rest}" if rest else "")
+    return text
+
 
 # Topical filters — hard rules that override the LLM dispatcher when it's too polite.
 # If a message clearly belongs to one zone, agents from OTHER zones are removed
@@ -365,10 +412,14 @@ async def run(dry_run: bool = False) -> None:
     register_digest_job(scheduler, agents["news"], memory, settings.digest_time)
     from src.scheduler.digest import register_baby_digest_job
     register_baby_digest_job(scheduler, agents["nanny"], memory, "09:00")
-    from src.scheduler.wave3 import register_today_important_job, register_weekly_digest_job, register_baby_budget_job
+    from src.scheduler.wave3 import (
+        register_today_important_job, register_weekly_digest_job,
+        register_baby_budget_job, register_time_capsule_job,
+    )
     register_today_important_job(scheduler, agents["news"], agents["nanny"], agents["calendar"], memory)
     register_weekly_digest_job(scheduler, agents["news"], agents["nanny"], memory)
     register_baby_budget_job(scheduler, agents["devops"], memory)
+    register_time_capsule_job(scheduler, agents["news"], memory)
     register_backup_job(scheduler, memory, settings.db_path, settings.drive_backup_folder_id, sa_info or {})
     register_healthcheck_jobs(scheduler, claude, memory, bot_manager, chat_id)
     register_reminder_jobs(scheduler, agents["calendar"], bot_manager, chat_id, memory)

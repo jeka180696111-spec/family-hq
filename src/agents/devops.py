@@ -129,6 +129,77 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "family_wiki",
+                "description": (
+                    "Полный портрет семьи в одном красивом ответе: все члены, "
+                    "состояние малыша, помощники, локация, документы со сроками, "
+                    "активные подписки, активные режимы, ключевые контакты. "
+                    "Триггеры: «вики», «профиль», «портрет семьи», «всё про семью», «/profile»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "section": {
+                            "type": "string",
+                            "enum": ["all", "child", "parents", "helpers", "documents", "subscriptions", "modes", "emergency"],
+                            "description": "Какую секцию показать (по умолчанию all)",
+                        },
+                    },
+                },
+            },
+            {
+                "name": "write_time_capsule",
+                "description": (
+                    "Записать короткую запись в «капсулу времени» — особенный момент месяца. "
+                    "Будет показано в годовщину. Используй для дней рождения, первых событий, "
+                    "запоминающихся моментов."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "text": {"type": "string"},
+                    },
+                    "required": ["title", "text"],
+                },
+            },
+            {
+                "name": "list_smart_devices",
+                "description": (
+                    "Показать smart-устройства (Tuya / Smart Life) — бойлер, ТВ, датчики. "
+                    "Триггер: «умный дом», «устройства», «бойлер», «датчик в детской»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "control_smart_device",
+                "description": (
+                    "Включить/выключить smart-устройство. Триггеры: «включи бойлер», "
+                    "«выключи телевизор», «отключи кондиционер»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "device": {"type": "string", "description": "Название или ID устройства"},
+                        "action": {"type": "string", "enum": ["on", "off", "toggle", "status"]},
+                    },
+                    "required": ["device", "action"],
+                },
+            },
+            {
+                "name": "smart_sensor_read",
+                "description": (
+                    "Прочитать показания датчика (температура/влажность/CO2 и т.п.). "
+                    "Триггер: «температура в детской», «влажность», «показания датчиков»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "sensor": {"type": "string", "description": "Название датчика, например «детская»"},
+                    },
+                },
+            },
+            {
                 "name": "add_document",
                 "description": (
                     "Записать документ (паспорт/ВУ/военный билет/страховка/виза) с датой истечения. "
@@ -349,6 +420,21 @@ class DevOpsAgent(BaseAgent):
 
         elif tool_name == "set_family_fact":
             return await self._set_family_fact(tool_input.get("key", ""), tool_input.get("value", ""))
+
+        elif tool_name == "family_wiki":
+            return await self._family_wiki(tool_input.get("section", "all"))
+
+        elif tool_name == "write_time_capsule":
+            return await self._write_time_capsule(tool_input.get("title", ""), tool_input.get("text", ""))
+
+        elif tool_name == "list_smart_devices":
+            return await self._smart_list()
+
+        elif tool_name == "control_smart_device":
+            return await self._smart_control(tool_input.get("device", ""), tool_input.get("action", "status"))
+
+        elif tool_name == "smart_sensor_read":
+            return await self._smart_sensor(tool_input.get("sensor", ""))
 
         elif tool_name == "add_document":
             from sqlalchemy import insert
@@ -764,3 +850,160 @@ class DevOpsAgent(BaseAgent):
                     "milestones из дневника». Няня выполнит, потому что у неё есть sheets_client.",
             "next_step": "Скажи: «Няня, импортируй milestones из дневника»",
         }
+
+    async def _family_wiki(self, section: str) -> dict:
+        """Compact portrait of the whole family + system state."""
+        from datetime import date
+        from sqlalchemy import select
+        from src.db.models import Document, FamilyMode, Subscription
+        from src.utils.family import (
+            CHILD, EMERGENCY_CONTACTS, FATHER, HELPERS, LOCATION, MOTHER, PEDIATRICS,
+            _current_location, _override_int,
+        )
+        from src.utils.baby import matvey_age_short
+
+        loc = _current_location()
+        weight_g = _override_int("matvey.weight_g", CHILD["weight_g"])
+        height_cm = _override_int("matvey.height_cm", CHILD["height_cm"])
+
+        portrait: dict = {}
+
+        if section in ("all", "child"):
+            portrait["child"] = {
+                "name": CHILD["full_name"],
+                "age": matvey_age_short(),
+                "born": CHILD["birth_date"].strftime("%d.%m.%Y"),
+                "weight_g": weight_g,
+                "height_cm": height_cm,
+                "feeding": CHILD["feeding"],
+                "delivery": CHILD["delivery"],
+                "introduced_foods": CHILD["introduced_foods"],
+                "vaccines_done": CHILD["vaccines_done"],
+                "vaccines_upcoming": [(n, d.isoformat()) for n, d in CHILD["vaccines_upcoming"]],
+            }
+        if section in ("all", "parents"):
+            portrait["father"] = {
+                "name": FATHER["full_name"],
+                "role": FATHER["role"],
+                "born": FATHER["birth_date"].strftime("%d.%m.%Y"),
+                "weight_kg": FATHER["weight_kg"],
+                "blood_type": FATHER["blood_type"],
+                "anamnesis": FATHER["medical_history"],
+                "schedule": FATHER["schedule"],
+            }
+            portrait["mother"] = {
+                "name": MOTHER["full_name"],
+                "role": MOTHER["role"],
+                "born": MOTHER["birth_date"].strftime("%d.%m.%Y"),
+                "weight_kg": MOTHER["weight_kg"],
+                "blood_type": MOTHER["blood_type"],
+                "lactating": MOTHER.get("lactating"),
+                "schedule": MOTHER["schedule"],
+            }
+        if section in ("all", "helpers"):
+            portrait["helpers"] = HELPERS
+        if section == "all":
+            portrait["location"] = loc
+            portrait["pediatrics"] = PEDIATRICS
+
+        # DB-backed sections
+        async with self._memory._engine.connect() as conn:
+            if section in ("all", "documents"):
+                docs = list(await conn.execute(select(Document)))
+                today = date.today()
+                docs_view = []
+                for d in docs:
+                    days_left = None
+                    if d.expires_at:
+                        try:
+                            days_left = (date.fromisoformat(d.expires_at) - today).days
+                        except Exception:
+                            pass
+                    docs_view.append({"member": d.member, "kind": d.kind, "expires_at": d.expires_at, "days_left": days_left})
+                docs_view.sort(key=lambda x: x["days_left"] if x["days_left"] is not None else 99999)
+                portrait["documents"] = docs_view
+
+            if section in ("all", "subscriptions"):
+                subs = list(await conn.execute(select(Subscription).where(Subscription.active == 1)))
+                portrait["subscriptions"] = {
+                    "total_month": round(sum(s.amount for s in subs), 2),
+                    "items": [{"name": s.name, "amount": s.amount, "currency": s.currency, "billing_day": s.billing_day} for s in subs],
+                }
+
+            if section in ("all", "modes"):
+                modes = list(await conn.execute(select(FamilyMode).where(FamilyMode.enabled == 1)))
+                portrait["active_modes"] = [{"name": m.name, "expires_at": m.expires_at} for m in modes]
+
+        if section in ("all", "emergency"):
+            portrait["emergency_contacts"] = EMERGENCY_CONTACTS[:5]
+
+        return portrait
+
+    async def _write_time_capsule(self, title: str, text: str) -> dict:
+        """Append a row to «Заметки» tagged TIME_CAPSULE so Архивариус can resurface annually."""
+        # Try to use the Nanny's sheets client by calling through nanny is overkill;
+        # if our DevOps agent had sheets we'd write directly. For now: save to event_log
+        # and let scheduler/wave3 pull it on anniversary.
+        from sqlalchemy import insert
+        from src.db.models import EventLog
+        from src.utils.time import iso_now
+        if not title or not text:
+            return {"error": "title и text обязательны"}
+        async with self._memory._engine.begin() as conn:
+            await conn.execute(insert(EventLog).values(
+                level="INFO",
+                event="time_capsule",
+                agent_id=self.agent_id,
+                message=f"{title} :: {text}",
+                created_at=iso_now(),
+            ))
+        return {"success": True, "title": title, "saved": "В капсулу времени. Архивариус напомнит через год."}
+
+    async def _smart_list(self) -> dict:
+        """List Tuya/Smart Life devices via integration if configured."""
+        try:
+            from src.integrations.tuya import TuyaClient
+            from src.config import get_settings
+            settings = get_settings()
+            client = TuyaClient.from_settings(settings)
+            if not client:
+                return {
+                    "error": "Tuya/Smart Life не настроен",
+                    "setup_instructions": (
+                        "1. Зайди на https://iot.tuya.com и создай developer account\n"
+                        "2. Cloud → Project → Create — выбери Smart Home / Custom Development\n"
+                        "3. Linked Devices → Link App Account — привяжи свой Smart Life аккаунт\n"
+                        "4. Из проекта возьми Access ID и Access Secret\n"
+                        "5. Добавь в Railway env:\n"
+                        "   TUYA_ACCESS_ID=<id>\n"
+                        "   TUYA_ACCESS_SECRET=<secret>\n"
+                        "   TUYA_REGION=eu  (или us / cn / in)\n"
+                        "   TUYA_APP_USER_UID=<твой UID из связанного Smart Life>"
+                    ),
+                }
+            devices = await client.list_devices()
+            return {"count": len(devices), "devices": devices}
+        except Exception as e:
+            return {"error": str(e)}
+
+    async def _smart_control(self, device: str, action: str) -> dict:
+        try:
+            from src.integrations.tuya import TuyaClient
+            from src.config import get_settings
+            client = TuyaClient.from_settings(get_settings())
+            if not client:
+                return {"error": "Tuya не настроен — скажи «список устройств» для инструкции"}
+            return await client.control(device, action)
+        except Exception as e:
+            return {"error": str(e)}
+
+    async def _smart_sensor(self, sensor: str) -> dict:
+        try:
+            from src.integrations.tuya import TuyaClient
+            from src.config import get_settings
+            client = TuyaClient.from_settings(get_settings())
+            if not client:
+                return {"error": "Tuya не настроен"}
+            return await client.read_sensor(sensor)
+        except Exception as e:
+            return {"error": str(e)}

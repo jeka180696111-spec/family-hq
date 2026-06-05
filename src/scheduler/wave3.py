@@ -237,3 +237,51 @@ def register_baby_budget_job(scheduler, devops_agent, memory) -> None:
         id="baby_budget_alert", replace_existing=True,
     )
     log.info("baby_budget_job_registered")
+
+
+# ─── Time capsule resurfacing — daily check for anniversaries ──────────
+
+async def check_time_capsules(news_agent, memory) -> None:
+    """If any time_capsule entry was made N years ago today, resurface it."""
+    try:
+        from datetime import datetime, timedelta
+        from sqlalchemy import select
+        from src.db.models import EventLog
+        from src.utils.time import now_kyiv
+
+        today = now_kyiv().date()
+        async with memory._engine.connect() as conn:
+            rows = list(await conn.execute(
+                select(EventLog).where(EventLog.event == "time_capsule")
+            ))
+        hits = []
+        for r in rows:
+            try:
+                created = datetime.fromisoformat(r.created_at).date()
+            except Exception:
+                continue
+            anniv_years = today.year - created.year
+            if anniv_years <= 0:
+                continue
+            if created.month == today.month and created.day == today.day:
+                hits.append({"years_ago": anniv_years, "text": r.message, "date": created.isoformat()})
+        if not hits:
+            return
+        lines = ["📜 <b>Капсула времени</b>"]
+        for h in hits:
+            label = "год" if h["years_ago"] == 1 else "года" if h["years_ago"] < 5 else "лет"
+            lines.append(f"\n<b>{h['years_ago']} {label} назад в этот день:</b>\n{h['text']}")
+        await news_agent.send("\n".join(lines))
+        log.info("time_capsules_resurfaced", count=len(hits))
+    except Exception:
+        log.exception("time_capsule_check_failed")
+
+
+def register_time_capsule_job(scheduler, news_agent, memory) -> None:
+    scheduler.add_job(
+        check_time_capsules,
+        "cron", hour=9, minute=30, timezone="Europe/Kiev",
+        args=[news_agent, memory],
+        id="time_capsule_check", replace_existing=True,
+    )
+    log.info("time_capsule_job_registered")

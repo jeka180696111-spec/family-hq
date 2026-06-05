@@ -72,6 +72,12 @@ class Settings(BaseSettings):
     railway_project_id: str = Field(default="")
     matveika_service_id: str = Field(default="")
 
+    # Tuya / Smart Life
+    tuya_access_id: str = Field(default="")
+    tuya_access_secret: str = Field(default="")
+    tuya_region: str = Field(default="eu")
+    tuya_app_user_uid: str = Field(default="")
+
     # App settings
     timezone: str = Field(default="Europe/Kyiv")
     digest_time: str = Field(default="08:00")
