@@ -11,15 +11,24 @@ log = structlog.get_logger()
 
 class GridWatcher:
     """
-    Every 60 seconds query the inverter; if grid voltage is 0 (or both
-    import_w and export_w are 0) for THRESHOLD consecutive checks,
-    auto-call log_power_outage('start'). On recovery → log_power_outage('end').
+    Every 60 seconds query the inverter; detect grid loss via inverter
+    state (no solar panels in this install — battery only charges from
+    grid, so charge_w > 0 is a perfect "grid ON" signal).
 
-    Hysteresis: 3 down checks (3 min) to confirm outage; 2 up checks
-    (2 min) to confirm restore — avoids flapping on brief glitches.
+    Signals (in priority order, NO solar configuration):
+      GRID ON:
+        - battery_charge_w > 30W      ← battery can only charge from grid
+        - import_w > 30W              ← grid feeding house directly
+        - grid_voltage > 100V         ← explicit voltage reading
+      GRID OFF:
+        - battery_discharge_w > 30W AND import_w == 0
+        - grid_voltage < 50V (if field present)
+
+    Hysteresis: 5 down checks (5 min) to confirm outage; 2 up checks
+    (2 min) to confirm restore.
     """
 
-    THRESHOLD_DOWN = 3
+    THRESHOLD_DOWN = 5
     THRESHOLD_UP = 2
 
     def __init__(self, memory: Any, devops_agent: Any, bot_manager: Any, chat_id: int) -> None:
@@ -79,18 +88,28 @@ class GridWatcher:
         import_w = float(data.get("grid_import_w") or 0)
         export_w = float(data.get("grid_export_w") or 0)
 
-        # Priority 1: explicit grid voltage
-        if grid_voltage is not None and grid_voltage > 100:
+        # Setup-specific: NO solar panels, battery charges ONLY from grid.
+        # Therefore battery_charge_w > 30W means grid is definitely ON.
+
+        if battery_charge_w > 30:
+            # Battery is charging → grid must be present
             grid_off = False
-        elif grid_voltage is not None and grid_voltage < 50 and battery_discharge_w > 30:
-            # Voltage gone AND battery is actively discharging → real outage
+        elif import_w > 30:
+            # Energy flowing from grid → grid is on
+            grid_off = False
+        elif grid_voltage is not None and grid_voltage > 100:
+            # Explicit voltage confirms grid is on
+            grid_off = False
+        elif battery_discharge_w > 30 and import_w == 0:
+            # Battery actively powering the house AND no import → grid is off
             grid_off = True
-        elif grid_voltage is None:
-            # Voltage field not available in this Lux response.
-            # Use battery discharge ONLY when there's meaningful consumption.
-            # Cooldown floor to avoid false positives on micro-discharges.
-            grid_off = battery_discharge_w > 80 and home_w > 50 and import_w == 0
+        elif grid_voltage is not None and grid_voltage < 50:
+            # Explicit voltage gone
+            grid_off = True
         else:
+            # Ambiguous (idle: nothing charging, nothing discharging, no flow).
+            # Self-discharge ~3%/5h means battery may sit idle when full.
+            # Default to "grid on" — never false-fire on standby.
             grid_off = False
 
         log.debug(
