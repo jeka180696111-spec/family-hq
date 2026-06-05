@@ -78,6 +78,12 @@ class Settings(BaseSettings):
     tuya_region: str = Field(default="eu")
     tuya_app_user_uid: str = Field(default="")
 
+    # LuxCloud / LuxPower inverter
+    luxcloud_email: str = Field(default="")
+    luxcloud_password: str = Field(default="")
+    luxcloud_region: str = Field(default="eu")
+    lux_inverter_serial: str = Field(default="")
+
     # App settings
     timezone: str = Field(default="Europe/Kyiv")
     digest_time: str = Field(default="08:00")

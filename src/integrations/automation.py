@@ -91,6 +91,10 @@ class AutomationEngine:
             return False
         if kind == "time":
             return self._eval_time(cond)
+        if kind == "datetime":
+            return self._eval_datetime(cond)
+        if kind == "datetime_range":
+            return self._eval_datetime_range(cond)
         if kind == "sensor":
             return await self._eval_sensor(cond)
         if kind == "alert_active":
@@ -123,6 +127,33 @@ class AutomationEngine:
         target_minutes = target_h * 60 + target_m
         now_minutes = now.hour * 60 + now.minute
         return 0 <= (now_minutes - target_minutes) < 5
+
+    def _eval_datetime(self, cond: dict) -> bool:
+        """One-shot fire within the 5-min tick after `at`."""
+        try:
+            at = datetime.fromisoformat(cond["at"])
+        except Exception:
+            return False
+        now = now_kyiv()
+        # Treat naive `at` as Kyiv local
+        if at.tzinfo is None:
+            from src.utils.time import KYIV_TZ
+            at = at.replace(tzinfo=KYIV_TZ)
+        delta = (now - at).total_seconds()
+        return 0 <= delta < 300  # within 5 min after target
+
+    def _eval_datetime_range(self, cond: dict) -> bool:
+        try:
+            start = datetime.fromisoformat(cond["from"])
+            end = datetime.fromisoformat(cond["to"])
+        except Exception:
+            return False
+        from src.utils.time import KYIV_TZ
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=KYIV_TZ)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=KYIV_TZ)
+        return start <= now_kyiv() <= end
 
     async def _eval_sensor(self, cond: dict) -> bool:
         try:

@@ -237,6 +237,48 @@ class DevOpsAgent(BaseAgent):
                 "input_schema": {"type": "object", "properties": {}},
             },
             {
+                "name": "solar_status",
+                "description": (
+                    "Текущее состояние инвертора: солнечная генерация, заряд батареи, "
+                    "потребление дома, сеть. Триггер: «солнце», «батарея», «инвертор», "
+                    "«сколько генерирует», «заряд»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "solar_today",
+                "description": "Энергобаланс за сегодня в кВт·ч: произведено солнцем, потреблено домом, импорт/экспорт.",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "plan_trip",
+                "description": (
+                    "Запланировать поездку: создаст автоматические правила для "
+                    "выключения устройств при отъезде и включения к приезду. "
+                    "Используй когда: «уезжаю DD.MM в HH:MM, приезжаю DD.MM в HH:MM», "
+                    "«запланируй поездку», «отпуск с .. по ..»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "leave_at": {"type": "string", "description": "ISO datetime отъезда (2026-06-25T13:00:00)"},
+                        "return_at": {"type": "string", "description": "ISO datetime приезда"},
+                        "destination": {"type": "string", "description": "Куда едете (опционально)"},
+                        "devices_off": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Какие устройства выключить при отъезде. По умолчанию: ТВ, бойлер.",
+                        },
+                        "devices_on_before_return": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Какие устройства включить за 2 часа до приезда. По умолчанию: бойлер.",
+                        },
+                    },
+                    "required": ["leave_at", "return_at"],
+                },
+            },
+            {
                 "name": "control_smart_device",
                 "description": (
                     "Включить/выключить smart-устройство. Триггеры: «включи бойлер», "
@@ -503,6 +545,13 @@ class DevOpsAgent(BaseAgent):
 
         elif tool_name == "list_smart_devices":
             return await self._smart_list()
+
+        elif tool_name == "solar_status":
+            return await self._solar_status()
+        elif tool_name == "solar_today":
+            return await self._solar_today()
+        elif tool_name == "plan_trip":
+            return await self._plan_trip(tool_input)
 
         elif tool_name == "control_smart_device":
             return await self._smart_control(tool_input.get("device", ""), tool_input.get("action", "status"))
@@ -1140,3 +1189,127 @@ class DevOpsAgent(BaseAgent):
         async with self._memory._engine.begin() as conn:
             res = await conn.execute(delete(AutomationRule).where(AutomationRule.name == name))
         return {"success": True, "deleted": res.rowcount}
+
+    # ─── Solar (LuxCloud) ────────────────────────────────────────────
+
+    async def _solar_status(self) -> dict:
+        try:
+            from src.config import get_settings
+            from src.integrations.luxcloud import LuxCloudClient
+            client = LuxCloudClient.from_settings(get_settings())
+            if not client:
+                return {
+                    "error": "LuxCloud не настроен",
+                    "setup_instructions": (
+                        "Добавь в Railway env:\n"
+                        "  LUXCLOUD_EMAIL = твой email от LuxCloud\n"
+                        "  LUXCLOUD_PASSWORD = пароль\n"
+                        "  LUXCLOUD_REGION = eu  (или us / asia)\n"
+                        "  LUX_INVERTER_SERIAL = серийник инвертора (в приложении LuxCloud → Devices)\n"
+                        "После Restart Прораба."
+                    ),
+                }
+            return await client.runtime()
+        except Exception as e:
+            return {"error": str(e)}
+
+    async def _solar_today(self) -> dict:
+        try:
+            from src.config import get_settings
+            from src.integrations.luxcloud import LuxCloudClient
+            client = LuxCloudClient.from_settings(get_settings())
+            if not client:
+                return {"error": "LuxCloud не настроен"}
+            return await client.today_energy()
+        except Exception as e:
+            return {"error": str(e)}
+
+    # ─── Trip planner ────────────────────────────────────────────────
+
+    async def _plan_trip(self, tool_input: dict) -> dict:
+        """Create automation rules for a trip: turn off on leave, turn on before return."""
+        from datetime import datetime, timedelta
+        import json as _json
+        from sqlalchemy import insert
+        from src.db.models import AutomationRule
+        from src.utils.time import iso_now
+
+        try:
+            leave = datetime.fromisoformat(tool_input["leave_at"])
+            ret = datetime.fromisoformat(tool_input["return_at"])
+        except Exception as e:
+            return {"error": f"bad datetime: {e}"}
+
+        devices_off = tool_input.get("devices_off") or ["ТВ", "бойлер"]
+        devices_on = tool_input.get("devices_on_before_return") or ["бойлер"]
+        dest = tool_input.get("destination", "")
+
+        # Turn on 2 hours before return
+        warmup = ret - timedelta(hours=2)
+        trip_id = leave.strftime("%Y%m%d_%H%M")
+
+        rules_created: list[dict] = []
+
+        async with self._memory._engine.begin() as conn:
+            # 1) On leave: enable trip mode + turn off devices
+            for dev in devices_off:
+                name = f"trip_{trip_id}_off_{dev}"
+                await conn.execute(insert(AutomationRule).prefix_with("OR REPLACE").values(
+                    name=name,
+                    description=f"Поездка: выключить {dev} при отъезде ({leave.strftime('%d.%m %H:%M')})"
+                                + (f" → {dest}" if dest else ""),
+                    condition=_json.dumps({"type": "datetime", "at": leave.isoformat()}, ensure_ascii=False),
+                    action=_json.dumps({"type": "device", "device": dev, "action": "off"}, ensure_ascii=False),
+                    enabled=1, cooldown_min=1, created_at=iso_now(),
+                    created_by=getattr(self, "_current_sender", "") or "trip_planner",
+                ))
+                rules_created.append({"name": name, "when": leave.isoformat(), "action": f"off {dev}"})
+
+            # 2) Enable trip mode
+            trip_mode_name = f"trip_{trip_id}_mode_on"
+            await conn.execute(insert(AutomationRule).prefix_with("OR REPLACE").values(
+                name=trip_mode_name,
+                description=f"Поездка: включить trip mode до {ret.strftime('%d.%m %H:%M')}",
+                condition=_json.dumps({"type": "datetime", "at": leave.isoformat()}, ensure_ascii=False),
+                action=_json.dumps({
+                    "type": "set_mode", "mode": "trip", "enabled": True, "until": ret.isoformat(),
+                }, ensure_ascii=False),
+                enabled=1, cooldown_min=1, created_at=iso_now(),
+            ))
+            rules_created.append({"name": trip_mode_name, "when": leave.isoformat(), "action": "trip mode ON"})
+
+            # 3) Warmup before return: turn on devices
+            for dev in devices_on:
+                name = f"trip_{trip_id}_warmup_{dev}"
+                await conn.execute(insert(AutomationRule).prefix_with("OR REPLACE").values(
+                    name=name,
+                    description=f"Поездка: включить {dev} за 2ч до приезда ({warmup.strftime('%d.%m %H:%M')})",
+                    condition=_json.dumps({"type": "datetime", "at": warmup.isoformat()}, ensure_ascii=False),
+                    action=_json.dumps({"type": "device", "device": dev, "action": "on"}, ensure_ascii=False),
+                    enabled=1, cooldown_min=1, created_at=iso_now(),
+                ))
+                rules_created.append({"name": name, "when": warmup.isoformat(), "action": f"on {dev}"})
+
+            # 4) On return: disable trip mode
+            return_mode_name = f"trip_{trip_id}_mode_off"
+            await conn.execute(insert(AutomationRule).prefix_with("OR REPLACE").values(
+                name=return_mode_name,
+                description="Поездка: выключить trip mode при приезде",
+                condition=_json.dumps({"type": "datetime", "at": ret.isoformat()}, ensure_ascii=False),
+                action=_json.dumps({
+                    "type": "set_mode", "mode": "trip", "enabled": False,
+                }, ensure_ascii=False),
+                enabled=1, cooldown_min=1, created_at=iso_now(),
+            ))
+            rules_created.append({"name": return_mode_name, "when": ret.isoformat(), "action": "trip mode OFF"})
+
+        return {
+            "success": True,
+            "trip_id": trip_id,
+            "destination": dest,
+            "leave_at": leave.isoformat(),
+            "return_at": ret.isoformat(),
+            "warmup_at": warmup.isoformat(),
+            "rules_created": rules_created,
+            "note": "Все правила одноразовые: сработают в указанные моменты. После приезда можно удалить через delete_automation_rule.",
+        }
