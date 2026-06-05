@@ -52,6 +52,57 @@ class HealthAgent(BaseAgent):
                 },
             },
             {
+                "name": "log_parent_sleep",
+                "description": (
+                    "Записать сон родителя (Евгения или Марины). "
+                    "Используй когда говорят «лёг в 23», «проспал 6 часов», «просыпался ночью»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "member": {"type": "string", "enum": ["eugene", "marina"]},
+                        "bedtime": {"type": "string", "description": "HH:MM"},
+                        "wake_time": {"type": "string", "description": "HH:MM"},
+                        "quality": {"type": "string", "enum": ["ok", "awakened", "bad"]},
+                    },
+                    "required": ["member"],
+                },
+            },
+            {
+                "name": "parent_sleep_stats",
+                "description": "Статистика сна родителей за неделю.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "member": {"type": "string"},
+                        "days": {"type": "integer", "default": 7},
+                    },
+                },
+            },
+            {
+                "name": "log_food_reaction",
+                "description": (
+                    "Зафиксировать реакцию малыша на новый продукт. "
+                    "Используй когда говорят «после банана сыпь», «нормально перенёс брокколи»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "food": {"type": "string"},
+                        "reaction": {"type": "string", "description": "ok/rash/loose_stool/vomit/refusal"},
+                        "onset_hours": {"type": "integer", "description": "Через сколько часов проявилось"},
+                        "severity": {"type": "string", "enum": ["mild", "moderate", "severe"]},
+                        "notes": {"type": "string"},
+                    },
+                    "required": ["food", "reaction"],
+                },
+            },
+            {
+                "name": "list_food_reactions",
+                "description": "Показать все зафиксированные реакции малыша на продукты.",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
                 "name": "log_health_event",
                 "description": "Записать событие здоровья в БД",
                 "input_schema": {
@@ -131,6 +182,68 @@ class HealthAgent(BaseAgent):
                 "medication": tool_input["medication"],
                 "note": "Дозировки предоставлены как справочная информация. Следуй инструкции к препарату.",
                 "weight_kg": tool_input.get("weight_kg"),
+            }
+
+        if tool_name == "log_parent_sleep":
+            from datetime import date
+            from sqlalchemy import insert
+            from src.db.models import ParentSleep
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(insert(ParentSleep).values(
+                    member=tool_input["member"],
+                    bedtime=tool_input.get("bedtime"),
+                    wake_time=tool_input.get("wake_time"),
+                    quality=tool_input.get("quality"),
+                    date=date.today().isoformat(),
+                ))
+            return {"success": True}
+
+        if tool_name == "parent_sleep_stats":
+            from datetime import date, timedelta
+            from sqlalchemy import select
+            from src.db.models import ParentSleep
+            days = int(tool_input.get("days", 7))
+            cutoff = (date.today() - timedelta(days=days)).isoformat()
+            async with self._memory._engine.connect() as conn:
+                stmt = select(ParentSleep).where(ParentSleep.date >= cutoff)
+                if tool_input.get("member"):
+                    stmt = stmt.where(ParentSleep.member == tool_input["member"])
+                rows = list(await conn.execute(stmt))
+            per_member: dict[str, dict] = {}
+            for r in rows:
+                m = per_member.setdefault(r.member, {"nights": 0, "bad": 0, "awakened": 0})
+                m["nights"] += 1
+                if r.quality == "bad":
+                    m["bad"] += 1
+                elif r.quality == "awakened":
+                    m["awakened"] += 1
+            return {"days": days, "per_member": per_member}
+
+        if tool_name == "log_food_reaction":
+            from sqlalchemy import insert
+            from src.db.models import FoodReaction
+            from src.utils.time import iso_now
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(insert(FoodReaction).values(
+                    food=tool_input["food"],
+                    first_tried_at=iso_now(),
+                    reaction=tool_input["reaction"],
+                    onset_hours=tool_input.get("onset_hours"),
+                    severity=tool_input.get("severity"),
+                    notes=tool_input.get("notes"),
+                ))
+            return {"success": True}
+
+        if tool_name == "list_food_reactions":
+            from sqlalchemy import select
+            from src.db.models import FoodReaction
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(select(FoodReaction).order_by(FoodReaction.id.desc())))
+            return {
+                "count": len(rows),
+                "items": [{"food": r.food, "reaction": r.reaction, "severity": r.severity,
+                           "onset_hours": r.onset_hours, "first_tried_at": r.first_tried_at,
+                           "notes": r.notes} for r in rows],
             }
 
         return await super()._call_tool(tool_name, tool_input)

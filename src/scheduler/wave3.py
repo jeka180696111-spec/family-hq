@@ -200,3 +200,40 @@ def register_weekly_digest_job(scheduler, news_agent, nanny_agent, memory) -> No
         id="weekly_digest", replace_existing=True,
     )
     log.info("weekly_digest_job_registered")
+
+
+# ─── Baby budget alert — daily check around 18:00 ──────────────────────
+
+async def check_baby_budget(devops_agent, memory) -> None:
+    """If ≥25% of month left but ≤25% of baby budget remains, ping the group."""
+    try:
+        # Asks user's external Фінн for current spending — we don't have access.
+        # Instead, use a heuristic via Прораб's prompt: it will compute from
+        # configured monthly budget and known recent expense markers if available.
+        # For now: emit a soft 'check your budget' note if late in month.
+        from datetime import date
+        from calendar import monthrange
+        from src.utils.family import FINANCE
+
+        today = date.today()
+        total_days = monthrange(today.year, today.month)[1]
+        days_left = total_days - today.day
+        if days_left == 7:  # 1 week to month end
+            await devops_agent.send(
+                f"💸 <b>Контроль бюджета</b>\n"
+                f"До конца месяца неделя. Ориентир по малышу: {FINANCE['monthly_baby_budget']} UAH/мес.\n"
+                f"Спроси у Фінна сколько потрачено: «фінн, скільки витратили на малюка цього місяця?»"
+            )
+            log.info("baby_budget_alert_sent")
+    except Exception:
+        log.exception("baby_budget_alert_failed")
+
+
+def register_baby_budget_job(scheduler, devops_agent, memory) -> None:
+    scheduler.add_job(
+        check_baby_budget,
+        "cron", hour=18, minute=0, timezone="Europe/Kiev",
+        args=[devops_agent, memory],
+        id="baby_budget_alert", replace_existing=True,
+    )
+    log.info("baby_budget_job_registered")

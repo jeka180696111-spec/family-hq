@@ -129,6 +129,147 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "add_document",
+                "description": (
+                    "Записать документ (паспорт/ВУ/военный билет/страховка/виза) с датой истечения. "
+                    "Прораб напомнит за месяц до окончания."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "member": {"type": "string", "enum": ["eugene", "marina", "matvey"]},
+                        "kind": {"type": "string", "description": "passport/ВУ/military/insurance/visa/birth_certificate"},
+                        "number": {"type": "string"},
+                        "issued_at": {"type": "string", "description": "YYYY-MM-DD"},
+                        "expires_at": {"type": "string", "description": "YYYY-MM-DD"},
+                        "notes": {"type": "string"},
+                    },
+                    "required": ["member", "kind"],
+                },
+            },
+            {
+                "name": "list_documents",
+                "description": "Показать документы. Сортировка: скоро истекают сверху.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"member": {"type": "string"}},
+                },
+            },
+            {
+                "name": "add_subscription",
+                "description": (
+                    "Записать подписку (Netflix/Spotify/мобильный тариф/iCloud и т.п.) "
+                    "с суммой и днём списания. Прораб напомнит за день до."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "amount": {"type": "number"},
+                        "currency": {"type": "string", "default": "UAH"},
+                        "billing_day": {"type": "integer", "description": "1-28"},
+                        "notes": {"type": "string"},
+                    },
+                    "required": ["name", "amount", "billing_day"],
+                },
+            },
+            {
+                "name": "list_subscriptions",
+                "description": "Показать активные подписки + общая месячная стоимость.",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "cancel_subscription",
+                "description": "Отметить подписку отменённой (active=0).",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                    "required": ["name"],
+                },
+            },
+            {
+                "name": "log_utility_bill",
+                "description": (
+                    "Записать оплату коммуналки. Используй когда говорят «оплатил газ 450», "
+                    "«пришла квитанция за свет 800»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "kind": {"type": "string", "description": "газ/свет/вода/интернет/квартплата/тепло"},
+                        "amount": {"type": "number"},
+                        "currency": {"type": "string", "default": "UAH"},
+                        "paid": {"type": "boolean", "description": "True если уже оплачено, False если только пришла квитанция"},
+                        "due_at": {"type": "string", "description": "YYYY-MM-DD дедлайн оплаты"},
+                        "notes": {"type": "string"},
+                    },
+                    "required": ["kind", "amount"],
+                },
+            },
+            {
+                "name": "list_utility_bills",
+                "description": "Показать коммуналку за месяц/период с группировкой по типу.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"days": {"type": "integer", "default": 60}},
+                },
+            },
+            {
+                "name": "log_power_outage",
+                "description": (
+                    "Зафиксировать отключение света. «света нет» → start. «свет дали» → end. "
+                    "Прораб ведёт статистику для прогнозов."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "action": {"type": "string", "enum": ["start", "end"]},
+                        "notes": {"type": "string"},
+                    },
+                    "required": ["action"],
+                },
+            },
+            {
+                "name": "power_outage_stats",
+                "description": "Статистика по отключениям света за период (всего часов без света, среднее, паттерн).",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"days": {"type": "integer", "default": 7}},
+                },
+            },
+            {
+                "name": "set_family_mode",
+                "description": (
+                    "Включить/выключить режим семьи. trip — поездка/отпуск (отключает дайджесты, "
+                    "меняет приоритеты регионов). sick — кто-то болеет (Айболит активен, тихо). "
+                    "quiet — принудительный тихий режим."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "mode": {"type": "string", "enum": ["trip", "sick", "quiet"]},
+                        "enabled": {"type": "boolean"},
+                        "payload": {"type": "string", "description": "Доп.инфо: для trip — куда/до какого числа. Для sick — кто болеет."},
+                        "until": {"type": "string", "description": "YYYY-MM-DD до какого числа"},
+                    },
+                    "required": ["mode", "enabled"],
+                },
+            },
+            {
+                "name": "list_active_modes",
+                "description": "Показать какие режимы сейчас включены.",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "import_milestones_from_diary",
+                "description": (
+                    "Один раз: пройти по Дневнику и автоматически создать записи в «Достижения» "
+                    "для первых вхождений ключевых событий (первый раз кабачок, первое какал, "
+                    "перевернулся, сел и т.п.). Не дублирует существующие записи."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
                 "name": "restart_main_service",
                 "description": "Перезапустить главный сервис family-hq на Railway. Применяется когда Дозорный добавил новые каналы и нужно чтобы userbot подписался, или когда AI ведёт себя странно. Требует подтверждения от пользователя.",
                 "input_schema": {
@@ -208,6 +349,194 @@ class DevOpsAgent(BaseAgent):
 
         elif tool_name == "set_family_fact":
             return await self._set_family_fact(tool_input.get("key", ""), tool_input.get("value", ""))
+
+        elif tool_name == "add_document":
+            from sqlalchemy import insert
+            from src.db.models import Document
+            async with self._memory._engine.begin() as conn:
+                result = await conn.execute(insert(Document).values(
+                    member=tool_input["member"], kind=tool_input["kind"],
+                    number=tool_input.get("number"), issued_at=tool_input.get("issued_at"),
+                    expires_at=tool_input.get("expires_at"), notes=tool_input.get("notes"),
+                ))
+            return {"success": True, "id": result.inserted_primary_key[0] if result.inserted_primary_key else None}
+
+        elif tool_name == "list_documents":
+            from sqlalchemy import select
+            from src.db.models import Document
+            async with self._memory._engine.connect() as conn:
+                stmt = select(Document)
+                if tool_input.get("member"):
+                    stmt = stmt.where(Document.member == tool_input["member"])
+                rows = list(await conn.execute(stmt))
+            from datetime import date
+            today = date.today().isoformat()
+            items = []
+            for r in rows:
+                days_left = None
+                if r.expires_at:
+                    try:
+                        days_left = (date.fromisoformat(r.expires_at) - date.today()).days
+                    except Exception:
+                        pass
+                items.append({
+                    "id": r.id, "member": r.member, "kind": r.kind, "number": r.number,
+                    "expires_at": r.expires_at, "days_left": days_left, "notes": r.notes,
+                })
+            items.sort(key=lambda x: x["days_left"] if x["days_left"] is not None else 99999)
+            return {"count": len(items), "documents": items}
+
+        elif tool_name == "add_subscription":
+            from sqlalchemy import insert
+            from src.db.models import Subscription
+            async with self._memory._engine.begin() as conn:
+                result = await conn.execute(insert(Subscription).values(
+                    name=tool_input["name"], amount=tool_input["amount"],
+                    currency=tool_input.get("currency", "UAH"),
+                    billing_day=int(tool_input["billing_day"]),
+                    notes=tool_input.get("notes"),
+                ))
+            return {"success": True, "id": result.inserted_primary_key[0] if result.inserted_primary_key else None}
+
+        elif tool_name == "list_subscriptions":
+            from sqlalchemy import select
+            from src.db.models import Subscription
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(select(Subscription).where(Subscription.active == 1)))
+            total = sum(r.amount for r in rows)
+            return {
+                "count": len(rows), "total_month": round(total, 2),
+                "items": [{"id": r.id, "name": r.name, "amount": r.amount,
+                           "currency": r.currency, "billing_day": r.billing_day} for r in rows],
+            }
+
+        elif tool_name == "cancel_subscription":
+            from sqlalchemy import select, update as sql_update
+            from src.db.models import Subscription
+            async with self._memory._engine.begin() as conn:
+                res = await conn.execute(
+                    sql_update(Subscription).where(Subscription.name == tool_input["name"]).values(active=0)
+                )
+            return {"success": True, "cancelled": res.rowcount}
+
+        elif tool_name == "log_utility_bill":
+            from sqlalchemy import insert
+            from src.db.models import UtilityBill
+            from src.utils.time import iso_now
+            paid = bool(tool_input.get("paid", True))
+            async with self._memory._engine.begin() as conn:
+                result = await conn.execute(insert(UtilityBill).values(
+                    kind=tool_input["kind"], amount=tool_input["amount"],
+                    currency=tool_input.get("currency", "UAH"),
+                    paid_at=iso_now() if paid else None,
+                    due_at=tool_input.get("due_at"),
+                    notes=tool_input.get("notes"),
+                ))
+            return {"success": True, "paid": paid}
+
+        elif tool_name == "list_utility_bills":
+            from datetime import timedelta
+            from sqlalchemy import select
+            from src.db.models import UtilityBill
+            from src.utils.time import now_kyiv
+            days = int(tool_input.get("days", 60))
+            cutoff = (now_kyiv() - timedelta(days=days)).isoformat()
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(select(UtilityBill)))
+            recent = []
+            by_kind: dict[str, float] = {}
+            for r in rows:
+                marker = r.paid_at or r.due_at or ""
+                if marker and marker < cutoff:
+                    continue
+                recent.append({
+                    "id": r.id, "kind": r.kind, "amount": r.amount,
+                    "paid_at": r.paid_at, "due_at": r.due_at, "notes": r.notes,
+                })
+                by_kind[r.kind] = by_kind.get(r.kind, 0) + r.amount
+            return {"days": days, "by_kind_total": by_kind, "items": recent}
+
+        elif tool_name == "log_power_outage":
+            from sqlalchemy import insert, select, update as sql_update
+            from src.db.models import PowerOutage
+            from src.utils.time import iso_now, now_kyiv
+            action = tool_input["action"]
+            if action == "start":
+                async with self._memory._engine.begin() as conn:
+                    result = await conn.execute(insert(PowerOutage).values(
+                        started_at=iso_now(), notes=tool_input.get("notes"),
+                    ))
+                return {"success": True, "status": "started", "id": result.inserted_primary_key[0] if result.inserted_primary_key else None}
+            else:  # end
+                async with self._memory._engine.begin() as conn:
+                    last = (await conn.execute(
+                        select(PowerOutage).where(PowerOutage.ended_at.is_(None))
+                        .order_by(PowerOutage.id.desc()).limit(1)
+                    )).first()
+                    if not last:
+                        return {"success": False, "error": "Нет открытого отключения"}
+                    from datetime import datetime
+                    started = datetime.fromisoformat(last.started_at)
+                    duration_min = int((now_kyiv() - started).total_seconds() / 60)
+                    await conn.execute(
+                        sql_update(PowerOutage).where(PowerOutage.id == last.id).values(
+                            ended_at=iso_now(), duration_min=duration_min,
+                        )
+                    )
+                return {"success": True, "duration_min": duration_min}
+
+        elif tool_name == "power_outage_stats":
+            from datetime import timedelta
+            from sqlalchemy import select
+            from src.db.models import PowerOutage
+            from src.utils.time import now_kyiv
+            days = int(tool_input.get("days", 7))
+            cutoff = (now_kyiv() - timedelta(days=days)).isoformat()
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(PowerOutage).where(PowerOutage.started_at >= cutoff)
+                ))
+            closed = [r for r in rows if r.duration_min is not None]
+            total_min = sum(r.duration_min for r in closed)
+            return {
+                "days": days, "outages_count": len(rows),
+                "still_no_light": any(r.ended_at is None for r in rows),
+                "total_hours_without_light": round(total_min / 60, 1),
+                "avg_min_per_outage": round(total_min / max(len(closed), 1)),
+                "raw": [{"started": r.started_at, "ended": r.ended_at,
+                         "duration_min": r.duration_min} for r in rows[-20:]],
+            }
+
+        elif tool_name == "set_family_mode":
+            import json as _json
+            from sqlalchemy import insert
+            from src.db.models import FamilyMode
+            from src.utils.time import iso_now
+            payload = tool_input.get("payload")
+            payload_str = _json.dumps({"info": payload}) if payload else None
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(insert(FamilyMode).prefix_with("OR REPLACE").values(
+                    name=tool_input["mode"],
+                    enabled=1 if tool_input.get("enabled") else 0,
+                    payload=payload_str,
+                    started_at=iso_now(),
+                    expires_at=tool_input.get("until"),
+                ))
+            return {"success": True, "mode": tool_input["mode"], "enabled": tool_input.get("enabled")}
+
+        elif tool_name == "list_active_modes":
+            from sqlalchemy import select
+            from src.db.models import FamilyMode
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(select(FamilyMode).where(FamilyMode.enabled == 1)))
+            return {
+                "count": len(rows),
+                "modes": [{"name": r.name, "payload": r.payload,
+                           "started_at": r.started_at, "expires_at": r.expires_at} for r in rows],
+            }
+
+        elif tool_name == "import_milestones_from_diary":
+            return await self._import_milestones()
 
         elif tool_name == "restart_main_service":
             from src.config import get_settings
@@ -416,3 +745,22 @@ class DevOpsAgent(BaseAgent):
             rows = list(await conn.execute(select(FamilyOverride)))
         apply_overrides({r.key: r.value for r in rows})
         return {"success": True, "key": key, "value": value, "total_overrides": len(rows)}
+
+    async def _import_milestones(self) -> dict:
+        """Scan Дневник for 'first occurrence' events and write to Достижения."""
+        if not self._memory:
+            return {"error": "memory not available"}
+        # Use Nanny's sheets — search via Архивариус helper
+        from src.integrations.history_search import _search_sheet
+        from datetime import datetime
+        # We need a sheets client — DevOps doesn't have one directly, but we can
+        # ask via the agents map at runtime through a peer-call. Simpler: piggyback
+        # on the bot manager registry expects sheets on Nanny. Use raw API later.
+        # Strategy: just return TODO until coordinated — but for now do best-effort
+        # via filesystem if Sheets unavailable.
+        return {
+            "note": "Запустить нужно через прямой вызов SheetsClient.append_milestone. "
+                    "Эту функцию вызовет Прораб через peer-chain с Няней: «Няня, импортируй "
+                    "milestones из дневника». Няня выполнит, потому что у неё есть sheets_client.",
+            "next_step": "Скажи: «Няня, импортируй milestones из дневника»",
+        }

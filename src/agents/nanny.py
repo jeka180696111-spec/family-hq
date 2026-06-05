@@ -156,6 +156,47 @@ class NannyAgent(BaseAgent):
                     "required": ["type", "name"],
                 },
             },
+            {
+                "name": "log_night_shift",
+                "description": (
+                    "Записать кто вчера/сегодня ночью был на «дежурстве» с Матвеем. "
+                    "Помогает справедливо чередовать сон родителей."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "on_duty": {"type": "string", "enum": ["eugene", "marina", "both"]},
+                        "notes": {"type": "string"},
+                    },
+                    "required": ["on_duty"],
+                },
+            },
+            {
+                "name": "whose_turn_tonight",
+                "description": "Подсчитать чья очередь сегодня дежурить по предыдущим сменам.",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "babysitter_handoff",
+                "description": (
+                    "Сформировать короткую сводку для бабушки/няни перед сменой: что было сегодня, "
+                    "когда поел/спал, что ест сейчас, на что обращать внимание."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "for_helper": {"type": "string", "description": "Кому передать: Бабушка С. / Бабушка А. / няня"},
+                    },
+                },
+            },
+            {
+                "name": "import_milestones_from_diary",
+                "description": (
+                    "Один раз: пройти по Дневнику Матвея и автоматически создать записи "
+                    "«первое X» в листе Достижения. Не дублирует существующие."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
         ]
 
     async def _call_tool(self, tool_name: str, tool_input: dict[str, Any]) -> Any:
@@ -264,4 +305,170 @@ class NannyAgent(BaseAgent):
                     details=tool_input.get("details", ""),
                 )
 
+        if tool_name == "log_night_shift":
+            from datetime import date
+            from sqlalchemy import insert
+            from src.db.models import NightShift
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(insert(NightShift).values(
+                    date=date.today().isoformat(),
+                    on_duty=tool_input["on_duty"],
+                    notes=tool_input.get("notes"),
+                ))
+            return {"success": True, "on_duty": tool_input["on_duty"]}
+
+        if tool_name == "whose_turn_tonight":
+            from sqlalchemy import select
+            from src.db.models import NightShift
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(NightShift).order_by(NightShift.date.desc()).limit(14)
+                ))
+            counts = {"eugene": 0, "marina": 0}
+            for r in rows:
+                if r.on_duty in counts:
+                    counts[r.on_duty] += 1
+            last = rows[0].on_duty if rows else None
+            # Whoever had fewer turns OR opposite of last
+            if counts["eugene"] < counts["marina"]:
+                rec = "eugene"
+            elif counts["marina"] < counts["eugene"]:
+                rec = "marina"
+            else:
+                rec = "marina" if last == "eugene" else "eugene"
+            return {
+                "last_two_weeks": counts,
+                "last_on_duty": last,
+                "recommended_tonight": rec,
+                "reason": "по балансу смен за 2 недели",
+            }
+
+        if tool_name == "babysitter_handoff":
+            from datetime import timedelta
+            from src.integrations.history_search import _search_sheet
+            from src.utils.time import now_kyiv
+            now = now_kyiv()
+            cutoff = now - timedelta(hours=12)
+            diary = []
+            if self._sheets:
+                try:
+                    diary = await _search_sheet(self._sheets, "Дневник", "", cutoff, 100)
+                except Exception:
+                    pass
+            import json as _json
+            prompt = (
+                "Сформируй короткую сводку для бабушки/няни «что было с малышом сегодня». "
+                "Структура: 😴 последний сон (когда лёг/проснулся, длительность), "
+                "🍼 последнее кормление (когда, чем), 💧 подгузники (когда последний раз, что), "
+                "📋 что важно: режим/симптомы/нужно дать лекарство/время следующего кормления. "
+                "Кратко, по существу.\n\n"
+                f"ЗАПИСИ:\n{_json.dumps(diary, ensure_ascii=False, default=str)[:3000]}"
+            )
+            resp = await self._claude.complete(
+                model=self._get_model(),
+                system="Ты — Няня. Передаёшь смену помощнику. Тёплый, конкретный тон.",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=600,
+            )
+            return {"handoff_text": resp.strip(), "for": tool_input.get("for_helper", "помощнику")}
+
+        if tool_name == "import_milestones_from_diary":
+            return await self._import_milestones()
+
         return await super()._call_tool(tool_name, tool_input)
+
+    async def _import_milestones(self) -> dict:
+        """Scan Дневник + Прикорм for 'first occurrence' events and append to Достижения."""
+        if not self._sheets:
+            return {"error": "Sheets не настроен"}
+        from datetime import datetime
+        from src.integrations.history_search import _search_sheet
+
+        # Pull existing milestones to avoid duplicates
+        try:
+            existing = await _search_sheet(self._sheets, "Достижения", "", datetime(2020, 1, 1), 500)
+        except Exception:
+            existing = []
+        seen = {(row.get("Достижение", "") or "").lower() for row in existing}
+
+        created: list[dict] = []
+
+        # Scan Прикорм for first occurrences of each product
+        try:
+            feed_rows = await _search_sheet(self._sheets, "Прикорм", "", datetime(2020, 1, 1), 1000)
+        except Exception:
+            feed_rows = []
+        first_food: dict[str, dict] = {}
+        for row in feed_rows:
+            product = (row.get("Продукт") or row.get("Продукт/Блюдо") or "").strip()
+            date_str = (row.get("Дата") or "").strip()
+            if not product or not date_str:
+                continue
+            key = product.lower()
+            if key in first_food:
+                continue
+            try:
+                dt = datetime.strptime(date_str, "%d.%m.%Y")
+            except ValueError:
+                continue
+            first_food[key] = {"product": product, "date": dt}
+
+        for key, entry in first_food.items():
+            milestone_label = f"Первый раз {entry['product']}"
+            if milestone_label.lower() in seen:
+                continue
+            try:
+                await self._sheets.append_milestone(
+                    milestone="Другое",
+                    time=entry["date"],
+                    details=milestone_label,
+                    author="Архивариус",
+                )
+                created.append({"date": entry["date"].strftime("%d.%m.%Y"), "milestone": milestone_label})
+            except Exception:
+                pass
+
+        # Scan Дневник for first "Уснул", first "Какал", first solid food entries marked as Прикорм:
+        try:
+            diary_rows = await _search_sheet(self._sheets, "Дневник", "", datetime(2020, 1, 1), 2000)
+        except Exception:
+            diary_rows = []
+
+        markers = {
+            "Уснул": "Первое самостоятельное засыпание",
+            "Какал": "Первый стул",
+            "Грудь Л": "Первое кормление левой грудью",
+            "Грудь П": "Первое кормление правой грудью",
+            "Смесь": "Первый раз смесь",
+        }
+        marker_found: dict[str, datetime] = {}
+        for row in diary_rows:
+            event = (row.get("Тип / Детали") or row.get("Тип/Детали") or "").strip()
+            for needle, label in markers.items():
+                if needle in event and needle not in marker_found:
+                    try:
+                        dt = datetime.strptime(row.get("Дата", ""), "%d.%m.%Y")
+                        marker_found[needle] = dt
+                    except (KeyError, ValueError):
+                        pass
+                    break
+        for needle, dt in marker_found.items():
+            label = markers[needle]
+            if label.lower() in seen:
+                continue
+            try:
+                await self._sheets.append_milestone(
+                    milestone="Другое",
+                    time=dt,
+                    details=label,
+                    author="Архивариус",
+                )
+                created.append({"date": dt.strftime("%d.%m.%Y"), "milestone": label})
+            except Exception:
+                pass
+
+        return {
+            "imported": len(created),
+            "items": created,
+            "note": "Проверь лист «Достижения» — добавлены автоматически найденные первые события",
+        }
