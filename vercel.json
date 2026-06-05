@@ -1,9 +1,0 @@
-{
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" }
-  ],
-  "crons": [
-    { "path": "/api/telegram-summary", "schedule": "0 19 * * *" },
-    { "path": "/api/cron-push",        "schedule": "0 9 * * *"  }
-  ]
-}
