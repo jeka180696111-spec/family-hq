@@ -75,6 +75,23 @@ class BaseAgent(abc.ABC):
                 "input_schema": {"type": "object", "properties": {}},
             },
             {
+                "name": "weather",
+                "description": (
+                    "Текущая погода или прогноз. Используй когда: «погода», «дождь сегодня», "
+                    "«температура на улице», «холодно/жарко», «когда дождь». "
+                    "По умолчанию — текущая погода в Одессе. "
+                    "Если просят прогноз — укажи hours (3, 12, 24, 48)."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "mode": {"type": "string", "enum": ["current", "forecast"], "default": "current"},
+                        "city": {"type": "string", "description": "Город. По умолчанию Odesa,UA"},
+                        "hours": {"type": "integer", "description": "Часов прогноза вперёд (для forecast)", "default": 24},
+                    },
+                },
+            },
+            {
                 "name": "search_history",
                 "description": (
                     "Поиск по всей семейной истории: Дневник Матвея, Здоровье, Прививки, "
@@ -256,6 +273,25 @@ class BaseAgent(abc.ABC):
                     return {"success": False, "error": "Нет сообщений для удаления"}
             except Exception as e:
                 return {"error": str(e)}
+        if tool_name == "weather":
+            try:
+                from src.config import get_settings
+                from src.integrations.weather import WeatherClient
+                client = WeatherClient.from_settings(get_settings())
+                if not client:
+                    return {
+                        "error": "Погода не настроена",
+                        "setup": "Получи ключ на https://openweathermap.org/api → "
+                                 "добавь OPENWEATHER_API_KEY в Railway env",
+                    }
+                mode = tool_input.get("mode", "current")
+                city = tool_input.get("city")
+                if mode == "forecast":
+                    return {"forecast": await client.forecast(city, int(tool_input.get("hours", 24)))}
+                return await client.current(city)
+            except Exception as e:
+                return {"error": str(e)}
+
         if tool_name == "search_history":
             from src.integrations.history_search import search_history
             sheets = getattr(self, "_sheets", None)

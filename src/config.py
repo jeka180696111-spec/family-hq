@@ -87,6 +87,9 @@ class Settings(BaseSettings):
     # SmartThings (Samsung POWERbot, other ST-connected devices)
     smartthings_token: str = Field(default="")
 
+    # OpenWeatherMap
+    openweather_api_key: str = Field(default="")
+
     # App settings
     timezone: str = Field(default="Europe/Kyiv")
     digest_time: str = Field(default="08:00")

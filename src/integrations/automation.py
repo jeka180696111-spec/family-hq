@@ -103,7 +103,46 @@ class AutomationEngine:
             return await self._eval_alert_ended(cond.get("region", ""))
         if kind == "power_outage":
             return await self._eval_power_outage(cond.get("state", "active"))
+        if kind == "weather":
+            return await self._eval_weather(cond)
         return False
+
+    async def _eval_weather(self, cond: dict) -> bool:
+        """{type:weather, metric:'temp'|'rain'|'humidity', op:'>'|'<'|'>='|'<=', value, when:'now'|'24h'}"""
+        try:
+            from src.config import get_settings
+            from src.integrations.weather import WeatherClient
+            client = WeatherClient.from_settings(get_settings())
+            if not client:
+                return False
+            metric = cond.get("metric", "temp")
+            when = cond.get("when", "now")
+            if when == "now":
+                w = await client.current()
+                value = {
+                    "temp": w.get("temp_c", 0),
+                    "feels_like": w.get("feels_like_c", 0),
+                    "humidity": w.get("humidity_pct", 0),
+                    "wind": w.get("wind_ms", 0),
+                }.get(metric, 0)
+            else:
+                fc = await client.forecast(hours=int(when.replace("h", "")) if when.endswith("h") else 24)
+                if metric == "rain":
+                    value = sum((it.get("rain_mm") or 0) for it in fc)
+                elif metric == "pop":  # probability max
+                    value = max((it.get("pop_pct") or 0) for it in fc) if fc else 0
+                else:
+                    value = max((it.get(f"{metric}_c", 0) or 0) for it in fc) if fc else 0
+            threshold = float(cond.get("value", 0))
+            op = cond.get("op", ">")
+            return {
+                ">": value > threshold, "<": value < threshold,
+                ">=": value >= threshold, "<=": value <= threshold,
+                "==": value == threshold, "!=": value != threshold,
+            }.get(op, False)
+        except Exception:
+            log.exception("weather_eval_failed")
+            return False
 
     def _eval_time(self, cond: dict) -> bool:
         """Fires once within the 5-min tick window starting at HH:MM."""
