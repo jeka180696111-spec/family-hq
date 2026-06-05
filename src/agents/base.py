@@ -75,6 +75,23 @@ class BaseAgent(abc.ABC):
                 "input_schema": {"type": "object", "properties": {}},
             },
             {
+                "name": "currency_rates",
+                "description": (
+                    "Курс валют от НБУ. Используй когда: «курс доллара», «евро сегодня», "
+                    "«сколько грн за USD», «курс валют». Если Финн молчит — отвечай ты."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "currencies": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "ISO коды: USD, EUR, GBP, PLN... По умолчанию USD+EUR",
+                        },
+                    },
+                },
+            },
+            {
                 "name": "weather",
                 "description": (
                     "Текущая погода или прогноз. Используй когда: «погода», «дождь сегодня», "
@@ -273,6 +290,16 @@ class BaseAgent(abc.ABC):
                     return {"success": False, "error": "Нет сообщений для удаления"}
             except Exception as e:
                 return {"error": str(e)}
+        if tool_name == "currency_rates":
+            try:
+                from src.integrations.currency import NBUClient
+                client = NBUClient()
+                currencies = tool_input.get("currencies") or ["USD", "EUR"]
+                rates = await client.rates(currencies=currencies)
+                return {"source": "НБУ", "rates": rates}
+            except Exception as e:
+                return {"error": str(e)}
+
         if tool_name == "weather":
             try:
                 from src.config import get_settings
