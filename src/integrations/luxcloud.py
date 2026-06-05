@@ -21,6 +21,8 @@ _REGION_HOSTS = {
     "eu": "https://eu.luxpowertek.com",
     "us": "https://us.luxpowertek.com",
     "asia": "https://asia.luxpowertek.com",
+    # Newer unified host — used by inverter.luxpowertek.com login
+    "inverter": "https://inverter.luxpowertek.com",
 }
 
 
@@ -30,51 +32,138 @@ class LuxCloudClient:
     def __init__(self, email: str, password: str, region: str, serial: str) -> None:
         self.email = email
         self.password = password
-        self.host = _REGION_HOSTS.get(region, _REGION_HOSTS["eu"])
+        # If user explicitly set region=inverter, use that. Otherwise default to inverter
+        # because the legacy eu/us/asia subdomains often return 405 these days.
+        self.host = _REGION_HOSTS.get(region) or _REGION_HOSTS["inverter"]
         self.serial = serial
-        self._cookies: dict[str, str] = {}
+        self._session: aiohttp.ClientSession | None = None
+        self._logged_in = False
 
     @classmethod
     def from_settings(cls, settings: Any) -> "LuxCloudClient | None":
         email = getattr(settings, "luxcloud_email", "")
         pwd = getattr(settings, "luxcloud_password", "")
-        region = getattr(settings, "luxcloud_region", "eu")
+        region = getattr(settings, "luxcloud_region", "inverter")
         serial = getattr(settings, "lux_inverter_serial", "")
         if not (email and pwd and serial):
             return None
         return cls(email, pwd, region, serial)
 
-    async def _login(self, session: aiohttp.ClientSession) -> None:
-        url = f"{self.host}/WManage/web/login"
-        async with session.post(
-            url,
-            data={"account": self.email, "password": self.password},
-            allow_redirects=False,
-        ) as resp:
-            text = await resp.text()
-            if "errCode" in text and "incorrect" in text.lower():
-                raise RuntimeError("LuxCloud: неверный логин/пароль")
-        # Save session cookies
-        self._cookies = {c.key: c.value for c in session.cookie_jar}
+    async def _ensure_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(
+                cookie_jar=aiohttp.CookieJar(unsafe=True),
+                headers={
+                    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) FamilyHQ/1.0",
+                    "Accept": "application/json, text/plain, */*",
+                },
+            )
+        return self._session
+
+    async def _login(self) -> None:
+        session = await self._ensure_session()
+        login_paths = [
+            "/WManage/web/login",
+            "/WManage/api/login",
+            "/login.html",
+        ]
+        last_err = None
+        for path in login_paths:
+            url = f"{self.host}{path}"
+            try:
+                async with session.post(
+                    url,
+                    data={"account": self.email, "password": self.password},
+                    allow_redirects=False,
+                ) as resp:
+                    text = await resp.text()
+                    if resp.status in (200, 302):
+                        # Heuristic: a redirect to /index.html or a JSON with success
+                        if "incorrect" in text.lower() or "errCode" in text and "0" not in text[:50]:
+                            raise RuntimeError("LuxCloud: неверный логин/пароль")
+                        self._logged_in = True
+                        log.info("luxcloud_login_ok", path=path)
+                        return
+                    last_err = f"{path} → HTTP {resp.status}: {text[:200]}"
+            except aiohttp.ClientError as e:
+                last_err = f"{path} → {e}"
+        raise RuntimeError(f"LuxCloud login failed on all endpoints. Last: {last_err}")
 
     async def _get_json(self, path: str, params: dict | None = None) -> dict:
-        async with aiohttp.ClientSession() as session:
-            await self._login(session)
-            url = f"{self.host}{path}"
-            async with session.get(url, params=params) as resp:
-                if resp.status != 200:
-                    raise RuntimeError(f"LuxCloud {path}: HTTP {resp.status}")
+        if not self._logged_in:
+            await self._login()
+        session = await self._ensure_session()
+        url = f"{self.host}{path}"
+        async with session.get(url, params=params) as resp:
+            text = await resp.text()
+            if resp.status == 401 or resp.status == 403:
+                # Session expired — re-login once
+                self._logged_in = False
+                await self._login()
+                async with session.get(url, params=params) as r2:
+                    if r2.status != 200:
+                        raise RuntimeError(f"LuxCloud {path}: HTTP {r2.status}")
+                    return await r2.json(content_type=None)
+            if resp.status != 200:
+                raise RuntimeError(f"LuxCloud {path}: HTTP {resp.status} body={text[:300]}")
+            try:
                 return await resp.json(content_type=None)
+            except Exception:
+                # Maybe HTML returned (unauthenticated). Try POST as some endpoints expect it
+                raise RuntimeError(f"LuxCloud {path}: non-JSON response, first 300 chars: {text[:300]}")
+
+    async def _post_json(self, path: str, body: dict | None = None) -> dict:
+        """Some LuxCloud endpoints require POST with form body (e.g. inverter.luxpowertek.com)."""
+        if not self._logged_in:
+            await self._login()
+        session = await self._ensure_session()
+        url = f"{self.host}{path}"
+        async with session.post(url, data=body or {}) as resp:
+            text = await resp.text()
+            if resp.status == 401 or resp.status == 403:
+                self._logged_in = False
+                await self._login()
+                async with session.post(url, data=body or {}) as r2:
+                    if r2.status != 200:
+                        raise RuntimeError(f"LuxCloud {path}: HTTP {r2.status}")
+                    return await r2.json(content_type=None)
+            if resp.status != 200:
+                raise RuntimeError(f"LuxCloud {path}: HTTP {resp.status} body={text[:300]}")
+            try:
+                return await resp.json(content_type=None)
+            except Exception:
+                raise RuntimeError(f"LuxCloud {path}: non-JSON response, first 300 chars: {text[:300]}")
 
     # ─── Public ──────────────────────────────────────────────────────
 
     async def runtime(self) -> dict:
-        """Current state: solar generation, battery %, grid, home consumption."""
-        data = await self._get_json(
-            "/WManage/api/inverter/getInverterRuntime.json",
-            params={"serialNum": self.serial},
-        )
-        # Common fields seen in responses
+        """Current state: solar generation, battery %, grid, home consumption.
+
+        Tries known runtime endpoints — different LuxPower platforms expose
+        slightly different routes/methods. First success wins.
+        """
+        endpoints = [
+            # (method, path, params/body)
+            ("POST", "/WManage/api/inverter/getInverterRuntime", {"serialNum": self.serial}),
+            ("GET",  "/WManage/api/inverter/getInverterRuntime.json", {"serialNum": self.serial}),
+            ("POST", "/WManage/api/inverter/runtime", {"serialNum": self.serial}),
+            ("GET",  "/WManage/api/inverter/runtime", {"serialNum": self.serial}),
+        ]
+        last_err = None
+        data: dict | None = None
+        for method, path, payload in endpoints:
+            try:
+                if method == "GET":
+                    data = await self._get_json(path, params=payload)
+                else:
+                    data = await self._post_json(path, body=payload)
+                break
+            except Exception as e:
+                last_err = f"{method} {path} → {e}"
+                continue
+        if data is None:
+            raise RuntimeError(f"LuxCloud runtime: все эндпоинты упали. Последний: {last_err}")
+
         return {
             "pv1_w": data.get("pv1Power") or data.get("ppv1") or 0,
             "pv2_w": data.get("pv2Power") or data.get("ppv2") or 0,
@@ -93,10 +182,26 @@ class LuxCloudClient:
 
     async def today_energy(self) -> dict:
         """Today's totals in kWh."""
-        data = await self._get_json(
-            "/WManage/api/analyze/runtime/all",
-            params={"serialNum": self.serial},
-        )
+        endpoints = [
+            ("POST", "/WManage/api/analyze/runtime/all", {"serialNum": self.serial}),
+            ("GET",  "/WManage/api/analyze/runtime/all", {"serialNum": self.serial}),
+            ("POST", "/WManage/api/inverter/getInverterEnergyInfo", {"serialNum": self.serial}),
+        ]
+        last_err = None
+        data: dict | None = None
+        for method, path, payload in endpoints:
+            try:
+                if method == "GET":
+                    data = await self._get_json(path, params=payload)
+                else:
+                    data = await self._post_json(path, body=payload)
+                break
+            except Exception as e:
+                last_err = f"{method} {path} → {e}"
+                continue
+        if data is None:
+            raise RuntimeError(f"LuxCloud today_energy: все эндпоинты упали. Последний: {last_err}")
+
         return {
             "pv_kwh": data.get("ePvDay", 0),
             "battery_charge_kwh": data.get("eChgDay", 0),
@@ -106,3 +211,7 @@ class LuxCloudClient:
             "consumption_kwh": data.get("eUsedDay", 0),
             "raw": data,
         }
+
+    async def close(self) -> None:
+        if self._session and not self._session.closed:
+            await self._session.close()

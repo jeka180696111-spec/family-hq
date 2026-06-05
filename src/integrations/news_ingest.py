@@ -426,6 +426,13 @@ class NewsIngestor:
     async def _summarize(self, text: str, mode: str) -> str:
         """Use Claude Haiku to extract structured alert info. Falls back to stripped text."""
         cleaned = _strip_promo(text)
+
+        # Short posts during alerts ARE the new info — don't LLM-filter them.
+        # Geographic markers (Маяки-Беляевка, Черноморск-Овидиополь), short status
+        # updates («Был выход», «Взрыв», «БпЛА в море») must always pass through.
+        if mode == "update" and len(cleaned) <= 200:
+            return cleaned
+
         if not self._claude:
             if len(cleaned) > 400:
                 return cleaned[:400] + "…"
@@ -443,11 +450,16 @@ class NewsIngestor:
             else:
                 prompt = (
                     "Сообщение из военно-новостного канала ВО ВРЕМЯ активной тревоги. "
-                    "Извлеки ТОЛЬКО новую конкретную информацию: что замечено (шахед/ракета/КАБ), "
-                    "куда летит/где находится (район/направление), время если указано, последствия "
-                    "(взрыв/работа ПВО/удар). Без общих фраз. 1-3 коротких строки. "
-                    "Если новой инфы нет (просто повтор 'тревога' или 'ожидаем отбой') — "
-                    "верни ровно 'NO_NEW_INFO'.\n\n"
+                    "Выдели ТОЛЬКО фактическую военную информацию: "
+                    "  • что замечено (БпЛА/шахед/ракета/КАБ/группа)\n"
+                    "  • направление/маршрут (название города, района, моря — даже короткое типа «Маяки-Беляевка»)\n"
+                    "  • статус (вход, пуск, работа ПВО, взрыв, сбит, удар)\n"
+                    "  • время если указано\n"
+                    "Любая ГЕОГРАФИЧЕСКАЯ информация (название района, села, побережья, моря) — "
+                    "ВСЕГДА сохраняй, это критично для семьи в Одессе.\n"
+                    "Формат: 1-3 строки без воды и без вступления.\n"
+                    "Верни ровно 'NO_NEW_INFO' ТОЛЬКО если пост чисто эмоциональный/визуальный без "
+                    "фактических данных (например «страшно», «дым красивый»).\n\n"
                     f"Текст:\n{cleaned}\n\nКраткий ответ:"
                 )
 
@@ -458,10 +470,10 @@ class NewsIngestor:
                 max_tokens=200,
             )
             result = (response or "").strip()
-            if result in ("NO_NEW_INFO", "NEW_ALERT", ""):
-                if result == "NO_NEW_INFO":
-                    return ""
-                # NEW_ALERT or empty: fallback to cleaned snippet
+            # Bug fix: previously checked equality. LLM may return 'NO_NEW_INFO\n(explanation)'.
+            if result.startswith("NO_NEW_INFO"):
+                return ""
+            if result.startswith("NEW_ALERT") or not result:
                 if len(cleaned) > 400:
                     return cleaned[:400] + "…"
                 return cleaned
