@@ -212,6 +212,59 @@ class LuxCloudClient:
             "raw": data,
         }
 
+    async def recent_events(self, hours: int = 24) -> list[dict]:
+        """Try to fetch the inverter event/alarm log from LuxCloud.
+
+        Looks for events like 'Grid Lost', 'Grid Connected', 'Battery Low'
+        from the cloud's own notification system. Returns [] if no
+        compatible endpoint is found.
+        """
+        endpoints = [
+            ("POST", "/WManage/api/event/list", {"serialNum": self.serial}),
+            ("GET",  "/WManage/api/event/list", {"serialNum": self.serial}),
+            ("POST", "/WManage/api/inverter/event", {"serialNum": self.serial}),
+            ("POST", "/WManage/api/alert/list", {"serialNum": self.serial}),
+            ("GET",  "/WManage/web/event/getEventList.json", {"serialNum": self.serial}),
+        ]
+        data: dict | None = None
+        last_err = None
+        for method, path, payload in endpoints:
+            try:
+                if method == "GET":
+                    data = await self._get_json(path, params=payload)
+                else:
+                    data = await self._post_json(path, body=payload)
+                break
+            except Exception as e:
+                last_err = f"{method} {path} → {e}"
+                continue
+        if data is None:
+            log.info("luxcloud_events_unavailable", error=last_err)
+            return []
+
+        # Different platforms return events under different keys
+        items = (
+            data.get("rows")
+            or data.get("events")
+            or data.get("list")
+            or data.get("data")
+            or []
+        )
+        if not isinstance(items, list):
+            return []
+
+        # Normalize
+        out = []
+        for it in items:
+            out.append({
+                "time": it.get("eventTime") or it.get("time") or it.get("createTime"),
+                "code": it.get("eventCode") or it.get("code"),
+                "name": it.get("eventName") or it.get("name") or it.get("description"),
+                "type": it.get("eventType") or it.get("type"),
+                "raw": it,
+            })
+        return out
+
     async def close(self) -> None:
         if self._session and not self._session.closed:
             await self._session.close()

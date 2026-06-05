@@ -9,23 +9,25 @@ import structlog
 log = structlog.get_logger()
 
 
+_GRID_LOSS_KEYWORDS = ("grid lost", "grid loss", "ac loss", "grid disconnect",
+                       "power off", "off grid", "пропала", "відсутн")
+_GRID_OK_KEYWORDS   = ("grid connect", "grid restore", "ac connect", "grid ok",
+                       "power on", "on grid", "поновлен", "восстанов")
+
+
 class GridWatcher:
     """
-    Every 60 seconds query the inverter; detect grid loss via inverter
-    state (no solar panels in this install — battery only charges from
-    grid, so charge_w > 0 is a perfect "grid ON" signal).
+    Every 60 seconds query the inverter. Detect grid loss via TWO channels:
 
-    Signals (in priority order, NO solar configuration):
-      GRID ON:
-        - battery_charge_w > 30W      ← battery can only charge from grid
-        - import_w > 30W              ← grid feeding house directly
-        - grid_voltage > 100V         ← explicit voltage reading
-      GRID OFF:
-        - battery_discharge_w > 30W AND import_w == 0
-        - grid_voltage < 50V (if field present)
+    1) PRIMARY — LuxCloud event log: their own backend marks Grid Lost /
+       Grid Restored. Same source as the push-notification you get in the
+       Smart Life app. Most reliable.
 
-    Hysteresis: 5 down checks (5 min) to confirm outage; 2 up checks
-    (2 min) to confirm restore.
+    2) FALLBACK — battery/inverter state heuristics if events endpoint
+       isn't available on this platform.
+
+    Setup-specific note: NO solar panels installed. Battery can only
+    charge from grid → battery_charge_w > 0 is a perfect "grid ON" signal.
     """
 
     THRESHOLD_DOWN = 5
@@ -39,6 +41,7 @@ class GridWatcher:
         self._down_streak = 0
         self._up_streak = 0
         self._outage_active = False  # Mirror of DB state at last tick
+        self._last_event_time: str | None = None  # For event-log dedup
 
     async def tick(self) -> None:
         try:
@@ -52,6 +55,27 @@ class GridWatcher:
             # Inverter unreachable — don't draw conclusions
             log.debug("grid_watcher_tick_skip", reason="lux_unreachable")
             return
+
+        # ── Channel 1: event log from LuxCloud ──────────────────────────
+        # If LuxCloud exposes recent events, trust them directly: no
+        # thresholds, no hysteresis, just react to what their backend
+        # already classified.
+        try:
+            events = await client.recent_events(hours=2)
+        except Exception:
+            events = []
+
+        if events:
+            grid_state_from_event = self._latest_state_from_events(events)
+            if grid_state_from_event is not None:
+                await self._sync_state_with_db()
+                if grid_state_from_event is True and self._outage_active:
+                    # Event says grid is back
+                    await self._close()
+                elif grid_state_from_event is False and not self._outage_active:
+                    await self._open()
+                # Skip heuristics — events were authoritative this tick
+                return
 
         raw = data.get("raw", {}) or {}
 
@@ -132,6 +156,26 @@ class GridWatcher:
             await self._open()
         elif self._outage_active and self._up_streak >= self.THRESHOLD_UP:
             await self._close()
+
+    def _latest_state_from_events(self, events: list[dict]) -> bool | None:
+        """Return True if grid is ON, False if OFF, None if no recent grid event."""
+        # Walk events newest-first, take first grid-related one
+        for ev in events:
+            text_blob = " ".join(str(v).lower() for v in (ev.get("name") or "", ev.get("type") or "", ev.get("code") or ""))
+            if any(kw in text_blob for kw in _GRID_LOSS_KEYWORDS):
+                # Dedup: don't re-fire on the same event we already saw
+                ev_time = ev.get("time")
+                if ev_time and ev_time == self._last_event_time:
+                    return None
+                self._last_event_time = ev_time
+                return False
+            if any(kw in text_blob for kw in _GRID_OK_KEYWORDS):
+                ev_time = ev.get("time")
+                if ev_time and ev_time == self._last_event_time:
+                    return None
+                self._last_event_time = ev_time
+                return True
+        return None
 
     async def _sync_state_with_db(self) -> None:
         from sqlalchemy import select
