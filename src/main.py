@@ -425,6 +425,17 @@ async def run(dry_run: bool = False) -> None:
     from src.integrations.automation import AutomationEngine, register_automation_job
     automation_engine = AutomationEngine(memory, bot_manager, chat_id, agents)
     register_automation_job(scheduler, automation_engine)
+
+    # Grid watcher — auto-detect power outages via inverter every 60 sec
+    try:
+        from src.integrations.grid_watcher import GridWatcher, register_grid_watcher_job
+        if settings.luxcloud_email and settings.luxcloud_password and settings.lux_inverter_serial:
+            grid_watcher = GridWatcher(memory, agents["devops"], bot_manager, chat_id)
+            register_grid_watcher_job(scheduler, grid_watcher)
+        else:
+            log.info("grid_watcher_skipped_no_inverter_env")
+    except Exception:
+        log.exception("grid_watcher_setup_failed")
     register_backup_job(scheduler, memory, settings.db_path, settings.drive_backup_folder_id, sa_info or {})
     register_healthcheck_jobs(scheduler, claude, memory, bot_manager, chat_id)
     register_reminder_jobs(scheduler, agents["calendar"], bot_manager, chat_id, memory)
