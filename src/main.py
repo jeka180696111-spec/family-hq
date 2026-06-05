@@ -420,6 +420,11 @@ async def run(dry_run: bool = False) -> None:
     register_weekly_digest_job(scheduler, agents["news"], agents["nanny"], memory)
     register_baby_budget_job(scheduler, agents["devops"], memory)
     register_time_capsule_job(scheduler, agents["news"], memory)
+
+    # Automation engine — evaluates user IF-THEN rules every 5 min
+    from src.integrations.automation import AutomationEngine, register_automation_job
+    automation_engine = AutomationEngine(memory, bot_manager, chat_id, agents)
+    register_automation_job(scheduler, automation_engine)
     register_backup_job(scheduler, memory, settings.db_path, settings.drive_backup_folder_id, sa_info or {})
     register_healthcheck_jobs(scheduler, claude, memory, bot_manager, chat_id)
     register_reminder_jobs(scheduler, agents["calendar"], bot_manager, chat_id, memory)

@@ -164,6 +164,71 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "add_automation_rule",
+                "description": (
+                    "Создать правило автоматизации IF-THEN. Будет проверяться каждые 5 минут. "
+                    "Примеры:\n"
+                    "  «выключи бойлер в 22:00» → condition: time 22:00, action: device off бойлер\n"
+                    "  «если в детской >25°C, напиши в чат» → condition: sensor temp >25, action: message\n"
+                    "  «когда отбой тревоги в Одессе — выключи ТВ» → condition: alert_ended Одесса, action: device off\n"
+                    "  «свет нет → выключи ТВ и бойлер» → нужно ДВА правила или один action на каждое.\n"
+                    "Cooldown: минимум N минут между срабатываниями (по умолчанию 60)."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Уникальное имя правила"},
+                        "description": {"type": "string"},
+                        "condition": {
+                            "type": "object",
+                            "description": (
+                                "JSON-условие. Типы: time {cron:'HH:MM', weekday:'sun'?}; "
+                                "sensor {device, metric:'temperature'|'humidity', op:'>'|'<'|'>='|'<='|'=='|'!=', value}; "
+                                "alert_active {region}; alert_ended {region}; power_outage {state:'active'|'inactive'}; "
+                                "and {rules:[...]}; or {rules:[...]}"
+                            ),
+                        },
+                        "action": {
+                            "type": "object",
+                            "description": (
+                                "JSON-действие. Типы: device {device, action:'on'|'off'|'toggle'}; "
+                                "message {agent:'devops'|'nanny'|..., text}; "
+                                "set_mode {mode:'trip'|'sick'|'quiet', enabled:bool, until}; "
+                                "tool {agent, tool, input, notify:bool}"
+                            ),
+                        },
+                        "cooldown_min": {"type": "integer", "description": "Минимум минут между срабатываниями. По умолчанию 60."},
+                    },
+                    "required": ["name", "condition", "action"],
+                },
+            },
+            {
+                "name": "list_automation_rules",
+                "description": "Показать все правила автоматизации с их статусом.",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "toggle_automation_rule",
+                "description": "Включить/выключить правило по имени.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "enabled": {"type": "boolean"},
+                    },
+                    "required": ["name", "enabled"],
+                },
+            },
+            {
+                "name": "delete_automation_rule",
+                "description": "Удалить правило автоматизации.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                    "required": ["name"],
+                },
+            },
+            {
                 "name": "list_smart_devices",
                 "description": (
                     "Показать smart-устройства (Tuya / Smart Life) — бойлер, ТВ, датчики. "
@@ -426,6 +491,15 @@ class DevOpsAgent(BaseAgent):
 
         elif tool_name == "write_time_capsule":
             return await self._write_time_capsule(tool_input.get("title", ""), tool_input.get("text", ""))
+
+        elif tool_name == "add_automation_rule":
+            return await self._automation_add(tool_input)
+        elif tool_name == "list_automation_rules":
+            return await self._automation_list()
+        elif tool_name == "toggle_automation_rule":
+            return await self._automation_toggle(tool_input.get("name", ""), bool(tool_input.get("enabled", True)))
+        elif tool_name == "delete_automation_rule":
+            return await self._automation_delete(tool_input.get("name", ""))
 
         elif tool_name == "list_smart_devices":
             return await self._smart_list()
@@ -1007,3 +1081,62 @@ class DevOpsAgent(BaseAgent):
             return await client.read_sensor(sensor)
         except Exception as e:
             return {"error": str(e)}
+
+    # ─── Automation rules ────────────────────────────────────────────
+
+    async def _automation_add(self, tool_input: dict) -> dict:
+        import json as _json
+        from sqlalchemy import insert
+        from src.db.models import AutomationRule
+        from src.utils.time import iso_now
+        try:
+            cond_json = _json.dumps(tool_input["condition"], ensure_ascii=False)
+            act_json = _json.dumps(tool_input["action"], ensure_ascii=False)
+        except Exception as e:
+            return {"error": f"bad JSON: {e}"}
+        async with self._memory._engine.begin() as conn:
+            await conn.execute(insert(AutomationRule).prefix_with("OR REPLACE").values(
+                name=tool_input["name"],
+                description=tool_input.get("description"),
+                condition=cond_json,
+                action=act_json,
+                enabled=1,
+                cooldown_min=int(tool_input.get("cooldown_min", 60)),
+                created_at=iso_now(),
+                created_by=getattr(self, "_current_sender", "") or "",
+            ))
+        return {"success": True, "name": tool_input["name"]}
+
+    async def _automation_list(self) -> dict:
+        from sqlalchemy import select
+        from src.db.models import AutomationRule
+        async with self._memory._engine.connect() as conn:
+            rows = list(await conn.execute(select(AutomationRule)))
+        return {
+            "count": len(rows),
+            "rules": [
+                {
+                    "name": r.name, "description": r.description,
+                    "enabled": bool(r.enabled), "cooldown_min": r.cooldown_min,
+                    "fired_count": r.fired_count, "last_fired_at": r.last_fired_at,
+                    "condition": r.condition, "action": r.action,
+                }
+                for r in rows
+            ],
+        }
+
+    async def _automation_toggle(self, name: str, enabled: bool) -> dict:
+        from sqlalchemy import update as sql_update
+        from src.db.models import AutomationRule
+        async with self._memory._engine.begin() as conn:
+            res = await conn.execute(
+                sql_update(AutomationRule).where(AutomationRule.name == name).values(enabled=1 if enabled else 0)
+            )
+        return {"success": True, "updated": res.rowcount}
+
+    async def _automation_delete(self, name: str) -> dict:
+        from sqlalchemy import delete
+        from src.db.models import AutomationRule
+        async with self._memory._engine.begin() as conn:
+            res = await conn.execute(delete(AutomationRule).where(AutomationRule.name == name))
+        return {"success": True, "deleted": res.rowcount}

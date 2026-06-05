@@ -311,6 +311,22 @@ class FamilyMode(Base):
     expires_at: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
+class AutomationRule(Base):
+    """User-defined IF-THEN rules evaluated by scheduler every N minutes."""
+    __tablename__ = "automation_rules"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    condition: Mapped[str] = mapped_column(Text, nullable=False)  # JSON
+    action: Mapped[str] = mapped_column(Text, nullable=False)  # JSON
+    enabled: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    cooldown_min: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
+    last_fired_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    fired_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+    created_by: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
 # ---------------------------------------------------------------------------
 # user_rules
 # ---------------------------------------------------------------------------
