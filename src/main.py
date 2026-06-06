@@ -523,6 +523,20 @@ async def run(dry_run: bool = False) -> None:
         await userbot.start()
         log.info("family_hq_started", agents=list(agents.keys()), chat_id=chat_id)
 
+        # UI enhancements: bot menu commands + inline keyboard callbacks
+        try:
+            from src.integrations.telegram_ui import set_bot_menus, handle_callback, is_enhanced
+            await set_bot_menus(bot_manager)
+            if is_enhanced():
+                async def _cb(cq):
+                    await handle_callback(cq, agents, memory, bot_manager, chat_id)
+                await bot_manager.start_callback_polling(_cb)
+                log.info("ui_enhanced_mode_active")
+            else:
+                log.info("ui_classic_mode_active")
+        except Exception:
+            log.exception("ui_setup_failed")
+
         # Subscribe to tracked channels AFTER userbot is connected.
         # Throttle: Telegram floods with ~20 joins/min, sleep 4s between.
         from sqlalchemy import select, update

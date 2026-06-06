@@ -23,6 +23,7 @@ class BotManager:
 
     def __init__(self) -> None:
         self._bots: dict[str, Bot] = {}  # agent_id -> Bot
+        self._apps: dict[str, Any] = {}  # agent_id -> Application (for callback polling)
 
     async def register(self, agent_id: str, token: str) -> None:
         """Register a bot for an agent. Skip silently if token is empty."""
@@ -48,6 +49,36 @@ class BotManager:
                 error=str(exc),
             )
 
+    async def start_callback_polling(self, callback_fn: Callable) -> None:
+        """Start a CallbackQuery polling Application for each registered bot."""
+        try:
+            from telegram.ext import Application, CallbackQueryHandler
+        except Exception:
+            log.warning("callback_polling_unavailable_no_telegram_ext")
+            return
+
+        for agent_id, bot in self._bots.items():
+            try:
+                app = Application.builder().bot(bot).build()
+
+                async def _handler(update, context, _aid=agent_id):
+                    cq = update.callback_query
+                    if cq is None:
+                        return
+                    try:
+                        await callback_fn(cq)
+                    except Exception:
+                        log.exception("callback_dispatch_failed", agent=_aid)
+
+                app.add_handler(CallbackQueryHandler(_handler))
+                await app.initialize()
+                await app.start()
+                await app.updater.start_polling(allowed_updates=["callback_query"])
+                self._apps[agent_id] = app
+                log.info("callback_polling_started", agent=agent_id)
+            except Exception:
+                log.exception("callback_polling_failed", agent=agent_id)
+
     async def send_typing(self, agent_id: str, chat_id: int) -> None:
         """Send 'typing' chat action — shows 'NyaName печатает...' to users. Lasts ~5 seconds."""
         bot = self._bots.get(agent_id)
@@ -65,6 +96,8 @@ class BotManager:
         text: str,
         reply_to_message_id: int | None = None,
         parse_mode: str = "HTML",
+        reply_markup: dict | None = None,
+        message_thread_id: int | None = None,
     ) -> TgMessage | None:
         """Send a message from the specified agent's bot."""
         bot = self._bots.get(agent_id)
@@ -72,13 +105,24 @@ class BotManager:
             log.error("bot_not_found", agent_id=agent_id)
             return None
 
+        kwargs: dict[str, Any] = {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": parse_mode,
+        }
+        if reply_to_message_id:
+            kwargs["reply_to_message_id"] = reply_to_message_id
+        if reply_markup:
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            rows = []
+            for row in reply_markup.get("inline_keyboard", []):
+                rows.append([InlineKeyboardButton(text=b["text"], callback_data=b.get("callback_data", "")) for b in row])
+            kwargs["reply_markup"] = InlineKeyboardMarkup(rows)
+        if message_thread_id:
+            kwargs["message_thread_id"] = message_thread_id
+
         try:
-            message = await bot.send_message(
-                chat_id=chat_id,
-                text=text,
-                parse_mode=parse_mode,
-                reply_to_message_id=reply_to_message_id,
-            )
+            message = await bot.send_message(**kwargs)
             log.debug(
                 "message_sent",
                 agent_id=agent_id,
@@ -120,8 +164,73 @@ class BotManager:
         """Return the ``Bot`` object for *agent_id*, or ``None``."""
         return self._bots.get(agent_id)
 
+    async def send_photo(
+        self,
+        agent_id: str,
+        chat_id: int,
+        photo_bytes: bytes,
+        caption: str = "",
+        reply_markup: dict | None = None,
+        message_thread_id: int | None = None,
+    ) -> TgMessage | None:
+        bot = self._bots.get(agent_id)
+        if bot is None:
+            return None
+        import io
+        kwargs: dict[str, Any] = {
+            "chat_id": chat_id,
+            "photo": io.BytesIO(photo_bytes),
+            "caption": caption[:1024],
+            "parse_mode": "HTML",
+        }
+        if reply_markup:
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            rows = [[InlineKeyboardButton(text=b["text"], callback_data=b.get("callback_data", "")) for b in r] for r in reply_markup.get("inline_keyboard", [])]
+            kwargs["reply_markup"] = InlineKeyboardMarkup(rows)
+        if message_thread_id:
+            kwargs["message_thread_id"] = message_thread_id
+        try:
+            return await bot.send_photo(**kwargs)
+        except TelegramError as exc:
+            log.error("send_photo_failed", agent_id=agent_id, error=str(exc))
+            return None
+
+    async def send_poll(
+        self,
+        agent_id: str,
+        chat_id: int,
+        question: str,
+        options: list[str],
+        is_anonymous: bool = False,
+        message_thread_id: int | None = None,
+    ) -> TgMessage | None:
+        bot = self._bots.get(agent_id)
+        if bot is None:
+            return None
+        try:
+            kwargs: dict[str, Any] = {
+                "chat_id": chat_id, "question": question[:300],
+                "options": [o[:100] for o in options[:10]],
+                "is_anonymous": is_anonymous,
+            }
+            if message_thread_id:
+                kwargs["message_thread_id"] = message_thread_id
+            return await bot.send_poll(**kwargs)
+        except TelegramError as exc:
+            log.error("send_poll_failed", agent_id=agent_id, error=str(exc))
+            return None
+
     async def shutdown(self) -> None:
         """Close all bot HTTP sessions gracefully."""
+        # Stop callback polling first
+        for agent_id, app in self._apps.items():
+            try:
+                await app.updater.stop()
+                await app.stop()
+                await app.shutdown()
+            except Exception:
+                pass
+        self._apps.clear()
         for agent_id, bot in self._bots.items():
             try:
                 await bot.close()

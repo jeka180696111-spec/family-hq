@@ -90,6 +90,17 @@ class Settings(BaseSettings):
     # OpenWeatherMap
     openweather_api_key: str = Field(default="")
 
+    # UI mode (enhanced = inline keyboards, edit-in-place, charts; classic = rollback)
+    ui_mode: str = Field(default="enhanced")
+
+    # Telegram topics (set if group is supergroup with topics enabled)
+    topic_baby_id: int = Field(default=0)
+    topic_news_id: int = Field(default=0)
+    topic_home_id: int = Field(default=0)
+    topic_finance_id: int = Field(default=0)
+    topic_calendar_id: int = Field(default=0)
+    topic_system_id: int = Field(default=0)
+
     # App settings
     timezone: str = Field(default="Europe/Kyiv")
     digest_time: str = Field(default="08:00")

@@ -337,12 +337,34 @@ class BaseAgent(abc.ABC):
         return get_settings().model_main
 
     async def send(self, text: str, reply_to: int | None = None) -> Any:
-        """Send a message from this agent's bot to the HQ group. Returns the tg Message."""
+        """Send a message from this agent's bot to the HQ group. Returns the tg Message.
+
+        When UI_MODE=enhanced, attaches contextual inline keyboards based on the
+        agent type and message content (e.g. Няня → quick-event buttons,
+        Дозорный → alert check-in).
+        """
+        reply_markup = None
+        try:
+            from src.integrations.telegram_ui import (
+                is_enhanced, to_telegram_markup,
+                kb_nanny_quick_actions, kb_alert_status,
+            )
+            if is_enhanced():
+                if self.agent_id == "nanny":
+                    # After any Nanny reply about Matvey, show quick-action buttons
+                    reply_markup = to_telegram_markup(kb_nanny_quick_actions())
+                elif self.agent_id == "news" and "ТРЕВОГА" in (text or ""):
+                    # Under alerts, family check-in buttons
+                    reply_markup = to_telegram_markup(kb_alert_status())
+        except Exception:
+            pass
+
         return await self._bots.send_message(
             agent_id=self.agent_id,
             chat_id=self._chat_id,
             text=text,
             reply_to_message_id=reply_to,
+            reply_markup=reply_markup,
         )
 
     async def ask_other_agent(self, agent_id: str, question: str, agents: dict) -> str:
