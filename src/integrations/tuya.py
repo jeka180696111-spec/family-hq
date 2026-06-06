@@ -171,18 +171,45 @@ class TuyaClient:
             return {"error": f"Не нашёл датчик '{sensor}'", "available": [d["name"] for d in devices]}
         # Reformat status into readable
         readings = {}
+        temp_str = None
+        humi_str = None
+        batt_str = None
         for s in target["status"]:
             code = s.get("code", "")
             val = s.get("value")
             if "temp" in code:
-                readings["temperature"] = f"{val / 10}°C" if isinstance(val, (int, float)) and val > 100 else f"{val}°C"
+                temp_val = val / 10 if isinstance(val, (int, float)) and val > 100 else val
+                readings["temperature"] = f"{temp_val}°C"
+                temp_str = f"{temp_val}°C"
             elif "humi" in code:
                 readings["humidity"] = f"{val}%"
+                humi_str = f"{val}%"
             elif "battery" in code:
                 readings["battery"] = f"{val}%"
+                batt_str = f"{val}%"
             else:
                 readings[code] = val
-        return {"device": target["name"], "online": target["online"], "readings": readings}
+
+        # Pre-formatted display string with emoji — agents pass through as-is
+        parts = []
+        if temp_str:
+            parts.append(f"🌡 {temp_str}")
+        if humi_str:
+            parts.append(f"💧 {humi_str}")
+        if batt_str:
+            parts.append(f"🔋 {batt_str}")
+        formatted = " | ".join(parts) if parts else "нет данных"
+
+        return {
+            "device": target["name"],
+            "online": target["online"],
+            "readings": readings,
+            "formatted": f"📍 {target['name']}: {formatted}",
+            "display_instruction": (
+                "Покажи юзеру значение из поля 'formatted' без изменений. "
+                "Не переформулируй и не добавляй своих комментариев если не просят."
+            ),
+        }
 
     @staticmethod
     def _find_device(devices: list[dict], needle: str) -> dict | None:

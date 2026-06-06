@@ -1437,6 +1437,7 @@ class DevOpsAgent(BaseAgent):
     async def _temperature_full(self) -> dict:
         """Aggregate indoor sensors + outdoor weather in a single response."""
         result: dict = {}
+        formatted_lines: list[str] = ["🏠 <b>Дома:</b>"]
         # Indoor sensors via Tuya
         try:
             from src.config import get_settings
@@ -1450,7 +1451,9 @@ class DevOpsAgent(BaseAgent):
                     name = (d.get("name") or "").lower()
                     if "sensor" in cat or "temp" in name or "датчик" in name or "wsdcgq" in (d.get("product_name") or "").lower():
                         reading = await client.read_sensor(d.get("name"))
-                        sensors.append({"name": d.get("name"), "readings": reading.get("readings", {})})
+                        sensors.append(reading)
+                        if reading.get("formatted"):
+                            formatted_lines.append(f"  {reading['formatted']}")
                 result["indoor"] = sensors
         except Exception as e:
             result["indoor_error"] = str(e)
@@ -1461,8 +1464,17 @@ class DevOpsAgent(BaseAgent):
             from src.config import get_settings
             wc = WeatherClient.from_settings(get_settings())
             if wc:
-                result["outdoor"] = await wc.current()
+                w = await wc.current()
+                result["outdoor"] = w
+                formatted_lines.append(
+                    f"\n🌍 <b>На улице:</b> 🌡 {w.get('temp_c')}°C "
+                    f"(ощущается {w.get('feels_like_c')}°C), "
+                    f"💧 {w.get('humidity_pct')}%, "
+                    f"☁️ {w.get('description', '')}"
+                )
         except Exception as e:
             result["outdoor_error"] = str(e)
 
+        result["formatted"] = "\n".join(formatted_lines)
+        result["display_instruction"] = "Покажи юзеру содержимое поля 'formatted' без изменений."
         return result
