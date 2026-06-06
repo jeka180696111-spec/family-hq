@@ -332,15 +332,28 @@ class DevOpsAgent(BaseAgent):
             {
                 "name": "smart_sensor_read",
                 "description": (
-                    "Прочитать показания датчика (температура/влажность/CO2 и т.п.). "
-                    "Триггер: «температура в детской», «влажность», «показания датчиков»."
+                    "📍 ПРИОРИТЕТ для вопросов про температуру/влажность ДОМА. "
+                    "Триггеры: «температура», «температура в детской», «влажность», "
+                    "«сколько градусов», «душно ли», «холодно ли», «показания датчиков», "
+                    "«как там малышу», «жарко в комнате». "
+                    "Если юзер НЕ уточнил «на улице» — это всегда про датчик дома."
                 ),
                 "input_schema": {
                     "type": "object",
                     "properties": {
-                        "sensor": {"type": "string", "description": "Название датчика, например «детская»"},
+                        "sensor": {"type": "string", "description": "Название датчика, например «детская». Если пусто — вернёт все датчики."},
                     },
                 },
+            },
+            {
+                "name": "temperature_full",
+                "description": (
+                    "Полная температурная сводка: датчики дома + погода на улице "
+                    "одним ответом. Используй когда юзер хочет общую картину: "
+                    "«как с температурой», «жарко ли», «надо ли проветрить», "
+                    "«одеть малыша теплее?»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
             },
             {
                 "name": "add_document",
@@ -599,6 +612,8 @@ class DevOpsAgent(BaseAgent):
         elif tool_name == "control_smart_device":
             return await self._smart_control(tool_input.get("device", ""), tool_input.get("action", "status"))
 
+        elif tool_name == "temperature_full":
+            return await self._temperature_full()
         elif tool_name == "smart_sensor_read":
             return await self._smart_sensor(tool_input.get("sensor", ""))
 
@@ -1418,3 +1433,36 @@ class DevOpsAgent(BaseAgent):
             return {"success": True, "stopped": vacuum["name"], "action": "homing"}
         except Exception as e:
             return {"error": str(e)}
+
+    async def _temperature_full(self) -> dict:
+        """Aggregate indoor sensors + outdoor weather in a single response."""
+        result: dict = {}
+        # Indoor sensors via Tuya
+        try:
+            from src.config import get_settings
+            from src.integrations.tuya import TuyaClient
+            client = TuyaClient.from_settings(get_settings())
+            if client:
+                devices = await client.list_devices()
+                sensors = []
+                for d in devices:
+                    cat = (d.get("category") or "").lower()
+                    name = (d.get("name") or "").lower()
+                    if "sensor" in cat or "temp" in name or "датчик" in name or "wsdcgq" in (d.get("product_name") or "").lower():
+                        reading = await client.read_sensor(d.get("name"))
+                        sensors.append({"name": d.get("name"), "readings": reading.get("readings", {})})
+                result["indoor"] = sensors
+        except Exception as e:
+            result["indoor_error"] = str(e)
+
+        # Outdoor weather (always has fallback now)
+        try:
+            from src.integrations.weather import WeatherClient
+            from src.config import get_settings
+            wc = WeatherClient.from_settings(get_settings())
+            if wc:
+                result["outdoor"] = await wc.current()
+        except Exception as e:
+            result["outdoor_error"] = str(e)
+
+        return result
