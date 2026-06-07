@@ -198,16 +198,26 @@ async def handle_new_message(
             has_media=bool(getattr(message, "media", None)),
         )
         if has_photo:
+            # Immediate ack so user sees the hook fired even if archive fails
+            nanny_for_ack = agents.get("nanny")
+            if nanny_for_ack:
+                try:
+                    await nanny_for_ack.send("📥 Принято фото, обрабатываю…")
+                except Exception:
+                    pass
             try:
                 await _handle_baby_photo(message, text, agents, memory, settings)
             except Exception:
                 log.exception("baby_photo_handle_failed")
-                nanny = agents.get("nanny")
-                if nanny:
+                if nanny_for_ack:
                     try:
-                        await nanny.send("📸 Не получилось сохранить фото — проверь логи Drive.")
+                        await nanny_for_ack.send("📸 Не получилось сохранить фото — проверь логи Drive.")
                     except Exception:
                         pass
+            # Annotate text for LLM dispatch so Nanny knows photo was present
+            text = (f"[📷 в сообщении было фото — система пытается архивировать]\n{text}"
+                    if text.strip() else
+                    "[📷 в сообщении было фото — система пытается архивировать]")
             # Do NOT return — continue normal text flow so caption gets dispatched too
 
         # Voice / audio intake — transcribe via Whisper and use as text
