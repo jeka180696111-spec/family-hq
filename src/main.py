@@ -144,9 +144,11 @@ async def handle_new_message(
             # Do NOT return — continue normal text flow so caption gets dispatched too
 
         # Voice / audio intake — transcribe via Whisper and use as text
-        if not text.strip() and (
-            getattr(message, "voice", None) or getattr(message, "audio", None)
-        ):
+        has_voice = bool(getattr(message, "voice", None) or getattr(message, "audio", None))
+        if has_voice:
+            log.info("voice_message_received", user_id=user_id,
+                     has_key=bool(getattr(settings, "openai_api_key", "")))
+        if not text.strip() and has_voice:
             try:
                 transcript = await _transcribe_voice(message, settings)
             except Exception:
@@ -155,6 +157,8 @@ async def handle_new_message(
             if transcript:
                 text = transcript
                 log.info("voice_transcribed", text=transcript[:80])
+            else:
+                log.warning("voice_transcribe_empty")
 
         if not text.strip():
             return
