@@ -32,7 +32,6 @@ from src.agents.calendar import CalendarAgent
 from src.agents.cook import CookAgent
 from src.agents.health import HealthAgent
 from src.agents.devops import DevOpsAgent
-from src.scheduler.digest import register_digest_job
 from src.scheduler.backup import register_backup_job
 from src.scheduler.healthcheck import register_healthcheck_jobs
 from src.scheduler.reminders import register_reminder_jobs
@@ -409,17 +408,21 @@ async def run(dry_run: bool = False) -> None:
 
     # Scheduler
     scheduler = AsyncIOScheduler()
-    register_digest_job(scheduler, agents["news"], memory, settings.digest_time)
-    from src.scheduler.digest import register_baby_digest_job
-    register_baby_digest_job(scheduler, agents["nanny"], memory, "09:00")
+    # Standalone morning digests removed — superseded by unified brief at 07:00.
     from src.scheduler.wave3 import (
-        register_today_important_job, register_weekly_digest_job,
-        register_baby_budget_job, register_time_capsule_job,
+        register_weekly_digest_job, register_baby_budget_job, register_time_capsule_job,
     )
-    register_today_important_job(scheduler, agents["news"], agents["nanny"], agents["calendar"], memory)
     register_weekly_digest_job(scheduler, agents["news"], agents["nanny"], memory)
     register_baby_budget_job(scheduler, agents["devops"], memory)
     register_time_capsule_job(scheduler, agents["news"], memory)
+
+    # Unified morning brief at 07:00 — one message from Прораб with
+    # news / weather (clothing + walk window) / baby / plans / systems.
+    from src.scheduler.morning_brief import register_morning_brief_job
+    register_morning_brief_job(
+        scheduler, agents["devops"], agents["news"], agents["nanny"],
+        agents["calendar"], memory, at="07:00",
+    )
 
     # Automation engine — evaluates user IF-THEN rules every 5 min
     from src.integrations.automation import AutomationEngine, register_automation_job
