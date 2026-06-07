@@ -457,6 +457,16 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "probe_luxcloud_hosts",
+                "description": (
+                    "Диагностика: проверить какие домены LuxCloud доступны "
+                    "(eu / inverter / us / asia / luxcloud.eu / api.luxcloud.eu и т.д.). "
+                    "Используется когда инвертор перестал отвечать. Триггер: "
+                    "«инвертор не отвечает», «проверь хосты луксклауд», «диагностика DNS»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
                 "name": "probe_luxcloud_events",
                 "description": (
                     "Диагностика: попробовать все известные API-пути LuxCloud Plant Event "
@@ -808,6 +818,14 @@ class DevOpsAgent(BaseAgent):
                         )
                     )
                 return {"success": True, "duration_min": duration_min}
+
+        elif tool_name == "probe_luxcloud_hosts":
+            from src.config import get_settings
+            from src.integrations.luxcloud import LuxCloudClient
+            client = LuxCloudClient.from_settings(get_settings())
+            if not client:
+                return {"error": "LuxCloud не настроен"}
+            return await client.probe_hosts()
 
         elif tool_name == "probe_luxcloud_events":
             from src.config import get_settings

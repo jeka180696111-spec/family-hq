@@ -10,6 +10,7 @@ Setup:
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import aiohttp
@@ -21,9 +22,23 @@ _REGION_HOSTS = {
     "eu": "https://eu.luxpowertek.com",
     "us": "https://us.luxpowertek.com",
     "asia": "https://asia.luxpowertek.com",
-    # Newer unified host — used by inverter.luxpowertek.com login
     "inverter": "https://inverter.luxpowertek.com",
+    # Newer cloud domains seen in 2025-2026
+    "luxcloud_eu": "https://luxcloud.eu",
+    "luxcloud_com": "https://www.luxcloud.com",
+    "api_luxcloud": "https://api.luxcloud.eu",
 }
+
+# Hosts tried in order when initial host fails DNS/connection
+_HOST_FALLBACK_ORDER = [
+    "https://eu.luxpowertek.com",
+    "https://inverter.luxpowertek.com",
+    "https://us.luxpowertek.com",
+    "https://asia.luxpowertek.com",
+    "https://luxcloud.eu",
+    "https://api.luxcloud.eu",
+    "https://www.luxcloud.com",
+]
 
 
 class LuxCloudClient:
@@ -32,12 +47,12 @@ class LuxCloudClient:
     def __init__(self, email: str, password: str, region: str, serial: str) -> None:
         self.email = email
         self.password = password
-        # If user explicitly set region=inverter, use that. Otherwise default to inverter
-        # because the legacy eu/us/asia subdomains often return 405 these days.
-        self.host = _REGION_HOSTS.get(region) or _REGION_HOSTS["inverter"]
+        # Default region map, but we'll auto-fail-over if DNS dies
+        self.host = _REGION_HOSTS.get(region) or _REGION_HOSTS["eu"]
         self.serial = serial
         self._session: aiohttp.ClientSession | None = None
         self._logged_in = False
+        self._host_tried: set[str] = set()
 
     @classmethod
     def from_settings(cls, settings: Any) -> "LuxCloudClient | None":
@@ -66,28 +81,43 @@ class LuxCloudClient:
             "/WManage/web/login",
             "/WManage/api/login",
             "/login.html",
+            "/api/login",  # newer LuxCloud
+            "/user/login",
         ]
+
+        # Build host attempt list: current host first, then fallbacks
+        hosts_to_try = [self.host] + [h for h in _HOST_FALLBACK_ORDER if h != self.host]
+
         last_err = None
-        for path in login_paths:
-            url = f"{self.host}{path}"
-            try:
-                async with session.post(
-                    url,
-                    data={"account": self.email, "password": self.password},
-                    allow_redirects=False,
-                ) as resp:
-                    text = await resp.text()
-                    if resp.status in (200, 302):
-                        # Heuristic: a redirect to /index.html or a JSON with success
-                        if "incorrect" in text.lower() or "errCode" in text and "0" not in text[:50]:
-                            raise RuntimeError("LuxCloud: неверный логин/пароль")
-                        self._logged_in = True
-                        log.info("luxcloud_login_ok", path=path)
-                        return
-                    last_err = f"{path} → HTTP {resp.status}: {text[:200]}"
-            except aiohttp.ClientError as e:
-                last_err = f"{path} → {e}"
-        raise RuntimeError(f"LuxCloud login failed on all endpoints. Last: {last_err}")
+        for host in hosts_to_try:
+            for path in login_paths:
+                url = f"{host}{path}"
+                try:
+                    async with session.post(
+                        url,
+                        data={"account": self.email, "password": self.password},
+                        allow_redirects=False,
+                        timeout=aiohttp.ClientTimeout(total=10),
+                    ) as resp:
+                        text = await resp.text()
+                        if resp.status in (200, 302):
+                            if "incorrect" in text.lower() or ("errCode" in text and "0" not in text[:50]):
+                                raise RuntimeError("LuxCloud: неверный логин/пароль")
+                            # Pin the working host for the lifetime of this client
+                            if host != self.host:
+                                log.info("luxcloud_host_switched", old=self.host, new=host)
+                                self.host = host
+                            self._logged_in = True
+                            log.info("luxcloud_login_ok", host=host, path=path)
+                            return
+                        last_err = f"{host}{path} → HTTP {resp.status}: {text[:120]}"
+                except aiohttp.ClientError as e:
+                    last_err = f"{host}{path} → {type(e).__name__}: {str(e)[:120]}"
+                except (aiohttp.ServerDisconnectedError, asyncio.TimeoutError) as e:  # type: ignore
+                    last_err = f"{host}{path} → timeout/disconnect: {e}"
+                except Exception as e:
+                    last_err = f"{host}{path} → {type(e).__name__}: {str(e)[:120]}"
+        raise RuntimeError(f"LuxCloud login failed on all hosts/paths. Last: {last_err}")
 
     async def _get_json(self, path: str, params: dict | None = None) -> dict:
         if not self._logged_in:
@@ -273,6 +303,36 @@ class LuxCloudClient:
                 "raw": it,
             })
         return out
+
+    async def probe_hosts(self) -> dict:
+        """Diagnostic: try logging in to all known hosts, report which respond."""
+        results = []
+        for host in _HOST_FALLBACK_ORDER:
+            entry = {"host": host, "dns": False, "http_ok": False, "login_ok": False, "error": None}
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(host, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                        entry["dns"] = True
+                        entry["http_ok"] = resp.status < 500
+                        entry["status"] = resp.status
+                # If reachable, try login
+                if entry["dns"]:
+                    old_host = self.host
+                    self.host = host
+                    self._logged_in = False
+                    self._session = None
+                    try:
+                        await self._login()
+                        entry["login_ok"] = True
+                    except Exception as e:
+                        entry["error"] = str(e)[:200]
+                    finally:
+                        self.host = old_host
+                        self._logged_in = False
+            except Exception as e:
+                entry["error"] = f"{type(e).__name__}: {str(e)[:120]}"
+            results.append(entry)
+        return {"checked": len(results), "results": results}
 
     async def probe_event_endpoints(self) -> dict:
         """Diagnostic: try ALL known endpoint patterns and report raw responses."""
