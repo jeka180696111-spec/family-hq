@@ -58,7 +58,7 @@ class LuxCloudClient:
     def from_settings(cls, settings: Any) -> "LuxCloudClient | None":
         email = getattr(settings, "luxcloud_email", "")
         pwd = getattr(settings, "luxcloud_password", "")
-        region = getattr(settings, "luxcloud_region", "inverter")
+        region = getattr(settings, "luxcloud_region", "eu") or "eu"
         serial = getattr(settings, "lux_inverter_serial", "")
         if not (email and pwd and serial):
             return None
@@ -337,26 +337,33 @@ class LuxCloudClient:
     async def probe_event_endpoints(self) -> dict:
         """Diagnostic: try ALL known endpoint patterns and report raw responses."""
         candidates = [
-            # Classic
+            # /WManage/web/ paths (alive on eu.luxpowertek.com)
+            ("POST", "/WManage/web/event/getEventList"),
+            ("GET",  "/WManage/web/event/getEventList"),
+            ("POST", "/WManage/web/event/list"),
+            ("POST", "/WManage/web/event/getList"),
+            ("POST", "/WManage/web/event/getEventList.json"),
+            ("POST", "/WManage/web/inverter/event"),
+            ("POST", "/WManage/web/inverter/getEventList"),
+            ("POST", "/WManage/web/monitor/event"),
+            ("POST", "/WManage/web/monitor/getEventList"),
+            ("POST", "/WManage/web/monitor/inverter/event"),
+            ("POST", "/WManage/web/alarm/list"),
+            ("POST", "/WManage/web/alarm/getAlarmList"),
+            ("POST", "/WManage/web/plant/event/list"),
+            ("POST", "/WManage/web/plant/getEventList"),
+            # /WManage/api/ paths
             ("POST", "/WManage/api/event/list"),
             ("GET",  "/WManage/api/event/list"),
-            ("POST", "/WManage/web/event/getEventList.json"),
-            # Plant Event variants (newer LuxCloud)
             ("POST", "/WManage/api/plant/event/list"),
             ("POST", "/WManage/api/plantEvent/list"),
             ("POST", "/WManage/api/plant/getPlantEventList"),
-            ("GET",  "/WManage/api/plant/getPlantEventList"),
             ("POST", "/WManage/api/event/plant/list"),
-            ("POST", "/WManage/web/plant/event/list"),
-            ("POST", "/WManage/web/event/list"),
-            ("POST", "/WManage/web/event/getList"),
             ("POST", "/WManage/api/inverter/event"),
             ("POST", "/WManage/api/inverter/getEventList"),
             ("POST", "/WManage/api/alert/list"),
-            # Newer API style
             ("POST", "/WManage/api/v1/event/list"),
             ("POST", "/WManage/api/v2/event/list"),
-            ("POST", "/WManage/event/list"),
         ]
         results = []
         for method, path in candidates:
