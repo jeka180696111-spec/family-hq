@@ -242,36 +242,29 @@ class LuxCloudClient:
             "raw": data,
         }
 
-    async def recent_events(self, hours: int = 24) -> list[dict]:
-        """Try to fetch the inverter event/alarm log from LuxCloud.
+    async def recent_events(self, hours: int = 24, rows: int = 100) -> list[dict]:
+        """Fetch Plant Event log from LuxCloud.
 
-        Looks for events like 'Grid Lost', 'Grid Connected', 'Battery Low'
-        from the cloud's own notification system. Returns [] if no
-        compatible endpoint is found.
+        Confirmed endpoint (sniffed from eu.luxpowertek.com in June 2026):
+          POST /WManage/api/analyze/event/list
+          form: page, rows, plantId=-1, serialNum, eventText=_all
+        Returns events like W016 'no AC connection' with startTime/endTime.
         """
-        # LuxCloud "Plant Event" — endpoint varies by platform version
         endpoints = [
-            ("POST", "/WManage/api/event/list", {"serialNum": self.serial}),
-            ("GET",  "/WManage/api/event/list", {"serialNum": self.serial}),
-            ("POST", "/WManage/api/inverter/event", {"serialNum": self.serial}),
-            ("POST", "/WManage/api/alert/list", {"serialNum": self.serial}),
-            ("GET",  "/WManage/web/event/getEventList.json", {"serialNum": self.serial}),
-            # Plant Event endpoints (newer LuxCloud)
-            ("POST", "/WManage/api/plant/event/list", {"serialNum": self.serial}),
-            ("POST", "/WManage/api/plantEvent/list", {"serialNum": self.serial}),
-            ("POST", "/WManage/api/plant/getPlantEventList", {"serialNum": self.serial}),
-            ("GET",  "/WManage/api/plant/getPlantEventList", {"serialNum": self.serial}),
-            ("POST", "/WManage/api/event/plant/list", {"serialNum": self.serial}),
+            ("POST", "/WManage/api/analyze/event/list",
+             {"page": 1, "rows": rows, "plantId": -1, "serialNum": self.serial, "eventText": "_all"}),
+            # Legacy fallbacks just in case
+            ("POST", "/WManage/api/event/list", {"serialNum": self.serial, "page": 1, "rows": rows}),
+            ("POST", "/WManage/web/event/getEventList.json", {"serialNum": self.serial}),
         ]
         data: dict | None = None
         last_err = None
         for method, path, payload in endpoints:
             try:
-                if method == "GET":
-                    data = await self._get_json(path, params=payload)
-                else:
-                    data = await self._post_json(path, body=payload)
-                break
+                data = await self._post_json(path, body=payload)
+                if data:
+                    log.info("luxcloud_events_endpoint_ok", path=path)
+                    break
             except Exception as e:
                 last_err = f"{method} {path} → {e}"
                 continue
@@ -279,7 +272,6 @@ class LuxCloudClient:
             log.info("luxcloud_events_unavailable", error=last_err)
             return []
 
-        # Different platforms return events under different keys
         items = (
             data.get("rows")
             or data.get("events")
@@ -290,18 +282,39 @@ class LuxCloudClient:
         if not isinstance(items, list):
             return []
 
-        # Normalize
+        # Normalize — actual LuxCloud Plant Event row has:
+        # startTime, endTime, eventCode, eventStatus, eventEnum.name, etc.
         out = []
         for it in items:
+            start_time = (it.get("startTime") or it.get("eventTime")
+                          or it.get("time") or it.get("createTime"))
+            end_time = (it.get("endTime") or it.get("recoveryTime"))
+            name = (it.get("eventName") or it.get("name")
+                    or (it.get("eventEnum") or {}).get("name")
+                    or it.get("description") or "")
+            during = it.get("duringTime") or it.get("during_time")
+            if not during and start_time and end_time:
+                during = f"{start_time} ~ {end_time}"
             out.append({
-                "time": it.get("eventTime") or it.get("time") or it.get("createTime"),
+                "time": start_time,
+                "start_time": start_time,
+                "end_time": end_time,
                 "code": it.get("eventCode") or it.get("code"),
-                "name": it.get("eventName") or it.get("name") or it.get("description"),
+                "name": name,
                 "type": it.get("eventType") or it.get("type"),
-                "status": it.get("eventStatus") or it.get("status") or "",  # 'Active'/'Recovered'
-                "during_time": it.get("duringTime") or it.get("during_time"),
+                "status": it.get("eventStatus") or it.get("status") or "",
+                "during_time": during,
+                "serial": it.get("serialNum") or it.get("targetSerialNum"),
                 "raw": it,
             })
+
+        # Filter to last N hours if requested
+        if hours and out:
+            from datetime import timedelta
+            from src.utils.time import now_kyiv
+            cutoff = (now_kyiv() - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
+            out = [e for e in out if (e.get("start_time") or "") >= cutoff]
+
         return out
 
     async def probe_hosts(self) -> dict:
