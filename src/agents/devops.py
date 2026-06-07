@@ -1498,46 +1498,85 @@ class DevOpsAgent(BaseAgent):
         return result
 
     async def _power_history_from_inverter(self, hours: int) -> dict:
+        from datetime import datetime, timedelta
+        from sqlalchemy import select
         from src.config import get_settings
+        from src.db.models import PowerOutage
         from src.integrations.luxcloud import LuxCloudClient
+        from src.utils.time import now_kyiv
+
+        # 1) Try LuxCloud event log
+        lux_events = []
+        lux_error = None
         client = LuxCloudClient.from_settings(get_settings())
-        if not client:
-            return {"error": "LuxCloud не настроен"}
-        try:
-            events = await client.recent_events(hours=hours)
-        except Exception as e:
-            return {"error": f"LuxCloud событийный лог недоступен: {e}"}
+        if client:
+            try:
+                events = await client.recent_events(hours=hours)
+                for ev in events:
+                    blob = " ".join(str(v).lower() for v in (
+                        ev.get("name") or "", ev.get("type") or "",
+                        ev.get("code") or "",
+                    ))
+                    if "ac" in blob or "grid" in blob or "мережа" in blob or "сеть" in blob:
+                        lux_events.append(ev)
+            except Exception as e:
+                lux_error = str(e)
 
-        grid_events = []
-        for ev in events:
-            blob = " ".join(str(v).lower() for v in (ev.get("name") or "", ev.get("type") or "", ev.get("code") or ""))
-            if "ac" in blob or "grid" in blob or "мережа" in blob or "сеть" in blob:
-                grid_events.append({
-                    "time": ev.get("time"),
-                    "name": ev.get("name"),
-                    "status": ev.get("status"),
-                    "during_time": ev.get("during_time"),
-                })
+        # 2) Always pull from local DB as well
+        cutoff = (now_kyiv() - timedelta(hours=hours)).isoformat()
+        async with self._memory._engine.connect() as conn:
+            db_rows = list(await conn.execute(
+                select(PowerOutage).where(PowerOutage.started_at >= cutoff)
+                .order_by(PowerOutage.started_at.desc())
+            ))
 
-        if not grid_events:
+        # 3) Merge: prefer LuxCloud (precise), supplement with DB
+        merged = []
+        for ev in lux_events:
+            merged.append({
+                "source": "LuxCloud",
+                "started": ev.get("during_time", "").split("~")[0].strip() if ev.get("during_time") else ev.get("time"),
+                "ended": ev.get("during_time", "").split("~")[-1].strip() if "~" in (ev.get("during_time") or "") else None,
+                "name": ev.get("name"),
+                "status": ev.get("status"),
+            })
+        for r in db_rows:
+            merged.append({
+                "source": "Локальный детектор",
+                "started": r.started_at,
+                "ended": r.ended_at,
+                "duration_min": r.duration_min,
+                "notes": r.notes,
+            })
+
+        if not merged:
+            msg = f"За последние {hours} ч отключений света не зафиксировано."
+            if lux_error:
+                msg += f"\n\n⚠️ LuxCloud event log недоступен: {lux_error}"
             return {
                 "hours": hours,
-                "outages": [],
-                "summary": f"За последние {hours} ч инвертор не зафиксировал отключений света.",
+                "outages_count": 0,
+                "lux_error": lux_error,
+                "formatted": msg,
+                "display_instruction": "Покажи поле 'formatted'.",
             }
 
         lines = [f"⚡ <b>История света за {hours} ч</b>"]
-        for e in grid_events[:10]:
-            status_emoji = "✅" if (e.get("status") or "").lower() == "recovered" else "🟠"
-            lines.append(
-                f"{status_emoji} {e.get('name', 'Событие')}\n"
-                f"   {e.get('during_time') or e.get('time')}"
-            )
+        for e in merged[:15]:
+            started = e.get("started") or "?"
+            ended = e.get("ended") or "ещё длится"
+            dur = e.get("duration_min")
+            dur_str = f" ({dur} мин)" if dur else ""
+            src = e.get("source", "")
+            status_emoji = "✅" if e.get("status", "").lower() == "recovered" or ended != "ещё длится" else "🟠"
+            lines.append(f"{status_emoji} {started} → {ended}{dur_str}  · {src}")
 
         return {
             "hours": hours,
-            "events_count": len(grid_events),
-            "outages": grid_events,
+            "outages_count": len(merged),
+            "from_lux": len(lux_events),
+            "from_db": len(db_rows),
+            "lux_error": lux_error,
             "formatted": "\n".join(lines),
             "display_instruction": "Покажи поле 'formatted' без переформулирования.",
         }

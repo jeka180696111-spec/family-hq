@@ -219,12 +219,19 @@ class LuxCloudClient:
         from the cloud's own notification system. Returns [] if no
         compatible endpoint is found.
         """
+        # LuxCloud "Plant Event" — endpoint varies by platform version
         endpoints = [
             ("POST", "/WManage/api/event/list", {"serialNum": self.serial}),
             ("GET",  "/WManage/api/event/list", {"serialNum": self.serial}),
             ("POST", "/WManage/api/inverter/event", {"serialNum": self.serial}),
             ("POST", "/WManage/api/alert/list", {"serialNum": self.serial}),
             ("GET",  "/WManage/web/event/getEventList.json", {"serialNum": self.serial}),
+            # Plant Event endpoints (newer LuxCloud)
+            ("POST", "/WManage/api/plant/event/list", {"serialNum": self.serial}),
+            ("POST", "/WManage/api/plantEvent/list", {"serialNum": self.serial}),
+            ("POST", "/WManage/api/plant/getPlantEventList", {"serialNum": self.serial}),
+            ("GET",  "/WManage/api/plant/getPlantEventList", {"serialNum": self.serial}),
+            ("POST", "/WManage/api/event/plant/list", {"serialNum": self.serial}),
         ]
         data: dict | None = None
         last_err = None
