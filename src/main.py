@@ -68,18 +68,29 @@ async def _transcribe_voice(message: Any, settings: Any) -> str:
 
 
 def _has_photo_media(message: Any) -> bool:
-    """Fallback photo detector: some Telethon versions surface photo only through
-    message.media as MessageMediaPhoto, not the .photo shortcut."""
+    """Detect photo-like media in a Telethon message robustly.
+
+    Covers: native compressed photo (MessageMediaPhoto), document with
+    image/* mime (uncompressed gallery upload), and the fallback case
+    where the user-bot returns photo via message.media but neither
+    message.photo nor type checks match — last resort scan of repr.
+    """
     media = getattr(message, "media", None)
     if media is None:
         return False
     cls_name = type(media).__name__
-    if cls_name == "MessageMediaPhoto":
+    if "Photo" in cls_name:  # MessageMediaPhoto, Photo, etc.
         return True
-    # Or document of image/* mime type
     doc = getattr(media, "document", None)
     mime = getattr(doc, "mime_type", "") if doc else ""
-    return mime.startswith("image/")
+    if mime.startswith("image/"):
+        return True
+    # Last-resort: voice/audio explicitly excluded; everything else
+    # with a media attribute may be a photo our type checks missed.
+    if (getattr(message, "voice", None) or getattr(message, "audio", None)
+            or getattr(message, "video", None) or getattr(message, "sticker", None)):
+        return False
+    return True
 
 
 async def _handle_baby_photo(
@@ -87,16 +98,26 @@ async def _handle_baby_photo(
 ) -> None:
     """Download a Telegram photo, archive to Drive + DB via baby_photos module,
     and have Няня acknowledge in the chat."""
+    import os as _os
     import tempfile
     from src.integrations.baby_photos import archive_photo
     from src.integrations.drive import DriveClient
+    log.info("photo_handler_started")
     drive_client = DriveClient.from_settings(settings)
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
         local_path = tmp.name
     try:
         await message.download_media(file=local_path)
+        size = _os.path.getsize(local_path) if _os.path.exists(local_path) else 0
+        log.info("photo_downloaded", path=local_path, size=size)
     except Exception:
         log.exception("photo_download_failed")
+        nanny = agents.get("nanny")
+        if nanny:
+            try:
+                await nanny.send("📸 Получила фото, но не смогла скачать из Telegram.")
+            except Exception:
+                pass
         return
     result = await archive_photo(local_path, caption, drive_client, memory)
     nanny = agents.get("nanny")
