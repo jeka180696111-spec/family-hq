@@ -430,7 +430,7 @@ async def run(dry_run: bool = False) -> None:
     try:
         from src.integrations.grid_watcher import GridWatcher, register_grid_watcher_job
         if settings.luxcloud_email and settings.luxcloud_password and settings.lux_inverter_serial:
-            grid_watcher = GridWatcher(memory, agents["devops"], bot_manager, chat_id)
+            grid_watcher = GridWatcher(memory, agents["devops"], bot_manager, chat_id, automation_engine)
             register_grid_watcher_job(scheduler, grid_watcher)
         else:
             log.info("grid_watcher_skipped_no_inverter_env")

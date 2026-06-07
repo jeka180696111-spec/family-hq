@@ -42,11 +42,12 @@ class GridWatcher:
     THRESHOLD_DOWN = 5
     THRESHOLD_UP = 2
 
-    def __init__(self, memory: Any, devops_agent: Any, bot_manager: Any, chat_id: int) -> None:
+    def __init__(self, memory: Any, devops_agent: Any, bot_manager: Any, chat_id: int, automation_engine: Any = None) -> None:
         self._memory = memory
         self._devops = devops_agent
         self._bots = bot_manager
         self._chat_id = chat_id
+        self._automation = automation_engine
         self._down_streak = 0
         self._up_streak = 0
         self._outage_active = False  # Mirror of DB state at last tick
@@ -265,6 +266,11 @@ class GridWatcher:
                 )
             except Exception:
                 log.exception("grid_watcher_open_push_failed")
+        if self._automation:
+            try:
+                await self._automation.trigger_power_outage(active=True)
+            except Exception:
+                log.exception("grid_watcher_open_automation_failed")
         log.info("grid_watcher_outage_opened")
 
     async def _close(self) -> None:
@@ -296,6 +302,11 @@ class GridWatcher:
                 )
             except Exception:
                 log.exception("grid_watcher_close_push_failed")
+        if self._automation:
+            try:
+                await self._automation.trigger_power_outage(active=False)
+            except Exception:
+                log.exception("grid_watcher_close_automation_failed")
         log.info("grid_watcher_outage_closed")
 
 

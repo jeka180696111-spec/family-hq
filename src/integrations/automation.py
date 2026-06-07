@@ -41,6 +41,47 @@ class AutomationEngine:
         self._chat_id = chat_id
         self._agents = agents
 
+    async def trigger_power_outage(self, active: bool) -> None:
+        """Fire all rules whose top-level condition matches the new outage state.
+
+        Called by GridWatcher the moment grid loss/restore is detected, so
+        boiler / heavy loads cut over immediately instead of waiting for the
+        5-min tick.
+        """
+        state = "active" if active else "ended"
+        try:
+            async with self._memory._engine.connect() as conn:
+                rules = list(await conn.execute(select(AutomationRule).where(AutomationRule.enabled == 1)))
+            for rule in rules:
+                try:
+                    cond = json.loads(rule.condition)
+                    if not self._cond_matches_power_outage(cond, state):
+                        continue
+                    if not await self._eval(cond):
+                        continue
+                    action = json.loads(rule.action)
+                    await self._execute(rule.name, action)
+                    async with self._memory._engine.begin() as conn:
+                        await conn.execute(
+                            sql_update(AutomationRule).where(AutomationRule.id == rule.id).values(
+                                last_fired_at=iso_now(),
+                                fired_count=rule.fired_count + 1,
+                            )
+                        )
+                    log.info("automation_power_outage_fired", rule=rule.name, state=state)
+                except Exception:
+                    log.exception("automation_power_outage_rule_failed", rule=rule.name)
+        except Exception:
+            log.exception("automation_power_outage_trigger_failed")
+
+    def _cond_matches_power_outage(self, cond: dict, state: str) -> bool:
+        kind = cond.get("type", "")
+        if kind == "power_outage":
+            return cond.get("state", "active") == state
+        if kind in ("and", "or"):
+            return any(self._cond_matches_power_outage(s, state) for s in cond.get("rules", []))
+        return False
+
     async def tick(self) -> None:
         """Called by scheduler every 5 minutes."""
         try:
