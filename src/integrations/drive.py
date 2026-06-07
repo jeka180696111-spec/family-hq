@@ -10,7 +10,9 @@ import structlog
 log = structlog.get_logger()
 
 
-_KW = {"supportsAllDrives": True, "includeItemsFromAllDrives": True}
+# list() supports both flags; create()/update() only support supportsAllDrives
+_LIST_KW = {"supportsAllDrives": True, "includeItemsFromAllDrives": True}
+_WRITE_KW = {"supportsAllDrives": True}
 
 
 class DriveClient:
@@ -60,7 +62,7 @@ class DriveClient:
         )
         res = svc.files().list(
             q=q, fields="files(id,name)", pageSize=10,
-            corpora="allDrives", **_KW,
+            corpora="allDrives", **_LIST_KW,
         ).execute()
         files = res.get("files", []) or []
         if files:
@@ -70,7 +72,7 @@ class DriveClient:
             "mimeType": "application/vnd.google-apps.folder",
             "parents": [parent],
         }
-        f = svc.files().create(body=meta, fields="id", **_KW).execute()
+        f = svc.files().create(body=meta, fields="id", **_WRITE_KW).execute()
         log.info("drive_folder_created", name=name, parent=parent, id=f["id"])
         return f["id"]
 
@@ -103,7 +105,7 @@ class DriveClient:
         media = MediaFileUpload(local_path, resumable=False)
         try:
             f = svc.files().create(
-                body=meta, media_body=media, fields="id,webViewLink", **_KW,
+                body=meta, media_body=media, fields="id,webViewLink", **_WRITE_KW,
             ).execute()
         except Exception as e:
             log.exception(
