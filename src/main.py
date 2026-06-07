@@ -395,6 +395,8 @@ async def run(dry_run: bool = False) -> None:
         "health": HealthAgent(**base_args, sheets_client=sheets),
         "devops": DevOpsAgent(**base_args, github_client=github, railway_client=railway),
     }
+    # Cross-reference so devops can trigger composite jobs (morning brief etc.)
+    agents["devops"]._peer_agents = agents
 
     # Load registry from DB
     registry = await AgentRegistry.load_from_db(memory)

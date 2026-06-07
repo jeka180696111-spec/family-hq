@@ -237,6 +237,16 @@ class DevOpsAgent(BaseAgent):
                 "input_schema": {"type": "object", "properties": {}},
             },
             {
+                "name": "morning_brief_now",
+                "description": (
+                    "Собрать и прислать утренний брифинг прямо сейчас "
+                    "(новости / погода с одеждой и окном прогулки / малыш / "
+                    "планы / системы). Триггер: «тригерни брифинг», "
+                    "«утренний отчёт сейчас», «сводка»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
                 "name": "solar_status",
                 "description": (
                     "Текущее состояние инвертора: солнечная генерация, заряд батареи, "
@@ -658,6 +668,15 @@ class DevOpsAgent(BaseAgent):
             return await self._automation_toggle(tool_input.get("name", ""), bool(tool_input.get("enabled", True)))
         elif tool_name == "delete_automation_rule":
             return await self._automation_delete(tool_input.get("name", ""))
+
+        elif tool_name == "morning_brief_now":
+            from src.scheduler.morning_brief import send_morning_brief
+            peers = getattr(self, "_peer_agents", {})
+            await send_morning_brief(
+                self, peers.get("news"), peers.get("nanny"),
+                peers.get("calendar"), self._memory,
+            )
+            return {"status": "sent"}
 
         elif tool_name == "list_smart_devices":
             return await self._smart_list()
