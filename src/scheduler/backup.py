@@ -65,35 +65,26 @@ async def _upload_to_drive(
     folder_id: str,
     service_account_info: dict,
 ) -> None:
-    """Upload a file to Google Drive in thread executor."""
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(
-        None, _sync_upload, local_path, filename, folder_id, service_account_info
+    """Upload a file to Google Drive via the shared DriveClient.
+
+    Picks OAuth when configured (fixes the personal-Gmail 'SA has no
+    quota' bug), falls back to Service Account otherwise. Same code
+    path as photo / receipt uploads, so OAuth setup fixes backups too.
+    """
+    from src.config import get_settings
+    from src.integrations.drive import DriveClient
+    settings = get_settings()
+    client = DriveClient(
+        service_account_info or {},
+        folder_id,
+        oauth_client_id=getattr(settings, "google_oauth_client_id", ""),
+        oauth_client_secret=getattr(settings, "google_oauth_client_secret", ""),
+        oauth_refresh_token=getattr(settings, "google_oauth_refresh_token", ""),
     )
-
-
-def _sync_upload(
-    local_path: str,
-    filename: str,
-    folder_id: str,
-    service_account_info: dict,
-) -> None:
-    """Synchronous Google Drive upload."""
-    if not service_account_info:
+    if not (service_account_info or client.using_oauth):
         log.warning("drive_upload_skipped_no_credentials")
         return
-    from google.oauth2.service_account import Credentials
-    from googleapiclient.discovery import build
-    from googleapiclient.http import MediaFileUpload
-
-    creds = Credentials.from_service_account_info(
-        service_account_info,
-        scopes=["https://www.googleapis.com/auth/drive.file"],
-    )
-    service = build("drive", "v3", credentials=creds)
-    file_metadata = {"name": filename, "parents": [folder_id]}
-    media = MediaFileUpload(local_path)
-    service.files().create(body=file_metadata, media_body=media).execute()
+    await client.upload(local_path, filename, folder_id)
 
 
 def register_backup_job(
