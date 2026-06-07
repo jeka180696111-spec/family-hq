@@ -570,3 +570,36 @@ class FuelLog(Base):
     notes: Mapped[str | None] = mapped_column(String, nullable=True)
     receipt_path: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class SavedRoute(Base):
+    __tablename__ = "saved_routes"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)  # "дача", "бабушка"
+    origin: Mapped[str] = mapped_column(String, nullable=False)
+    destination: Mapped[str] = mapped_column(String, nullable=False)
+    last_used_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    times_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class BabyPhoto(Base):
+    __tablename__ = "baby_photos"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    local_path: Mapped[str] = mapped_column(String, nullable=False)
+    drive_file_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    caption: Mapped[str | None] = mapped_column(String, nullable=True)
+    age_label: Mapped[str] = mapped_column(String, nullable=False)  # "6 мес"
+    tags: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class BabyState(Base):
+    """Live snapshot of baby state (sleep, last feed, etc.) for fast automations."""
+    __tablename__ = "baby_state"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    sleeping_since: Mapped[str | None] = mapped_column(String, nullable=True)
+    awake_since: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_feed_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_diaper_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False)

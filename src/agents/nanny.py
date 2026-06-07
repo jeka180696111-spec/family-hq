@@ -197,6 +197,20 @@ class NannyAgent(BaseAgent):
                 ),
                 "input_schema": {"type": "object", "properties": {}},
             },
+            {
+                "name": "recent_baby_photos",
+                "description": (
+                    "Показать недавние фото малыша из архива (для альбома, дайджеста бабушкам). "
+                    "Триггер: «покажи фото», «архив малыша», «последние фото»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "description": "Сколько фото (по умолчанию 5)"},
+                        "days_back": {"type": "integer", "description": "За сколько дней (по умолчанию 14)"},
+                    },
+                },
+            },
         ]
 
     async def _call_tool(self, tool_name: str, tool_input: dict[str, Any]) -> Any:
@@ -224,6 +238,15 @@ class NannyAgent(BaseAgent):
                     unit=tool_input.get("unit"),
                     details=tool_input.get("details", ""),
                 )
+                # Update live BabyState snapshot so automations can react fast
+                try:
+                    await self._update_baby_state(
+                        kind=tool_input.get("kind", ""),
+                        event=tool_input.get("event", ""),
+                        at=dt,
+                    )
+                except Exception:
+                    log.exception("baby_state_update_failed")
                 return {"success": True, "row": row.row_index}
             return {"success": True, "note": "sheets not configured"}
 
@@ -375,7 +398,62 @@ class NannyAgent(BaseAgent):
         if tool_name == "import_milestones_from_diary":
             return await self._import_milestones()
 
+        if tool_name == "recent_baby_photos":
+            return await self._recent_baby_photos(
+                limit=int(tool_input.get("limit", 5)),
+                days_back=int(tool_input.get("days_back", 14)),
+            )
+
         return await super()._call_tool(tool_name, tool_input)
+
+    async def _update_baby_state(self, kind: str, event: str, at) -> None:
+        """Project diary write into BabyState row(1) for fast automation lookup."""
+        from sqlalchemy import insert, select
+        from sqlalchemy import update as sql_update
+        from src.db.models import BabyState
+        from src.utils.time import iso_now
+        kind_l = (kind or "").lower()
+        event_l = (event or "").lower()
+        ts = at.isoformat() if hasattr(at, "isoformat") else str(at)
+        async with self._memory._engine.begin() as conn:
+            row = (await conn.execute(select(BabyState).where(BabyState.id == 1))).first()
+            values: dict[str, str | None] = {"updated_at": iso_now()}
+            if kind_l == "sleep":
+                if any(w in event_l for w in ("уснул", "уснула", "усн", "начал спать", "спит", "лёг", "лег")):
+                    values["sleeping_since"] = ts
+                    values["awake_since"] = None
+                elif any(w in event_l for w in ("проснул", "встал", "разбудил", "не спит", "поел", "просыпан")):
+                    values["awake_since"] = ts
+                    values["sleeping_since"] = None
+            if kind_l == "food":
+                values["last_feed_at"] = ts
+            if kind_l == "diaper":
+                values["last_diaper_at"] = ts
+            if row:
+                await conn.execute(sql_update(BabyState).where(BabyState.id == 1).values(**values))
+            else:
+                await conn.execute(insert(BabyState).values(id=1, **values))
+
+    async def _recent_baby_photos(self, limit: int, days_back: int) -> dict:
+        from datetime import timedelta
+        from sqlalchemy import select
+        from src.db.models import BabyPhoto
+        from src.utils.time import now_kyiv
+        cutoff = (now_kyiv() - timedelta(days=days_back)).isoformat()
+        async with self._memory._engine.connect() as conn:
+            rows = list(await conn.execute(
+                select(BabyPhoto).where(BabyPhoto.created_at >= cutoff)
+                .order_by(BabyPhoto.id.desc()).limit(max(1, min(50, limit)))
+            ))
+        return {
+            "count": len(rows),
+            "photos": [
+                {
+                    "id": r.id, "age": r.age_label, "caption": r.caption,
+                    "drive_file_id": r.drive_file_id, "created_at": r.created_at,
+                } for r in rows
+            ],
+        }
 
     async def _import_milestones(self) -> dict:
         """Scan Дневник + Прикорм for 'first occurrence' events and append to Достижения."""

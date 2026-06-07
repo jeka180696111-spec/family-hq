@@ -93,6 +93,9 @@ class Settings(BaseSettings):
     # Google Maps (Directions + Places) — for Штурман
     gmaps_api_key: str = Field(default="")
 
+    # Google Drive folder for baby photo archive (separate from db backup folder)
+    baby_photos_drive_folder_id: str = Field(default="")
+
     # Optional separate Telegram bot for Штурман; falls back to devops bot if empty
     navigator_bot_token: str = Field(default="")
 

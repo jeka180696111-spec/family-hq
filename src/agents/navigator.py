@@ -110,6 +110,41 @@ class NavigatorAgent(BaseAgent):
                 },
             },
             {
+                "name": "save_route",
+                "description": (
+                    "Запомнить маршрут под именем для быстрого вызова: "
+                    "«дача», «бабушка», «работа». Потом «поездка к бабушке» — "
+                    "автоматически подставит origin/destination."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "origin": {"type": "string"},
+                        "destination": {"type": "string"},
+                    },
+                    "required": ["name", "origin", "destination"],
+                },
+            },
+            {
+                "name": "list_saved_routes",
+                "description": "Показать сохранённые маршруты.",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "plan_saved_route",
+                "description": "Запланировать поездку по сохранённому маршруту.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "depart_at": {"type": "string"},
+                        "return_at": {"type": "string"},
+                    },
+                    "required": ["name", "depart_at"],
+                },
+            },
+            {
                 "name": "trip_check_now",
                 "description": (
                     "Прислать обновлённую сводку по конкретной поездке сейчас: "
@@ -139,12 +174,58 @@ class NavigatorAgent(BaseAgent):
             return await self._set_vehicle(tool_input)
         if tool_name == "list_trips":
             return await self._list_trips()
+        if tool_name == "save_route":
+            return await self._save_route(tool_input)
+        if tool_name == "list_saved_routes":
+            return await self._list_saved_routes()
+        if tool_name == "plan_saved_route":
+            return await self._plan_saved_route(tool_input)
         if tool_name == "cancel_trip":
             return await self._cancel_trip(int(tool_input.get("trip_id", 0)))
         if tool_name == "trip_check_now":
             await self._pre_trip_push(int(tool_input.get("trip_id", 0)))
             return {"status": "sent"}
         return await super()._call_tool(tool_name, tool_input)
+
+    async def _save_route(self, p: dict) -> dict:
+        from src.db.models import SavedRoute
+        async with self._memory._engine.begin() as conn:
+            await conn.execute(insert(SavedRoute).prefix_with("OR REPLACE").values(
+                name=p["name"], origin=p["origin"], destination=p["destination"],
+                times_used=0, created_at=iso_now(),
+            ))
+        return {"saved": p["name"]}
+
+    async def _list_saved_routes(self) -> dict:
+        from src.db.models import SavedRoute
+        async with self._memory._engine.connect() as conn:
+            rows = list(await conn.execute(
+                select(SavedRoute).order_by(SavedRoute.times_used.desc())
+            ))
+        return {"routes": [
+            {"name": r.name, "origin": r.origin, "destination": r.destination,
+             "times_used": r.times_used, "last_used_at": r.last_used_at}
+            for r in rows
+        ]}
+
+    async def _plan_saved_route(self, p: dict) -> dict:
+        from src.db.models import SavedRoute
+        name = p.get("name", "").strip().lower()
+        async with self._memory._engine.connect() as conn:
+            rows = list(await conn.execute(select(SavedRoute)))
+        match = next((r for r in rows if name in r.name.lower()), None)
+        if not match:
+            return {"error": f"Маршрут '{name}' не найден. Список: {[r.name for r in rows]}"}
+        async with self._memory._engine.begin() as conn:
+            await conn.execute(sql_update(SavedRoute).where(SavedRoute.id == match.id).values(
+                times_used=(match.times_used or 0) + 1,
+                last_used_at=iso_now(),
+            ))
+        return await self._plan_trip({
+            "origin": match.origin, "destination": match.destination,
+            "depart_at": p["depart_at"], "return_at": p.get("return_at"),
+            "notes": f"saved-route:{match.name}",
+        })
 
     async def _cancel_trip(self, trip_id: int) -> dict:
         async with self._memory._engine.begin() as conn:

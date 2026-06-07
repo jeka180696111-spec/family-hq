@@ -26,6 +26,7 @@ log = structlog.get_logger()
 # {"type": "power_outage", "state": "active", "within_min": 5}  — only first N min of outage
 # {"type": "power_outage", "state": "ended"}              — light just came back (fires once)
 # {"type": "power_outage", "state": "ended", "delay_min": 15}   — N min after restore
+# {"type": "baby_sleeping", "min_minutes": 10}                — Матвей спит ≥10 мин (окно тишины)
 # {"type": "and", "rules": [...]}                         — logical AND
 # {"type": "or",  "rules": [...]}                         — logical OR
 #
@@ -147,6 +148,8 @@ class AutomationEngine:
             return await self._eval_alert_ended(cond.get("region", ""))
         if kind == "power_outage":
             return await self._eval_power_outage(cond)
+        if kind == "baby_sleeping":
+            return await self._eval_baby_sleeping(cond)
         if kind == "weather":
             return await self._eval_weather(cond)
         return False
@@ -290,6 +293,28 @@ class AutomationEngine:
                 stmt = stmt.where(NewsPost.alert_region == region)
             row = (await conn.execute(stmt.limit(1))).first()
         return row is not None
+
+    async def _eval_baby_sleeping(self, cond: dict) -> bool:
+        """True when BabyState.sleeping_since is set and recent (<6h).
+        Optional `min_minutes` waits N minutes after sleep start before firing
+        (so the rule fires once baby is reliably asleep, not at every micro-nap)."""
+        from src.db.models import BabyState
+        async with self._memory._engine.connect() as conn:
+            row = (await conn.execute(select(BabyState).where(BabyState.id == 1))).first()
+        if not row or not row.sleeping_since:
+            return False
+        try:
+            since = datetime.fromisoformat(row.sleeping_since)
+        except Exception:
+            return False
+        from src.utils.time import KYIV_TZ
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=KYIV_TZ)
+        elapsed_min = (now_kyiv() - since).total_seconds() / 60
+        if elapsed_min < 0 or elapsed_min > 360:  # stale
+            return False
+        min_min = float(cond.get("min_minutes", 5))
+        return elapsed_min >= min_min
 
     async def _eval_power_outage(self, cond: dict) -> bool:
         from src.db.models import PowerOutage

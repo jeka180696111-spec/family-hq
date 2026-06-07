@@ -42,6 +42,35 @@ log = structlog.get_logger()
 _shutdown_event: asyncio.Event | None = None
 
 
+async def _handle_baby_photo(
+    message: Any, caption: str, agents: dict, memory: Any, settings: Any,
+) -> None:
+    """Download a Telegram photo, archive to Drive + DB via baby_photos module,
+    and have Няня acknowledge in the chat."""
+    import tempfile
+    from src.integrations.baby_photos import archive_photo
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+        local_path = tmp.name
+    try:
+        # Telethon: message.download_media(file=path) downloads largest photo
+        await message.download_media(file=local_path)
+    except Exception:
+        log.exception("photo_download_failed")
+        return
+    sa_info = settings.google_service_account_json
+    folder_id = getattr(settings, "baby_photos_drive_folder_id", "") or settings.drive_backup_folder_id
+    result = await archive_photo(local_path, caption, sa_info, folder_id, memory)
+    nanny = agents.get("nanny")
+    if nanny:
+        try:
+            ack = f"📸 Сохранил в архив малыша · {result['age']}"
+            if result.get("drive_id"):
+                ack += " · ☁️ Drive"
+            await nanny.send(ack)
+        except Exception:
+            log.exception("baby_photo_ack_failed")
+
+
 async def handle_new_message(
     message: Any,
     dispatcher: Dispatcher,
@@ -76,12 +105,20 @@ async def handle_new_message(
         text = _expand_slash_command(text)
         message_id = getattr(message, "id", 0)
 
-        if not text.strip():
-            return
-
         # Authorization check
         if user_id and not access_control.is_owner(user_id):
             log.warning("unauthorized_message", user_id=user_id)
+            return
+
+        # Photo intake — baby photo memory: if message has a photo, archive it
+        if getattr(message, "photo", None):
+            try:
+                await _handle_baby_photo(message, text, agents, memory, settings)
+            except Exception:
+                log.exception("baby_photo_handle_failed")
+            # Do NOT return — continue normal text flow so caption gets dispatched too
+
+        if not text.strip():
             return
 
         log.info("message_received", user_id=user_id, text=text[:50])

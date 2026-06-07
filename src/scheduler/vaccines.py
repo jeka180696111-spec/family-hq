@@ -106,5 +106,84 @@ async def register_vaccine_seed_once(calendar_client, memory) -> None:
     try:
         result = await seed_baby_vaccines(calendar_client)
         log.info("vaccine_seed_done", **result)
+        result2 = await seed_family_health(calendar_client)
+        log.info("family_health_seed_done", **result2)
     except Exception:
         log.exception("vaccine_seed_startup_failed")
+
+
+# ─── Family health checkups (not baby vaccines) ─────────────────────
+
+@dataclass
+class HealthCheckup:
+    seed_id: str
+    when: datetime
+    title: str
+    notes: str
+
+
+def _ua_dt(y: int, m: int, d: int, hh: int = 10) -> datetime:
+    return datetime(y, m, d, hh, 0, tzinfo=KYIV_TZ)
+
+
+FAMILY_HEALTH: list[HealthCheckup] = [
+    HealthCheckup(
+        seed_id="eugene-phthisiologist-2026-06-18",
+        when=_ua_dt(2026, 6, 18, 10),
+        title="🫁 Евгений — фтизиатр, плановый осмотр",
+        notes=(
+            "3 месяца после окончания курса. Что взять: выписку, последние "
+            "снимки, журнал самочувствия. Айболит подготовит чек-лист за день."
+        ),
+    ),
+    # follow-ups every 3 months for the first year off-meds
+    HealthCheckup(
+        seed_id="eugene-phthisiologist-2026-09-18",
+        when=_ua_dt(2026, 9, 18, 10),
+        title="🫁 Евгений — фтизиатр, контроль (6 мес off-meds)",
+        notes="Полугодовой контроль после курса.",
+    ),
+    HealthCheckup(
+        seed_id="eugene-phthisiologist-2026-12-18",
+        when=_ua_dt(2026, 12, 18, 10),
+        title="🫁 Евгений — фтизиатр, годовой осмотр",
+        notes="Год после окончания курса.",
+    ),
+]
+
+
+async def seed_family_health(calendar_client) -> dict:
+    if not calendar_client:
+        return {"error": "no_calendar"}
+    try:
+        existing = await calendar_client.list_upcoming(days=365 * 3)
+    except Exception:
+        existing = []
+    seeded = set()
+    for ev in existing:
+        desc = getattr(ev, "description", "") or ""
+        for it in FAMILY_HEALTH:
+            if f"#health-seed:{it.seed_id}" in desc:
+                seeded.add(it.seed_id)
+    created = 0
+    skipped = 0
+    for it in FAMILY_HEALTH:
+        if it.seed_id in seeded:
+            skipped += 1
+            continue
+        if it.when < datetime.now(KYIV_TZ):
+            skipped += 1
+            continue
+        try:
+            await calendar_client.create_event(
+                title=it.title,
+                start=it.when,
+                end=it.when + timedelta(hours=1),
+                description=f"{it.notes}\n\n#health-seed:{it.seed_id}",
+                color_id="4",  # Flamingo / red — medical
+            )
+            created += 1
+            log.info("family_health_seeded", seed_id=it.seed_id)
+        except Exception:
+            log.exception("family_health_seed_failed", seed_id=it.seed_id)
+    return {"created": created, "skipped": skipped, "total": len(FAMILY_HEALTH)}

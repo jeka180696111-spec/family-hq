@@ -184,7 +184,9 @@ class DevOpsAgent(BaseAgent):
                             "description": (
                                 "JSON-условие. Типы: time {cron:'HH:MM', weekday:'sun'?}; "
                                 "sensor {device, metric:'temperature'|'humidity', op:'>'|'<'|'>='|'<='|'=='|'!=', value}; "
-                                "alert_active {region}; alert_ended {region}; power_outage {state:'active'|'inactive'}; "
+                                "alert_active {region}; alert_ended {region}; "
+                                "power_outage {state:'active'|'ended', delay_min:N?, within_min:N?}; "
+                                "baby_sleeping {min_minutes:N?} — Матвей спит ≥N мин (окно тишины); "
                                 "and {rules:[...]}; or {rules:[...]}"
                             ),
                         },
