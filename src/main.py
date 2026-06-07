@@ -124,17 +124,21 @@ async def _handle_baby_photo(
     if nanny:
         try:
             if result.get("drive_id"):
-                ack = f"📸 Сохранил в архив малыша · {result['age']} · ☁️ Drive"
+                url = result.get("drive_url") or ""
+                ack = (
+                    f"📸 Фото сохранено · {result['age']}\n"
+                    f"☁️ Drive: загружено"
+                )
             elif result.get("error") == "drive_not_configured":
                 ack = (
-                    f"📸 Сохранил в архив · {result['age']}\n"
-                    "⚠️ Drive не настроен: задай DRIVE_ROOT_FOLDER_ID и расшарь "
-                    "папку service-account-у (Editor)."
+                    f"📸 Фото получено · {result['age']}\n"
+                    "⚠️ Drive не настроен (нет SA или ROOT folder). "
+                    "Файл записан в БД, но не в облако."
                 )
             else:
                 err = (result.get("error") or "")[:300]
                 ack = (
-                    f"📸 Сохранил в БД · {result['age']}\n"
+                    f"📸 Фото получено · {result['age']}\n"
                     f"⚠️ Drive upload failed:\n<code>{err}</code>"
                 )
             await nanny.send(ack)
