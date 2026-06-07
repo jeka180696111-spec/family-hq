@@ -1,0 +1,107 @@
+"""Generic Google Drive helper with folder auto-creation + caching.
+
+Agents share one root folder. Each agent (or sub-area) gets its own
+sub-folder that the client creates on first use. Folder IDs are cached
+in-memory to avoid repeat lookups.
+
+Permission model: the service account must have Editor on the root
+folder. It then creates and owns all sub-folders below.
+"""
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+import structlog
+
+log = structlog.get_logger()
+
+
+class DriveClient:
+    def __init__(self, service_account_info: dict, root_folder_id: str) -> None:
+        self.sa = service_account_info
+        self.root_id = root_folder_id
+        self._folder_cache: dict[tuple[str, str], str] = {}  # (parent_id, name) -> id
+        self._service = None
+
+    @classmethod
+    def from_settings(cls, settings: Any) -> "DriveClient | None":
+        sa = settings.google_service_account_json
+        root = (getattr(settings, "drive_root_folder_id", "")
+                or getattr(settings, "baby_photos_drive_folder_id", "")
+                or settings.drive_backup_folder_id)
+        if not sa or not root:
+            return None
+        return cls(sa, root)
+
+    def _build(self):
+        if self._service is not None:
+            return self._service
+        from google.oauth2.service_account import Credentials
+        from googleapiclient.discovery import build
+        creds = Credentials.from_service_account_info(
+            self.sa, scopes=["https://www.googleapis.com/auth/drive"],
+        )
+        self._service = build("drive", "v3", credentials=creds, cache_discovery=False)
+        return self._service
+
+    async def ensure_folder(self, name: str, parent_id: str | None = None) -> str:
+        """Find folder by name under parent (or root) — create if missing."""
+        parent = parent_id or self.root_id
+        key = (parent, name)
+        if key in self._folder_cache:
+            return self._folder_cache[key]
+        loop = asyncio.get_event_loop()
+        folder_id = await loop.run_in_executor(None, self._find_or_create_folder, name, parent)
+        self._folder_cache[key] = folder_id
+        return folder_id
+
+    def _find_or_create_folder(self, name: str, parent: str) -> str:
+        svc = self._build()
+        # Escape single quotes for the query
+        safe_name = name.replace("'", "\\'")
+        q = (
+            f"mimeType='application/vnd.google-apps.folder' "
+            f"and name='{safe_name}' and '{parent}' in parents and trashed=false"
+        )
+        res = svc.files().list(q=q, fields="files(id,name)", pageSize=10).execute()
+        files = res.get("files", []) or []
+        if files:
+            return files[0]["id"]
+        meta = {
+            "name": name,
+            "mimeType": "application/vnd.google-apps.folder",
+            "parents": [parent],
+        }
+        f = svc.files().create(body=meta, fields="id").execute()
+        log.info("drive_folder_created", name=name, parent=parent, id=f["id"])
+        return f["id"]
+
+    async def ensure_path(self, parts: list[str]) -> str:
+        """Ensure nested folders (relative to root). Returns leaf folder id."""
+        current = self.root_id
+        for p in parts:
+            current = await self.ensure_folder(p, current)
+        return current
+
+    async def upload(
+        self, local_path: str, filename: str, folder_id: str,
+        description: str | None = None,
+    ) -> dict:
+        """Upload a file, return {id, web_view_link}."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, self._upload_sync, local_path, filename, folder_id, description,
+        )
+
+    def _upload_sync(self, local_path: str, filename: str, folder_id: str, description: str | None) -> dict:
+        from googleapiclient.http import MediaFileUpload
+        svc = self._build()
+        meta = {"name": filename, "parents": [folder_id]}
+        if description:
+            meta["description"] = description
+        media = MediaFileUpload(local_path, resumable=False)
+        f = svc.files().create(
+            body=meta, media_body=media, fields="id,webViewLink",
+        ).execute()
+        return {"id": f.get("id"), "url": f.get("webViewLink")}

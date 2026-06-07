@@ -418,6 +418,29 @@ class NavigatorAgent(BaseAgent):
         if not liters:
             return {"error": "Не удалось распознать литры. Кинь ещё раз или скажи вручную."}
 
+        # Archive the receipt to Drive: ⛽ Чеки · АЗС / YYYY-MM /
+        drive_url = None
+        try:
+            from src.config import get_settings
+            from src.integrations.drive import DriveClient
+            drive = DriveClient.from_settings(get_settings())
+            if drive:
+                folder_id = await drive.ensure_path([
+                    "⛽ Чеки · АЗС", now_kyiv().strftime("%Y-%m"),
+                ])
+                station = (parsed.get("station") or "АЗС").replace("/", "-")
+                fname = (
+                    f"{now_kyiv().strftime('%Y-%m-%d_%H%M')}_{station}_"
+                    f"{int(float(liters))}л.jpg"
+                )
+                result = await drive.upload(
+                    image_path, fname, folder_id,
+                    description=f"{station} · {liters}л · {parsed.get('total_uah') or '?'}₴",
+                )
+                drive_url = result.get("url")
+        except Exception:
+            log.exception("fuel_receipt_drive_upload_failed")
+
         async with self._memory._engine.begin() as conn:
             await conn.execute(insert(FuelLog).values(
                 vehicle_id=vehicle.id,
@@ -427,12 +450,11 @@ class NavigatorAgent(BaseAgent):
                 total_uah=parsed.get("total_uah"),
                 odometer_km=odometer_km,
                 fuel_kind=parsed.get("fuel_kind"),
-                receipt_path=image_path,
+                receipt_path=drive_url or image_path,
                 created_at=iso_now(),
             ))
-        # Refresh factual_l_100 from last two fills if odometer available
         await self._maybe_update_factual_consumption(vehicle.id)
-        return {"saved": True, "parsed": parsed}
+        return {"saved": True, "parsed": parsed, "drive_url": drive_url}
 
     async def _log_fuel_manual(self, p: dict) -> dict:
         vehicle = await self._get_or_create_default_vehicle()

@@ -74,23 +74,32 @@ async def _handle_baby_photo(
     and have Няня acknowledge in the chat."""
     import tempfile
     from src.integrations.baby_photos import archive_photo
+    from src.integrations.drive import DriveClient
+    drive_client = DriveClient.from_settings(settings)
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
         local_path = tmp.name
     try:
-        # Telethon: message.download_media(file=path) downloads largest photo
         await message.download_media(file=local_path)
     except Exception:
         log.exception("photo_download_failed")
         return
-    sa_info = settings.google_service_account_json
-    folder_id = getattr(settings, "baby_photos_drive_folder_id", "") or settings.drive_backup_folder_id
-    result = await archive_photo(local_path, caption, sa_info, folder_id, memory)
+    result = await archive_photo(local_path, caption, drive_client, memory)
     nanny = agents.get("nanny")
     if nanny:
         try:
-            ack = f"📸 Сохранил в архив малыша · {result['age']}"
             if result.get("drive_id"):
-                ack += " · ☁️ Drive"
+                ack = f"📸 Сохранил в архив малыша · {result['age']} · ☁️ Drive"
+            elif result.get("error") == "drive_not_configured":
+                ack = (
+                    f"📸 Сохранил в архив · {result['age']}\n"
+                    "⚠️ Drive не настроен: задай DRIVE_ROOT_FOLDER_ID и расшарь "
+                    "папку service-account-у (Editor)."
+                )
+            else:
+                ack = (
+                    f"📸 Сохранил в БД · {result['age']}\n"
+                    f"⚠️ Drive upload failed: {result.get('error', '')[:80]}"
+                )
             await nanny.send(ack)
         except Exception:
             log.exception("baby_photo_ack_failed")

@@ -99,6 +99,14 @@ class Settings(BaseSettings):
     # Google Drive folder for baby photo archive (separate from db backup folder)
     baby_photos_drive_folder_id: str = Field(default="")
 
+    # Master Drive folder — agents auto-create subfolders inside it:
+    #   👶 Матвей · Фото / YYYY-MM /
+    #   ⛽ Чеки · АЗС / YYYY-MM /
+    #   🏥 Здоровье · <member> /
+    #   🍳 Рецепты /
+    # Falls back to baby_photos_drive_folder_id, then to drive_backup_folder_id.
+    drive_root_folder_id: str = Field(default="")
+
     # Optional separate Telegram bot for Штурман; falls back to devops bot if empty
     navigator_bot_token: str = Field(default="")
 

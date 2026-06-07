@@ -1,8 +1,5 @@
 """Baby photo memory: archive Telegram photos of Матвей to Google Drive
-with auto-computed age + caption, plus DB record for retrieval.
-
-Designed for the grandmas digest later: pull "last 7 days, 3 photos"
-without manual tagging.
+in a sane folder tree (Матвей/2026-06/) with auto-computed age + caption.
 """
 from __future__ import annotations
 
@@ -38,29 +35,44 @@ def _age_label(dob: datetime, when: datetime) -> str:
 async def archive_photo(
     local_path: str,
     caption: str,
-    service_account_info: dict | None,
-    drive_folder_id: str | None,
+    drive_client: Any,
     memory: Any,
 ) -> dict:
-    """Upload to Drive (if configured) + store record. Returns {age, drive_id?, db_id}."""
+    """Upload to Drive (Матвей/YYYY-MM/) + persist record. Returns details."""
     when = now_kyiv()
     age = _age_label(BABY_DOB, when)
     safe_caption = (caption or "").strip()[:120]
     ext = os.path.splitext(local_path)[1] or ".jpg"
-    drive_name = f"{when.strftime('%Y-%m-%d')}_Matvey_{age.replace(' ', '')}_{safe_caption[:40] or 'foto'}{ext}"
+    drive_name = (
+        f"{when.strftime('%Y-%m-%d_%H%M')}_Matvey_{age.replace(' ', '')}"
+        f"_{safe_caption[:40] or 'foto'}{ext}"
+    )
     drive_file_id = None
+    drive_url = None
+    upload_error = None
 
-    if service_account_info and drive_folder_id:
+    if drive_client:
         try:
-            import asyncio
-            drive_file_id = await asyncio.get_event_loop().run_in_executor(
-                None, _upload_to_drive,
-                local_path, drive_name, drive_folder_id, service_account_info,
+            folder_id = await drive_client.ensure_path([
+                "👶 Матвей · Фото",
+                when.strftime("%Y-%m"),
+            ])
+            result = await drive_client.upload(
+                local_path, drive_name, folder_id,
+                description=f"Возраст: {age}\n{safe_caption}",
             )
-        except Exception:
+            drive_file_id = result.get("id")
+            drive_url = result.get("url")
+            log.info("baby_photo_drive_uploaded", file_id=drive_file_id, age=age)
+        except Exception as e:
             log.exception("baby_photo_drive_upload_failed")
+            upload_error = str(e)[:200]
+    else:
+        log.info("baby_photo_drive_skipped_no_client")
+        upload_error = "drive_not_configured"
 
     # Persist record
+    db_id = None
     try:
         from sqlalchemy import insert
         from src.db.models import BabyPhoto
@@ -76,20 +88,12 @@ async def archive_photo(
             db_id = res.inserted_primary_key[0] if res.inserted_primary_key else None
     except Exception:
         log.exception("baby_photo_db_save_failed")
-        db_id = None
 
-    return {"age": age, "drive_id": drive_file_id, "db_id": db_id, "drive_name": drive_name}
-
-
-def _upload_to_drive(local_path: str, name: str, folder_id: str, sa_info: dict) -> str:
-    from google.oauth2.service_account import Credentials
-    from googleapiclient.discovery import build
-    from googleapiclient.http import MediaFileUpload
-    creds = Credentials.from_service_account_info(
-        sa_info, scopes=["https://www.googleapis.com/auth/drive.file"],
-    )
-    service = build("drive", "v3", credentials=creds)
-    metadata = {"name": name, "parents": [folder_id]}
-    media = MediaFileUpload(local_path)
-    f = service.files().create(body=metadata, media_body=media, fields="id").execute()
-    return f.get("id")
+    return {
+        "age": age,
+        "drive_id": drive_file_id,
+        "drive_url": drive_url,
+        "db_id": db_id,
+        "drive_name": drive_name,
+        "error": upload_error,
+    }
