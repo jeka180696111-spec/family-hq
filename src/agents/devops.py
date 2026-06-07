@@ -457,6 +457,21 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "power_history_from_inverter",
+                "description": (
+                    "📍 ПРИОРИТЕТ для вопросов «когда пропадал свет», «когда был свет», "
+                    "«отключения за сегодня/ночь», «история света». Берёт ТОЧНЫЕ данные "
+                    "из event log инвертора LuxCloud (теже что показывают push в приложении). "
+                    "Возвращает периоды Active/Recovered с длительностью."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "hours": {"type": "integer", "description": "За сколько часов назад (по умолчанию 24)"},
+                    },
+                },
+            },
+            {
                 "name": "power_outage_stats",
                 "description": "Статистика по отключениям света за период (всего часов без света, среднее, паттерн).",
                 "input_schema": {
@@ -751,6 +766,9 @@ class DevOpsAgent(BaseAgent):
                         )
                     )
                 return {"success": True, "duration_min": duration_min}
+
+        elif tool_name == "power_history_from_inverter":
+            return await self._power_history_from_inverter(int(tool_input.get("hours", 24)))
 
         elif tool_name == "power_outage_stats":
             from datetime import timedelta
@@ -1478,3 +1496,48 @@ class DevOpsAgent(BaseAgent):
         result["formatted"] = "\n".join(formatted_lines)
         result["display_instruction"] = "Покажи юзеру содержимое поля 'formatted' без изменений."
         return result
+
+    async def _power_history_from_inverter(self, hours: int) -> dict:
+        from src.config import get_settings
+        from src.integrations.luxcloud import LuxCloudClient
+        client = LuxCloudClient.from_settings(get_settings())
+        if not client:
+            return {"error": "LuxCloud не настроен"}
+        try:
+            events = await client.recent_events(hours=hours)
+        except Exception as e:
+            return {"error": f"LuxCloud событийный лог недоступен: {e}"}
+
+        grid_events = []
+        for ev in events:
+            blob = " ".join(str(v).lower() for v in (ev.get("name") or "", ev.get("type") or "", ev.get("code") or ""))
+            if "ac" in blob or "grid" in blob or "мережа" in blob or "сеть" in blob:
+                grid_events.append({
+                    "time": ev.get("time"),
+                    "name": ev.get("name"),
+                    "status": ev.get("status"),
+                    "during_time": ev.get("during_time"),
+                })
+
+        if not grid_events:
+            return {
+                "hours": hours,
+                "outages": [],
+                "summary": f"За последние {hours} ч инвертор не зафиксировал отключений света.",
+            }
+
+        lines = [f"⚡ <b>История света за {hours} ч</b>"]
+        for e in grid_events[:10]:
+            status_emoji = "✅" if (e.get("status") or "").lower() == "recovered" else "🟠"
+            lines.append(
+                f"{status_emoji} {e.get('name', 'Событие')}\n"
+                f"   {e.get('during_time') or e.get('time')}"
+            )
+
+        return {
+            "hours": hours,
+            "events_count": len(grid_events),
+            "outages": grid_events,
+            "formatted": "\n".join(lines),
+            "display_instruction": "Покажи поле 'formatted' без переформулирования.",
+        }

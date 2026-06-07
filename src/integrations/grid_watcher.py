@@ -9,10 +9,19 @@ import structlog
 log = structlog.get_logger()
 
 
-_GRID_LOSS_KEYWORDS = ("grid lost", "grid loss", "ac loss", "grid disconnect",
-                       "power off", "off grid", "пропала", "відсутн")
-_GRID_OK_KEYWORDS   = ("grid connect", "grid restore", "ac connect", "grid ok",
-                       "power on", "on grid", "поновлен", "восстанов")
+_GRID_LOSS_KEYWORDS = (
+    "grid lost", "grid loss", "ac loss", "grid disconnect",
+    "power off", "off grid", "off-grid",
+    "no ac connection", "no ac", "no grid", "grid down",
+    "ac fault", "grid fault", "utility loss",
+    "пропала", "відсутн", "немає мережі", "нет сети",
+)
+_GRID_OK_KEYWORDS = (
+    "grid connect", "grid restore", "grid restored", "ac connect", "ac connected",
+    "ac connection restored", "ac connection ok", "grid ok", "grid available",
+    "power on", "on grid", "on-grid", "recovered",
+    "поновлен", "восстанов", "мережа відновлена", "сеть восстановлена",
+)
 
 
 class GridWatcher:
@@ -159,17 +168,34 @@ class GridWatcher:
 
     def _latest_state_from_events(self, events: list[dict]) -> bool | None:
         """Return True if grid is ON, False if OFF, None if no recent grid event."""
-        # Walk events newest-first, take first grid-related one
+        # Walk events newest-first, take first grid-related one.
+        # IMPORTANT: check loss keywords FIRST (since 'no ac connection' contains
+        # the OK substring 'ac connection'). Also explicitly look at Status field
+        # if LuxCloud provides one ('Recovered' / 'Active').
         for ev in events:
-            text_blob = " ".join(str(v).lower() for v in (ev.get("name") or "", ev.get("type") or "", ev.get("code") or ""))
-            if any(kw in text_blob for kw in _GRID_LOSS_KEYWORDS):
-                # Dedup: don't re-fire on the same event we already saw
+            text_blob = " ".join(str(v).lower() for v in (
+                ev.get("name") or "", ev.get("type") or "",
+                ev.get("code") or "", ev.get("status") or "",
+            ))
+            raw_status = str((ev.get("raw") or {}).get("status", "")).lower()
+            full_blob = f"{text_blob} {raw_status}"
+
+            # LOSS first
+            if any(kw in full_blob for kw in _GRID_LOSS_KEYWORDS):
+                # But if status says 'recovered', this is actually a closed past event,
+                # not a new outage → treat as ON
+                if "recovered" in full_blob or "восстанов" in full_blob:
+                    ev_time = ev.get("time")
+                    if ev_time and ev_time == self._last_event_time:
+                        return None
+                    self._last_event_time = ev_time
+                    return True
                 ev_time = ev.get("time")
                 if ev_time and ev_time == self._last_event_time:
                     return None
                 self._last_event_time = ev_time
                 return False
-            if any(kw in text_blob for kw in _GRID_OK_KEYWORDS):
+            if any(kw in full_blob for kw in _GRID_OK_KEYWORDS):
                 ev_time = ev.get("time")
                 if ev_time and ev_time == self._last_event_time:
                     return None

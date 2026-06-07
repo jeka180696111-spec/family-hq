@@ -261,6 +261,8 @@ class LuxCloudClient:
                 "code": it.get("eventCode") or it.get("code"),
                 "name": it.get("eventName") or it.get("name") or it.get("description"),
                 "type": it.get("eventType") or it.get("type"),
+                "status": it.get("eventStatus") or it.get("status") or "",  # 'Active'/'Recovered'
+                "during_time": it.get("duringTime") or it.get("during_time"),
                 "raw": it,
             })
         return out
