@@ -67,6 +67,21 @@ async def _transcribe_voice(message: Any, settings: Any) -> str:
             pass
 
 
+def _has_photo_media(message: Any) -> bool:
+    """Fallback photo detector: some Telethon versions surface photo only through
+    message.media as MessageMediaPhoto, not the .photo shortcut."""
+    media = getattr(message, "media", None)
+    if media is None:
+        return False
+    cls_name = type(media).__name__
+    if cls_name == "MessageMediaPhoto":
+        return True
+    # Or document of image/* mime type
+    doc = getattr(media, "document", None)
+    mime = getattr(doc, "mime_type", "") if doc else ""
+    return mime.startswith("image/")
+
+
 async def _handle_baby_photo(
     message: Any, caption: str, agents: dict, memory: Any, settings: Any,
 ) -> None:
@@ -145,12 +160,29 @@ async def handle_new_message(
             log.warning("unauthorized_message", user_id=user_id)
             return
 
-        # Photo intake — baby photo memory: if message has a photo, archive it
-        if getattr(message, "photo", None):
+        # Photo intake — baby photo memory: if message has a photo, archive it.
+        # Telethon: message.photo OR message.media of certain types.
+        has_photo = bool(getattr(message, "photo", None)) or _has_photo_media(message)
+        log.info(
+            "message_attrs",
+            has_text=bool(text.strip()),
+            has_photo=has_photo,
+            has_voice=bool(getattr(message, "voice", None)),
+            has_audio=bool(getattr(message, "audio", None)),
+            has_document=bool(getattr(message, "document", None)),
+            has_media=bool(getattr(message, "media", None)),
+        )
+        if has_photo:
             try:
                 await _handle_baby_photo(message, text, agents, memory, settings)
             except Exception:
                 log.exception("baby_photo_handle_failed")
+                nanny = agents.get("nanny")
+                if nanny:
+                    try:
+                        await nanny.send("📸 Не получилось сохранить фото — проверь логи Drive.")
+                    except Exception:
+                        pass
             # Do NOT return — continue normal text flow so caption gets dispatched too
 
         # Voice / audio intake — transcribe via Whisper and use as text
