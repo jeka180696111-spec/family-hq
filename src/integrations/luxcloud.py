@@ -274,6 +274,68 @@ class LuxCloudClient:
             })
         return out
 
+    async def probe_event_endpoints(self) -> dict:
+        """Diagnostic: try ALL known endpoint patterns and report raw responses."""
+        candidates = [
+            # Classic
+            ("POST", "/WManage/api/event/list"),
+            ("GET",  "/WManage/api/event/list"),
+            ("POST", "/WManage/web/event/getEventList.json"),
+            # Plant Event variants (newer LuxCloud)
+            ("POST", "/WManage/api/plant/event/list"),
+            ("POST", "/WManage/api/plantEvent/list"),
+            ("POST", "/WManage/api/plant/getPlantEventList"),
+            ("GET",  "/WManage/api/plant/getPlantEventList"),
+            ("POST", "/WManage/api/event/plant/list"),
+            ("POST", "/WManage/web/plant/event/list"),
+            ("POST", "/WManage/web/event/list"),
+            ("POST", "/WManage/web/event/getList"),
+            ("POST", "/WManage/api/inverter/event"),
+            ("POST", "/WManage/api/inverter/getEventList"),
+            ("POST", "/WManage/api/alert/list"),
+            # Newer API style
+            ("POST", "/WManage/api/v1/event/list"),
+            ("POST", "/WManage/api/v2/event/list"),
+            ("POST", "/WManage/event/list"),
+        ]
+        results = []
+        for method, path in candidates:
+            url = f"{self.host}{path}"
+            try:
+                if method == "GET":
+                    data = await self._get_json(path, params={"serialNum": self.serial})
+                else:
+                    data = await self._post_json(path, body={"serialNum": self.serial})
+                # Look for event-like rows
+                rows = (data.get("rows") or data.get("events") or data.get("list")
+                        or data.get("data") or data.get("result") or [])
+                sample = None
+                if isinstance(rows, list) and rows:
+                    sample = rows[0]
+                elif isinstance(rows, dict):
+                    sample = rows
+                results.append({
+                    "method": method,
+                    "path": path,
+                    "status": "ok",
+                    "row_count": len(rows) if isinstance(rows, list) else "?",
+                    "top_keys": list(data.keys())[:10],
+                    "sample": str(sample)[:400] if sample else None,
+                })
+            except Exception as e:
+                results.append({
+                    "method": method,
+                    "path": path,
+                    "status": "error",
+                    "error": str(e)[:200],
+                })
+        return {
+            "host": self.host,
+            "serial": self.serial,
+            "tried": len(results),
+            "results": results,
+        }
+
     async def close(self) -> None:
         if self._session and not self._session.closed:
             await self._session.close()

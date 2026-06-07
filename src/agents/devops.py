@@ -457,6 +457,16 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "probe_luxcloud_events",
+                "description": (
+                    "Диагностика: попробовать все известные API-пути LuxCloud Plant Event "
+                    "и показать какие отвечают. Используется чтобы найти рабочий endpoint "
+                    "для конкретной версии облака. Триггер: «попробуй найти историю», "
+                    "«проверь луксклауд», «диагностика инвертора»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
                 "name": "record_past_outage",
                 "description": (
                     "Вручную добавить запись об отключении света. "
@@ -798,6 +808,14 @@ class DevOpsAgent(BaseAgent):
                         )
                     )
                 return {"success": True, "duration_min": duration_min}
+
+        elif tool_name == "probe_luxcloud_events":
+            from src.config import get_settings
+            from src.integrations.luxcloud import LuxCloudClient
+            client = LuxCloudClient.from_settings(get_settings())
+            if not client:
+                return {"error": "LuxCloud не настроен"}
+            return await client.probe_event_endpoints()
 
         elif tool_name == "record_past_outage":
             return await self._record_past_outage(tool_input)
