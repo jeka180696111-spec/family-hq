@@ -96,9 +96,10 @@ async def _handle_baby_photo(
                     "папку service-account-у (Editor)."
                 )
             else:
+                err = (result.get("error") or "")[:300]
                 ack = (
                     f"📸 Сохранил в БД · {result['age']}\n"
-                    f"⚠️ Drive upload failed: {result.get('error', '')[:80]}"
+                    f"⚠️ Drive upload failed:\n<code>{err}</code>"
                 )
             await nanny.send(ack)
         except Exception:
