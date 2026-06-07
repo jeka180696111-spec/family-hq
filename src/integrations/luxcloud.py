@@ -348,45 +348,29 @@ class LuxCloudClient:
         return {"checked": len(results), "results": results}
 
     async def probe_event_endpoints(self) -> dict:
-        """Diagnostic: try ALL known endpoint patterns and report raw responses."""
+        """Diagnostic: try known endpoint patterns and report raw responses.
+
+        Confirmed endpoint (sniffed from browser DevTools 06.2026):
+          POST /WManage/api/analyze/event/list
+          form: page, rows, plantId=-1, serialNum, eventText=_all
+        """
         candidates = [
-            # /WManage/web/ paths (alive on eu.luxpowertek.com)
-            ("POST", "/WManage/web/event/getEventList"),
-            ("GET",  "/WManage/web/event/getEventList"),
-            ("POST", "/WManage/web/event/list"),
-            ("POST", "/WManage/web/event/getList"),
-            ("POST", "/WManage/web/event/getEventList.json"),
-            ("POST", "/WManage/web/inverter/event"),
-            ("POST", "/WManage/web/inverter/getEventList"),
-            ("POST", "/WManage/web/monitor/event"),
-            ("POST", "/WManage/web/monitor/getEventList"),
-            ("POST", "/WManage/web/monitor/inverter/event"),
-            ("POST", "/WManage/web/alarm/list"),
-            ("POST", "/WManage/web/alarm/getAlarmList"),
-            ("POST", "/WManage/web/plant/event/list"),
-            ("POST", "/WManage/web/plant/getEventList"),
-            # /WManage/api/ paths
-            ("POST", "/WManage/api/event/list"),
-            ("GET",  "/WManage/api/event/list"),
-            ("POST", "/WManage/api/plant/event/list"),
-            ("POST", "/WManage/api/plantEvent/list"),
-            ("POST", "/WManage/api/plant/getPlantEventList"),
-            ("POST", "/WManage/api/event/plant/list"),
-            ("POST", "/WManage/api/inverter/event"),
-            ("POST", "/WManage/api/inverter/getEventList"),
-            ("POST", "/WManage/api/alert/list"),
-            ("POST", "/WManage/api/v1/event/list"),
-            ("POST", "/WManage/api/v2/event/list"),
+            # ✅ CONFIRMED — works on eu.luxpowertek.com
+            ("POST", "/WManage/api/analyze/event/list",
+             {"page": 1, "rows": 30, "plantId": -1, "serialNum": self.serial, "eventText": "_all"}),
+            # Legacy fallbacks
+            ("POST", "/WManage/api/event/list", {"serialNum": self.serial}),
+            ("POST", "/WManage/web/event/getEventList.json", {"serialNum": self.serial}),
+            ("POST", "/WManage/api/inverter/event", {"serialNum": self.serial}),
+            ("POST", "/WManage/api/alert/list", {"serialNum": self.serial}),
         ]
         results = []
-        for method, path in candidates:
-            url = f"{self.host}{path}"
+        for method, path, payload in candidates:
             try:
                 if method == "GET":
-                    data = await self._get_json(path, params={"serialNum": self.serial})
+                    data = await self._get_json(path, params=payload)
                 else:
-                    data = await self._post_json(path, body={"serialNum": self.serial})
-                # Look for event-like rows
+                    data = await self._post_json(path, body=payload)
                 rows = (data.get("rows") or data.get("events") or data.get("list")
                         or data.get("data") or data.get("result") or [])
                 sample = None
