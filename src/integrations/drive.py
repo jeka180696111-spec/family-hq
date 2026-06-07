@@ -16,11 +16,24 @@ _WRITE_KW = {"supportsAllDrives": True}
 
 
 class DriveClient:
-    def __init__(self, service_account_info: dict, root_folder_id: str) -> None:
+    def __init__(
+        self, service_account_info: dict, root_folder_id: str,
+        oauth_client_id: str = "", oauth_client_secret: str = "",
+        oauth_refresh_token: str = "",
+    ) -> None:
         self.sa = service_account_info
         self.root_id = root_folder_id
+        self.oauth_client_id = oauth_client_id
+        self.oauth_client_secret = oauth_client_secret
+        self.oauth_refresh_token = oauth_refresh_token
         self._folder_cache: dict[tuple[str, str], str] = {}
         self._service = None
+
+    @property
+    def using_oauth(self) -> bool:
+        return bool(
+            self.oauth_client_id and self.oauth_client_secret and self.oauth_refresh_token
+        )
 
     @classmethod
     def from_settings(cls, settings: Any) -> "DriveClient | None":
@@ -28,18 +41,36 @@ class DriveClient:
         root = (getattr(settings, "drive_root_folder_id", "")
                 or getattr(settings, "baby_photos_drive_folder_id", "")
                 or settings.drive_backup_folder_id)
-        if not sa or not root:
+        if not root:
             return None
-        return cls(sa, root)
+        oauth_id = getattr(settings, "google_oauth_client_id", "")
+        oauth_secret = getattr(settings, "google_oauth_client_secret", "")
+        oauth_token = getattr(settings, "google_oauth_refresh_token", "")
+        if not sa and not (oauth_id and oauth_secret and oauth_token):
+            return None
+        return cls(sa or {}, root, oauth_id, oauth_secret, oauth_token)
 
     def _build(self):
         if self._service is not None:
             return self._service
-        from google.oauth2.service_account import Credentials
         from googleapiclient.discovery import build
-        creds = Credentials.from_service_account_info(
-            self.sa, scopes=["https://www.googleapis.com/auth/drive"],
-        )
+        if self.using_oauth:
+            from google.oauth2.credentials import Credentials as UserCredentials
+            creds = UserCredentials(
+                token=None,
+                refresh_token=self.oauth_refresh_token,
+                client_id=self.oauth_client_id,
+                client_secret=self.oauth_client_secret,
+                token_uri="https://oauth2.googleapis.com/token",
+                scopes=["https://www.googleapis.com/auth/drive"],
+            )
+            log.info("drive_client_oauth_mode")
+        else:
+            from google.oauth2.service_account import Credentials
+            creds = Credentials.from_service_account_info(
+                self.sa, scopes=["https://www.googleapis.com/auth/drive"],
+            )
+            log.info("drive_client_sa_mode")
         self._service = build("drive", "v3", credentials=creds, cache_discovery=False)
         return self._service
 

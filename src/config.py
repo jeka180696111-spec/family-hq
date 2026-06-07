@@ -111,6 +111,13 @@ class Settings(BaseSettings):
     # Format: -100xxxxxxxxxx
     baby_photo_archive_channel_id: int = Field(default=0)
 
+    # OAuth path for Drive — lets files be uploaded under the OWNER's
+    # 15 GB Gmail quota instead of failing on the SA's 0-quota. Set up
+    # once via scripts/setup_drive_oauth.py.
+    google_oauth_client_id: str = Field(default="")
+    google_oauth_client_secret: str = Field(default="")
+    google_oauth_refresh_token: str = Field(default="")
+
     # Optional separate Telegram bot for Штурман; falls back to devops bot if empty
     navigator_bot_token: str = Field(default="")
 
