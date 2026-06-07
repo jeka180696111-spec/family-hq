@@ -32,6 +32,7 @@ from src.agents.calendar import CalendarAgent
 from src.agents.cook import CookAgent
 from src.agents.health import HealthAgent
 from src.agents.devops import DevOpsAgent
+from src.agents.navigator import NavigatorAgent
 from src.scheduler.backup import register_backup_job
 from src.scheduler.healthcheck import register_healthcheck_jobs
 from src.scheduler.reminders import register_reminder_jobs
@@ -378,6 +379,8 @@ async def run(dry_run: bool = False) -> None:
         "cook": settings.cook_bot_token,
         "health": settings.health_bot_token,
         "devops": settings.devops_bot_token,
+        # Navigator falls back to devops bot if no dedicated token is set
+        "navigator": settings.navigator_bot_token or settings.devops_bot_token,
     }
     for agent_id, token in agent_tokens.items():
         if token:
@@ -394,9 +397,11 @@ async def run(dry_run: bool = False) -> None:
         "cook": CookAgent(**base_args, web_search=web_search, sheets_client=sheets),
         "health": HealthAgent(**base_args, sheets_client=sheets),
         "devops": DevOpsAgent(**base_args, github_client=github, railway_client=railway),
+        "navigator": NavigatorAgent(**base_args),
     }
     # Cross-reference so devops can trigger composite jobs (morning brief etc.)
     agents["devops"]._peer_agents = agents
+    agents["navigator"]._peer_agents = agents
 
     # Load registry from DB
     registry = await AgentRegistry.load_from_db(memory)

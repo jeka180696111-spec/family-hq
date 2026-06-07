@@ -70,6 +70,14 @@ _SEED_AGENTS: list[dict[str, str]] = [
         "zone": "system",
         "verbosity": "silent",
     },
+    {
+        "agent_id": "navigator",
+        "name": "Штурман",
+        "emoji": "🧭",
+        "bot_token_env": "NAVIGATOR_BOT_TOKEN",
+        "zone": "travel",
+        "verbosity": "on_demand",
+    },
 ]
 
 

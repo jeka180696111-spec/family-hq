@@ -90,6 +90,12 @@ class Settings(BaseSettings):
     # OpenWeatherMap
     openweather_api_key: str = Field(default="")
 
+    # Google Maps (Directions + Places) — for Штурман
+    gmaps_api_key: str = Field(default="")
+
+    # Optional separate Telegram bot for Штурман; falls back to devops bot if empty
+    navigator_bot_token: str = Field(default="")
+
     # UI mode (enhanced = inline keyboards, edit-in-place, charts; classic = rollback)
     ui_mode: str = Field(default="enhanced")
 

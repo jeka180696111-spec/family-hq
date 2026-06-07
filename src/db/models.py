@@ -518,3 +518,55 @@ class AgentArchive(Base):
     reason: Mapped[str | None] = mapped_column(String, nullable=True)
     data_path: Mapped[str] = mapped_column(String, nullable=False)
     restorable_until: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class Vehicle(Base):
+    __tablename__ = "vehicles"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)  # "Dodge Dart"
+    make: Mapped[str] = mapped_column(String, nullable=False)
+    model: Mapped[str] = mapped_column(String, nullable=False)
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    engine_l: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fuel_type: Mapped[str] = mapped_column(String, nullable=False, default="бензин")
+    tank_l: Mapped[float] = mapped_column(Float, nullable=False, default=60.0)
+    avg_city_l_100: Mapped[float] = mapped_column(Float, nullable=False, default=11.5)
+    avg_highway_l_100: Mapped[float] = mapped_column(Float, nullable=False, default=9.5)
+    odometer_km: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    tank_remaining_l: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    factual_l_100: Mapped[float | None] = mapped_column(Float, nullable=True)  # learned from receipts
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class Trip(Base):
+    __tablename__ = "trips"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    vehicle_id: Mapped[int] = mapped_column(Integer, ForeignKey("vehicles.id"), nullable=False)
+    origin: Mapped[str] = mapped_column(String, nullable=False)
+    destination: Mapped[str] = mapped_column(String, nullable=False)
+    depart_at: Mapped[str] = mapped_column(String, nullable=False)
+    return_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    distance_km: Mapped[float | None] = mapped_column(Float, nullable=True)
+    duration_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fuel_estimate_l: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fuel_estimate_uah: Mapped[float | None] = mapped_column(Float, nullable=True)
+    route_summary: Mapped[str | None] = mapped_column(String, nullable=True)  # JSON
+    status: Mapped[str] = mapped_column(String, nullable=False, default="planned")  # planned/active/done/cancelled
+    notes: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class FuelLog(Base):
+    __tablename__ = "fuel_logs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    vehicle_id: Mapped[int] = mapped_column(Integer, ForeignKey("vehicles.id"), nullable=False)
+    station: Mapped[str | None] = mapped_column(String, nullable=True)  # WOG / OKKO / Укрнафта ...
+    liters: Mapped[float] = mapped_column(Float, nullable=False)
+    price_per_l: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_uah: Mapped[float | None] = mapped_column(Float, nullable=True)
+    odometer_km: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fuel_kind: Mapped[str | None] = mapped_column(String, nullable=True)  # A95 / A92 / дизель
+    notes: Mapped[str | None] = mapped_column(String, nullable=True)
+    receipt_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
