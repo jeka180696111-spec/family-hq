@@ -282,28 +282,48 @@ class LuxCloudClient:
         if not isinstance(items, list):
             return []
 
-        # Normalize — actual LuxCloud Plant Event row has:
-        # startTime, endTime, eventCode, eventStatus, eventEnum.name, etc.
+        # Normalize — LuxCloud Plant Event row uses these exact field names
+        # (confirmed via DevTools sniff 06.2026):
+        #   event:           "W016"         (code)
+        #   eventText:       "нет подключения к сети переменного тока AC"
+        #   eventType:       "WARNING"
+        #   eventTypeText:   "уведомление"
+        #   startTime:       "2026-06-07 01:23:30"
+        #   renormalTime:    "2026-06-07 02:15:44"
+        #   faultDuration:   0.87                   (hours)
+        #   recordId, plantName, serialNum, datalogSn
         out = []
         for it in items:
             start_time = (it.get("startTime") or it.get("eventTime")
                           or it.get("time") or it.get("createTime"))
-            end_time = (it.get("endTime") or it.get("recoveryTime"))
-            name = (it.get("eventName") or it.get("name")
-                    or (it.get("eventEnum") or {}).get("name")
-                    or it.get("description") or "")
+            end_time = (it.get("renormalTime") or it.get("endTime")
+                        or it.get("recoveryTime"))
+            name = (it.get("eventText") or it.get("eventName")
+                    or it.get("name") or it.get("description") or "")
+            code = it.get("event") or it.get("eventCode") or it.get("code")
+            fault_hours = it.get("faultDuration")
+            try:
+                duration_min = int(float(fault_hours) * 60) if fault_hours is not None else None
+            except (TypeError, ValueError):
+                duration_min = None
             during = it.get("duringTime") or it.get("during_time")
             if not during and start_time and end_time:
                 during = f"{start_time} ~ {end_time}"
+            # No explicit status field — if renormalTime is present → Recovered
+            status = (it.get("eventStatus") or it.get("status") or "").strip()
+            if not status:
+                status = "Recovered" if end_time else "Active"
             out.append({
                 "time": start_time,
                 "start_time": start_time,
                 "end_time": end_time,
-                "code": it.get("eventCode") or it.get("code"),
+                "code": code,
                 "name": name,
                 "type": it.get("eventType") or it.get("type"),
-                "status": it.get("eventStatus") or it.get("status") or "",
+                "type_text": it.get("eventTypeText"),
+                "status": status,
                 "during_time": during,
+                "duration_min": duration_min,
                 "serial": it.get("serialNum") or it.get("targetSerialNum"),
                 "raw": it,
             })
