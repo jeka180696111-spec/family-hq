@@ -22,7 +22,10 @@ log = structlog.get_logger()
 #   "temperature", "op": ">", "value": 25}                — sensor threshold
 # {"type": "alert_active", "region": "Одесса"}            — alert is on
 # {"type": "alert_ended", "region": "Одесса"}             — just отбой (≤5 min)
-# {"type": "power_outage", "state": "active"}             — light is off
+# {"type": "power_outage", "state": "active"}             — light is off (fires once per outage)
+# {"type": "power_outage", "state": "active", "within_min": 5}  — only first N min of outage
+# {"type": "power_outage", "state": "ended"}              — light just came back (fires once)
+# {"type": "power_outage", "state": "ended", "delay_min": 15}   — N min after restore
 # {"type": "and", "rules": [...]}                         — logical AND
 # {"type": "or",  "rules": [...]}                         — logical OR
 #
@@ -143,7 +146,7 @@ class AutomationEngine:
         if kind == "alert_ended":
             return await self._eval_alert_ended(cond.get("region", ""))
         if kind == "power_outage":
-            return await self._eval_power_outage(cond.get("state", "active"))
+            return await self._eval_power_outage(cond)
         if kind == "weather":
             return await self._eval_weather(cond)
         return False
@@ -288,13 +291,42 @@ class AutomationEngine:
             row = (await conn.execute(stmt.limit(1))).first()
         return row is not None
 
-    async def _eval_power_outage(self, state: str) -> bool:
+    async def _eval_power_outage(self, cond: dict) -> bool:
         from src.db.models import PowerOutage
+        state = cond.get("state", "active")
         async with self._memory._engine.connect() as conn:
-            row = (await conn.execute(
+            active_row = (await conn.execute(
                 select(PowerOutage).where(PowerOutage.ended_at.is_(None)).limit(1)
             )).first()
-        return (row is not None) if state == "active" else (row is None)
+            last_closed = (await conn.execute(
+                select(PowerOutage).where(PowerOutage.ended_at.is_not(None))
+                .order_by(PowerOutage.id.desc()).limit(1)
+            )).first()
+        if state == "active":
+            if active_row is None:
+                return False
+            # Optional window: fire only in first N min of outage
+            within = cond.get("within_min")
+            if within is not None and active_row.started_at:
+                try:
+                    started = datetime.fromisoformat(active_row.started_at)
+                    elapsed = (now_kyiv() - started).total_seconds() / 60
+                    return 0 <= elapsed <= float(within)
+                except Exception:
+                    return True
+            return True
+        # state == "ended" — match only in a 5-min window after close
+        # (optionally delayed by `delay_min` so rules can say
+        # "включить бойлер через 15 минут после возвращения света").
+        if active_row is not None or last_closed is None or not last_closed.ended_at:
+            return False
+        try:
+            ended = datetime.fromisoformat(last_closed.ended_at)
+        except Exception:
+            return False
+        delay = float(cond.get("delay_min", 0))
+        elapsed_min = (now_kyiv() - ended).total_seconds() / 60 - delay
+        return 0 <= elapsed_min < 5
 
     # ─── Action execution ────────────────────────────────────────────
 
