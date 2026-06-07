@@ -107,6 +107,10 @@ class Settings(BaseSettings):
     # Falls back to baby_photos_drive_folder_id, then to drive_backup_folder_id.
     drive_root_folder_id: str = Field(default="")
 
+    # Telegram channel ID for media archive (workaround for Drive SA quota issue).
+    # Format: -100xxxxxxxxxx
+    baby_photo_archive_channel_id: int = Field(default=0)
+
     # Optional separate Telegram bot for Штурман; falls back to devops bot if empty
     navigator_bot_token: str = Field(default="")
 

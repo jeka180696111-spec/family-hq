@@ -120,14 +120,41 @@ async def _handle_baby_photo(
                 pass
         return
     result = await archive_photo(local_path, caption, drive_client, memory)
+
+    # Drive failed? Try Telegram channel archive as fallback
+    tg_archive_id = None
+    tg_archive_err = None
+    if not result.get("drive_id") and getattr(settings, "baby_photo_archive_channel_id", 0):
+        from src.integrations.tg_archive import archive_to_telegram
+        # Use bot_manager to send — get any agent (devops bot is most reliable)
+        bot_manager = None
+        for ag in agents.values():
+            bm = getattr(ag, "_bots", None)
+            if bm:
+                bot_manager = bm
+                break
+        if bot_manager:
+            tg_result = await archive_to_telegram(
+                bot_manager, "devops",
+                settings.baby_photo_archive_channel_id,
+                local_path, caption,
+            )
+            tg_archive_id = tg_result.get("message_id")
+            tg_archive_err = tg_result.get("error")
+
     nanny = agents.get("nanny")
     if nanny:
         try:
             if result.get("drive_id"):
-                url = result.get("drive_url") or ""
                 ack = (
                     f"📸 Фото сохранено · {result['age']}\n"
                     f"☁️ Drive: загружено"
+                )
+            elif tg_archive_id:
+                ack = (
+                    f"📸 Фото сохранено · {result['age']}\n"
+                    f"📦 Архив: Telegram (msg {tg_archive_id})\n"
+                    f"⚠️ Drive недоступен — SA не имеет storage quota на личном Gmail."
                 )
             elif result.get("error") == "drive_not_configured":
                 ack = (
@@ -136,11 +163,13 @@ async def _handle_baby_photo(
                     "Файл записан в БД, но не в облако."
                 )
             else:
-                err = (result.get("error") or "")[:300]
+                err = (result.get("error") or "")[:400]
                 ack = (
                     f"📸 Фото получено · {result['age']}\n"
                     f"⚠️ Drive upload failed:\n<code>{err}</code>"
                 )
+                if tg_archive_err:
+                    ack += f"\n⚠️ TG archive: <code>{tg_archive_err[:100]}</code>"
             await nanny.send(ack)
         except Exception:
             log.exception("baby_photo_ack_failed")

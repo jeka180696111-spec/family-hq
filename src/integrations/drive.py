@@ -108,11 +108,23 @@ class DriveClient:
                 body=meta, media_body=media, fields="id,webViewLink", **_WRITE_KW,
             ).execute()
         except Exception as e:
+            err_text = str(e)
             log.exception(
                 "drive_upload_failed",
                 local=local_path, name=filename, folder=folder_id,
-                size=size, error=str(e)[:300],
+                size=size, error=err_text[:300],
             )
+            # Detect the well-known SA-no-storage error and re-raise with a clearer message
+            if ("storageQuotaExceeded" in err_text
+                    or "Service Accounts do not have storage quota" in err_text
+                    or "quota" in err_text.lower()):
+                raise RuntimeError(
+                    "Service Account не может загружать файлы в личный Google Drive "
+                    "(нет своего storage quota). Решения: 1) использовать Shared Drive "
+                    "(только Google Workspace), 2) переключить архив фото в Telegram-канал, "
+                    "3) подключить OAuth refresh token владельца. "
+                    f"Исходная ошибка: {err_text[:150]}"
+                )
             raise
         log.info(
             "drive_uploaded", name=filename, folder=folder_id,
