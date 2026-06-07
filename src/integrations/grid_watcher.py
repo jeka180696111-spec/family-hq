@@ -52,6 +52,7 @@ class GridWatcher:
         self._up_streak = 0
         self._outage_active = False  # Mirror of DB state at last tick
         self._last_event_time: str | None = None  # For event-log dedup
+        self._battery_alerts_fired: set[int] = set()  # thresholds already pushed this outage
 
     async def tick(self) -> None:
         try:
@@ -202,6 +203,10 @@ class GridWatcher:
         elif self._outage_active and self._up_streak >= self.THRESHOLD_UP:
             await self._close()
 
+        # Low-battery alerts while running on battery
+        if self._outage_active and battery_pct is not None:
+            await self._maybe_battery_alert(battery_pct)
+
     def _latest_state_from_events(self, events: list[dict]) -> bool | None:
         """Return True if grid is ON, False if OFF, None if no recent grid event."""
         # Walk events newest-first, take first grid-related one.
@@ -248,6 +253,25 @@ class GridWatcher:
             )).first()
         self._outage_active = row is not None
 
+    _BATTERY_LEVELS = (
+        (30, "⚠️ <b>Батарея 30%</b>\nСвета всё ещё нет. Заряди телефоны, прикинь план."),
+        (15, "🟠 <b>Батарея 15%</b>\nПора собрать минимум: фонарь, термос, паверы."),
+        (5,  "🔴 <b>Батарея 5%</b>\nИнвертор скоро вырубится. Доставай аварийку."),
+    )
+
+    async def _maybe_battery_alert(self, pct: float) -> None:
+        for threshold, text in self._BATTERY_LEVELS:
+            if pct <= threshold and threshold not in self._battery_alerts_fired:
+                self._battery_alerts_fired.add(threshold)
+                if self._bots and self._chat_id:
+                    try:
+                        await self._bots.send_message(
+                            agent_id="devops", chat_id=self._chat_id, text=text,
+                        )
+                    except Exception:
+                        log.exception("grid_watcher_battery_alert_failed", threshold=threshold)
+                log.info("grid_watcher_battery_alert", threshold=threshold, pct=pct)
+
     async def _open(self) -> None:
         from sqlalchemy import insert
         from src.db.models import PowerOutage
@@ -258,6 +282,7 @@ class GridWatcher:
                 notes="Авто-детект: инвертор перешёл на батарею",
             ))
         self._outage_active = True
+        self._battery_alerts_fired.clear()
         if self._bots and self._chat_id:
             try:
                 await self._bots.send_message(
@@ -294,6 +319,7 @@ class GridWatcher:
                     )
                 )
         self._outage_active = False
+        self._battery_alerts_fired.clear()
         if self._bots and self._chat_id:
             try:
                 await self._bots.send_message(

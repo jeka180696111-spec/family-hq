@@ -99,7 +99,7 @@ def register_digest_job(
 
 
 async def send_baby_morning_digest(nanny_agent, memory) -> None:
-    """Daily ~09:00 summary of baby's day from Дневник sheet."""
+    """Daily ~09:00 summary of baby's day from Дневник sheet + nursery sensor."""
     try:
         if not nanny_agent._sheets:
             log.info("baby_digest_skipped_no_sheets")
@@ -110,8 +110,26 @@ async def send_baby_morning_digest(nanny_agent, memory) -> None:
         from src.utils.time import now_kyiv
         cutoff = now_kyiv() - timedelta(hours=18)  # yesterday evening → today morning
         rows = await _search_sheet(nanny_agent._sheets, "Дневник", "", cutoff, 200)
+
+        # Pull current nursery climate so digest always carries it,
+        # even when the diary is empty.
+        nursery = ""
+        try:
+            from src.config import get_settings
+            from src.integrations.tuya import TuyaClient
+            client = TuyaClient.from_settings(get_settings())
+            if client:
+                reading = await client.read_sensor("детская")
+                if reading and "error" not in reading:
+                    nursery = reading.get("formatted", "")
+        except Exception:
+            log.exception("baby_digest_sensor_failed")
+
         if not rows:
-            await nanny_agent.send("🤱 Доброе утро! За ночь записей нет — поделись как малыш спал.")
+            tail = f"\n\n{nursery}" if nursery else ""
+            await nanny_agent.send(
+                "🤱 Доброе утро! За ночь записей нет — поделись как малыш спал." + tail
+            )
             return
 
         # Summarize via Claude
@@ -130,7 +148,8 @@ async def send_baby_morning_digest(nanny_agent, memory) -> None:
             messages=[{"role": "user", "content": prompt}],
             max_tokens=600,
         )
-        await nanny_agent.send(f"🤱 Доброе утро! Сводка за ночь и утро:\n\n{response.strip()}")
+        tail = f"\n\n{nursery}" if nursery else ""
+        await nanny_agent.send(f"🤱 Доброе утро! Сводка за ночь и утро:\n\n{response.strip()}{tail}")
         log.info("baby_digest_sent", rows=len(rows))
     except Exception:
         log.exception("baby_digest_failed")

@@ -439,6 +439,15 @@ async def run(dry_run: bool = False) -> None:
     register_backup_job(scheduler, memory, settings.db_path, settings.drive_backup_folder_id, sa_info or {})
     register_healthcheck_jobs(scheduler, claude, memory, bot_manager, chat_id)
     register_reminder_jobs(scheduler, agents["calendar"], bot_manager, chat_id, memory)
+
+    # One-shot: seed Ukrainian vaccination schedule for Матвей if not yet seeded
+    if calendar_client:
+        try:
+            from src.scheduler.vaccines import register_vaccine_seed_once
+            asyncio.create_task(register_vaccine_seed_once(calendar_client, memory))
+        except Exception:
+            log.exception("vaccine_seed_kickoff_failed")
+
     scheduler.start()
 
     if dry_run:

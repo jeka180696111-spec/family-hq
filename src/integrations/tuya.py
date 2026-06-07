@@ -108,8 +108,18 @@ class TuyaClient:
     # ─── Public API ──────────────────────────────────────────────────
 
     async def list_devices(self) -> list[dict]:
-        """Get devices linked to the user's Smart Life account."""
+        """Get devices linked to the user's Smart Life account.
+
+        Retries once on transient failure — Tuya Cloud sporadically returns
+        non-success responses (~2-5%), which used to leak as 'датчики не
+        отвечают' even though next call worked.
+        """
+        import asyncio
         data = await self._request("GET", f"/v1.0/users/{self.uid}/devices")
+        if not data.get("success"):
+            log.warning("tuya_list_devices_retry", first=str(data)[:200])
+            await asyncio.sleep(1.0)
+            data = await self._request("GET", f"/v1.0/users/{self.uid}/devices")
         if not data.get("success"):
             raise RuntimeError(f"Tuya list_devices failed: {data}")
         devices = data.get("result", []) or []
