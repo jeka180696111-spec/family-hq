@@ -42,6 +42,31 @@ log = structlog.get_logger()
 _shutdown_event: asyncio.Event | None = None
 
 
+async def _transcribe_voice(message: Any, settings: Any) -> str:
+    """Download a Telethon voice/audio message and run Whisper. Returns text or ''."""
+    import tempfile
+    from src.integrations.transcribe import TranscribeClient
+    client = TranscribeClient.from_settings(settings)
+    if not client:
+        log.info("voice_skip_no_openai_key")
+        return ""
+    with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
+        local_path = tmp.name
+    try:
+        await message.download_media(file=local_path)
+    except Exception:
+        log.exception("voice_download_failed")
+        return ""
+    try:
+        return await client.transcribe(local_path)
+    finally:
+        try:
+            import os
+            os.unlink(local_path)
+        except Exception:
+            pass
+
+
 async def _handle_baby_photo(
     message: Any, caption: str, agents: dict, memory: Any, settings: Any,
 ) -> None:
@@ -117,6 +142,19 @@ async def handle_new_message(
             except Exception:
                 log.exception("baby_photo_handle_failed")
             # Do NOT return — continue normal text flow so caption gets dispatched too
+
+        # Voice / audio intake — transcribe via Whisper and use as text
+        if not text.strip() and (
+            getattr(message, "voice", None) or getattr(message, "audio", None)
+        ):
+            try:
+                transcript = await _transcribe_voice(message, settings)
+            except Exception:
+                log.exception("voice_transcribe_failed")
+                transcript = ""
+            if transcript:
+                text = transcript
+                log.info("voice_transcribed", text=transcript[:80])
 
         if not text.strip():
             return

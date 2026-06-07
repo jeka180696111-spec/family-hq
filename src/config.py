@@ -93,6 +93,9 @@ class Settings(BaseSettings):
     # Google Maps (Directions + Places) — for Штурман
     gmaps_api_key: str = Field(default="")
 
+    # OpenAI — for Whisper voice transcription
+    openai_api_key: str = Field(default="")
+
     # Google Drive folder for baby photo archive (separate from db backup folder)
     baby_photos_drive_folder_id: str = Field(default="")
 
