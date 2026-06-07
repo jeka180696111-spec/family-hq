@@ -124,6 +124,37 @@ class GridWatcher:
         # Setup-specific: NO solar panels, battery charges ONLY from grid.
         # Therefore battery_charge_w > 30W means grid is definitely ON.
 
+        battery_pct = data.get("battery_pct")
+        try:
+            battery_pct = float(battery_pct) if battery_pct is not None else None
+        except (TypeError, ValueError):
+            battery_pct = None
+
+        # Track battery SOC trajectory across ticks to catch sustained discharge
+        # (covers long outages where instantaneous discharge_w may not always
+        # show — e.g. inverter idle moments during a real outage)
+        if not hasattr(self, "_soc_history"):
+            self._soc_history = []
+        if battery_pct is not None:
+            from src.utils.time import now_kyiv
+            self._soc_history.append((now_kyiv(), battery_pct))
+            # Keep last 20 minutes
+            from datetime import timedelta
+            cutoff_dt = now_kyiv() - timedelta(minutes=20)
+            self._soc_history = [(t, p) for t, p in self._soc_history if t >= cutoff_dt]
+
+        soc_drop_signal = False
+        if len(self._soc_history) >= 3:
+            oldest_t, oldest_pct = self._soc_history[0]
+            newest_t, newest_pct = self._soc_history[-1]
+            delta_pct = oldest_pct - newest_pct
+            from datetime import timedelta
+            elapsed_min = max(1, (newest_t - oldest_t).total_seconds() / 60)
+            # Self-discharge: ~3% per 5h → 0.6% per hour → 0.2% per 20min
+            # If we lose >1% in <15min → real load on battery, no grid
+            if delta_pct > 1.0 and elapsed_min < 15 and battery_charge_w < 5:
+                soc_drop_signal = True
+
         if battery_charge_w > 30:
             # Battery is charging → grid must be present
             grid_off = False
@@ -138,6 +169,10 @@ class GridWatcher:
             grid_off = True
         elif grid_voltage is not None and grid_voltage < 50:
             # Explicit voltage gone
+            grid_off = True
+        elif soc_drop_signal:
+            # SOC trajectory shows battery actively discharging faster than
+            # self-discharge — must be powering the house with no grid
             grid_off = True
         else:
             # Ambiguous (idle: nothing charging, nothing discharging, no flow).

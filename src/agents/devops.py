@@ -457,6 +457,38 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "record_past_outage",
+                "description": (
+                    "Вручную добавить запись об отключении света. "
+                    "Используй когда юзер диктует данные из приложения инвертора, "
+                    "например «запиши отключение 7 июня 01:23 до 02:15»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "started_iso": {"type": "string", "description": "Начало отключения ISO, напр. 2026-06-07T01:23:30"},
+                        "ended_iso": {"type": "string", "description": "Конец отключения ISO"},
+                        "source": {"type": "string", "description": "Откуда взято: «LuxCloud app» / «вручную»"},
+                    },
+                    "required": ["started_iso", "ended_iso"],
+                },
+            },
+            {
+                "name": "clean_outage_records",
+                "description": (
+                    "Удалить ложные/устаревшие записи об отключениях света. "
+                    "Используй когда юзер говорит «удали ложные» или хочет сбросить историю."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "all": {"type": "boolean", "description": "Удалить ВСЁ"},
+                        "before_iso": {"type": "string", "description": "Удалить старше этой даты ISO"},
+                        "duration_max_min": {"type": "integer", "description": "Удалить короче N минут (ложные триггеры)"},
+                    },
+                },
+            },
+            {
                 "name": "power_history_from_inverter",
                 "description": (
                     "📍 ПРИОРИТЕТ для вопросов «когда пропадал свет», «когда был свет», "
@@ -767,6 +799,10 @@ class DevOpsAgent(BaseAgent):
                     )
                 return {"success": True, "duration_min": duration_min}
 
+        elif tool_name == "record_past_outage":
+            return await self._record_past_outage(tool_input)
+        elif tool_name == "clean_outage_records":
+            return await self._clean_outage_records(tool_input)
         elif tool_name == "power_history_from_inverter":
             return await self._power_history_from_inverter(int(tool_input.get("hours", 24)))
 
@@ -1580,3 +1616,48 @@ class DevOpsAgent(BaseAgent):
             "formatted": "\n".join(lines),
             "display_instruction": "Покажи поле 'formatted' без переформулирования.",
         }
+
+    async def _record_past_outage(self, tool_input: dict) -> dict:
+        from datetime import datetime
+        from sqlalchemy import insert
+        from src.db.models import PowerOutage
+        try:
+            started = datetime.fromisoformat(tool_input["started_iso"])
+            ended = datetime.fromisoformat(tool_input["ended_iso"])
+        except Exception as e:
+            return {"error": f"Неверный формат даты: {e}"}
+        duration_min = int((ended - started).total_seconds() / 60)
+        source = tool_input.get("source", "вручную")
+        async with self._memory._engine.begin() as conn:
+            await conn.execute(insert(PowerOutage).values(
+                started_at=started.isoformat(),
+                ended_at=ended.isoformat(),
+                duration_min=duration_min,
+                notes=f"Источник: {source}",
+            ))
+        return {
+            "success": True,
+            "started": started.isoformat(),
+            "ended": ended.isoformat(),
+            "duration_min": duration_min,
+            "formatted": f"✅ Записал отключение {started.strftime('%d.%m %H:%M')} → {ended.strftime('%H:%M')} ({duration_min} мин)",
+            "display_instruction": "Покажи поле 'formatted'.",
+        }
+
+    async def _clean_outage_records(self, tool_input: dict) -> dict:
+        from sqlalchemy import delete
+        from src.db.models import PowerOutage
+        conditions = []
+        if tool_input.get("all"):
+            async with self._memory._engine.begin() as conn:
+                res = await conn.execute(delete(PowerOutage))
+            return {"deleted": res.rowcount, "all": True}
+        if tool_input.get("before_iso"):
+            conditions.append(PowerOutage.started_at < tool_input["before_iso"])
+        if tool_input.get("duration_max_min"):
+            conditions.append(PowerOutage.duration_min < int(tool_input["duration_max_min"]))
+        if not conditions:
+            return {"error": "Укажи all=true, before_iso, или duration_max_min"}
+        async with self._memory._engine.begin() as conn:
+            res = await conn.execute(delete(PowerOutage).where(*conditions))
+        return {"deleted": res.rowcount, "criteria": tool_input}
