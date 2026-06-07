@@ -93,6 +93,39 @@ class GMapsClient:
 
     # ─── Places: gas stations ─────────────────────────────────────────
 
+    async def reverse_geocode_regions(
+        self, waypoints: list[tuple[float, float]],
+    ) -> list[str]:
+        """Return de-duplicated list of administrative_area_level_1 names
+        (oblast in UA) for each waypoint. Used to cross-check active alerts."""
+        regions: list[str] = []
+        seen: set[str] = set()
+        url = "https://maps.googleapis.com/maps/api/geocode/json"
+        async with aiohttp.ClientSession() as session:
+            for (lat, lng) in waypoints:
+                if lat is None or lng is None:
+                    continue
+                params = {
+                    "latlng": f"{lat},{lng}", "language": "uk",
+                    "result_type": "administrative_area_level_1",
+                    "key": self.api_key,
+                }
+                try:
+                    async with session.get(url, params=params) as resp:
+                        data = await resp.json()
+                except Exception:
+                    continue
+                if data.get("status") != "OK":
+                    continue
+                for r in data.get("results", []) or []:
+                    for c in r.get("address_components", []) or []:
+                        if "administrative_area_level_1" in (c.get("types") or []):
+                            nm = (c.get("long_name") or "").lower().replace(" область", "").strip()
+                            if nm and nm not in seen:
+                                seen.add(nm)
+                                regions.append(nm)
+        return regions
+
     async def gas_stations_along_route(
         self, waypoints: list[tuple[float, float]], radius_m: int = 3000,
         max_per_point: int = 5,

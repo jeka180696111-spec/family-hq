@@ -100,6 +100,27 @@ class NavigatorAgent(BaseAgent):
                 "description": "Показать предстоящие и активные поездки.",
                 "input_schema": {"type": "object", "properties": {}},
             },
+            {
+                "name": "cancel_trip",
+                "description": "Отменить запланированную поездку и снять trip-mode jobs.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"trip_id": {"type": "integer"}},
+                    "required": ["trip_id"],
+                },
+            },
+            {
+                "name": "trip_check_now",
+                "description": (
+                    "Прислать обновлённую сводку по конкретной поездке сейчас: "
+                    "свежий ETA с пробками, тревоги на маршруте, чек-лист."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"trip_id": {"type": "integer"}},
+                    "required": ["trip_id"],
+                },
+            },
         ]
 
     async def _call_tool(self, tool_name: str, tool_input: dict) -> Any:
@@ -118,7 +139,24 @@ class NavigatorAgent(BaseAgent):
             return await self._set_vehicle(tool_input)
         if tool_name == "list_trips":
             return await self._list_trips()
+        if tool_name == "cancel_trip":
+            return await self._cancel_trip(int(tool_input.get("trip_id", 0)))
+        if tool_name == "trip_check_now":
+            await self._pre_trip_push(int(tool_input.get("trip_id", 0)))
+            return {"status": "sent"}
         return await super()._call_tool(tool_name, tool_input)
+
+    async def _cancel_trip(self, trip_id: int) -> dict:
+        async with self._memory._engine.begin() as conn:
+            await conn.execute(sql_update(Trip).where(Trip.id == trip_id).values(status="cancelled"))
+        scheduler = getattr(self, "_scheduler", None)
+        if scheduler:
+            for jid in (f"trip_{trip_id}_pre", f"trip_{trip_id}_arm", f"trip_{trip_id}_disarm"):
+                try:
+                    scheduler.remove_job(jid)
+                except Exception:
+                    pass
+        return {"cancelled": trip_id}
 
     # ─── plan_trip ────────────────────────────────────────────────────
 
@@ -167,6 +205,29 @@ class NavigatorAgent(BaseAgent):
 
         top_stations = stations[:8]
 
+        # Regions on the route → cross-check active alerts and recent strikes
+        regions: list[str] = []
+        try:
+            regions = await gmaps.reverse_geocode_regions(route["waypoints_latlng"])
+        except Exception:
+            log.exception("reverse_geocode_failed")
+        alert_warnings = await self._check_alerts_for_regions(regions)
+
+        # Weather at destination in arrival window
+        arrival_weather = await self._weather_at_arrival(
+            p["destination"],
+            depart_dt,
+            route["duration_traffic_min"] or route["duration_min"],
+        )
+
+        # Pre-trip checklist
+        checklist = self._build_checklist(
+            distance_km=route["distance_km"],
+            duration_min=route["duration_traffic_min"] or route["duration_min"],
+            arrival_weather=arrival_weather,
+            notes=(p.get("notes") or ""),
+        )
+
         # Persist trip
         async with self._memory._engine.begin() as conn:
             result = await conn.execute(insert(Trip).values(
@@ -184,6 +245,10 @@ class NavigatorAgent(BaseAgent):
                     "end": route["end_address"],
                     "warnings": route["warnings"],
                     "stations": top_stations,
+                    "regions": regions,
+                    "alert_warnings": alert_warnings,
+                    "arrival_weather": arrival_weather,
+                    "checklist": checklist,
                 }, ensure_ascii=False),
                 status="planned",
                 notes=p.get("notes"),
@@ -193,6 +258,18 @@ class NavigatorAgent(BaseAgent):
 
         eta_min = route["duration_traffic_min"] or route["duration_min"]
         eta_h, eta_m = divmod(eta_min, 60)
+
+        # Auto-arm trip: schedule one-shot jobs for trip-mode + pre-trip push
+        arm_status = None
+        if trip_id and depart_dt > now_kyiv():
+            try:
+                arm_status = self._arm_trip_jobs(
+                    trip_id, depart_dt,
+                    return_at=p.get("return_at"),
+                )
+            except Exception:
+                log.exception("trip_arm_failed")
+
         return {
             "trip_id": trip_id,
             "vehicle": vehicle.name,
@@ -204,13 +281,19 @@ class NavigatorAgent(BaseAgent):
             "fuel_uah_estimate": fuel_uah,
             "l_per_100_used": l_per_100,
             "warnings": route["warnings"],
+            "regions": regions,
+            "alert_warnings": alert_warnings,
+            "arrival_weather": arrival_weather,
+            "checklist": checklist,
             "stations_top": [
                 {"name": s["name"], "address": s["address"]} for s in top_stations
             ],
+            "arm_status": arm_status,
             "display_instruction": (
-                "Покажи юзеру: маршрут, ETA, расход, оценку стоимости топлива, "
-                "топ-5 приоритетных АЗС (Укрнафта первой если есть), "
-                "и спроси нужно ли активировать trip-mode у Прораба."
+                "Покажи юзеру компактно: маршрут, ETA, расход, оценку стоимости, "
+                "топ-5 АЗС с приоритетом Укрнафта→WOG→OKKO, активные тревоги/риски "
+                "по регионам маршрута если есть, чек-лист сборов. Сообщи что "
+                "trip-mode и напоминание за 30 мин уже взведены (arm_status)."
             ),
         }
 
@@ -354,6 +437,241 @@ class NavigatorAgent(BaseAgent):
         ]}
 
     # ─── helpers ──────────────────────────────────────────────────────
+
+    # ─── alerts / weather / checklist ─────────────────────────────────
+
+    async def _check_alerts_for_regions(self, regions: list[str]) -> list[str]:
+        """Cross-check active air alerts and recent strike posts against
+        the oblasts the route passes through."""
+        if not regions:
+            return []
+        from datetime import timedelta
+        from src.db.models import ActiveAlert, NewsPost
+        warnings: list[str] = []
+        async with self._memory._engine.connect() as conn:
+            actives = list(await conn.execute(select(ActiveAlert)))
+            cutoff = (now_kyiv() - timedelta(hours=24)).isoformat()
+            recent_alerts = list(await conn.execute(
+                select(NewsPost).where(NewsPost.is_alert == 1)
+                .where(NewsPost.date >= cutoff)
+            ))
+        regions_lc = [r.lower() for r in regions]
+        for a in actives:
+            r = (a.region or "").lower()
+            if any(reg in r or r in reg for reg in regions_lc):
+                warnings.append(f"🚨 Активная тревога: {a.region}. Подожди отбоя.")
+        strike_regions: set[str] = set()
+        for n in recent_alerts:
+            r = (getattr(n, "alert_region", "") or "").lower()
+            if not r:
+                continue
+            if any(reg in r or r in reg for reg in regions_lc):
+                strike_regions.add(r)
+        if strike_regions:
+            warnings.append(
+                "⚠️ За сутки фиксировались тревоги по маршруту: "
+                + ", ".join(sorted(strike_regions))
+            )
+        return warnings
+
+    async def _weather_at_arrival(
+        self, destination: str, depart_dt: datetime, duration_min: int,
+    ) -> dict:
+        try:
+            from datetime import timedelta
+            from src.config import get_settings
+            from src.integrations.weather import WeatherClient
+            client = WeatherClient.from_settings(get_settings())
+            if not client:
+                return {}
+            # rough hour offset
+            arrival_dt = depart_dt + timedelta(minutes=duration_min)
+            # OpenWeather/Open-Meteo: forecast() returns list per hour
+            hourly_count = max(1, min(72, int((arrival_dt - now_kyiv()).total_seconds() // 3600) + 2))
+            # Use destination city — strip after first comma
+            city = destination.split(",")[0].strip()
+            forecast = await client.forecast(city=city, hours=hourly_count)
+            target_iso = arrival_dt.strftime("%Y-%m-%dT%H:00")
+            # Find slot closest to arrival
+            best = None
+            best_diff = 1e9
+            for h in forecast:
+                t = h.get("time") or ""
+                if not t:
+                    continue
+                try:
+                    diff = abs((datetime.fromisoformat(t.replace("Z", "")) - arrival_dt).total_seconds())
+                except Exception:
+                    continue
+                if diff < best_diff:
+                    best, best_diff = h, diff
+            if not best:
+                return {}
+            return {
+                "city": city,
+                "at": arrival_dt.isoformat(),
+                "temp_c": best.get("temp_c"),
+                "description": best.get("description"),
+                "rain_mm": best.get("rain_mm"),
+                "wind_ms": best.get("wind_ms"),
+            }
+        except Exception:
+            log.exception("weather_at_arrival_failed")
+            return {}
+
+    def _build_checklist(
+        self, distance_km: float, duration_min: int,
+        arrival_weather: dict, notes: str,
+    ) -> list[str]:
+        items = [
+            "тех. паспорт + страховка",
+            "права + военный билет",
+            "ключи, телефон, павербанк",
+        ]
+        if duration_min >= 180:
+            items.append("термос/вода + перекус")
+            items.append("зарядка в авто, наушники")
+        if distance_km >= 300:
+            items.append("запас топлива в плане (см. АЗС по маршруту)")
+        if arrival_weather:
+            t = arrival_weather.get("temp_c")
+            rain = arrival_weather.get("rain_mm") or 0
+            if rain and rain > 0.3:
+                items.append("☂️ зонт — в точке прибытия дождь")
+            if t is not None:
+                if t < 0:
+                    items.append("🧥 тёплая куртка/перчатки — на месте мороз")
+                elif t < 10:
+                    items.append("куртка — на месте прохладно")
+                elif t > 26:
+                    items.append("😎 очки/вода — на месте жарко")
+        if "матвей" in notes.lower() or "малыш" in notes.lower() or "ребен" in notes.lower():
+            items.append("🤱 подгузники, смесь, бутылочка, плед, аптечка малыша")
+            items.append("автокресло проверить крепление")
+        return items
+
+    # ─── trip arming ──────────────────────────────────────────────────
+
+    def _arm_trip_jobs(
+        self, trip_id: int, depart_dt: datetime, return_at: str | None,
+    ) -> dict:
+        scheduler = getattr(self, "_scheduler", None)
+        if not scheduler:
+            return {"armed": False, "reason": "no_scheduler"}
+        from datetime import timedelta
+        # 1. Pre-trip push: 30 minutes before departure
+        pre = depart_dt - timedelta(minutes=30)
+        if pre > now_kyiv():
+            scheduler.add_job(
+                self._pre_trip_push, "date", run_date=pre,
+                args=[trip_id], id=f"trip_{trip_id}_pre", replace_existing=True,
+            )
+        # 2. Trip-mode ON at departure (turn off non-essential devices)
+        scheduler.add_job(
+            self._enter_trip_mode, "date", run_date=depart_dt,
+            args=[trip_id], id=f"trip_{trip_id}_arm", replace_existing=True,
+        )
+        # 3. Trip-mode OFF at return (turn devices back on)
+        if return_at:
+            try:
+                from src.utils.time import KYIV_TZ
+                ret = datetime.fromisoformat(return_at)
+                if ret.tzinfo is None:
+                    ret = ret.replace(tzinfo=KYIV_TZ)
+                scheduler.add_job(
+                    self._exit_trip_mode, "date", run_date=ret,
+                    args=[trip_id], id=f"trip_{trip_id}_disarm", replace_existing=True,
+                )
+            except Exception:
+                log.exception("trip_disarm_parse_failed")
+        return {"armed": True, "pre_push_at": pre.isoformat(), "departure": depart_dt.isoformat()}
+
+    _TRIP_MODE_DEVICES_OFF = ("бойлер",)
+
+    async def _enter_trip_mode(self, trip_id: int) -> None:
+        try:
+            from sqlalchemy import insert as sql_insert
+            from src.db.models import FamilyMode
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(sql_insert(FamilyMode).prefix_with("OR REPLACE").values(
+                    name="trip", enabled=1, payload=str(trip_id),
+                    started_at=iso_now(), expires_at=None,
+                ))
+            # Turn off non-essentials via Tuya
+            from src.config import get_settings
+            from src.integrations.tuya import TuyaClient
+            t = TuyaClient.from_settings(get_settings())
+            if t:
+                for dev in self._TRIP_MODE_DEVICES_OFF:
+                    try:
+                        await t.control(dev, "off")
+                    except Exception:
+                        log.exception("trip_off_failed", device=dev)
+            await self.send(f"🧭 Trip-mode включен. Бойлер выкл, экономим. Поездка #{trip_id} в работе.")
+        except Exception:
+            log.exception("enter_trip_mode_failed")
+
+    async def _exit_trip_mode(self, trip_id: int) -> None:
+        try:
+            from sqlalchemy import insert as sql_insert
+            from src.db.models import FamilyMode
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(sql_insert(FamilyMode).prefix_with("OR REPLACE").values(
+                    name="trip", enabled=0, payload=str(trip_id),
+                    started_at=iso_now(), expires_at=iso_now(),
+                ))
+            from src.config import get_settings
+            from src.integrations.tuya import TuyaClient
+            t = TuyaClient.from_settings(get_settings())
+            if t:
+                for dev in self._TRIP_MODE_DEVICES_OFF:
+                    try:
+                        await t.control(dev, "on")
+                    except Exception:
+                        log.exception("trip_on_failed", device=dev)
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(
+                    sql_update(Trip).where(Trip.id == trip_id).values(status="done")
+                )
+            await self.send(f"🧭 С возвращением! Trip-mode выключен, бойлер обратно. Поездка #{trip_id} закрыта.")
+        except Exception:
+            log.exception("exit_trip_mode_failed")
+
+    async def _pre_trip_push(self, trip_id: int) -> None:
+        try:
+            async with self._memory._engine.connect() as conn:
+                trip = (await conn.execute(select(Trip).where(Trip.id == trip_id))).first()
+            if not trip:
+                return
+            summary = json.loads(trip.route_summary or "{}")
+            stations = summary.get("stations", [])[:3]
+            warnings = summary.get("alert_warnings") or []
+            checklist = summary.get("checklist") or []
+            arr = summary.get("arrival_weather") or {}
+            text_lines = [
+                f"🧭 <b>Через 30 минут выезжать</b> в {trip.destination}",
+                f"📍 {trip.origin} → {trip.destination}",
+                f"🛣 {trip.distance_km} км · ⏱ ~{(trip.duration_min or 0)//60}ч {(trip.duration_min or 0)%60}м с пробками",
+                f"⛽ Расход ~{trip.fuel_estimate_l}л (~{int(trip.fuel_estimate_uah or 0)}₴)",
+            ]
+            if arr and arr.get("temp_c") is not None:
+                text_lines.append(
+                    f"☁️ В {arr.get('city')}: {arr['temp_c']:+.0f}°, {arr.get('description') or ''}"
+                )
+            if warnings:
+                text_lines.append("\n<b>⚠️ По маршруту</b>")
+                text_lines.extend(warnings)
+            if stations:
+                text_lines.append("\n<b>⛽ АЗС в приоритете</b>")
+                for s in stations:
+                    text_lines.append(f"• {s.get('name')} — {s.get('address', '')}")
+            if checklist:
+                text_lines.append("\n<b>📋 Чек-лист</b>")
+                for it in checklist:
+                    text_lines.append(f"• {it}")
+            await self.send("\n".join(text_lines))
+        except Exception:
+            log.exception("pre_trip_push_failed")
 
     async def _last_fuel_price(self, vehicle_id: int) -> float | None:
         async with self._memory._engine.connect() as conn:

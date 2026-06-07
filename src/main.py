@@ -415,6 +415,8 @@ async def run(dry_run: bool = False) -> None:
 
     # Scheduler
     scheduler = AsyncIOScheduler()
+    # Give Navigator a scheduler handle so it can arm one-shot trip jobs
+    agents["navigator"]._scheduler = scheduler
     # Standalone morning digests removed — superseded by unified brief at 07:00.
     from src.scheduler.wave3 import (
         register_weekly_digest_job, register_baby_budget_job, register_time_capsule_job,
