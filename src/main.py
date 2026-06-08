@@ -271,6 +271,25 @@ async def handle_new_message(
 
         log.info("message_received", user_id=user_id, text=text[:50])
 
+        # Auto-detect Nova Poshta TTN (14 digits) anywhere in the text and
+        # start tracking — covers pasted SMS from NP or just the bare number
+        try:
+            import re
+            ttns = re.findall(r"\b\d{14}\b", text)
+            if ttns:
+                from src.scheduler.parcels import poll_parcels  # ensure module loaded
+                devops_agent = agents.get("devops")
+                for ttn in set(ttns):
+                    if devops_agent:
+                        try:
+                            await devops_agent._parcel_track(
+                                ttn=ttn, title="", member="family",
+                            )
+                        except Exception:
+                            log.exception("auto_ttn_track_failed", ttn=ttn)
+        except Exception:
+            log.exception("ttn_autodetect_failed")
+
         # Save to shared memory
         chat_id = settings.hq_chat_id
         context = ConversationContext(memory, chat_id)
