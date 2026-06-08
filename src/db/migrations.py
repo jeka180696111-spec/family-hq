@@ -10,6 +10,38 @@ import os
 from datetime import datetime, timezone
 
 import structlog
+from sqlalchemy import text
+
+
+_PATCH_LOG = structlog.get_logger()
+
+
+# Columns that were added to existing tables after the DB schema's
+# first creation. SQLite cleanly supports ALTER TABLE ADD COLUMN and
+# is a no-op if the column already exists (we check first).
+_COLUMN_PATCHES: list[tuple[str, str, str]] = [
+    # (table, column, sql_type)
+    ("baby_state", "walking_since", "TEXT"),
+    ("baby_state", "walk_ended_at", "TEXT"),
+    ("parcels", "member", "TEXT"),
+]
+
+
+def _apply_column_patches(conn) -> None:
+    for table, column, col_type in _COLUMN_PATCHES:
+        try:
+            rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+            existing = {r[1] for r in rows}  # column name is index 1
+            if not rows:
+                continue  # table itself doesn't exist yet, create_all handles it
+            if column in existing:
+                continue
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
+            _PATCH_LOG.info("db_column_patched", table=table, column=column)
+        except Exception:
+            _PATCH_LOG.exception("db_column_patch_failed", table=table, column=column)
+
+import structlog
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.future import select
 
@@ -114,6 +146,12 @@ async def init_db(db_path: str | None = None) -> AsyncEngine:
     # 1. Create schema
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # 1.5 Lightweight in-place migrations — add columns that the models
+    # gained after this DB was first created. SQLite ALTER TABLE only
+    # supports ADD COLUMN, which is exactly what we need.
+    async with engine.begin() as conn:
+        await conn.run_sync(_apply_column_patches)
     log.info("db.init_db.schema_created")
 
     # 2. Seed agents
