@@ -183,22 +183,6 @@ async def _build_state(memory: Any, settings: Any) -> dict:
             for w in wiki
         ]
 
-    # Overlay baby state computed live from the Дневник sheet (source of
-    # truth — entries may come from a different bot or manual edits).
-    try:
-        from src.config import get_settings
-        from src.integrations.baby_state_compute import compute_state_from_diary
-        from src.integrations.sheets import SheetsClient
-        s = get_settings()
-        if s.google_service_account_json and s.sheet_baby_id:
-            sheets = SheetsClient(s.google_service_account_json, s.sheet_baby_id, "")
-            fresh = await compute_state_from_diary(sheets)
-            if fresh:
-                baby_state.update({k: v for k, v in fresh.items() if v})
-    except Exception:
-        import structlog
-        structlog.get_logger().exception("dashboard_diary_state_failed")
-
     if baby_state:
         state["baby"] = baby_state
 

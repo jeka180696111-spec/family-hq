@@ -634,6 +634,13 @@ async def run(dry_run: bool = False) -> None:
     except Exception:
         log.exception("dashboard_start_failed")
 
+    # Baby state sync — read Дневник every 5 min and project into BabyState
+    try:
+        from src.scheduler.baby_sync import register_baby_sync_job
+        register_baby_sync_job(scheduler, memory, sheets)
+    except Exception:
+        log.exception("baby_sync_setup_failed")
+
     # Nova Poshta — auto-discover new parcels every hour + track active
     try:
         from src.scheduler.parcels import register_parcel_poll_job
