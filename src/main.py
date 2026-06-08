@@ -523,6 +523,20 @@ async def run(dry_run: bool = False) -> None:
         log.info("family_overrides_loaded", count=len(rows))
     except Exception:
         log.exception("family_overrides_load_failed")
+
+    # Load family wiki facts — agents read these as shared context
+    try:
+        from sqlalchemy import select
+        from src.db.models import FamilyFact
+        from src.utils.family import apply_wiki_facts
+        async with engine.begin() as conn:
+            rows = list(await conn.execute(select(FamilyFact)))
+        apply_wiki_facts([
+            {"member": r.member, "key": r.key, "value": r.value} for r in rows
+        ])
+        log.info("family_wiki_loaded", count=len(rows))
+    except Exception:
+        log.exception("family_wiki_load_failed")
     memory = SharedMemory(engine)
 
     # Init integrations

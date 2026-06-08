@@ -1,6 +1,30 @@
 """Shared TEAM block — every agent inserts this so they know about the others."""
 from __future__ import annotations
 
+
+def family_wiki_block(facts: list[dict]) -> str:
+    """Render the family-wiki facts as a compact block injected into every
+    agent's system prompt. Empty string if no facts."""
+    if not facts:
+        return ""
+    by_member: dict[str, list[str]] = {}
+    for f in facts:
+        m = f.get("member") or "family"
+        by_member.setdefault(m, []).append(f"{f.get('key', '')}: {f.get('value', '')}")
+    lines = ["", "═══ FAMILY WIKI (важные факты о семье — используй в советах) ═══"]
+    member_labels = {
+        "matvey": "👶 Матвей", "marina": "👩 Марина", "eugene": "👨 Евгений",
+        "family": "👨‍👩‍👦 Семья", "babushka_sveta": "👵 Бабушка Света",
+    }
+    for m, items in by_member.items():
+        label = member_labels.get(m, m.title())
+        lines.append(f"{label}:")
+        for it in items[:30]:
+            lines.append(f"  • {it}")
+    lines.append("═══")
+    return "\n".join(lines)
+
+
 TEAM_BLOCK = """
 ═══ КОМАНДА В ГРУППЕ ═══
 Ты не один — в этом чате 7 ИИ-агентов. Знай о коллегах:

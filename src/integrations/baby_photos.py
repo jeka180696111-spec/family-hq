@@ -38,13 +38,22 @@ async def archive_photo(
     drive_client: Any,
     memory: Any,
 ) -> dict:
-    """Upload to Drive (Матвей/YYYY-MM/) + persist record. Returns details."""
-    when = now_kyiv()
-    age = _age_label(BABY_DOB, when)
+    """Upload to Drive (Матвей/YYYY-MM/) + persist record. Returns details.
+
+    Date for archival is parsed from the caption first (so retroactive
+    uploads — 'роддом', '2 мес', '02.12.2025' — land in the right month
+    folder with the correct age label). Falls back to now if caption has
+    no recognisable date.
+    """
+    from src.integrations.caption_parser import parse_caption_date
+    captured = parse_caption_date(caption) or now_kyiv()
+    age = _age_label(BABY_DOB, captured)
+    when_for_folder = captured  # year-month folder follows the captured date
+    when_now = now_kyiv()  # used for the upload timestamp prefix in filename
     safe_caption = (caption or "").strip()[:120]
     ext = os.path.splitext(local_path)[1] or ".jpg"
     drive_name = (
-        f"{when.strftime('%Y-%m-%d_%H%M')}_Matvey_{age.replace(' ', '')}"
+        f"{captured.strftime('%Y-%m-%d')}_Matvey_{age.replace(' ', '')}"
         f"_{safe_caption[:40] or 'foto'}{ext}"
     )
     drive_file_id = None
@@ -55,7 +64,7 @@ async def archive_photo(
         try:
             folder_id = await drive_client.ensure_path([
                 "👶 Матвей · Фото",
-                when.strftime("%Y-%m"),
+                captured.strftime("%Y-%m"),
             ])
             result = await drive_client.upload(
                 local_path, drive_name, folder_id,

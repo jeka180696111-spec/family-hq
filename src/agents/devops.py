@@ -239,6 +239,53 @@ class DevOpsAgent(BaseAgent):
                 "input_schema": {"type": "object", "properties": {}},
             },
             {
+                "name": "wiki_set",
+                "description": (
+                    "Запомнить факт о члене семьи. Все агенты будут видеть его "
+                    "в контексте и использовать в советах. Триггеры: «запомни что …», "
+                    "«у Марины аллергия на X», «Евгений не пьёт алкоголь», "
+                    "«добавь в вики». Перезаписывает существующий ключ."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "member": {
+                            "type": "string",
+                            "description": (
+                                "Кого касается: matvey/marina/eugene/family или имя бабушки. "
+                                "Если общее семейное — family."
+                            ),
+                        },
+                        "key": {
+                            "type": "string",
+                            "description": "Тип факта: 'аллергия', 'любит', 'не любит', 'размер одежды', 'предпочтения', 'привычки' и т.п.",
+                        },
+                        "value": {"type": "string", "description": "Сам факт"},
+                    },
+                    "required": ["member", "key", "value"],
+                },
+            },
+            {
+                "name": "wiki_list",
+                "description": "Показать все факты о члене семьи (или все, если member не указан).",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"member": {"type": "string"}},
+                },
+            },
+            {
+                "name": "wiki_delete",
+                "description": "Удалить факт по члену семьи и ключу.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "member": {"type": "string"},
+                        "key": {"type": "string"},
+                    },
+                    "required": ["member", "key"],
+                },
+            },
+            {
                 "name": "morning_brief_now",
                 "description": (
                     "Собрать и прислать утренний брифинг прямо сейчас. "
@@ -673,6 +720,19 @@ class DevOpsAgent(BaseAgent):
             return await self._automation_toggle(tool_input.get("name", ""), bool(tool_input.get("enabled", True)))
         elif tool_name == "delete_automation_rule":
             return await self._automation_delete(tool_input.get("name", ""))
+
+        elif tool_name == "wiki_set":
+            return await self._wiki_set(
+                tool_input.get("member", "family"),
+                tool_input.get("key", ""),
+                tool_input.get("value", ""),
+            )
+        elif tool_name == "wiki_list":
+            return await self._wiki_list(tool_input.get("member"))
+        elif tool_name == "wiki_delete":
+            return await self._wiki_delete(
+                tool_input.get("member", ""), tool_input.get("key", ""),
+            )
 
         elif tool_name == "morning_brief_now":
             from src.scheduler.morning_brief import send_morning_brief
@@ -1361,6 +1421,65 @@ class DevOpsAgent(BaseAgent):
         async with self._memory._engine.begin() as conn:
             res = await conn.execute(delete(AutomationRule).where(AutomationRule.name == name))
         return {"success": True, "deleted": res.rowcount}
+
+    # ─── Family wiki ─────────────────────────────────────────────────
+
+    async def _wiki_set(self, member: str, key: str, value: str) -> dict:
+        from sqlalchemy import insert, select
+        from sqlalchemy import update as sql_update
+        from src.db.models import FamilyFact
+        from src.utils.family import apply_wiki_facts
+        from src.utils.time import iso_now
+        if not (member and key and value):
+            return {"error": "member, key и value обязательны"}
+        async with self._memory._engine.begin() as conn:
+            existing = (await conn.execute(
+                select(FamilyFact).where(FamilyFact.member == member).where(FamilyFact.key == key)
+            )).first()
+            now = iso_now()
+            if existing:
+                await conn.execute(
+                    sql_update(FamilyFact).where(FamilyFact.id == existing.id).values(
+                        value=value, updated_at=now,
+                    )
+                )
+            else:
+                await conn.execute(insert(FamilyFact).values(
+                    member=member, key=key, value=value, source="devops",
+                    created_at=now, updated_at=now,
+                ))
+            rows = list(await conn.execute(select(FamilyFact)))
+        apply_wiki_facts([
+            {"member": r.member, "key": r.key, "value": r.value} for r in rows
+        ])
+        return {"saved": {"member": member, "key": key, "value": value}, "total": len(rows)}
+
+    async def _wiki_list(self, member: str | None) -> dict:
+        from sqlalchemy import select
+        from src.db.models import FamilyFact
+        async with self._memory._engine.connect() as conn:
+            stmt = select(FamilyFact)
+            if member:
+                stmt = stmt.where(FamilyFact.member == member)
+            rows = list(await conn.execute(stmt.order_by(FamilyFact.member, FamilyFact.key)))
+        return {"facts": [
+            {"member": r.member, "key": r.key, "value": r.value, "updated_at": r.updated_at}
+            for r in rows
+        ]}
+
+    async def _wiki_delete(self, member: str, key: str) -> dict:
+        from sqlalchemy import delete, select
+        from src.db.models import FamilyFact
+        from src.utils.family import apply_wiki_facts
+        async with self._memory._engine.begin() as conn:
+            res = await conn.execute(
+                delete(FamilyFact).where(FamilyFact.member == member).where(FamilyFact.key == key)
+            )
+            rows = list(await conn.execute(select(FamilyFact)))
+        apply_wiki_facts([
+            {"member": r.member, "key": r.key, "value": r.value} for r in rows
+        ])
+        return {"deleted": res.rowcount}
 
     # ─── Solar (LuxCloud) ────────────────────────────────────────────
 

@@ -594,6 +594,20 @@ class BabyPhoto(Base):
     created_at: Mapped[str] = mapped_column(String, nullable=False)
 
 
+class FamilyFact(Base):
+    """Free-form key/value facts the team should remember about people.
+    e.g. ('matvey', 'аллергия', 'банан') or ('marina', 'любит', 'ромашковый чай').
+    All agents read these as context."""
+    __tablename__ = "family_facts"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    member: Mapped[str] = mapped_column(String, nullable=False)  # eugene/marina/matvey/family
+    key: Mapped[str] = mapped_column(String, nullable=False)     # 'аллергия' / 'любит' / 'не любит' / 'размер'
+    value: Mapped[str] = mapped_column(String, nullable=False)
+    source: Mapped[str | None] = mapped_column(String, nullable=True)  # 'manual' / 'devops' / 'auto'
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
 class BabyState(Base):
     """Live snapshot of baby state (sleep, last feed, etc.) for fast automations."""
     __tablename__ = "baby_state"

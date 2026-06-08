@@ -231,12 +231,23 @@ def _age(birth: date) -> str:
 # 'current_location.until_date', etc.
 
 _OVERRIDES: dict[str, str] = {}
+_WIKI_FACTS: list[dict] = []
 
 
 def apply_overrides(overrides: dict[str, str]) -> None:
     """Replace the in-memory override map. Called by main on startup + after edits."""
     _OVERRIDES.clear()
     _OVERRIDES.update(overrides)
+
+
+def apply_wiki_facts(facts: list[dict]) -> None:
+    """Replace the in-memory wiki cache. Called on startup + after wiki edits."""
+    _WIKI_FACTS.clear()
+    _WIKI_FACTS.extend(facts)
+
+
+def get_wiki_facts() -> list[dict]:
+    return list(_WIKI_FACTS)
 
 
 def get_override(key: str, default=None):
@@ -319,4 +330,8 @@ def family_context_block() -> str:
         f"💰 Финансы: валюта {FINANCE['currency']}, ориентир по малышу {FINANCE['monthly_baby_budget']} {FINANCE['currency']}/мес",
         "═══",
     ]
+    from src.prompts._team import family_wiki_block
+    wiki = family_wiki_block(_WIKI_FACTS)
+    if wiki:
+        lines.append(wiki)
     return "\n".join(lines)
