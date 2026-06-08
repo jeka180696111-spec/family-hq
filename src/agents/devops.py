@@ -306,13 +306,23 @@ class DevOpsAgent(BaseAgent):
                 "description": (
                     "Отследить посылку Nova Poshta по ТТН. Возвращает статус, "
                     "город получателя, отделение, дату доставки. Триггеры: "
-                    "«отследи ТТН», «посылка», «когда придёт», «новая почта»."
+                    "«отследи ТТН», «посылка», «когда придёт», «новая почта». "
+                    "Можно указать кто получатель — «marina» / «eugene» — "
+                    "и последние 4 цифры телефона для полной информации."
                 ),
                 "input_schema": {
                     "type": "object",
                     "properties": {
                         "ttn": {"type": "string", "description": "Номер накладной (14 цифр)"},
-                        "title": {"type": "string", "description": "Короткое имя посылки для запоминания, опц."},
+                        "title": {"type": "string", "description": "Короткое имя посылки, опц."},
+                        "member": {
+                            "type": "string",
+                            "description": "Получатель: marina / eugene / family. По умолчанию family.",
+                        },
+                        "phone_last4": {
+                            "type": "string",
+                            "description": "Последние 4 цифры телефона получателя (для полных деталей)",
+                        },
                     },
                     "required": ["ttn"],
                 },
@@ -779,6 +789,8 @@ class DevOpsAgent(BaseAgent):
         elif tool_name == "parcel_track":
             return await self._parcel_track(
                 tool_input.get("ttn", ""), tool_input.get("title", ""),
+                tool_input.get("member", "family"),
+                tool_input.get("phone_last4", ""),
             )
         elif tool_name == "parcel_list":
             return await self._parcel_list()
@@ -1560,7 +1572,8 @@ class DevOpsAgent(BaseAgent):
 
     # ─── Nova Poshta parcels ─────────────────────────────────────────
 
-    async def _parcel_track(self, ttn: str, title: str) -> dict:
+    async def _parcel_track(self, ttn: str, title: str,
+                            member: str = "family", phone_last4: str = "") -> dict:
         from sqlalchemy import insert, select
         from sqlalchemy import update as sql_update
         from src.config import get_settings
@@ -1573,7 +1586,7 @@ class DevOpsAgent(BaseAgent):
         client = NovaPoshtaClient.from_settings(get_settings())
         if not client:
             return {"error": "NOVA_POSHTA_API_KEY не настроен в Railway"}
-        status = await client.track(ttn)
+        status = await client.track(ttn, phone_last4=phone_last4)
         async with self._memory._engine.begin() as conn:
             existing = (await conn.execute(
                 select(Parcel).where(Parcel.ttn == ttn)
@@ -1589,14 +1602,18 @@ class DevOpsAgent(BaseAgent):
             if existing:
                 if title:
                     values["title"] = title
+                if member:
+                    values["member"] = member
                 await conn.execute(
                     sql_update(Parcel).where(Parcel.id == existing.id).values(**values)
                 )
             else:
                 await conn.execute(insert(Parcel).values(
                     carrier="nova_poshta", ttn=ttn,
-                    title=title or None, created_at=now, **values,
+                    title=title or None, member=member or "family",
+                    created_at=now, **values,
                 ))
+        status["member"] = member
         return status
 
     async def _parcel_list(self) -> dict:
