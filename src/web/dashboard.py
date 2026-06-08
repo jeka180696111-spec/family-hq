@@ -73,6 +73,7 @@ def _check_token(token: str, expected: str) -> None:
 
 
 async def _build_state(memory: Any, settings: Any) -> dict:
+    import asyncio
     from src.db.models import (
         ActiveAlert, AutomationRule, BabyState, FamilyFact,
         FuelLog, Parcel, PowerOutage, Trip,
@@ -80,6 +81,61 @@ async def _build_state(memory: Any, settings: Any) -> dict:
     from src.utils.time import now_kyiv
 
     state: dict = {"as_of": now_kyiv().isoformat()}
+
+    # Weather (current, for Одесса by default)
+    try:
+        from src.integrations.weather import WeatherClient
+        w = WeatherClient.from_settings(settings)
+        if w:
+            cur = await w.current()
+            state["weather"] = {
+                "city": cur.get("city"),
+                "temp_c": cur.get("temp_c"),
+                "feels_like_c": cur.get("feels_like_c"),
+                "description": cur.get("description"),
+                "wind_ms": cur.get("wind_ms"),
+                "humidity_pct": cur.get("humidity_pct"),
+            }
+    except Exception:
+        pass
+
+    # Smart-home devices (Tuya) — full list with on/off + power
+    try:
+        from src.integrations.tuya import TuyaClient
+        tuya = TuyaClient.from_settings(settings)
+        if tuya:
+            devices = []
+            for attempt in range(2):
+                try:
+                    devices = await tuya.list_devices()
+                    if devices:
+                        break
+                except Exception:
+                    pass
+                await asyncio.sleep(0.8)
+            sh = []
+            for d in devices:
+                row = {
+                    "name": d.get("name"), "category": d.get("category"),
+                    "online": d.get("online"), "id": d.get("id"),
+                }
+                for s in (d.get("status") or []):
+                    code = s.get("code", "")
+                    val = s.get("value")
+                    if code == "switch" or code.startswith("switch_"):
+                        row["on"] = bool(val) if not row.get("name", "").startswith("Воло") else None
+                    if code in ("cur_power", "power", "cur_current", "cur_voltage"):
+                        row[code] = val
+                    if "temp" in code and "current" in code:
+                        row["temp"] = val
+                    if "humi" in code:
+                        row["humidity"] = val
+                    if "battery" in code:
+                        row["battery"] = val
+                sh.append(row)
+            state["smart_home"] = sh
+    except Exception:
+        pass
 
     # Inverter / outage
     try:
@@ -186,6 +242,36 @@ async def _build_state(memory: Any, settings: Any) -> dict:
     if baby_state:
         state["baby"] = baby_state
 
+    # Active agents (from DB seed) — show health/status
+    try:
+        from src.db.models import Agent as AgentModel
+        async with memory._engine.connect() as conn:
+            rows = list(await conn.execute(
+                select(AgentModel).where(AgentModel.status == "active")
+            ))
+        state["agents"] = [
+            {"id": a.agent_id, "name": a.name, "emoji": a.emoji,
+             "zone": a.zone, "verbosity": a.verbosity}
+            for a in rows
+        ]
+    except Exception:
+        pass
+
+    # Upcoming events from Google Calendar (next 7 days)
+    try:
+        from src.integrations.gcalendar import CalendarClient
+        if settings.google_service_account_json and settings.calendar_id:
+            cal = CalendarClient(settings.google_service_account_json, settings.calendar_id)
+            events = await cal.list_upcoming(days=7)
+            state["upcoming"] = [
+                {"title": getattr(e, "title", ""),
+                 "when": getattr(e, "start", None).isoformat() if getattr(e, "start", None) else "",
+                 "location": getattr(e, "location", "")}
+                for e in events[:10]
+            ]
+    except Exception:
+        pass
+
     return state
 
 
@@ -260,6 +346,78 @@ def _render_html(state: dict) -> str:
         for w in state.get("wiki", [])
     ) + "</ul>" if state.get("wiki") else "<p>Пусто</p>"
 
+    # Weather card
+    w = state.get("weather") or {}
+    if w.get("temp_c") is not None:
+        weather_html = (
+            f"<p>📍 {w.get('city', 'Одесса')}<br>"
+            f"🌡 <b>{w['temp_c']:+.0f}°</b> (ощущается {w.get('feels_like_c', w['temp_c']):+.0f}°)<br>"
+            f"☁️ {w.get('description') or '—'}<br>"
+            f"💨 ветер {w.get('wind_ms', 0)} м/с · 💧 {w.get('humidity_pct', '?')}%</p>"
+        )
+    else:
+        weather_html = "<p>—</p>"
+
+    # Alerts card
+    alerts = state.get("alerts") or []
+    if alerts:
+        alerts_html = "🚨 <b>Активна:</b><br>" + "<br>".join(
+            f"• {a['region']}" for a in alerts
+        )
+    else:
+        alerts_html = "<p>✅ Тревог нет</p>"
+
+    # Smart-home devices
+    sh = state.get("smart_home") or []
+    if sh:
+        rows = []
+        for d in sh:
+            online = "🟢" if d.get("online") else "⚪"
+            sw = ""
+            if d.get("on") is True:
+                sw = "🔛 <b>ВКЛ</b>"
+            elif d.get("on") is False:
+                sw = "🔘 выкл"
+            extra = []
+            if d.get("temp") is not None:
+                t = d["temp"] / 10 if d["temp"] > 100 else d["temp"]
+                extra.append(f"🌡 {t}°")
+            if d.get("humidity") is not None:
+                extra.append(f"💧 {d['humidity']}%")
+            if d.get("battery") is not None:
+                extra.append(f"🔋 {d['battery']}%")
+            if d.get("cur_power") not in (None, 0):
+                extra.append(f"⚡ {d['cur_power']}Вт")
+            extras = " · ".join(extra)
+            rows.append(
+                f"<li>{online} <b>{d.get('name') or '?'}</b> {sw}"
+                + (f" · {extras}" if extras else "") + "</li>"
+            )
+        smart_home_html = "<ul>" + "".join(rows) + "</ul>"
+    else:
+        smart_home_html = "<p>—</p>"
+
+    # Agents
+    agents = state.get("agents") or []
+    if agents:
+        agents_html = "<ul>" + "".join(
+            f"<li>{a['emoji']} <b>{a['name']}</b> · {a['zone']} · {a['verbosity']}</li>"
+            for a in agents
+        ) + "</ul>"
+    else:
+        agents_html = "<p>—</p>"
+
+    # Upcoming events
+    upcoming = state.get("upcoming") or []
+    if upcoming:
+        upcoming_html = "<ul>" + "".join(
+            f"<li>{e['when'][:16].replace('T', ' ')} · <b>{e['title']}</b>"
+            + (f" · {e['location']}" if e.get('location') else "") + "</li>"
+            for e in upcoming
+        ) + "</ul>"
+    else:
+        upcoming_html = "<p>Свободно</p>"
+
     return f"""<!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8">
 <title>Family HQ · Дашборд</title>
@@ -280,12 +438,17 @@ def _render_html(state: dict) -> str:
 <h1>Family HQ · Дашборд</h1>
 <div class="grid">
   {card("☀️ Инвертор", inv_html)}
+  {card("🚨 Тревога", alerts_html)}
+  {card("🌤 Погода", weather_html)}
   {card("👶 Детская", nursery_html)}
   {card("🤱 Матвей", baby_html)}
   {card("🛣 Поездки", trips_html)}
   {card("🤖 Автоматизации", auto_html)}
   {card("📦 Посылки", parcels_html)}
 </div>
+{card("🏠 Умный дом", smart_home_html)}
+{card("📅 События (7 дней)", upcoming_html)}
+{card("👥 Агенты", agents_html)}
 {card("🧠 Family Wiki", wiki_html)}
 <div class="footer">Обновлено: {state.get('as_of', '')[:19]}. JSON: <a href="?json=1">/api/state</a></div>
 </body></html>"""

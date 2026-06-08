@@ -636,8 +636,11 @@ async def run(dry_run: bool = False) -> None:
 
     # Baby state sync — read Дневник every 5 min and project into BabyState
     try:
-        from src.scheduler.baby_sync import register_baby_sync_job
+        from src.scheduler.baby_sync import register_baby_sync_job, sync_baby_state
         register_baby_sync_job(scheduler, memory, sheets)
+        # Trigger first sync immediately so dashboard has data right away
+        if sheets:
+            asyncio.create_task(sync_baby_state(memory, sheets))
     except Exception:
         log.exception("baby_sync_setup_failed")
 
