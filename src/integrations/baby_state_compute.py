@@ -26,12 +26,15 @@ _WALK_END = ("вернулись", "вернулся", "пришли", "приш
 
 
 def _entry_dt(row_data: dict):
-    from datetime import datetime, timezone
+    from datetime import datetime
+    from src.utils.time import KYIV_TZ
     date_s = (row_data.get("date") or "").strip()
     time_s = (row_data.get("time") or "00:00").strip()
     for fmt in ("%d.%m.%Y %H:%M", "%Y-%m-%d %H:%M"):
         try:
-            return datetime.strptime(f"{date_s} {time_s}", fmt).replace(tzinfo=timezone.utc)
+            # Sheet stores Kyiv local time (HH:MM as the user sees it),
+            # not UTC. Treat it as Kyiv-local so durations are correct.
+            return datetime.strptime(f"{date_s} {time_s}", fmt).replace(tzinfo=KYIV_TZ)
         except ValueError:
             continue
     return None
