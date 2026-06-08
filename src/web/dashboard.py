@@ -119,21 +119,50 @@ async def _build_state(memory: Any, settings: Any) -> dict:
                     "name": d.get("name"), "category": d.get("category"),
                     "online": d.get("online"), "id": d.get("id"),
                 }
+                seen_switch = False
                 for s in (d.get("status") or []):
                     code = s.get("code", "")
                     val = s.get("value")
-                    if code == "switch" or code.startswith("switch_"):
-                        row["on"] = bool(val) if not row.get("name", "").startswith("Воло") else None
-                    if code in ("cur_power", "power", "cur_current", "cur_voltage"):
-                        row[code] = val
+                    # First switch code wins — multiple may exist (switch_1, switch_led)
+                    if (not seen_switch) and (code == "switch" or code.startswith("switch_")) \
+                            and not code.startswith("switch_led"):
+                        row["on"] = bool(val)
+                        seen_switch = True
+                    if code in ("cur_power", "power"):
+                        # Tuya reports cur_power in 0.1W units
+                        try:
+                            row["cur_power"] = float(val) / 10 if val and val > 50 else val
+                        except Exception:
+                            row["cur_power"] = val
+                    if code == "cur_voltage":
+                        try:
+                            row["cur_voltage"] = float(val) / 10 if val else val
+                        except Exception:
+                            row["cur_voltage"] = val
                     if "temp" in code and "current" in code:
-                        row["temp"] = val
+                        try:
+                            row["temp"] = float(val) / 10 if val and val > 100 else val
+                        except Exception:
+                            row["temp"] = val
                     if "humi" in code:
                         row["humidity"] = val
                     if "battery" in code:
                         row["battery"] = val
                 sh.append(row)
             state["smart_home"] = sh
+
+            # Nursery sensor = the first sensor-like device with temperature
+            nursery_dev = next(
+                (d for d in sh
+                 if d.get("temp") is not None or d.get("humidity") is not None),
+                None,
+            )
+            if nursery_dev:
+                state["nursery"] = {
+                    "temperature": f"{nursery_dev.get('temp')}°C" if nursery_dev.get("temp") is not None else "",
+                    "humidity": f"{nursery_dev.get('humidity')}%" if nursery_dev.get("humidity") is not None else "",
+                    "battery": f"{nursery_dev.get('battery')}%" if nursery_dev.get("battery") is not None else "",
+                }
     except Exception:
         pass
 
