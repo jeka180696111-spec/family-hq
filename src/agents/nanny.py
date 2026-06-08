@@ -429,6 +429,23 @@ class NannyAgent(BaseAgent):
                 values["last_feed_at"] = ts
             if kind_l == "diaper":
                 values["last_diaper_at"] = ts
+            if kind_l in ("walk", "trip"):
+                if any(w in event_l for w in (
+                    "вышли", "вышел", "вышла", "выехали", "пошли", "идём гулять",
+                    "пошли гулять", "на прогулк", "началась прогулк",
+                )):
+                    values["walking_since"] = ts
+                    values["walk_ended_at"] = None
+                elif any(w in event_l for w in (
+                    "вернулись", "вернулся", "пришли", "пришёл", "пришла",
+                    "приехали", "закончили", "конец прогулк", "дома",
+                )):
+                    values["walk_ended_at"] = ts
+                    values["walking_since"] = None
+                else:
+                    # ambiguous walk write — assume start if no current walk
+                    values["walking_since"] = ts
+                    values["walk_ended_at"] = None
             if row:
                 await conn.execute(sql_update(BabyState).where(BabyState.id == 1).values(**values))
             else:

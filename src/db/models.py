@@ -631,4 +631,6 @@ class BabyState(Base):
     awake_since: Mapped[str | None] = mapped_column(String, nullable=True)
     last_feed_at: Mapped[str | None] = mapped_column(String, nullable=True)
     last_diaper_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    walking_since: Mapped[str | None] = mapped_column(String, nullable=True)
+    walk_ended_at: Mapped[str | None] = mapped_column(String, nullable=True)
     updated_at: Mapped[str] = mapped_column(String, nullable=False)

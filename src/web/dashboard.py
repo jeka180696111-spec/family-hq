@@ -10,12 +10,61 @@ Endpoint:
 from __future__ import annotations
 
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import select
+
+
+def _fmt_ago(iso_str: str | None) -> str:
+    if not iso_str:
+        return "—"
+    try:
+        from src.utils.time import KYIV_TZ, now_kyiv
+        dt = datetime.fromisoformat(iso_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=KYIV_TZ)
+        delta = now_kyiv() - dt
+        mins = int(delta.total_seconds() // 60)
+        if mins < 1:
+            return "только что"
+        if mins < 60:
+            return f"{mins} мин назад"
+        h, m = divmod(mins, 60)
+        if h < 24:
+            return f"{h}ч {m:02d}мин назад" if m else f"{h}ч назад"
+        d = h // 24
+        return f"{d} дн назад"
+    except Exception:
+        return iso_str[:16]
+
+
+def _fmt_duration(iso_str: str | None) -> str:
+    if not iso_str:
+        return ""
+    try:
+        from src.utils.time import KYIV_TZ, now_kyiv
+        dt = datetime.fromisoformat(iso_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=KYIV_TZ)
+        mins = int((now_kyiv() - dt).total_seconds() // 60)
+        if mins < 60:
+            return f"{mins}мин"
+        h, m = divmod(mins, 60)
+        return f"{h}ч {m:02d}мин" if m else f"{h}ч"
+    except Exception:
+        return ""
+
+
+def _fmt_clock(iso_str: str | None) -> str:
+    if not iso_str:
+        return ""
+    try:
+        return iso_str[11:16]
+    except Exception:
+        return ""
 
 
 def _check_token(token: str, expected: str) -> None:
@@ -25,7 +74,7 @@ def _check_token(token: str, expected: str) -> None:
 
 async def _build_state(memory: Any, settings: Any) -> dict:
     from src.db.models import (
-        ActiveAlert, AutomationRule, BabyPhoto, BabyState, FamilyFact,
+        ActiveAlert, AutomationRule, BabyState, FamilyFact,
         FuelLog, Parcel, PowerOutage, Trip,
     )
     from src.utils.time import now_kyiv
@@ -84,18 +133,11 @@ async def _build_state(memory: Any, settings: Any) -> dict:
                 "awake_since": baby.awake_since,
                 "last_feed_at": baby.last_feed_at,
                 "last_diaper_at": baby.last_diaper_at,
+                "walking_since": baby.walking_since,
+                "walk_ended_at": baby.walk_ended_at,
             }
 
-        photos = list(await conn.execute(
-            select(BabyPhoto).order_by(BabyPhoto.id.desc()).limit(12)
-        ))
-        state["recent_photos"] = [
-            {"id": p.id, "age": p.age_label, "caption": p.caption,
-             "drive_id": p.drive_file_id, "when": p.created_at}
-            for p in photos
-        ]
-
-        trips = list(await conn.execute(
+        trips =list(await conn.execute(
             select(Trip).where(Trip.status.in_(("planned", "active")))
             .order_by(Trip.depart_at.asc()).limit(5)
         ))
@@ -163,10 +205,35 @@ def _render_html(state: dict) -> str:
     ) if nursery else "<p>—</p>"
 
     baby = state.get("baby") or {}
+    # Current activity logic: walk > sleep > awake
+    activity_html = ""
+    sleeping = baby.get("sleeping_since")
+    walking = baby.get("walking_since")
+    awake = baby.get("awake_since")
+    if walking and not baby.get("walk_ended_at"):
+        activity_html = (
+            f"🚶 <b>На прогулке</b> · {_fmt_duration(walking)}<br>"
+            f"⏰ Вышли в {_fmt_clock(walking)}"
+        )
+    elif sleeping:
+        activity_html = (
+            f"😴 <b>Спит</b> · {_fmt_duration(sleeping)}<br>"
+            f"⏰ Уснул в {_fmt_clock(sleeping)}"
+        )
+    elif awake:
+        activity_html = (
+            f"🌅 <b>Бодрствует</b> · {_fmt_duration(awake)}<br>"
+            f"⏰ Проснулся в {_fmt_clock(awake)}"
+        )
+    else:
+        activity_html = "<i>Няня ещё ничего не записала</i>"
+
+    feed_ago = _fmt_ago(baby.get("last_feed_at"))
+    diaper_ago = _fmt_ago(baby.get("last_diaper_at"))
     baby_html = (
-        f"<p>😴 спит с: <b>{baby.get('sleeping_since') or '—'}</b><br>"
-        f"🌅 проснулся: <b>{baby.get('awake_since') or '—'}</b><br>"
-        f"🍼 последнее кормление: <b>{baby.get('last_feed_at') or '—'}</b></p>"
+        f"<p>{activity_html}</p>"
+        f"<p>🍼 Кушал: <b>{feed_ago}</b><br>"
+        f"💧 Подгузник: <b>{diaper_ago}</b></p>"
     )
 
     trips_html = "<ul>" + "".join(
@@ -183,11 +250,6 @@ def _render_html(state: dict) -> str:
         f"<li>📦 {p.get('title') or p['ttn']} — {p.get('status') or '?'}</li>"
         for p in state.get("parcels", [])
     ) + "</ul>" if state.get("parcels") else "<p>Активных нет</p>"
-
-    photos_html = "<ul>" + "".join(
-        f"<li>{p.get('when', '')[:10]} · {p['age']} · {(p.get('caption') or '')[:60]}</li>"
-        for p in state.get("recent_photos", [])
-    ) + "</ul>" if state.get("recent_photos") else "<p>—</p>"
 
     wiki_html = "<ul>" + "".join(
         f"<li><b>{w['member']}</b> · {w['key']}: {w['value']}</li>"
@@ -220,7 +282,6 @@ def _render_html(state: dict) -> str:
   {card("🤖 Автоматизации", auto_html)}
   {card("📦 Посылки", parcels_html)}
 </div>
-{card("📸 Последние фото", photos_html)}
 {card("🧠 Family Wiki", wiki_html)}
 <div class="footer">Обновлено: {state.get('as_of', '')[:19]}. JSON: <a href="?json=1">/api/state</a></div>
 </body></html>"""
