@@ -48,13 +48,23 @@ async def _build_state(memory: Any, settings: Any) -> dict:
     except Exception:
         state["inverter"] = {"error": "unreachable"}
 
-    # Nursery sensor
+    # Nursery sensor (Tuya is flaky — 2 attempts)
     try:
+        import asyncio
         from src.integrations.tuya import TuyaClient
         tuya = TuyaClient.from_settings(settings)
         if tuya:
-            reading = await tuya.read_sensor("детская")
-            state["nursery"] = reading.get("readings", {}) if reading else {}
+            reading = None
+            for attempt in range(2):
+                try:
+                    reading = await tuya.read_sensor("детская")
+                    if reading and "error" not in reading:
+                        break
+                except Exception:
+                    pass
+                await asyncio.sleep(0.8)
+            if reading and "error" not in reading:
+                state["nursery"] = reading.get("readings", {})
     except Exception:
         pass
 
