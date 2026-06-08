@@ -139,14 +139,20 @@ async def _build_state(memory: Any, settings: Any) -> dict:
                             row["cur_voltage"] = float(val) / 10 if val else val
                         except Exception:
                             row["cur_voltage"] = val
-                    if "temp" in code and "current" in code:
+                    if (("temp" in code or "temperature" in code)
+                            and "unit" not in code and "set" not in code
+                            and "calib" not in code and "alarm" not in code):
                         try:
-                            row["temp"] = float(val) / 10 if val and val > 100 else val
+                            fv = float(val) if val is not None else None
+                            # Tuya often reports temp in 0.1°C units (e.g. 237 = 23.7°C)
+                            if fv is not None and abs(fv) > 80:
+                                fv = fv / 10
+                            row["temp"] = fv
                         except Exception:
                             row["temp"] = val
-                    if "humi" in code:
+                    if "humi" in code and "set" not in code and "calib" not in code:
                         row["humidity"] = val
-                    if "battery" in code:
+                    if "battery" in code and "set" not in code:
                         row["battery"] = val
                 sh.append(row)
             state["smart_home"] = sh
