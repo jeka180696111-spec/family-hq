@@ -96,6 +96,12 @@ class Settings(BaseSettings):
     # OpenAI — for Whisper voice transcription
     openai_api_key: str = Field(default="")
 
+    # Nova Poshta tracking
+    nova_poshta_api_key: str = Field(default="")
+
+    # Web dashboard auth — random secret a user pastes in URL ?token=
+    dashboard_token: str = Field(default="")
+
     # Google Drive folder for baby photo archive (separate from db backup folder)
     baby_photos_drive_folder_id: str = Field(default="")
 

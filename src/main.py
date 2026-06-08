@@ -624,6 +624,23 @@ async def run(dry_run: bool = False) -> None:
     register_baby_budget_job(scheduler, agents["devops"], memory)
     register_time_capsule_job(scheduler, agents["news"], memory)
 
+    # Web dashboard — read-only state view at /dashboard?token=...
+    try:
+        if getattr(settings, "dashboard_token", ""):
+            import os as _os
+            from src.web.dashboard import start_dashboard_server
+            port = int(_os.environ.get("PORT", 8080))
+            await start_dashboard_server(memory, settings, port)
+    except Exception:
+        log.exception("dashboard_start_failed")
+
+    # Nova Poshta parcel poller — every 30 min checks active parcels
+    try:
+        from src.scheduler.parcels import register_parcel_poll_job
+        register_parcel_poll_job(scheduler, memory, bot_manager, chat_id)
+    except Exception:
+        log.exception("parcel_poll_setup_failed")
+
     # Unified morning brief at 07:00 — one message from Прораб with
     # news / weather (clothing + walk window) / baby / plans / systems.
     from src.scheduler.morning_brief import register_morning_brief_job

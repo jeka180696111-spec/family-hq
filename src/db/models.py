@@ -583,6 +583,21 @@ class SavedRoute(Base):
     created_at: Mapped[str] = mapped_column(String, nullable=False)
 
 
+class Parcel(Base):
+    """Nova Poshta / other carrier parcel — auto-poll status until delivered."""
+    __tablename__ = "parcels"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    carrier: Mapped[str] = mapped_column(String, nullable=False, default="nova_poshta")
+    ttn: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    title: Mapped[str | None] = mapped_column(String, nullable=True)  # "памперсы Pampers"
+    member: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str | None] = mapped_column(String, nullable=True)
+    status_code: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_checked_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    delivered_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
 class BabyPhoto(Base):
     __tablename__ = "baby_photos"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

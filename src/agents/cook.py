@@ -83,6 +83,22 @@ class CookAgent(BaseAgent):
                     "required": ["type", "product"],
                 },
             },
+            {
+                "name": "food_delivery_links",
+                "description": (
+                    "Подобрать рестораны/блюдо и сгенерировать прямые ссылки на "
+                    "Glovo, Bolt Food, Rocket для оформления доставки в Одессе. "
+                    "Триггеры: «закажи», «доставка», «glovo», «bolt food», «есть хочу»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Что хочется: «борщ», «пицца Margherita», «суши Philadelphia»"},
+                        "city": {"type": "string", "description": "Город (по умолчанию Одесса)"},
+                    },
+                    "required": ["query"],
+                },
+            },
         ]
 
     async def _call_tool(self, tool_name: str, tool_input: dict[str, Any]) -> Any:
@@ -144,5 +160,12 @@ class CookAgent(BaseAgent):
                 from sqlalchemy import select
                 rows = await conn.execute(select(IntroducedFood).order_by(IntroducedFood.first_tried_at.desc()))
                 return [{"food": r.food, "reaction": r.reaction, "tried": r.first_tried_at} for r in rows]
+
+        if tool_name == "food_delivery_links":
+            from src.integrations.food_delivery import build_deeplinks
+            return build_deeplinks(
+                tool_input.get("query", ""),
+                tool_input.get("city", "Odesa"),
+            )
 
         return await super()._call_tool(tool_name, tool_input)

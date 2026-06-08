@@ -286,6 +286,43 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "family_search",
+                "description": (
+                    "Поиск по всей памяти семьи: чат, дневник малыша, фото в архиве, "
+                    "поездки, заправки, family wiki. Триггеры: «когда мы», «найди», "
+                    "«где про», «покажи где», «помнишь как»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Свободный запрос на русском"},
+                        "days_back": {"type": "integer", "description": "За сколько дней искать (по умолчанию 365)"},
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "name": "parcel_track",
+                "description": (
+                    "Отследить посылку Nova Poshta по ТТН. Возвращает статус, "
+                    "город получателя, отделение, дату доставки. Триггеры: "
+                    "«отследи ТТН», «посылка», «когда придёт», «новая почта»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "ttn": {"type": "string", "description": "Номер накладной (14 цифр)"},
+                        "title": {"type": "string", "description": "Короткое имя посылки для запоминания, опц."},
+                    },
+                    "required": ["ttn"],
+                },
+            },
+            {
+                "name": "parcel_list",
+                "description": "Показать активные посылки (не доставленные).",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
                 "name": "morning_brief_now",
                 "description": (
                     "Собрать и прислать утренний брифинг прямо сейчас. "
@@ -733,6 +770,18 @@ class DevOpsAgent(BaseAgent):
             return await self._wiki_delete(
                 tool_input.get("member", ""), tool_input.get("key", ""),
             )
+
+        elif tool_name == "family_search":
+            return await self._family_search(
+                tool_input.get("query", ""),
+                int(tool_input.get("days_back", 365)),
+            )
+        elif tool_name == "parcel_track":
+            return await self._parcel_track(
+                tool_input.get("ttn", ""), tool_input.get("title", ""),
+            )
+        elif tool_name == "parcel_list":
+            return await self._parcel_list()
 
         elif tool_name == "morning_brief_now":
             from src.scheduler.morning_brief import send_morning_brief
@@ -1480,6 +1529,89 @@ class DevOpsAgent(BaseAgent):
             {"member": r.member, "key": r.key, "value": r.value} for r in rows
         ])
         return {"deleted": res.rowcount}
+
+    # ─── Search ──────────────────────────────────────────────────────
+
+    async def _family_search(self, query: str, days_back: int) -> dict:
+        from src.integrations.family_search import search_everywhere
+        peers = getattr(self, "_peer_agents", {})
+        sheets_client = getattr(peers.get("nanny"), "_sheets", None)
+        result = await search_everywhere(query, self._memory, sheets_client, days_back)
+        # Append calendar events too
+        try:
+            cal = getattr(peers.get("calendar"), "_calendar", None)
+            if cal:
+                events = await cal.find_events(query)
+                result["groups"]["calendar"] = [
+                    {"title": getattr(e, "title", ""),
+                     "when": getattr(e, "start", None).isoformat() if getattr(e, "start", None) else "",
+                     "id": getattr(e, "event_id", "")}
+                    for e in events[:6]
+                ]
+        except Exception:
+            log.exception("search_calendar_failed")
+        # Compact display instruction
+        result["display_instruction"] = (
+            "Покажи юзеру сгруппированный ответ: для каждой группы где есть "
+            "результаты — 2-5 строк. Если ничего не найдено в группе — пропусти её. "
+            "Сами Drive ID не показывай, замени на 📷 если есть фото."
+        )
+        return result
+
+    # ─── Nova Poshta parcels ─────────────────────────────────────────
+
+    async def _parcel_track(self, ttn: str, title: str) -> dict:
+        from sqlalchemy import insert, select
+        from sqlalchemy import update as sql_update
+        from src.config import get_settings
+        from src.db.models import Parcel
+        from src.integrations.nova_poshta import NovaPoshtaClient
+        from src.utils.time import iso_now
+        ttn = (ttn or "").strip().replace(" ", "")
+        if not ttn:
+            return {"error": "ТТН обязателен"}
+        client = NovaPoshtaClient.from_settings(get_settings())
+        if not client:
+            return {"error": "NOVA_POSHTA_API_KEY не настроен в Railway"}
+        status = await client.track(ttn)
+        async with self._memory._engine.begin() as conn:
+            existing = (await conn.execute(
+                select(Parcel).where(Parcel.ttn == ttn)
+            )).first()
+            now = iso_now()
+            values = {
+                "status": status.get("status"),
+                "status_code": str(status.get("status_code") or ""),
+                "last_checked_at": now,
+            }
+            if status.get("actual_delivery"):
+                values["delivered_at"] = status["actual_delivery"]
+            if existing:
+                if title:
+                    values["title"] = title
+                await conn.execute(
+                    sql_update(Parcel).where(Parcel.id == existing.id).values(**values)
+                )
+            else:
+                await conn.execute(insert(Parcel).values(
+                    carrier="nova_poshta", ttn=ttn,
+                    title=title or None, created_at=now, **values,
+                ))
+        return status
+
+    async def _parcel_list(self) -> dict:
+        from sqlalchemy import select
+        from src.db.models import Parcel
+        async with self._memory._engine.connect() as conn:
+            rows = list(await conn.execute(
+                select(Parcel).where(Parcel.delivered_at.is_(None))
+                .order_by(Parcel.id.desc())
+            ))
+        return {"parcels": [
+            {"ttn": r.ttn, "title": r.title, "status": r.status,
+             "checked_at": r.last_checked_at}
+            for r in rows
+        ]}
 
     # ─── Solar (LuxCloud) ────────────────────────────────────────────
 

@@ -18,3 +18,5 @@ structlog
 apscheduler>=3.10
 jinja2
 matplotlib>=3.8
+fastapi>=0.115
+uvicorn[standard]>=0.32
