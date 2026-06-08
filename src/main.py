@@ -634,10 +634,10 @@ async def run(dry_run: bool = False) -> None:
     except Exception:
         log.exception("dashboard_start_failed")
 
-    # Nova Poshta parcel poller — every 30 min checks active parcels
+    # Nova Poshta — auto-discover new parcels every hour + track active
     try:
         from src.scheduler.parcels import register_parcel_poll_job
-        register_parcel_poll_job(scheduler, memory, bot_manager, chat_id)
+        register_parcel_poll_job(scheduler, memory, bot_manager, chat_id, calendar_client)
     except Exception:
         log.exception("parcel_poll_setup_failed")
 

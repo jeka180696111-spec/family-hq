@@ -62,3 +62,48 @@ class NovaPoshtaClient:
             except Exception:
                 log.exception("nova_track_failed", ttn=t)
         return out
+
+    async def list_recent_documents(self, days_back: int = 14) -> list[dict]:
+        """Return TTNs the account holder is involved in (sender side).
+
+        Used to auto-discover new parcels — once an hour we check and
+        any TTN we haven't seen gets tracked + announced.
+        """
+        from datetime import datetime, timedelta
+        end = datetime.now()
+        start = end - timedelta(days=days_back)
+        body = {
+            "apiKey": self.api_key,
+            "modelName": "InternetDocument",
+            "calledMethod": "getDocumentList",
+            "methodProperties": {
+                "DateTimeFrom": start.strftime("%d.%m.%Y"),
+                "DateTimeTo": end.strftime("%d.%m.%Y"),
+                "Page": "1",
+                "GetFullList": "1",
+            },
+        }
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(_API_URL, json=body) as resp:
+                    data = await resp.json()
+        except Exception:
+            log.exception("nova_list_documents_failed")
+            return []
+        if not data.get("success"):
+            return []
+        out = []
+        for d in data.get("data", []) or []:
+            out.append({
+                "ttn": d.get("IntDocNumber") or d.get("Number"),
+                "ref": d.get("Ref"),
+                "description": d.get("Description"),
+                "sender_city": d.get("CitySender"),
+                "recipient_city": d.get("CityRecipient"),
+                "cost_uah": d.get("Cost"),
+                "weight_kg": d.get("Weight"),
+                "created_at": d.get("DateTime"),
+                "scheduled_at": d.get("ScheduledDeliveryDate"),
+                "state": d.get("StateName"),
+            })
+        return out

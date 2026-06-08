@@ -96,8 +96,9 @@ class Settings(BaseSettings):
     # OpenAI — for Whisper voice transcription
     openai_api_key: str = Field(default="")
 
-    # Nova Poshta tracking
-    nova_poshta_api_key: str = Field(default="")
+    # Nova Poshta tracking — one key per family member
+    nova_poshta_api_key: str = Field(default="")          # main (Eugene)
+    nova_poshta_api_key_marina: str = Field(default="")   # Marina's account
 
     # Web dashboard auth — random secret a user pastes in URL ?token=
     dashboard_token: str = Field(default="")
