@@ -131,8 +131,9 @@ async def set_bot_menus(bot_manager: Any) -> None:
         if not bot:
             continue
         try:
+            from telegram import BotCommand
             await bot.set_my_commands(commands=[
-                {"command": c["command"], "description": c["description"][:256]} for c in commands
+                BotCommand(c["command"], c["description"][:256]) for c in commands
             ])
             log.info("bot_menu_set", agent=agent_id, count=len(commands))
         except Exception:
