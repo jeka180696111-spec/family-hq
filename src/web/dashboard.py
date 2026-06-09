@@ -307,6 +307,14 @@ async def _build_state(memory: Any, settings: Any) -> dict:
     except Exception:
         pass
 
+    # AI provider stats
+    try:
+        from src.integrations.claude_client import get_ai_stats
+        state["ai"] = get_ai_stats()
+        state["ai"]["gemini_configured"] = bool(getattr(settings, "gemini_api_key", ""))
+    except Exception:
+        pass
+
     return state
 
 
@@ -380,6 +388,21 @@ def _render_html(state: dict) -> str:
         f"<li><b>{w['member']}</b> · {w['key']}: {w['value']}</li>"
         for w in state.get("wiki", [])
     ) + "</ul>" if state.get("wiki") else "<p>Пусто</p>"
+
+    # AI provider card
+    ai = state.get("ai") or {}
+    if ai:
+        prov = ai.get("current_provider", "claude")
+        icon = "🧠" if prov == "claude" else "🌀"
+        label = "Claude" if prov == "claude" else "Gemini"
+        ai_html = (
+            f"<p>{icon} <b>{label}</b> сейчас отвечает<br>"
+            f"Claude: {ai.get('claude_count', 0)} ✓ / {ai.get('claude_fail_count', 0)} ✗<br>"
+            f"Gemini: {ai.get('gemini_count', 0)} ✓ / {ai.get('gemini_fail_count', 0)} ✗<br>"
+            f"Fallback: {'✅ готов' if ai.get('gemini_configured') else '⚠️ нет ключа'}</p>"
+        )
+    else:
+        ai_html = "<p>—</p>"
 
     # Weather card
     w = state.get("weather") or {}
@@ -472,6 +495,7 @@ def _render_html(state: dict) -> str:
 </style></head><body>
 <h1>Family HQ · Дашборд</h1>
 <div class="grid">
+  {card("🧠 AI", ai_html)}
   {card("☀️ Инвертор", inv_html)}
   {card("🚨 Тревога", alerts_html)}
   {card("🌤 Погода", weather_html)}

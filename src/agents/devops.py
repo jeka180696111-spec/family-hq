@@ -333,6 +333,15 @@ class DevOpsAgent(BaseAgent):
                 "input_schema": {"type": "object", "properties": {}},
             },
             {
+                "name": "ai_status",
+                "description": (
+                    "Показать какой AI сейчас работает (Claude или Gemini fallback) "
+                    "и статистику вызовов. Триггеры: «какой AI», «кто отвечает», "
+                    "«статус AI», «текущий ключ»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
                 "name": "gemini_ping",
                 "description": (
                     "Проверить что Gemini API (резервный AI) отвечает. "
@@ -802,6 +811,19 @@ class DevOpsAgent(BaseAgent):
             )
         elif tool_name == "parcel_list":
             return await self._parcel_list()
+
+        elif tool_name == "ai_status":
+            from src.config import get_settings
+            from src.integrations.claude_client import get_ai_stats
+            stats = get_ai_stats()
+            settings = get_settings()
+            stats["gemini_configured"] = bool(getattr(settings, "gemini_api_key", ""))
+            stats["display_instruction"] = (
+                "Покажи юзеру кратко: какой провайдер сейчас работает "
+                "(current_provider), сколько успешных вызовов у каждого, "
+                "сколько падений, настроен ли Gemini как fallback."
+            )
+            return stats
 
         elif tool_name == "gemini_ping":
             from src.config import get_settings

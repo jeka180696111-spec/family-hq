@@ -18,6 +18,32 @@ class AIOfflineError(Exception):
     """Raised when both primary and backup API keys fail."""
 
 
+# Module-level tracking of which AI provider was used last and how many times.
+# Read by the devops ai_status tool and the dashboard.
+_AI_STATS: dict = {
+    "current_provider": "claude",  # last successful provider
+    "last_call_at": None,
+    "claude_count": 0,
+    "gemini_count": 0,
+    "claude_fail_count": 0,
+    "gemini_fail_count": 0,
+}
+
+
+def get_ai_stats() -> dict:
+    return dict(_AI_STATS)
+
+
+def _record_call(provider: str, ok: bool) -> None:
+    from src.utils.time import iso_now
+    if ok:
+        _AI_STATS[f"{provider}_count"] += 1
+        _AI_STATS["current_provider"] = provider
+    else:
+        _AI_STATS[f"{provider}_fail_count"] += 1
+    _AI_STATS["last_call_at"] = iso_now()
+
+
 class ClaudeClient:
     """
     Wrapper over anthropic.AsyncAnthropic with failover.
@@ -88,19 +114,26 @@ class ClaudeClient:
                 tools=tools,
             )
         except AIOfflineError:
-            # Try Gemini as text fallback (no tool support)
+            _record_call("claude", ok=False)
             try:
                 from src.config import get_settings
                 from src.integrations.gemini_client import GeminiClient
                 gemini = GeminiClient.from_settings(get_settings())
                 if gemini and not tools:
                     log.warning("claude_fallback_to_gemini")
-                    return await gemini.complete(
-                        system=system, messages=messages, max_tokens=max_tokens,
-                    )
+                    try:
+                        text = await gemini.complete(
+                            system=system, messages=messages, max_tokens=max_tokens,
+                        )
+                        _record_call("gemini", ok=True)
+                        return text
+                    except Exception:
+                        _record_call("gemini", ok=False)
+                        raise
             except Exception:
                 log.exception("gemini_fallback_failed")
             raise
+        _record_call("claude", ok=True)
         first_block = message.content[0]
         return first_block.text if hasattr(first_block, "text") else str(first_block)
 
