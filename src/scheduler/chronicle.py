@@ -42,10 +42,10 @@ async def generate_weekly_chronicle(memory: Any, bot_manager: Any, chat_id: int,
         trips = await _collect_trips(memory, start, end)
         outages = await _collect_outages(memory, start, end)
 
-        # Download top photos for embedding
+        # Download top 6 photos for embedding (3 rows x 2)
         embedded_photo_paths: list[tuple[str, str, str]] = []
         if drive_client and photos:
-            for p in photos[:4]:
+            for p in photos[:6]:
                 file_id = p.get("drive_id")
                 if not file_id:
                     continue
@@ -58,6 +58,12 @@ async def generate_weekly_chronicle(memory: Any, bot_manager: Any, chat_id: int,
                         p.get("when", "")[:10],
                     ))
 
+        # Generate warm narrative from Няня (LLM)
+        nanny_note = await _nanny_weekly_note(
+            diary_stats=diary_stats, photos=photos, milestones=milestones,
+            week_number=week_number,
+        )
+
         pdf_bytes = _render_pdf(
             week_number=week_number, start=start, end=end,
             embedded_photos=embedded_photo_paths,
@@ -67,6 +73,7 @@ async def generate_weekly_chronicle(memory: Any, bot_manager: Any, chat_id: int,
             vaccines=vaccines,
             trips=trips,
             outages=outages,
+            nanny_note=nanny_note,
         )
 
         # Cleanup temp files
@@ -142,6 +149,52 @@ async def generate_weekly_chronicle(memory: Any, bot_manager: Any, chat_id: int,
         log.info("chronicle_done", week=week_number, photos=len(photos))
     except Exception:
         log.exception("chronicle_failed")
+
+
+# ─── Nanny narrative (LLM) ──────────────────────────────────────────
+
+async def _nanny_weekly_note(
+    diary_stats: dict, photos: list, milestones: list, week_number: int,
+) -> str:
+    """Ask the LLM to write a warm 4-6 sentence weekly note from Няня."""
+    try:
+        from src.config import get_settings
+        from src.integrations.claude_client import ClaudeClient
+        settings = get_settings()
+        client = ClaudeClient(
+            primary_key=settings.anthropic_api_key,
+            backup_key=settings.anthropic_backup_api_key,
+            memory=None, model=settings.claude_model,
+        )
+        # Build context
+        captions = [p.get("caption", "") for p in photos if p.get("caption")]
+        ctx = (
+            f"Неделя №{week_number}.\n"
+            f"Кормлений: {diary_stats.get('feeds', 0)}\n"
+            f"Сна всего: ~{diary_stats.get('sleep_hours', 0):.0f}ч\n"
+            f"Подгузников: {diary_stats.get('diapers', 0)}\n"
+            f"Фото сделано: {len(photos)}\n"
+            f"Подписи к фото: {', '.join(captions[:8]) if captions else 'нет'}\n"
+            f"Вех: {len(milestones)}\n"
+        )
+        system = (
+            "Ты — Няня, заботливая и тёплая. Сейчас сводка о неделе малыша "
+            "Матвея в семейную хронику-альбом. Напиши 4-6 предложений на "
+            "русском в формате тёплого письма для альбома. Без эмодзи, без "
+            "хэштегов. Подчеркни 1-2 особенных момента из подписей к фото "
+            "если есть. Тон: душевно, без официоза. НЕ выдумывай факты, "
+            "опирайся только на данные."
+        )
+        text = await client.complete(
+            model=settings.claude_haiku_model or "claude-haiku-4-5-20251001",
+            system=system,
+            messages=[{"role": "user", "content": ctx}],
+            max_tokens=400,
+        )
+        return text.strip()
+    except Exception:
+        log.exception("nanny_weekly_note_failed")
+        return ""
 
 
 # ─── Data collectors ────────────────────────────────────────────────
@@ -323,6 +376,53 @@ async def _collect_outages(memory: Any, start, end) -> list[dict]:
 
 # ─── PDF renderer ───────────────────────────────────────────────────
 
+def _register_fonts() -> tuple[str, str]:
+    """Register Cyrillic body font + symbol font for emojis.
+    Returns (text_font_name, symbol_font_name).
+    """
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    text_font = "Helvetica"
+    for candidate in (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+    ):
+        if os.path.exists(candidate):
+            try:
+                pdfmetrics.registerFont(TTFont("Cyr", candidate))
+                text_font = "Cyr"
+                # also bold variant
+                bold = candidate.replace("DejaVuSans.ttf", "DejaVuSans-Bold.ttf")
+                if os.path.exists(bold):
+                    pdfmetrics.registerFont(TTFont("Cyr-Bold", bold))
+                break
+            except Exception:
+                continue
+
+    symbol_font = text_font
+    for candidate in (
+        "/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf",
+        "/usr/share/fonts/truetype/symbola/Symbola.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSansSymbols-Regular.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
+    ):
+        if os.path.exists(candidate):
+            try:
+                pdfmetrics.registerFont(TTFont("Sym", candidate))
+                symbol_font = "Sym"
+                break
+            except Exception:
+                continue
+
+    return text_font, symbol_font
+
+
+def _icon(symbol_font: str, char: str) -> str:
+    """Inline-font-switched emoji for Paragraph (HTML markup)."""
+    return f'<font name="{symbol_font}">{char}</font>'
+
+
 def _render_pdf(week_number: int, start, end,
                 embedded_photos: list[tuple[str, str, str]],
                 total_photos: int,
@@ -330,196 +430,333 @@ def _render_pdf(week_number: int, start, end,
                 milestones: list,
                 vaccines: list,
                 trips: list,
-                outages: list) -> bytes:
+                outages: list,
+                nanny_note: str = "") -> bytes:
     try:
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.lib.units import cm
-        from reportlab.pdfbase import pdfmetrics
-        from reportlab.pdfbase.ttfonts import TTFont
         from reportlab.platypus import (
-            Image, PageBreak, Paragraph, SimpleDocTemplate,
-            Spacer, Table, TableStyle,
+            HRFlowable, Image, KeepTogether, PageBreak, Paragraph,
+            SimpleDocTemplate, Spacer, Table, TableStyle,
         )
     except ImportError:
         log.warning("chronicle_reportlab_missing")
         return b""
 
-    font_name = "Helvetica"
-    for candidate in (
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/DejaVuSans.ttf",
-    ):
-        try:
-            if os.path.exists(candidate):
-                pdfmetrics.registerFont(TTFont("Cyr", candidate))
-                font_name = "Cyr"
-                break
-        except Exception:
-            continue
+    text_font, sym_font = _register_fonts()
+    bold_font = "Cyr-Bold" if text_font == "Cyr" else text_font
+
+    # ── Decorative page border (drawn on every page) ──
+    def _decorate(canvas, doc_):
+        canvas.saveState()
+        # outer thin border
+        canvas.setStrokeColor(colors.HexColor("#C9D6E0"))
+        canvas.setLineWidth(0.4)
+        canvas.rect(1.2 * cm, 1.2 * cm,
+                    A4[0] - 2.4 * cm, A4[1] - 2.4 * cm)
+        # page footer
+        canvas.setFont(text_font, 8)
+        canvas.setFillColor(colors.HexColor("#A0AEC0"))
+        canvas.drawCentredString(
+            A4[0] / 2, 0.7 * cm,
+            f"Семейная хроника · неделя №{week_number} · {start.year}",
+        )
+        canvas.restoreState()
 
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4,
-                            leftMargin=2 * cm, rightMargin=2 * cm,
-                            topMargin=2 * cm, bottomMargin=2 * cm)
-
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        "Title", parent=styles["Title"], fontName=font_name,
-        fontSize=22, alignment=1, spaceAfter=6,
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=2.2 * cm, rightMargin=2.2 * cm,
+        topMargin=2.5 * cm, bottomMargin=2.2 * cm,
     )
-    subtitle_style = ParagraphStyle(
-        "Subtitle", parent=styles["BodyText"], fontName=font_name,
-        fontSize=11, alignment=1, textColor=colors.grey, spaceAfter=20,
+
+    cover_style = ParagraphStyle(
+        "Cover", fontName=bold_font, fontSize=32,
+        alignment=1, leading=38, spaceAfter=4,
+        textColor=colors.HexColor("#2D3748"),
+    )
+    week_style = ParagraphStyle(
+        "Week", fontName=text_font, fontSize=18,
+        alignment=1, spaceAfter=10,
+        textColor=colors.HexColor("#3182CE"),
+    )
+    date_style = ParagraphStyle(
+        "Date", fontName=text_font, fontSize=11,
+        alignment=1, spaceAfter=24,
+        textColor=colors.HexColor("#718096"),
     )
     h2_style = ParagraphStyle(
-        "H2", parent=styles["Heading2"], fontName=font_name,
-        fontSize=14, textColor=colors.HexColor("#2E5894"),
-        spaceBefore=14, spaceAfter=6,
+        "H2", fontName=bold_font, fontSize=15,
+        textColor=colors.HexColor("#2C5282"),
+        spaceBefore=18, spaceAfter=8,
     )
     body_style = ParagraphStyle(
-        "Body", parent=styles["BodyText"], fontName=font_name,
-        fontSize=10, leading=14,
+        "Body", fontName=text_font, fontSize=10.5, leading=15,
+        textColor=colors.HexColor("#2D3748"),
+    )
+    quote_style = ParagraphStyle(
+        "Quote", fontName=text_font, fontSize=11, leading=17,
+        leftIndent=14, rightIndent=14, spaceBefore=8, spaceAfter=8,
+        textColor=colors.HexColor("#4A5568"),
+        borderColor=colors.HexColor("#90CDF4"),
+        borderWidth=0, borderPadding=10,
+        backColor=colors.HexColor("#EBF8FF"),
+    )
+    quote_attr_style = ParagraphStyle(
+        "QuoteAttr", parent=body_style, fontSize=9,
+        textColor=colors.HexColor("#718096"), alignment=2,
+        spaceAfter=10,
     )
     photo_caption_style = ParagraphStyle(
-        "PhotoCap", parent=body_style, fontSize=9,
-        alignment=1, textColor=colors.grey, spaceAfter=12,
+        "PhotoCap", fontName=text_font, fontSize=9, leading=12,
+        alignment=1, textColor=colors.HexColor("#718096"), spaceAfter=10,
     )
 
     flow = []
 
-    # ── Cover ──
-    flow.append(Paragraph("📖 Семейная хроника", title_style))
-    flow.append(Paragraph(f"Неделя №{week_number}", title_style))
+    # ─── Cover ───
+    flow.append(Spacer(1, 1 * cm))
+    flow.append(Paragraph("Семейная хроника", cover_style))
+    flow.append(Paragraph(f"Неделя №{week_number}", week_style))
     flow.append(Paragraph(
         f"{start.strftime('%d.%m.%Y')} — {end.strftime('%d.%m.%Y')}",
-        subtitle_style,
+        date_style,
+    ))
+    flow.append(HRFlowable(
+        width="60%", thickness=1, color=colors.HexColor("#CBD5E0"),
+        spaceBefore=4, spaceAfter=14, hAlign="CENTER",
     ))
 
-    # ── Stats summary table ──
-    summary = []
+    # ─── Slovo Nyani — narrative block ───
+    if nanny_note:
+        flow.append(Paragraph(nanny_note, quote_style))
+        flow.append(Paragraph("— Няня", quote_attr_style))
+        flow.append(Spacer(1, 0.3 * cm))
+
+    # ─── Stats cards ───
+    cells = []
+
+    def add(card_icon, label, value):
+        cells.append([
+            Paragraph(
+                f'<para align="center">{_icon(sym_font, card_icon)}</para>',
+                ParagraphStyle("Ic", fontName=text_font, fontSize=22,
+                               alignment=1, leading=26),
+            ),
+            Paragraph(
+                f'<para align="center"><font size="16" name="{bold_font}" color="#2D3748">{value}</font><br/>'
+                f'<font size="9" color="#718096">{label}</font></para>',
+                ParagraphStyle("V", fontName=text_font, alignment=1, leading=15),
+            ),
+        ])
+
     if diary_stats.get("feeds"):
-        summary.append(["🍼 Кормлений", str(diary_stats["feeds"])])
+        add("🍼", "кормлений", diary_stats["feeds"])
     if diary_stats.get("sleep_hours"):
-        summary.append(["😴 Сна всего", f"~{diary_stats['sleep_hours']:.0f} часов"])
+        add("😴", "часов сна", f"~{diary_stats['sleep_hours']:.0f}")
     if diary_stats.get("diapers"):
-        summary.append(["💧 Подгузников", str(diary_stats["diapers"])])
-    summary.append(["📸 Фото", str(total_photos)])
-    summary.append(["⭐ Вех", str(len(milestones))])
-    summary.append(["💉 Прививок", str(len(vaccines))])
-    summary.append(["🚗 Поездок", str(len(trips))])
+        add("💧", "подгузников", diary_stats["diapers"])
+    add("📸", "фото", total_photos)
+    if milestones:
+        add("⭐", "вех", len(milestones))
+    if vaccines:
+        add("💉", "прививок", len(vaccines))
+    if trips:
+        add("🚗", "поездок", len(trips))
     if outages:
         total_min = sum(o.get("duration_min") or 0 for o in outages)
-        summary.append([
-            "⚡ Отключений",
-            f"{len(outages)} (всего {total_min // 60}ч {total_min % 60}мин)",
-        ])
-    if summary:
-        t = Table(summary, colWidths=[6 * cm, 8 * cm], hAlign="LEFT")
-        t.setStyle(TableStyle([
-            ("FONT", (0, 0), (-1, -1), font_name, 11),
-            ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F0F4F8")),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-            ("TOPPADDING", (0, 0), (-1, -1), 7),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D0D8E0")),
-        ]))
-        flow.append(t)
+        add("⚡", f"отключений", f"{len(outages)}")
+
+    # Lay out as 4 cards per row
+    rows = []
+    per_row = 4
+    for i in range(0, len(cells), per_row):
+        row = cells[i:i + per_row]
+        # pad to per_row
+        while len(row) < per_row:
+            row.append(["", ""])
+        # Flatten — each cell is icon over value
+        cell_tables = []
+        for c in row:
+            nt = Table(
+                [[c[0]], [c[1]]],
+                colWidths=[3.8 * cm],
+                style=TableStyle([
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ]),
+            )
+            cell_tables.append(nt)
+        rows.append(cell_tables)
+    if rows:
+        for row in rows:
+            t = Table([row], colWidths=[4.0 * cm] * per_row, hAlign="CENTER")
+            t.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F7FAFC")),
+                ("LINEABOVE", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
+                ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("BOX", (0, 0), (-1, -1), 0.3, colors.HexColor("#E2E8F0")),
+            ]))
+            flow.append(t)
+            flow.append(Spacer(1, 0.1 * cm))
         flow.append(Spacer(1, 0.4 * cm))
 
-    # ── Photos ──
+    # ─── Photos ───
     if embedded_photos:
-        flow.append(Paragraph("Фото малыша за неделю", h2_style))
-        photo_pairs = [(embedded_photos[i], embedded_photos[i + 1] if i + 1 < len(embedded_photos) else None)
+        flow.append(PageBreak())
+        flow.append(Paragraph(
+            f"{_icon(sym_font, '📸')} Фото малыша", h2_style,
+        ))
+        flow.append(HRFlowable(
+            width="100%", thickness=0.5,
+            color=colors.HexColor("#CBD5E0"), spaceAfter=10,
+        ))
+
+        photo_pairs = [(embedded_photos[i],
+                        embedded_photos[i + 1] if i + 1 < len(embedded_photos) else None)
                        for i in range(0, len(embedded_photos), 2)]
         for pair in photo_pairs:
-            cells = []
+            row_cells = []
             for item in pair:
                 if not item:
-                    cells.append("")
+                    row_cells.append("")
                     continue
                 path, caption, when = item
                 try:
                     img = Image(path, width=7.5 * cm, height=7.5 * cm,
                                 kind="proportional")
-                    cap = f"{when}<br/>{caption}" if caption else when
-                    cells.append([img, Paragraph(cap, photo_caption_style)])
-                except Exception:
-                    cells.append("")
-            if cells:
-                row = []
-                for c in cells:
-                    if isinstance(c, list):
-                        # Use a nested table for image + caption
-                        nt = Table([[c[0]], [c[1]]], colWidths=[7.5 * cm])
-                        nt.setStyle(TableStyle([
+                    cap_text = (
+                        f'<para align="center">'
+                        f'<font color="#2D3748" size="10">{caption or "·"}</font><br/>'
+                        f'<font color="#A0AEC0" size="8">{when}</font></para>'
+                    )
+                    nt = Table(
+                        [[img], [Paragraph(cap_text, photo_caption_style)]],
+                        colWidths=[7.8 * cm],
+                        style=TableStyle([
                             ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                        ]))
-                        row.append(nt)
-                    else:
-                        row.append(c)
-                grid = Table([row], colWidths=[8 * cm, 8 * cm], hAlign="CENTER")
-                grid.setStyle(TableStyle([
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-                ]))
-                flow.append(grid)
-                flow.append(Spacer(1, 0.3 * cm))
-        flow.append(Spacer(1, 0.3 * cm))
+                            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                            # photo frame
+                            ("BOX", (0, 0), (0, 0), 1.5, colors.white),
+                            ("BACKGROUND", (0, 0), (0, 0), colors.white),
+                            ("TOPPADDING", (0, 0), (0, 0), 6),
+                            ("BOTTOMPADDING", (0, 0), (0, 0), 4),
+                            ("LEFTPADDING", (0, 0), (0, 0), 6),
+                            ("RIGHTPADDING", (0, 0), (0, 0), 6),
+                            ("LINEBELOW", (0, 0), (0, 0), 1, colors.HexColor("#E2E8F0")),
+                            ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#CBD5E0")),
+                        ]),
+                    )
+                    row_cells.append(nt)
+                except Exception:
+                    log.exception("photo_embed_failed", path=path)
+                    row_cells.append("")
+            grid = Table([row_cells], colWidths=[8.4 * cm, 8.4 * cm],
+                         hAlign="CENTER")
+            grid.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]))
+            flow.append(grid)
 
-    # ── Milestones ──
+    # ─── Milestones ───
     if milestones:
-        flow.append(Paragraph(f"⭐ Вехи Матвея ({len(milestones)})", h2_style))
+        flow.append(Paragraph(
+            f"{_icon(sym_font, '⭐')} Вехи Матвея", h2_style,
+        ))
+        flow.append(HRFlowable(
+            width="100%", thickness=0.5,
+            color=colors.HexColor("#CBD5E0"), spaceAfter=10,
+        ))
         for m in milestones[:10]:
-            line = f"• <b>{m.get('date', '')}</b> — {m.get('event', '')}"
+            line = (
+                f'<font name="{bold_font}" color="#2C5282">{m.get("date", "")}</font>'
+                f' — {m.get("event", "")}'
+            )
             if m.get("details"):
-                line += f" ({m['details']})"
-            flow.append(Paragraph(line, body_style))
+                line += f' <font color="#718096" size="9">({m["details"]})</font>'
+            flow.append(Paragraph(f"{_icon(sym_font, '◆')} {line}", body_style))
 
-    # ── Vaccines ──
+    # ─── Vaccines ───
     if vaccines:
-        flow.append(Paragraph(f"💉 Прививки ({len(vaccines)})", h2_style))
+        flow.append(Paragraph(
+            f"{_icon(sym_font, '💉')} Прививки", h2_style,
+        ))
+        flow.append(HRFlowable(
+            width="100%", thickness=0.5,
+            color=colors.HexColor("#CBD5E0"), spaceAfter=10,
+        ))
         for v in vaccines:
             when = v["when"][:10] if v.get("when") else ""
             flow.append(Paragraph(
-                f"• <b>{when}</b> — {v.get('title', '')}", body_style,
+                f'{_icon(sym_font, "◆")} <font name="{bold_font}" color="#2C5282">{when}</font>'
+                f' — {v.get("title", "")}',
+                body_style,
             ))
 
-    # ── Trips ──
+    # ─── Trips ───
     if trips:
-        flow.append(Paragraph(f"🚗 Поездки ({len(trips)})", h2_style))
+        flow.append(Paragraph(
+            f"{_icon(sym_font, '🚗')} Поездки", h2_style,
+        ))
+        flow.append(HRFlowable(
+            width="100%", thickness=0.5,
+            color=colors.HexColor("#CBD5E0"), spaceAfter=10,
+        ))
         for t in trips:
             flow.append(Paragraph(
-                f"• {t['depart_at'][:10]} · <b>{t['origin']} → {t['destination']}</b>"
+                f"{_icon(sym_font, '◆')} {t['depart_at'][:10]} · "
+                f"<font name=\"{bold_font}\">{t['origin']} → {t['destination']}</font>"
                 f" · {t.get('distance_km', '?')} км · ~{t.get('fuel_l', '?')} л",
                 body_style,
             ))
 
-    # ── Outages ──
+    # ─── Outages ───
     if outages:
         total_min = sum(o.get("duration_min") or 0 for o in outages)
         flow.append(Paragraph(
-            f"⚡ Отключения света ({len(outages)} · {total_min // 60}ч {total_min % 60}мин)",
+            f"{_icon(sym_font, '⚡')} Отключения света "
+            f"<font size=\"10\" color=\"#718096\">— всего "
+            f"{total_min // 60}ч {total_min % 60}мин</font>",
             h2_style,
         ))
+        flow.append(HRFlowable(
+            width="100%", thickness=0.5,
+            color=colors.HexColor("#CBD5E0"), spaceAfter=10,
+        ))
         for o in outages[:10]:
-            line = f"• {o['start'][:16].replace('T', ' ')}"
+            line = f"{_icon(sym_font, '◆')} {o['start'][:16].replace('T', ' ')}"
             if o.get("duration_min"):
                 line += f" — {o['duration_min']} мин"
             flow.append(Paragraph(line, body_style))
 
-    flow.append(Spacer(1, 1.5 * cm))
-    footer_style = ParagraphStyle(
-        "Footer", parent=body_style, fontSize=8,
-        alignment=1, textColor=colors.grey,
+    # ─── Footer ───
+    flow.append(Spacer(1, 1.0 * cm))
+    footer = ParagraphStyle(
+        "Foot", fontName=text_font, fontSize=8, alignment=1,
+        textColor=colors.HexColor("#A0AEC0"),
     )
-    flow.append(Paragraph(
-        "📖 Family HQ · автоматическая хроника каждое воскресенье",
-        footer_style,
+    flow.append(HRFlowable(
+        width="40%", thickness=0.5,
+        color=colors.HexColor("#E2E8F0"), spaceBefore=6,
+        spaceAfter=8, hAlign="CENTER",
     ))
-    doc.build(flow)
+    flow.append(Paragraph(
+        "Family HQ · автоматическая хроника", footer,
+    ))
+
+    doc.build(flow, onFirstPage=_decorate, onLaterPages=_decorate)
     return buf.getvalue()
 
 
