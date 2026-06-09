@@ -40,6 +40,31 @@ class NovaPoshtaClient:
         if not data.get("success") or not data.get("data"):
             return {"error": data.get("errors", ["unknown"])[0] if data.get("errors") else "no data"}
         d = data["data"][0]
+        # Money fields: NP separates shipping cost from cash-on-delivery
+        # (післяплата / наложенный платёж). Total = shipping + cod.
+        def _money(*keys: str) -> float | None:
+            for k in keys:
+                v = d.get(k)
+                if v is None or v == "":
+                    continue
+                try:
+                    fv = float(v)
+                    if fv:
+                        return fv
+                except (TypeError, ValueError):
+                    continue
+            return None
+
+        shipping = _money("DocumentCost")
+        # Наложенный платёж — берем первую непустую сумму из вариантов
+        cod = _money(
+            "AfterpaymentOnGoodsCost",   # сумма к оплате при получении
+            "BackwardDeliveryMoney",      # возвратная сумма
+            "BackwardDeliverySum",
+            "RedeliverySum",
+        )
+        total = (shipping or 0) + (cod or 0) if (shipping or cod) else None
+
         return {
             "ttn": ttn,
             "status": d.get("Status", ""),
@@ -48,7 +73,10 @@ class NovaPoshtaClient:
             "city_to": d.get("CityRecipient", ""),
             "warehouse": d.get("WarehouseRecipient", ""),
             "weight_kg": d.get("DocumentWeight"),
-            "cost_uah": d.get("DocumentCost"),
+            "shipping_uah": shipping,        # стоимость доставки
+            "cod_uah": cod,                  # наложенный платёж
+            "total_uah": total,              # общая сумма
+            "cost_uah": shipping,            # legacy alias
             "scheduled_at": d.get("ScheduledDeliveryDate"),
             "actual_delivery": d.get("ActualDeliveryDate"),
             "tracking_url": f"https://novaposhta.ua/tracking/?cargo_number={ttn}",
@@ -63,7 +91,7 @@ class NovaPoshtaClient:
                 log.exception("nova_track_failed", ttn=t)
         return out
 
-    async def try_list_incoming(self, days_back: int = 30) -> list[dict]:
+    async def _unused_try_list_incoming(self, days_back: int = 30) -> list[dict]:
         """Experimental: try several method variants to retrieve INCOMING
         parcels (where the key holder is the recipient). Returns first
         non-empty result. NP has no documented incoming endpoint, but

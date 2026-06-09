@@ -96,12 +96,8 @@ class Settings(BaseSettings):
     # OpenAI — for Whisper voice transcription
     openai_api_key: str = Field(default="")
 
-    # Nova Poshta tracking — one key per family member
-    nova_poshta_api_key: str = Field(default="")          # Бізнес-кабінет (Eugene)
-    nova_poshta_api_key_marina: str = Field(default="")   # Marina's Бізнес key
-    # Mobile-app key (the other entry in Налаштування → API) — experiment
-    # to see if it can list INCOMING parcels (what the mobile app shows).
-    nova_poshta_mobile_key: str = Field(default="")
+    # Nova Poshta tracking — single key, user pastes TTNs manually in chat
+    nova_poshta_api_key: str = Field(default="")
 
     # Google Gemini API — text fallback when Anthropic is unavailable
     # (no credits / outage / rate limit). Free tier: 1500 req/day Flash.

@@ -670,12 +670,6 @@ async def run(dry_run: bool = False) -> None:
     except Exception:
         log.exception("parcel_poll_setup_failed")
 
-    # Gmail polling for Nova Poshta notifications → auto-track incoming TTNs
-    try:
-        from src.integrations.gmail_np import register_gmail_np_poll_job
-        register_gmail_np_poll_job(scheduler, memory, agents, settings)
-    except Exception:
-        log.exception("gmail_np_poll_setup_failed")
 
     # Unified morning brief at 07:00 — one message from Прораб with
     # news / weather (clothing + walk window) / baby / plans / systems.
@@ -776,14 +770,6 @@ async def run(dry_run: bool = False) -> None:
     await news_ingestor.load_tracked_channels()
     userbot.add_news_handler(news_ingestor.handle)
 
-    # Nova Poshta Telegram-bot DM detector: forward TTNs to HQ chat
-    try:
-        from src.integrations.np_telegram_bot import make_handler as make_np_handler
-        userbot.add_sidebar_handler(
-            make_np_handler(bot_manager, chat_id, agents.get("devops"))
-        )
-    except Exception:
-        log.exception("np_telegram_handler_setup_failed")
 
     # Auto-close stale alerts every 5 min
     scheduler.add_job(

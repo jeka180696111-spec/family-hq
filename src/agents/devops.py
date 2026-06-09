@@ -305,40 +305,18 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
-                "name": "nova_incoming_probe",
-                "description": (
-                    "Эксперимент: проверить, может ли мобильный ключ Nova Poshta "
-                    "получить список ВХОДЯЩИХ посылок. Триггеры: «проверь входящие "
-                    "посылки NP», «попробуй мобильный ключ NP»."
-                ),
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "use_mobile_key": {
-                            "type": "boolean",
-                            "description": "Использовать nova_poshta_mobile_key вместо business (по умолчанию true)",
-                        },
-                    },
-                },
-            },
-            {
                 "name": "parcel_track",
                 "description": (
-                    "Отследить посылку Nova Poshta по ТТН. Возвращает статус, "
-                    "город получателя, отделение, дату доставки. Триггеры: "
-                    "«отследи ТТН», «посылка», «когда придёт», «новая почта». "
-                    "Можно указать кто получатель — «marina» / «eugene» — "
-                    "и последние 4 цифры телефона для полной информации."
+                    "Отследить посылку Nova Poshta по ТТН. Триггеры: «отследи ТТН», "
+                    "«посылка», «когда придёт», «новая почта». Если юзер написал "
+                    "ТТН (14 цифр) в чате — авто-детект сработает сам, этот tool "
+                    "вызывай только при явной просьбе или для повторной проверки."
                 ),
                 "input_schema": {
                     "type": "object",
                     "properties": {
                         "ttn": {"type": "string", "description": "Номер накладной (14 цифр)"},
                         "title": {"type": "string", "description": "Короткое имя посылки, опц."},
-                        "member": {
-                            "type": "string",
-                            "description": "Получатель: marina / eugene / family. По умолчанию family.",
-                        },
                         "phone_last4": {
                             "type": "string",
                             "description": "Последние 4 цифры телефона получателя (для полных деталей)",
@@ -848,37 +826,10 @@ class DevOpsAgent(BaseAgent):
                 tool_input.get("query", ""),
                 int(tool_input.get("days_back", 365)),
             )
-        elif tool_name == "nova_incoming_probe":
-            from src.config import get_settings
-            from src.integrations.nova_poshta import NovaPoshtaClient
-            settings = get_settings()
-            use_mobile = tool_input.get("use_mobile_key", True)
-            key = (settings.nova_poshta_mobile_key if use_mobile
-                   else settings.nova_poshta_api_key)
-            if not key:
-                return {"error": (
-                    "Ключ не задан в env. Для мобильного — "
-                    "NOVA_POSHTA_MOBILE_KEY, для бизнес — NOVA_POSHTA_API_KEY"
-                )}
-            client = NovaPoshtaClient(key)
-            results = await client.try_list_incoming(days_back=30)
-            return {
-                "key_type": "mobile" if use_mobile else "business",
-                "found": len(results),
-                "items": results[:10],
-                "display_instruction": (
-                    "Если found > 0 — мобильный ключ работает! Покажи юзеру "
-                    "список ТТН + raw_method чтобы он понял какой эндпоинт сработал. "
-                    "Если found == 0 — мобильный ключ тоже не даёт входящих, "
-                    "нужен план Б (iOS Shortcut или Gmail)."
-                ),
-            }
-
         elif tool_name == "parcel_track":
             return await self._parcel_track(
                 tool_input.get("ttn", ""), tool_input.get("title", ""),
-                tool_input.get("member", "family"),
-                tool_input.get("phone_last4", ""),
+                "family", tool_input.get("phone_last4", ""),
             )
         elif tool_name == "parcel_list":
             return await self._parcel_list()
@@ -1739,6 +1690,13 @@ class DevOpsAgent(BaseAgent):
                     created_at=now, **values,
                 ))
         status["member"] = member
+        status["display_instruction"] = (
+            "Покажи юзеру: статус, маршрут (city_from → city_to), отделение, "
+            "вес (weight_kg), стоимость доставки (shipping_uah), "
+            "наложенный платёж (cod_uah, если есть) и общую сумму (total_uah). "
+            "Если cod_uah = null или 0 — наложенного нет, не упоминай. "
+            "Если total = shipping — пиши только стоимость доставки."
+        )
         return status
 
     async def _parcel_list(self) -> dict:
