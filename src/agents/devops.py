@@ -398,17 +398,22 @@ class DevOpsAgent(BaseAgent):
             {
                 "name": "chronicle_now",
                 "description": (
-                    "Сгенерировать PDF-хронику семьи прямо сейчас за последние "
-                    "N дней. Сохранит в Drive '📖 Хроника семьи/<год>/' и пришлёт "
-                    "ссылку. Триггеры: «сгенерируй хронику», «хроника сейчас», "
-                    "«сделай PDF за неделю»."
+                    "Сгенерировать PDF-хронику. По умолчанию — последние 7 дней. "
+                    "Можно указать конкретный диапазон через start_date/end_date "
+                    "(для ретроспективной хроники после заполнения дневника). "
+                    "Триггеры: «сгенерируй хронику», «хроника за 02.06-08.06», "
+                    "«сделай PDF за прошлую неделю»."
                 ),
                 "input_schema": {
                     "type": "object",
                     "properties": {
-                        "days_back": {
-                            "type": "integer",
-                            "description": "За сколько дней назад (по умолчанию 7)",
+                        "start_date": {
+                            "type": "string",
+                            "description": "Начало периода YYYY-MM-DD или DD.MM.YYYY",
+                        },
+                        "end_date": {
+                            "type": "string",
+                            "description": "Конец периода (включительно)",
                         },
                     },
                 },
@@ -975,14 +980,36 @@ class DevOpsAgent(BaseAgent):
             return await self._vacuum_stop(tool_input.get("name", ""))
 
         elif tool_name == "chronicle_now":
+            from datetime import datetime, timedelta
             from src.config import get_settings
             from src.integrations.drive import DriveClient
             from src.scheduler.chronicle import generate_weekly_chronicle
-            days_back = int(tool_input.get("days_back", 7))
-            # The job uses fixed 7-day window from now_kyiv(). Reuse it.
+            from src.utils.time import KYIV_TZ, now_kyiv
+
+            def _parse(s: str):
+                s = (s or "").strip()
+                for fmt in ("%Y-%m-%d", "%d.%m.%Y"):
+                    try:
+                        d = datetime.strptime(s, fmt)
+                        return d.replace(tzinfo=KYIV_TZ)
+                    except ValueError:
+                        continue
+                return None
+
+            start_dt = _parse(tool_input.get("start_date", ""))
+            end_dt = _parse(tool_input.get("end_date", ""))
+            if start_dt and not end_dt:
+                end_dt = start_dt + timedelta(days=7)
+            if end_dt and not start_dt:
+                start_dt = end_dt - timedelta(days=7)
+            # end_date inclusive — add 1 day to make it exclusive upper bound
+            if end_dt:
+                end_dt = end_dt + timedelta(days=1)
+
             await generate_weekly_chronicle(
                 self._memory, self._bots, self._chat_id,
                 DriveClient.from_settings(get_settings()),
+                start_dt=start_dt, end_dt=end_dt,
             )
             return {
                 "status": "started",
