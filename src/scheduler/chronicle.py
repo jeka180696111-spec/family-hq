@@ -57,11 +57,16 @@ async def generate_weekly_chronicle(memory: Any, bot_manager: Any, chat_id: int,
                         p.get("when", "")[:10],
                     ))
 
-        # Generate warm narrative from Няня (LLM)
+        # Generate warm narrative from Няня (LLM) only if we have any
+        # diary signal — empty weeks shouldn't get a fabricated note.
+        has_signal = bool(
+            diary_stats.get("feeds") or diary_stats.get("sleep_hours")
+            or diary_stats.get("diapers") or feedings or photos
+        )
         nanny_note = await _nanny_weekly_note(
             diary_stats=diary_stats, photos=photos, feedings=feedings,
             week_number=week_number,
-        )
+        ) if has_signal else ""
 
         pdf_bytes = _render_pdf(
             week_number=week_number, start=start, end=end,
@@ -113,25 +118,31 @@ async def generate_weekly_chronicle(memory: Any, bot_manager: Any, chat_id: int,
             lines = [
                 f"📖 <b>Семейная хроника · неделя №{week_number}</b>",
                 f"📅 {start.strftime('%d.%m')} — {end.strftime('%d.%m.%Y')}",
-                "",
             ]
+            stat_lines = []
             if diary_stats.get("feeds"):
-                lines.append(f"🍼 Кормлений: {diary_stats['feeds']}")
+                stat_lines.append(f"🍼 Кормлений: {diary_stats['feeds']}")
             if diary_stats.get("sleep_hours"):
-                lines.append(f"😴 Сна всего: ~{diary_stats['sleep_hours']:.0f}ч")
+                stat_lines.append(f"😴 Сна всего: ~{diary_stats['sleep_hours']:.0f}ч")
             if diary_stats.get("diapers"):
-                lines.append(f"💧 Подгузников: {diary_stats['diapers']}")
+                stat_lines.append(f"💧 Подгузников: {diary_stats['diapers']}")
             if photos:
-                lines.append(f"📸 Фото: {len(photos)} (в PDF — топ 6)")
+                stat_lines.append(f"📸 Фото: {len(photos)} (в PDF — топ 6)")
             if feedings:
-                lines.append(f"🥄 Прикорма: {len(feedings)}")
+                stat_lines.append(f"🥄 Прикорма: {len(feedings)}")
             if vaccines:
-                lines.append(f"💉 Прививок: {len(vaccines)}")
+                stat_lines.append(f"💉 Прививок: {len(vaccines)}")
             if outages:
                 total_min = sum(o.get("duration_min") or 0 for o in outages)
-                lines.append(
+                stat_lines.append(
                     f"⚡ Отключений: {len(outages)} (всего {total_min // 60}ч {total_min % 60}мин)"
                 )
+            if stat_lines:
+                lines.append("")
+                lines.extend(stat_lines)
+            else:
+                lines.append("\nДанных пока мало — заполни дневник через Няню, "
+                             "следующая хроника будет насыщеннее.")
             if drive_url:
                 lines.append(f"\n📂 <a href=\"{drive_url}\">Открыть PDF</a>")
             else:
@@ -562,19 +573,22 @@ def _render_pdf(week_number: int, start, end,
             ),
         ])
 
+    # Show stat card only when value > 0 — empty weeks get no
+    # zero-filled table at all (user will fill the diary retroactively
+    # via Няня; until then we don't pretend there's nothing happening).
     if diary_stats.get("feeds"):
         add("🍼", "кормлений", diary_stats["feeds"])
     if diary_stats.get("sleep_hours"):
         add("😴", "часов сна", f"~{diary_stats['sleep_hours']:.0f}")
     if diary_stats.get("diapers"):
         add("💧", "подгузников", diary_stats["diapers"])
-    add("📸", "фото", total_photos)
+    if total_photos:
+        add("📸", "фото", total_photos)
     if feedings:
         add("🥄", "прикорма", len(feedings))
     if vaccines:
         add("💉", "прививок", len(vaccines))
     if outages:
-        total_min = sum(o.get("duration_min") or 0 for o in outages)
         add("⚡", "отключений", f"{len(outages)}")
 
     # Lay out as 4 cards per row
