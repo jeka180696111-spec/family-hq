@@ -215,15 +215,14 @@ class AutomationEngine:
         return 0 <= (now_minutes - target_minutes) < 5
 
     def _eval_datetime(self, cond: dict) -> bool:
-        """Fire within `catch_up_min` minutes after `at` (default 120 min).
+        """Fire on or after `at` time.
 
-        Wider window covers cases when the service was down or busy at the
-        exact tick — e.g. a boiler-on-tomorrow-at-15:00 rule will still
-        fire if Railway was redeploying then, as long as we catch it
-        within the next 2h.
-
-        last_fired guarantees once-per-target — the engine checks that
-        anyway, but the wide window only matters in combination with it.
+        Default behaviour: fire within 120 min of `at`, then expire.
+        With `late_fire: true` (recommended for one-shot reminders) —
+        fire on the FIRST tick after `at`, no upper bound. So if the
+        service was offline for hours or days, the task still happens
+        eventually (you didn't want the boiler off forever, just turned
+        on at 15:00 — fine if it lands at 17:00 after Railway recovers).
         """
         try:
             at = datetime.fromisoformat(cond["at"])
@@ -234,8 +233,12 @@ class AutomationEngine:
             from src.utils.time import KYIV_TZ
             at = at.replace(tzinfo=KYIV_TZ)
         delta_min = (now - at).total_seconds() / 60
+        if delta_min < 0:
+            return False
+        if cond.get("late_fire") is True:
+            return True  # cooldown + last_fired ensure once-per-target
         catch_up = float(cond.get("catch_up_min", 120))
-        return 0 <= delta_min < catch_up
+        return delta_min < catch_up
 
     def _eval_datetime_range(self, cond: dict) -> bool:
         try:

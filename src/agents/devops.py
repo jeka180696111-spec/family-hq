@@ -183,6 +183,9 @@ class DevOpsAgent(BaseAgent):
                             "type": "object",
                             "description": (
                                 "JSON-условие. Типы: time {cron:'HH:MM', weekday:'sun'?}; "
+                                "datetime {at:'YYYY-MM-DDTHH:MM', late_fire:true?} — "
+                                "  для one-shot задач ВСЕГДА ставь late_fire:true, "
+                                "  иначе при простое сервиса задача пропустится; "
                                 "sensor {device, metric:'temperature'|'humidity', op:'>'|'<'|'>='|'<='|'=='|'!=', value}; "
                                 "alert_active {region}; alert_ended {region}; "
                                 "power_outage {state:'active'|'ended', delay_min:N?, within_min:N?}; "
