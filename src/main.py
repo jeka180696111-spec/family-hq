@@ -670,6 +670,13 @@ async def run(dry_run: bool = False) -> None:
     except Exception:
         log.exception("parcel_poll_setup_failed")
 
+    # Gmail polling for Nova Poshta notifications → auto-track incoming TTNs
+    try:
+        from src.integrations.gmail_np import register_gmail_np_poll_job
+        register_gmail_np_poll_job(scheduler, memory, agents, settings)
+    except Exception:
+        log.exception("gmail_np_poll_setup_failed")
+
     # Unified morning brief at 07:00 — one message from Прораб with
     # news / weather (clothing + walk window) / baby / plans / systems.
     from src.scheduler.morning_brief import register_morning_brief_job
