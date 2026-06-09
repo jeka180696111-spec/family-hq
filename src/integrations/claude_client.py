@@ -21,17 +21,56 @@ class AIOfflineError(Exception):
 # Module-level tracking of which AI provider was used last and how many times.
 # Read by the devops ai_status tool and the dashboard.
 _AI_STATS: dict = {
-    "current_provider": "claude",  # last successful provider
+    "current_provider": "claude",
     "last_call_at": None,
     "claude_count": 0,
     "gemini_count": 0,
     "claude_fail_count": 0,
     "gemini_fail_count": 0,
+    # Manual override — when set, force all text completes through this
+    # provider until override_until (ISO datetime) passes.
+    "override_provider": None,
+    "override_until": None,
 }
 
 
 def get_ai_stats() -> dict:
     return dict(_AI_STATS)
+
+
+def set_provider_override(provider: str | None, until_iso: str | None = None) -> dict:
+    """Force-route subsequent text completes through `provider` until
+    `until_iso` (Kyiv-local) passes. Pass provider=None to clear."""
+    if provider not in (None, "claude", "gemini"):
+        return {"error": "provider must be 'claude', 'gemini', or null"}
+    _AI_STATS["override_provider"] = provider
+    _AI_STATS["override_until"] = until_iso
+    return {
+        "override_provider": provider,
+        "override_until": until_iso,
+    }
+
+
+def _override_active() -> str | None:
+    prov = _AI_STATS.get("override_provider")
+    if not prov:
+        return None
+    until = _AI_STATS.get("override_until")
+    if until:
+        try:
+            from datetime import datetime
+            from src.utils.time import KYIV_TZ, now_kyiv
+            t = datetime.fromisoformat(until)
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=KYIV_TZ)
+            if now_kyiv() >= t:
+                # Expired — clear and return None
+                _AI_STATS["override_provider"] = None
+                _AI_STATS["override_until"] = None
+                return None
+        except Exception:
+            return prov
+    return prov
 
 
 def _record_call(provider: str, ok: bool) -> None:
@@ -105,6 +144,21 @@ class ClaudeClient:
         On Anthropic outage (both primary+backup fail), falls back to
         Gemini for text-only responses if GEMINI_API_KEY is configured.
         """
+        # Manual override — force Gemini path if user requested it
+        if _override_active() == "gemini" and not tools:
+            try:
+                from src.config import get_settings
+                from src.integrations.gemini_client import GeminiClient
+                gemini = GeminiClient.from_settings(get_settings())
+                if gemini:
+                    text = await gemini.complete(
+                        system=system, messages=messages, max_tokens=max_tokens,
+                    )
+                    _record_call("gemini", ok=True)
+                    return text
+            except Exception:
+                _record_call("gemini", ok=False)
+                log.exception("gemini_override_failed_fallback_to_claude")
         try:
             message = await self._complete_with_failover(
                 model=model,

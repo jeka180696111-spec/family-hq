@@ -215,18 +215,27 @@ class AutomationEngine:
         return 0 <= (now_minutes - target_minutes) < 5
 
     def _eval_datetime(self, cond: dict) -> bool:
-        """One-shot fire within the 5-min tick after `at`."""
+        """Fire within `catch_up_min` minutes after `at` (default 120 min).
+
+        Wider window covers cases when the service was down or busy at the
+        exact tick — e.g. a boiler-on-tomorrow-at-15:00 rule will still
+        fire if Railway was redeploying then, as long as we catch it
+        within the next 2h.
+
+        last_fired guarantees once-per-target — the engine checks that
+        anyway, but the wide window only matters in combination with it.
+        """
         try:
             at = datetime.fromisoformat(cond["at"])
         except Exception:
             return False
         now = now_kyiv()
-        # Treat naive `at` as Kyiv local
         if at.tzinfo is None:
             from src.utils.time import KYIV_TZ
             at = at.replace(tzinfo=KYIV_TZ)
-        delta = (now - at).total_seconds()
-        return 0 <= delta < 300  # within 5 min after target
+        delta_min = (now - at).total_seconds() / 60
+        catch_up = float(cond.get("catch_up_min", 120))
+        return 0 <= delta_min < catch_up
 
     def _eval_datetime_range(self, cond: dict) -> bool:
         try:

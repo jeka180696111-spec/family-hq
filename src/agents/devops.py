@@ -333,6 +333,31 @@ class DevOpsAgent(BaseAgent):
                 "input_schema": {"type": "object", "properties": {}},
             },
             {
+                "name": "ai_set_provider",
+                "description": (
+                    "Принудительно переключить AI на Claude или Gemini до "
+                    "указанного времени. Используй когда юзер просит «используй "
+                    "Gemini до 16:00», «переключись на Claude», «отключи Gemini». "
+                    "Передай provider=null чтобы снять override и вернуться к "
+                    "обычной логике (Claude по умолчанию, Gemini fallback)."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "provider": {
+                            "type": "string",
+                            "enum": ["claude", "gemini", "off"],
+                            "description": "claude / gemini для override, off — снять",
+                        },
+                        "until": {
+                            "type": "string",
+                            "description": "ISO datetime Kyiv-local когда снять override (опц)",
+                        },
+                    },
+                    "required": ["provider"],
+                },
+            },
+            {
                 "name": "ai_status",
                 "description": (
                     "Показать какой AI сейчас работает (Claude или Gemini fallback) "
@@ -811,6 +836,13 @@ class DevOpsAgent(BaseAgent):
             )
         elif tool_name == "parcel_list":
             return await self._parcel_list()
+
+        elif tool_name == "ai_set_provider":
+            from src.integrations.claude_client import set_provider_override
+            prov = tool_input.get("provider", "off")
+            until = tool_input.get("until")
+            target = None if prov == "off" else prov
+            return set_provider_override(target, until)
 
         elif tool_name == "ai_status":
             from src.config import get_settings
