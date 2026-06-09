@@ -103,7 +103,7 @@ class Settings(BaseSettings):
     # Google Gemini API — text fallback when Anthropic is unavailable
     # (no credits / outage / rate limit). Free tier: 1500 req/day Flash.
     gemini_api_key: str = Field(default="")
-    gemini_model: str = Field(default="gemini-2.0-flash-exp")
+    gemini_model: str = Field(default="gemini-1.5-flash")
 
     # Web dashboard auth — random secret a user pastes in URL ?token=
     dashboard_token: str = Field(default="")
