@@ -37,9 +37,8 @@ async def generate_weekly_chronicle(memory: Any, bot_manager: Any, chat_id: int,
 
         photos = await _collect_photos(memory, start, end)
         diary_stats = await _collect_diary_stats(start, end)
-        milestones = await _collect_milestones(start, end)
+        feedings = await _collect_feedings(start, end)
         vaccines = await _collect_vaccines(start, end)
-        trips = await _collect_trips(memory, start, end)
         outages = await _collect_outages(memory, start, end)
 
         # Download top 6 photos for embedding (3 rows x 2)
@@ -60,7 +59,7 @@ async def generate_weekly_chronicle(memory: Any, bot_manager: Any, chat_id: int,
 
         # Generate warm narrative from Няня (LLM)
         nanny_note = await _nanny_weekly_note(
-            diary_stats=diary_stats, photos=photos, milestones=milestones,
+            diary_stats=diary_stats, photos=photos, feedings=feedings,
             week_number=week_number,
         )
 
@@ -69,9 +68,8 @@ async def generate_weekly_chronicle(memory: Any, bot_manager: Any, chat_id: int,
             embedded_photos=embedded_photo_paths,
             total_photos=len(photos),
             diary_stats=diary_stats,
-            milestones=milestones,
+            feedings=feedings,
             vaccines=vaccines,
-            trips=trips,
             outages=outages,
             nanny_note=nanny_note,
         )
@@ -124,13 +122,11 @@ async def generate_weekly_chronicle(memory: Any, bot_manager: Any, chat_id: int,
             if diary_stats.get("diapers"):
                 lines.append(f"💧 Подгузников: {diary_stats['diapers']}")
             if photos:
-                lines.append(f"📸 Фото: {len(photos)} (в PDF — топ 4)")
-            if milestones:
-                lines.append(f"⭐ Вех: {len(milestones)}")
+                lines.append(f"📸 Фото: {len(photos)} (в PDF — топ 6)")
+            if feedings:
+                lines.append(f"🥄 Прикорма: {len(feedings)}")
             if vaccines:
                 lines.append(f"💉 Прививок: {len(vaccines)}")
-            if trips:
-                lines.append(f"🚗 Поездок: {len(trips)}")
             if outages:
                 total_min = sum(o.get("duration_min") or 0 for o in outages)
                 lines.append(
@@ -154,7 +150,7 @@ async def generate_weekly_chronicle(memory: Any, bot_manager: Any, chat_id: int,
 # ─── Nanny narrative (LLM) ──────────────────────────────────────────
 
 async def _nanny_weekly_note(
-    diary_stats: dict, photos: list, milestones: list, week_number: int,
+    diary_stats: dict, photos: list, feedings: list, week_number: int,
 ) -> str:
     """Ask the LLM to write a warm 4-6 sentence weekly note from Няня."""
     try:
@@ -166,16 +162,19 @@ async def _nanny_weekly_note(
             backup_key=settings.anthropic_backup_api_key,
             memory=None, model=settings.claude_model,
         )
-        # Build context
         captions = [p.get("caption", "") for p in photos if p.get("caption")]
+        feed_lines = []
+        for f in feedings[:10]:
+            r = f.get("reaction", "") or "—"
+            feed_lines.append(f"{f.get('product', '?')} → {r}")
         ctx = (
             f"Неделя №{week_number}.\n"
-            f"Кормлений: {diary_stats.get('feeds', 0)}\n"
+            f"Кормлений (молоко/смесь): {diary_stats.get('feeds', 0)}\n"
             f"Сна всего: ~{diary_stats.get('sleep_hours', 0):.0f}ч\n"
             f"Подгузников: {diary_stats.get('diapers', 0)}\n"
             f"Фото сделано: {len(photos)}\n"
             f"Подписи к фото: {', '.join(captions[:8]) if captions else 'нет'}\n"
-            f"Вех: {len(milestones)}\n"
+            f"Прикорм за неделю: {'; '.join(feed_lines) if feed_lines else 'не пробовал нового'}\n"
         )
         system = (
             "Ты — Няня, заботливая и тёплая. Сейчас сводка о неделе малыша "
@@ -289,31 +288,59 @@ async def _collect_diary_stats(start, end) -> dict:
     }
 
 
-async def _collect_milestones(start, end) -> list[dict]:
-    """Read Достижения sheet for entries this week."""
+async def _collect_feedings(start, end) -> list[dict]:
+    """Read Прикорм sheet for entries this week.
+    Columns: num, date, age, type, product, portion, reaction, details, author."""
     try:
         from src.config import get_settings
-        from src.integrations.sheets import SheetsClient
+        from src.integrations.sheets import SheetsClient, _FEEDING_WORKSHEET
         s = get_settings()
         if not (s.google_service_account_json and s.sheet_baby_id):
             return []
         sheets = SheetsClient(s.google_service_account_json, s.sheet_baby_id, "")
+
+        def _read_feeding():
+            ws = sheets._gc.open_by_key(s.sheet_baby_id).worksheet(_FEEDING_WORKSHEET)
+            return ws.get_all_values()
+        # Ensure auth done
+        if sheets._gc is None:
+            import gspread
+            from google.oauth2.service_account import Credentials
+            creds = Credentials.from_service_account_info(
+                s.google_service_account_json,
+                scopes=["https://www.googleapis.com/auth/spreadsheets"],
+            )
+            sheets._gc = gspread.authorize(creds)
         try:
-            # Try via get_baby_diary with kind=milestone if available;
-            # otherwise read 'Достижения' worksheet directly.
-            rows = await sheets.get_baby_diary(days=10, kind="milestone")
+            all_rows = await sheets._run_sync(_read_feeding)
         except Exception:
-            rows = []
+            log.exception("chronicle_feedings_read_failed")
+            return []
     except Exception:
-        log.exception("chronicle_milestones_failed")
+        log.exception("chronicle_feedings_setup_failed")
         return []
+
     out = []
-    for r in rows[:20]:
-        d = r.data
+    for row in all_rows:
+        if len(row) < 7:
+            continue
+        date_s = (row[1] or "").strip()
+        try:
+            dt = datetime.strptime(date_s, "%d.%m.%Y")
+        except ValueError:
+            continue
+        start_naive = start.replace(tzinfo=None) if start.tzinfo else start
+        end_naive = end.replace(tzinfo=None) if end.tzinfo else end
+        if not (start_naive.date() <= dt.date() <= end_naive.date()):
+            continue
         out.append({
-            "date": d.get("date", ""),
-            "event": d.get("event", ""),
-            "details": d.get("notes", ""),
+            "date": date_s,
+            "age": row[2] if len(row) > 2 else "",
+            "type": row[3] if len(row) > 3 else "",
+            "product": row[4] if len(row) > 4 else "",
+            "portion": row[5] if len(row) > 5 else "",
+            "reaction": row[6] if len(row) > 6 else "",
+            "details": row[7] if len(row) > 7 else "",
         })
     return out
 
@@ -341,22 +368,6 @@ async def _collect_vaccines(start, end) -> list[dict]:
             "when": getattr(e, "start", None).isoformat() if getattr(e, "start", None) else "",
         })
     return out
-
-
-async def _collect_trips(memory: Any, start, end) -> list[dict]:
-    from src.db.models import Trip
-    async with memory._engine.connect() as conn:
-        rows = list(await conn.execute(
-            select(Trip)
-            .where(Trip.depart_at >= start.isoformat())
-            .where(Trip.depart_at < end.isoformat())
-        ))
-    return [
-        {"origin": r.origin, "destination": r.destination,
-         "depart_at": r.depart_at, "distance_km": r.distance_km,
-         "fuel_l": r.fuel_estimate_l}
-        for r in rows
-    ]
 
 
 async def _collect_outages(memory: Any, start, end) -> list[dict]:
@@ -427,9 +438,8 @@ def _render_pdf(week_number: int, start, end,
                 embedded_photos: list[tuple[str, str, str]],
                 total_photos: int,
                 diary_stats: dict,
-                milestones: list,
+                feedings: list,
                 vaccines: list,
-                trips: list,
                 outages: list,
                 nanny_note: str = "") -> bytes:
     try:
@@ -559,15 +569,13 @@ def _render_pdf(week_number: int, start, end,
     if diary_stats.get("diapers"):
         add("💧", "подгузников", diary_stats["diapers"])
     add("📸", "фото", total_photos)
-    if milestones:
-        add("⭐", "вех", len(milestones))
+    if feedings:
+        add("🥄", "прикорма", len(feedings))
     if vaccines:
         add("💉", "прививок", len(vaccines))
-    if trips:
-        add("🚗", "поездок", len(trips))
     if outages:
         total_min = sum(o.get("duration_min") or 0 for o in outages)
-        add("⚡", f"отключений", f"{len(outages)}")
+        add("⚡", "отключений", f"{len(outages)}")
 
     # Lay out as 4 cards per row
     rows = []
@@ -670,25 +678,39 @@ def _render_pdf(week_number: int, start, end,
             ]))
             flow.append(grid)
 
-    # ─── Milestones ───
-    if milestones:
+    # ─── Прикорм (детально: продукт + реакция + детали) ───
+    if feedings:
         flow.append(Paragraph(
-            f"{_icon(sym_font, '⭐')} Вехи Матвея", h2_style,
+            f"{_icon(sym_font, '🥄')} Прикорм на этой неделе", h2_style,
         ))
         flow.append(HRFlowable(
             width="100%", thickness=0.5,
             color=colors.HexColor("#CBD5E0"), spaceAfter=10,
         ))
-        for m in milestones[:10]:
-            line = (
-                f'<font name="{bold_font}" color="#2C5282">{m.get("date", "")}</font>'
-                f' — {m.get("event", "")}'
+        for f in feedings:
+            head = (
+                f'{_icon(sym_font, "◆")} '
+                f'<font name="{bold_font}" color="#2C5282">{f.get("date", "")}</font>'
+                f' — <font name="{bold_font}">{f.get("product", "?")}</font>'
             )
-            if m.get("details"):
-                line += f' <font color="#718096" size="9">({m["details"]})</font>'
-            flow.append(Paragraph(f"{_icon(sym_font, '◆')} {line}", body_style))
+            if f.get("portion"):
+                head += f' <font color="#718096" size="9">({f["portion"]})</font>'
+            flow.append(Paragraph(head, body_style))
+            extras = []
+            if f.get("reaction"):
+                extras.append(f'<font color="#2F855A">реакция: {f["reaction"]}</font>')
+            if f.get("details"):
+                extras.append(f'<font color="#718096">{f["details"]}</font>')
+            if extras:
+                flow.append(Paragraph(
+                    "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;" + " · ".join(extras),
+                    ParagraphStyle(
+                        "FeedSub", parent=body_style, fontSize=9.5,
+                        leading=13, spaceAfter=4,
+                    ),
+                ))
 
-    # ─── Vaccines ───
+    # ─── Прививки (детально: какая вакцина + дата) ───
     if vaccines:
         flow.append(Paragraph(
             f"{_icon(sym_font, '💉')} Прививки", h2_style,
@@ -699,28 +721,15 @@ def _render_pdf(week_number: int, start, end,
         ))
         for v in vaccines:
             when = v["when"][:10] if v.get("when") else ""
-            flow.append(Paragraph(
-                f'{_icon(sym_font, "◆")} <font name="{bold_font}" color="#2C5282">{when}</font>'
-                f' — {v.get("title", "")}',
-                body_style,
-            ))
-
-    # ─── Trips ───
-    if trips:
-        flow.append(Paragraph(
-            f"{_icon(sym_font, '🚗')} Поездки", h2_style,
-        ))
-        flow.append(HRFlowable(
-            width="100%", thickness=0.5,
-            color=colors.HexColor("#CBD5E0"), spaceAfter=10,
-        ))
-        for t in trips:
-            flow.append(Paragraph(
-                f"{_icon(sym_font, '◆')} {t['depart_at'][:10]} · "
-                f"<font name=\"{bold_font}\">{t['origin']} → {t['destination']}</font>"
-                f" · {t.get('distance_km', '?')} км · ~{t.get('fuel_l', '?')} л",
-                body_style,
-            ))
+            title = v.get("title", "")
+            # Strip leading emoji for cleaner look since we render our own
+            title_clean = title.lstrip("💉🩹").strip(" -—")
+            line = (
+                f'{_icon(sym_font, "◆")} '
+                f'<font name="{bold_font}" color="#2C5282">{when}</font>'
+                f' — <font name="{bold_font}">{title_clean}</font>'
+            )
+            flow.append(Paragraph(line, body_style))
 
     # ─── Outages ───
     if outages:
