@@ -91,7 +91,8 @@ class _GeminiMessage:
 class GeminiClient:
     def __init__(self, api_key: str, model: str = "gemini-1.5-flash") -> None:
         self.api_key = api_key
-        self.model = model
+        # Normalise: strip 'models/' prefix and whitespace
+        self.model = (model or "").strip().replace("models/", "")
         self._working_model: str | None = None
 
     @classmethod

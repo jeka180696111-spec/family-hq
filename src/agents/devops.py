@@ -895,19 +895,46 @@ class DevOpsAgent(BaseAgent):
         elif tool_name == "gemini_discover_models":
             from src.config import get_settings
             from src.integrations.gemini_client import discover_models
-            key = getattr(get_settings(), "gemini_api_key", "")
+            import aiohttp
+            settings = get_settings()
+            key = getattr(settings, "gemini_api_key", "")
             if not key:
                 return {"error": "GEMINI_API_KEY не задан"}
             models = await discover_models(key)
+            configured = getattr(settings, "gemini_model", "")
+            # Probe each model name that has 'flash' to find one that actually responds
+            probe_results = []
+            test_body = {
+                "contents": [{"role": "user", "parts": [{"text": "ping"}]}],
+                "generationConfig": {"maxOutputTokens": 5},
+            }
+            async with aiohttp.ClientSession() as session:
+                for m in models[:10]:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={key}"
+                    try:
+                        async with session.post(url, json=test_body) as resp:
+                            probe_results.append({
+                                "model": m,
+                                "status": resp.status,
+                                "ok": resp.status < 400,
+                            })
+                    except Exception as e:
+                        probe_results.append({
+                            "model": m, "status": "exception",
+                            "error": str(e)[:80],
+                        })
+            working = [p for p in probe_results if p.get("ok")]
             return {
-                "count": len(models),
-                "models": models[:30],
+                "configured": configured,
+                "configured_in_list": configured in models,
+                "available_count": len(models),
+                "probed": probe_results,
+                "working_models": [p["model"] for p in working],
                 "display_instruction": (
-                    "Если count > 0 — перечисли первые 5 моделей и предложи "
-                    "юзеру установить GEMINI_MODEL=<имя> в Railway env для "
-                    "приоритетного использования. Если count == 0 — ключ "
-                    "может не иметь доступа к Gemini API; нужно в Google Cloud "
-                    "Console включить Generative Language API."
+                    "Покажи юзеру: какая модель сейчас в env (configured), "
+                    "есть ли она в available, какие из протестированных моделей "
+                    "реально ответили (working_models). Если configured не "
+                    "работает, предложи установить GEMINI_MODEL=<первая из working>."
                 ),
             }
 
