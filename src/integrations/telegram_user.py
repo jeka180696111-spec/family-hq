@@ -37,6 +37,7 @@ class UserBot:
         self._chat_id = chat_id
         self._handlers: list[MessageHandler] = []
         self._news_handlers: list[MessageHandler] = []
+        self._sidebar_handlers: list[MessageHandler] = []  # NP bot etc.
 
     def add_message_handler(self, handler: MessageHandler) -> None:
         """Register a callable to be invoked for each new HQ-group message."""
@@ -47,6 +48,11 @@ class UserBot:
         """Register a callable to be invoked for each new post from a tracked news channel."""
         self._news_handlers.append(handler)
         log.debug("news_handler_registered", total_handlers=len(self._news_handlers))
+
+    def add_sidebar_handler(self, handler: MessageHandler) -> None:
+        """Register a callable for non-HQ private chats (e.g. NP Telegram bot)."""
+        self._sidebar_handlers.append(handler)
+        log.debug("sidebar_handler_registered", total_handlers=len(self._sidebar_handlers))
 
     async def start(self) -> None:
         """Connect to Telegram and start listening for new messages."""
@@ -64,7 +70,18 @@ class UserBot:
                     except Exception:
                         log.exception("message_handler_error")
             else:
-                # Likely a tracked news channel — let news handlers decide
+                # First — let sidebar handlers (NP bot DMs etc.) try
+                handled = False
+                for handler in self._sidebar_handlers:
+                    try:
+                        res = await handler(event.message)
+                        if res:
+                            handled = True
+                    except Exception:
+                        log.exception("sidebar_handler_error")
+                if handled:
+                    return
+                # Otherwise — likely a tracked news channel
                 for handler in self._news_handlers:
                     try:
                         await handler(event.message)

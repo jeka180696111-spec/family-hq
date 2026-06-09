@@ -776,6 +776,15 @@ async def run(dry_run: bool = False) -> None:
     await news_ingestor.load_tracked_channels()
     userbot.add_news_handler(news_ingestor.handle)
 
+    # Nova Poshta Telegram-bot DM detector: forward TTNs to HQ chat
+    try:
+        from src.integrations.np_telegram_bot import make_handler as make_np_handler
+        userbot.add_sidebar_handler(
+            make_np_handler(bot_manager, chat_id, agents.get("devops"))
+        )
+    except Exception:
+        log.exception("np_telegram_handler_setup_failed")
+
     # Auto-close stale alerts every 5 min
     scheduler.add_job(
         news_ingestor.auto_close_stale,
