@@ -196,14 +196,21 @@ class BaseAgent(abc.ABC):
 
             response_text = (response_text or "").strip()
             if not response_text:
-                # If agent actually took actions (tool calls), produce a minimal
-                # confirmation so user knows something happened. If no actions,
-                # this is a genuine 'topic not mine' silence — stay quiet.
                 if actions:
                     response_text = f"{self.emoji} Готово."
                 else:
                     self._log.info("agent_silent", message=message_text[:50])
                     return AgentResponse(text="", agent_id=self.agent_id, actions_taken=actions)
+
+            # Append AI-provider signature so the user sees which model
+            # actually answered (🟦 Sonnet, 🟩 Haiku, 🟨 Gemini).
+            try:
+                from src.integrations.claude_client import signature_emoji
+                sig = signature_emoji()
+                if sig and not response_text.endswith(sig):
+                    response_text = f"{response_text}\n\n— {sig}"
+            except Exception:
+                pass
 
             sent = await self.send(response_text)
             try:

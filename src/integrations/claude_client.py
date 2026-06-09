@@ -22,13 +22,12 @@ class AIOfflineError(Exception):
 # Read by the devops ai_status tool and the dashboard.
 _AI_STATS: dict = {
     "current_provider": "claude",
+    "last_model": None,        # last model name (Sonnet / Haiku / Gemini-...)
     "last_call_at": None,
     "claude_count": 0,
     "gemini_count": 0,
     "claude_fail_count": 0,
     "gemini_fail_count": 0,
-    # Manual override — when set, force all text completes through this
-    # provider until override_until (ISO datetime) passes.
     "override_provider": None,
     "override_until": None,
 }
@@ -36,6 +35,36 @@ _AI_STATS: dict = {
 
 def get_ai_stats() -> dict:
     return dict(_AI_STATS)
+
+
+def _record_call(provider: str, ok: bool, model: str | None = None) -> None:
+    from src.utils.time import iso_now
+    if ok:
+        _AI_STATS[f"{provider}_count"] += 1
+        _AI_STATS["current_provider"] = provider
+        if model:
+            _AI_STATS["last_model"] = model
+    else:
+        _AI_STATS[f"{provider}_fail_count"] += 1
+    _AI_STATS["last_call_at"] = iso_now()
+
+
+def signature_emoji() -> str:
+    """Returns the emoji that identifies the AI which produced the last
+    successful completion. Append to agent reply so the user can see
+    at a glance which model is talking.
+
+      🟦  Claude Sonnet (premium, paid)
+      🟩  Claude Haiku  (cheap Claude)
+      🟨  Gemini        (free Google fallback)
+    """
+    prov = _AI_STATS.get("current_provider", "claude")
+    model = (_AI_STATS.get("last_model") or "").lower()
+    if prov == "gemini":
+        return "🟨"
+    if "haiku" in model:
+        return "🟩"
+    return "🟦"
 
 
 def set_provider_override(provider: str | None, until_iso: str | None = None) -> dict:
@@ -73,14 +102,6 @@ def _override_active() -> str | None:
     return prov
 
 
-def _record_call(provider: str, ok: bool) -> None:
-    from src.utils.time import iso_now
-    if ok:
-        _AI_STATS[f"{provider}_count"] += 1
-        _AI_STATS["current_provider"] = provider
-    else:
-        _AI_STATS[f"{provider}_fail_count"] += 1
-    _AI_STATS["last_call_at"] = iso_now()
 
 
 class ClaudeClient:
@@ -154,7 +175,7 @@ class ClaudeClient:
                     text = await gemini.complete(
                         system=system, messages=messages, max_tokens=max_tokens,
                     )
-                    _record_call("gemini", ok=True)
+                    _record_call("gemini", ok=True, model="gemini")
                     return text
             except Exception:
                 _record_call("gemini", ok=False)
@@ -187,7 +208,7 @@ class ClaudeClient:
             except Exception:
                 log.exception("gemini_fallback_failed")
             raise
-        _record_call("claude", ok=True)
+        _record_call("claude", ok=True, model=model)
         first_block = message.content[0]
         return first_block.text if hasattr(first_block, "text") else str(first_block)
 
@@ -217,7 +238,7 @@ class ClaudeClient:
                         system=system, messages=messages,
                         tools=tools, max_tokens=max_tokens,
                     )
-                    _record_call("gemini", ok=True)
+                    _record_call("gemini", ok=True, model="gemini")
                     return msg
             except Exception:
                 _record_call("gemini", ok=False)
@@ -230,7 +251,7 @@ class ClaudeClient:
                 max_tokens=max_tokens,
                 tools=tools,
             )
-            _record_call("claude", ok=True)
+            _record_call("claude", ok=True, model=model)
             return result
         except AIOfflineError:
             _record_call("claude", ok=False)
@@ -245,7 +266,7 @@ class ClaudeClient:
                         system=system, messages=messages,
                         tools=tools, max_tokens=max_tokens,
                     )
-                    _record_call("gemini", ok=True)
+                    _record_call("gemini", ok=True, model="gemini")
                     return msg
             except Exception:
                 log.exception("gemini_tool_fallback_failed")
