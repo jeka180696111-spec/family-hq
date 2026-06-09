@@ -1,13 +1,17 @@
-"""Google Gemini API client — used as a text fallback when Anthropic is
-unavailable (no credits, outage, rate limit).
+"""Google Gemini API client — used as a text and tool-using fallback when
+Anthropic is unavailable or when the user wants to save Claude credits.
 
-Scope: text completion only via .complete(). Tool calling is NOT
-translated — when Claude is down, agents lose tool use until it
-recovers. Health pings, parsing, dispatching and short text replies
-still work, so the system stays alive in degraded mode.
+Provides:
+  - complete() — plain text, mirrors ClaudeClient.complete()
+  - complete_with_tools() — function calling, mirrors
+    ClaudeClient.complete_with_tools() by translating Claude's
+    `input_schema` to Gemini's `functionDeclarations` and wrapping the
+    response in Anthropic-compatible duck-typed Message/Block objects.
 """
 from __future__ import annotations
 
+import json
+import uuid
 from typing import Any
 
 import aiohttp
@@ -16,15 +20,44 @@ import structlog
 log = structlog.get_logger()
 
 
-# Models to try in order if the preferred one is rejected. Newer first,
-# so we automatically pick up upgrades as Google promotes them; falls
-# back to the proven-stable 1.5-flash.
 _MODEL_CANDIDATES = (
     "gemini-2.0-flash",
     "gemini-1.5-flash-latest",
     "gemini-1.5-flash",
     "gemini-1.5-pro",
 )
+
+
+# ─── Anthropic-shape duck types ─────────────────────────────────────────
+
+class _TextBlock:
+    type = "text"
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+
+class _ToolUseBlock:
+    type = "tool_use"
+    def __init__(self, name: str, tool_input: dict, block_id: str) -> None:
+        self.name = name
+        self.input = tool_input
+        self.id = block_id
+
+
+class _Usage:
+    def __init__(self, input_tokens: int = 0, output_tokens: int = 0) -> None:
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.cache_creation_input_tokens = 0
+        self.cache_read_input_tokens = 0
+
+
+class _GeminiMessage:
+    role = "assistant"
+    def __init__(self, content: list, stop_reason: str, usage: _Usage) -> None:
+        self.content = content
+        self.stop_reason = stop_reason
+        self.usage = usage
 
 
 class GeminiClient:
@@ -103,3 +136,136 @@ class GeminiClient:
                     last_err = f"{m}: {e}"
                     continue
         raise RuntimeError(f"Gemini: all models failed. Last error: {last_err[:200]}")
+
+    # ─── Tool calling (Claude-compatible adapter) ─────────────────────
+
+    @staticmethod
+    def _translate_tools(claude_tools: list[dict]) -> list[dict]:
+        """Convert Claude tool defs (`name`/`description`/`input_schema`)
+        to Gemini function declarations."""
+        decls = []
+        for t in claude_tools or []:
+            decls.append({
+                "name": t.get("name", ""),
+                "description": (t.get("description") or "")[:1024],
+                "parameters": t.get("input_schema") or {"type": "object", "properties": {}},
+            })
+        return [{"functionDeclarations": decls}] if decls else []
+
+    @staticmethod
+    def _translate_messages_with_tools(messages: list[dict]) -> list[dict]:
+        """Translate Claude-style message history (which may include
+        tool_result blocks) to Gemini contents."""
+        contents: list[dict] = []
+        for m in messages or []:
+            role = m.get("role", "user")
+            gem_role = "user" if role == "user" else "model"
+            content = m.get("content", "")
+            if isinstance(content, str):
+                contents.append({"role": gem_role, "parts": [{"text": content}]})
+                continue
+            parts = []
+            for block in (content if isinstance(content, list) else []):
+                if not isinstance(block, dict):
+                    continue
+                btype = block.get("type")
+                if btype == "text":
+                    parts.append({"text": block.get("text", "")})
+                elif btype == "tool_use":
+                    parts.append({"functionCall": {
+                        "name": block.get("name", ""),
+                        "args": block.get("input", {}) or {},
+                    }})
+                elif btype == "tool_result":
+                    # Anthropic returns tool result with role=user in next turn
+                    val = block.get("content", "")
+                    if isinstance(val, list):
+                        val = " ".join(
+                            b.get("text", "") for b in val if isinstance(b, dict)
+                        )
+                    parts.append({"functionResponse": {
+                        "name": block.get("tool_use_id", "tool")[:60],
+                        "response": {"result": str(val)},
+                    }})
+            if parts:
+                contents.append({"role": gem_role, "parts": parts})
+        return contents
+
+    async def complete_with_tools(
+        self,
+        model: str | None = None,
+        system: str = "",
+        messages: list[dict] | None = None,
+        tools: list[dict] | None = None,
+        max_tokens: int = 2048,
+        **_: Any,
+    ) -> _GeminiMessage:
+        """Mimic ClaudeClient.complete_with_tools. Returns a duck-typed
+        Message object so callers iterating over .content / .stop_reason
+        work without changes."""
+        contents = self._translate_messages_with_tools(messages or [])
+        body: dict[str, Any] = {
+            "contents": contents,
+            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.7},
+        }
+        if system:
+            body["systemInstruction"] = {"parts": [{"text": system}]}
+        gem_tools = self._translate_tools(tools or [])
+        if gem_tools:
+            body["tools"] = gem_tools
+
+        seen: list[str] = []
+        for m in (model, self._working_model, self.model, *_MODEL_CANDIDATES):
+            if m and m not in seen:
+                seen.append(m)
+
+        last_err = "no models attempted"
+        async with aiohttp.ClientSession() as session:
+            for m in seen:
+                url = (
+                    f"https://generativelanguage.googleapis.com/v1beta/"
+                    f"models/{m}:generateContent?key={self.api_key}"
+                )
+                try:
+                    async with session.post(url, json=body) as resp:
+                        if resp.status == 404:
+                            last_err = f"{m}: not found"
+                            continue
+                        if resp.status >= 400:
+                            err_text = await resp.text()
+                            last_err = f"{m}: HTTP {resp.status}: {err_text[:120]}"
+                            continue
+                        data = await resp.json()
+                    self._working_model = m
+                    break
+                except Exception as e:
+                    last_err = f"{m}: {e}"
+                    continue
+            else:
+                raise RuntimeError(f"Gemini tool-use: {last_err[:200]}")
+
+        # Translate Gemini response → Anthropic-shape Message
+        cand = (data.get("candidates") or [{}])[0]
+        parts = (cand.get("content") or {}).get("parts") or []
+        blocks: list = []
+        has_tool_call = False
+        for p in parts:
+            if "text" in p:
+                blocks.append(_TextBlock(p["text"]))
+            elif "functionCall" in p:
+                fc = p["functionCall"]
+                blocks.append(_ToolUseBlock(
+                    name=fc.get("name", ""),
+                    tool_input=fc.get("args", {}) or {},
+                    block_id=f"toolu_{uuid.uuid4().hex[:12]}",
+                ))
+                has_tool_call = True
+        if not blocks:
+            blocks.append(_TextBlock(""))
+        stop_reason = "tool_use" if has_tool_call else "end_turn"
+        usage_meta = data.get("usageMetadata") or {}
+        usage = _Usage(
+            input_tokens=usage_meta.get("promptTokenCount", 0),
+            output_tokens=usage_meta.get("candidatesTokenCount", 0),
+        )
+        return _GeminiMessage(blocks, stop_reason, usage)

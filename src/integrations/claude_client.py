@@ -198,19 +198,58 @@ class ClaudeClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         max_tokens: int = 2048,
-    ) -> anthropic.types.Message:
+    ) -> Any:
         """
         Send a request that may involve tool use.
 
-        Returns the full Message object.
+        Returns the full Message object (anthropic.types.Message OR a
+        Gemini duck-typed adapter when the user's override is active /
+        Claude is unavailable).
         """
-        return await self._complete_with_failover(
-            model=model,
-            system=system,
-            messages=messages,
-            max_tokens=max_tokens,
-            tools=tools,
-        )
+        # Manual override — route through Gemini if user requested it
+        if _override_active() == "gemini":
+            try:
+                from src.config import get_settings
+                from src.integrations.gemini_client import GeminiClient
+                gemini = GeminiClient.from_settings(get_settings())
+                if gemini:
+                    msg = await gemini.complete_with_tools(
+                        system=system, messages=messages,
+                        tools=tools, max_tokens=max_tokens,
+                    )
+                    _record_call("gemini", ok=True)
+                    return msg
+            except Exception:
+                _record_call("gemini", ok=False)
+                log.exception("gemini_tool_override_failed_fallback_to_claude")
+        try:
+            result = await self._complete_with_failover(
+                model=model,
+                system=system,
+                messages=messages,
+                max_tokens=max_tokens,
+                tools=tools,
+            )
+            _record_call("claude", ok=True)
+            return result
+        except AIOfflineError:
+            _record_call("claude", ok=False)
+            # Auto-fallback to Gemini on Anthropic outage
+            try:
+                from src.config import get_settings
+                from src.integrations.gemini_client import GeminiClient
+                gemini = GeminiClient.from_settings(get_settings())
+                if gemini:
+                    log.warning("claude_fallback_to_gemini_with_tools")
+                    msg = await gemini.complete_with_tools(
+                        system=system, messages=messages,
+                        tools=tools, max_tokens=max_tokens,
+                    )
+                    _record_call("gemini", ok=True)
+                    return msg
+            except Exception:
+                log.exception("gemini_tool_fallback_failed")
+            raise
 
     async def _complete_with_failover(
         self,
