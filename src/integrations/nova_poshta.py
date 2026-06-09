@@ -63,6 +63,72 @@ class NovaPoshtaClient:
                 log.exception("nova_track_failed", ttn=t)
         return out
 
+    async def try_list_incoming(self, days_back: int = 30) -> list[dict]:
+        """Experimental: try several method variants to retrieve INCOMING
+        parcels (where the key holder is the recipient). Returns first
+        non-empty result. NP has no documented incoming endpoint, but
+        with the mobile-app key, some private methods may respond."""
+        from datetime import datetime, timedelta
+        end = datetime.now()
+        start = end - timedelta(days=days_back)
+        date_from = start.strftime("%d.%m.%Y")
+        date_to = end.strftime("%d.%m.%Y")
+
+        attempts = [
+            # 1) Same getDocumentList but explicit empty SenderRef + GetFullList
+            {
+                "modelName": "InternetDocument",
+                "calledMethod": "getDocumentList",
+                "methodProperties": {
+                    "DateTimeFrom": date_from, "DateTimeTo": date_to,
+                    "GetFullList": "1", "Page": "1",
+                },
+            },
+            # 2) Tracking by phone (some NP variants accept this)
+            {
+                "modelName": "TrackingDocumentGeneral",
+                "calledMethod": "getStatusDocumentsByPhone",
+                "methodProperties": {},
+            },
+            # 3) Counterparty: list of parcels where I'm the recipient
+            {
+                "modelName": "Counterparty",
+                "calledMethod": "getCounterpartyContactPersons",
+                "methodProperties": {"Ref": "", "Page": "1"},
+            },
+        ]
+
+        out: list[dict] = []
+        async with aiohttp.ClientSession() as session:
+            for body in attempts:
+                payload = {"apiKey": self.api_key, **body}
+                try:
+                    async with session.post(_API_URL, json=payload) as resp:
+                        data = await resp.json()
+                except Exception:
+                    log.exception("nova_incoming_attempt_failed",
+                                  method=body["calledMethod"])
+                    continue
+                if data.get("success") and data.get("data"):
+                    log.info("nova_incoming_attempt_ok",
+                             method=body["calledMethod"], rows=len(data["data"]))
+                    for d in data["data"]:
+                        if not isinstance(d, dict):
+                            continue
+                        out.append({
+                            "ttn": d.get("IntDocNumber") or d.get("Number") or d.get("DocNumber"),
+                            "description": d.get("Description"),
+                            "state": d.get("StateName") or d.get("Status"),
+                            "raw_method": body["calledMethod"],
+                        })
+                    if out:
+                        return out
+                else:
+                    log.info("nova_incoming_attempt_empty",
+                             method=body["calledMethod"],
+                             errors=data.get("errors") or data.get("warnings"))
+        return out
+
     async def list_recent_documents(self, days_back: int = 14) -> list[dict]:
         """Return TTNs the account holder is involved in (sender side).
 

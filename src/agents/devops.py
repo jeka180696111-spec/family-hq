@@ -305,6 +305,23 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "nova_incoming_probe",
+                "description": (
+                    "Эксперимент: проверить, может ли мобильный ключ Nova Poshta "
+                    "получить список ВХОДЯЩИХ посылок. Триггеры: «проверь входящие "
+                    "посылки NP», «попробуй мобильный ключ NP»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "use_mobile_key": {
+                            "type": "boolean",
+                            "description": "Использовать nova_poshta_mobile_key вместо business (по умолчанию true)",
+                        },
+                    },
+                },
+            },
+            {
                 "name": "parcel_track",
                 "description": (
                     "Отследить посылку Nova Poshta по ТТН. Возвращает статус, "
@@ -831,6 +848,32 @@ class DevOpsAgent(BaseAgent):
                 tool_input.get("query", ""),
                 int(tool_input.get("days_back", 365)),
             )
+        elif tool_name == "nova_incoming_probe":
+            from src.config import get_settings
+            from src.integrations.nova_poshta import NovaPoshtaClient
+            settings = get_settings()
+            use_mobile = tool_input.get("use_mobile_key", True)
+            key = (settings.nova_poshta_mobile_key if use_mobile
+                   else settings.nova_poshta_api_key)
+            if not key:
+                return {"error": (
+                    "Ключ не задан в env. Для мобильного — "
+                    "NOVA_POSHTA_MOBILE_KEY, для бизнес — NOVA_POSHTA_API_KEY"
+                )}
+            client = NovaPoshtaClient(key)
+            results = await client.try_list_incoming(days_back=30)
+            return {
+                "key_type": "mobile" if use_mobile else "business",
+                "found": len(results),
+                "items": results[:10],
+                "display_instruction": (
+                    "Если found > 0 — мобильный ключ работает! Покажи юзеру "
+                    "список ТТН + raw_method чтобы он понял какой эндпоинт сработал. "
+                    "Если found == 0 — мобильный ключ тоже не даёт входящих, "
+                    "нужен план Б (iOS Shortcut или Gmail)."
+                ),
+            }
+
         elif tool_name == "parcel_track":
             return await self._parcel_track(
                 tool_input.get("ttn", ""), tool_input.get("title", ""),
