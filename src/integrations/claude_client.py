@@ -76,16 +76,32 @@ class ClaudeClient:
         Send a completion request.
 
         Returns the text content of the first content block.
+        On Anthropic outage (both primary+backup fail), falls back to
+        Gemini for text-only responses if GEMINI_API_KEY is configured.
         """
-        message = await self._complete_with_failover(
-            model=model,
-            system=system,
-            messages=messages,
-            max_tokens=max_tokens,
-            tools=tools,
-        )
+        try:
+            message = await self._complete_with_failover(
+                model=model,
+                system=system,
+                messages=messages,
+                max_tokens=max_tokens,
+                tools=tools,
+            )
+        except AIOfflineError:
+            # Try Gemini as text fallback (no tool support)
+            try:
+                from src.config import get_settings
+                from src.integrations.gemini_client import GeminiClient
+                gemini = GeminiClient.from_settings(get_settings())
+                if gemini and not tools:
+                    log.warning("claude_fallback_to_gemini")
+                    return await gemini.complete(
+                        system=system, messages=messages, max_tokens=max_tokens,
+                    )
+            except Exception:
+                log.exception("gemini_fallback_failed")
+            raise
         first_block = message.content[0]
-        # TextBlock has a .text attribute; fall back to str for safety
         return first_block.text if hasattr(first_block, "text") else str(first_block)
 
     async def complete_with_tools(

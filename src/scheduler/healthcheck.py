@@ -41,17 +41,11 @@ async def check_ai_health(
         )
 
         if _ai_was_offline:
-            # Recovery!
+            # Recovery! Log only — don't spam chat. If AI was down for >5 min,
+            # the LLM-driven agents already surfaced errors organically.
             _ai_was_offline = False
             log.info("ai_recovered")
-            await bot_manager.send_message(
-                "devops",
-                chat_id,
-                "🛠️ ✅ Связь с AI восстановлена. Передаю накопленные сообщения.",
-            )
-            # Drain queue
             from src.db.queue import MessageQueue
-
             queue = MessageQueue(memory)
             queued = await queue.drain()
             if queued:
@@ -64,15 +58,8 @@ async def check_ai_health(
             _ai_was_offline = True
             _offline_since = iso_now()
             log.error("ai_offline")
-            try:
-                await bot_manager.send_message(
-                    "devops",
-                    chat_id,
-                    "🛠️ ⚠️ AI offline (Anthropic API недоступен).\n"
-                    "Принимаю сообщения в очередь. Проверяю каждые 30 сек.",
-                )
-            except Exception:
-                pass
+            # Silent — no chat push. If real outage, agent responses will fail
+            # and the user will see it through normal flow.
         return False
 
 
