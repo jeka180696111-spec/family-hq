@@ -162,3 +162,25 @@ class DriveClient:
             file_id=f.get("id"), size=size,
         )
         return {"id": f.get("id"), "url": f.get("webViewLink")}
+
+    async def download(self, file_id: str, local_path: str) -> bool:
+        """Download a Drive file to local_path. Returns True on success."""
+        if not file_id:
+            return False
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._download_sync, file_id, local_path)
+
+    def _download_sync(self, file_id: str, local_path: str) -> bool:
+        from googleapiclient.http import MediaIoBaseDownload
+        try:
+            svc = self._build()
+            request = svc.files().get_media(fileId=file_id, supportsAllDrives=True)
+            with open(local_path, "wb") as fh:
+                downloader = MediaIoBaseDownload(fh, request, chunksize=512 * 1024)
+                done = False
+                while not done:
+                    _, done = downloader.next_chunk()
+            return True
+        except Exception:
+            log.exception("drive_download_failed", file_id=file_id)
+            return False
