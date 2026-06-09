@@ -78,46 +78,50 @@ def set_provider_override(provider: str | None, until_iso: str | None = None) ->
     _AI_STATS["override_provider"] = provider
     _AI_STATS["override_until"] = until_iso
 
-    # Persist (best-effort, sync DB write via separate engine to avoid
-    # async/event-loop conflicts from sync caller contexts)
+    # Persist synchronously via sqlite3 — avoids asyncio/loop quirks that
+    # silently dropped the task when called from tool execution.
     try:
-        import asyncio
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.create_task(_persist_override(provider, until_iso))
+        _persist_override_sync(provider, until_iso)
     except Exception:
-        pass
+        log.exception("ai_override_persist_sync_failed")
 
+    log.info("ai_override_set", provider=provider, until=until_iso)
     return {
         "override_provider": provider,
         "override_until": until_iso,
     }
 
 
-async def _persist_override(provider: str | None, until_iso: str | None) -> None:
+def _persist_override_sync(provider: str | None, until_iso: str | None) -> None:
+    """Synchronous sqlite3 write — bypasses async engine reuse issues."""
+    import os
+    import sqlite3
+    db_path = os.environ.get("DB_PATH", "/data/family_hq.db")
+    if not os.path.exists(db_path):
+        return
+    conn = sqlite3.connect(db_path)
     try:
-        from sqlalchemy import select, delete, insert
-        from src.db.models import FamilyOverride
-        from src.db.migrations import init_db
         from src.utils.time import iso_now
-        engine = await init_db()
-        async with engine.begin() as conn:
-            await conn.execute(delete(FamilyOverride).where(
-                FamilyOverride.key.in_(("ai.override_provider", "ai.override_until"))
-            ))
-            now = iso_now()
-            if provider:
-                await conn.execute(insert(FamilyOverride).values(
-                    key="ai.override_provider", value=provider,
-                    updated_at=now,
-                ))
-            if until_iso:
-                await conn.execute(insert(FamilyOverride).values(
-                    key="ai.override_until", value=until_iso,
-                    updated_at=now,
-                ))
-    except Exception:
-        log.exception("ai_override_persist_failed")
+        cur = conn.cursor()
+        cur.execute(
+            "DELETE FROM family_overrides WHERE key IN ('ai.override_provider', 'ai.override_until')"
+        )
+        now = iso_now()
+        if provider:
+            cur.execute(
+                "INSERT INTO family_overrides (key, value, updated_at) VALUES (?, ?, ?)",
+                ("ai.override_provider", provider, now),
+            )
+        if until_iso:
+            cur.execute(
+                "INSERT INTO family_overrides (key, value, updated_at) VALUES (?, ?, ?)",
+                ("ai.override_until", until_iso, now),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 
 
 def load_override_from_overrides(overrides: dict) -> None:
@@ -129,6 +133,11 @@ def load_override_from_overrides(overrides: dict) -> None:
         _AI_STATS["override_provider"] = prov
     if until:
         _AI_STATS["override_until"] = until
+    if prov or until:
+        log.info(
+            "ai_override_restored_from_db",
+            provider=prov, until=until,
+        )
 
 
 def _override_active() -> str | None:

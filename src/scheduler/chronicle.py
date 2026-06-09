@@ -177,16 +177,32 @@ def _render_pdf(week_number: int, start, end, photos: list,
         log.warning("chronicle_reportlab_missing")
         return b""
 
-    # Register a Unicode font so Cyrillic renders
+    # Register a Unicode font so Cyrillic renders. Bundled into the
+    # docker image via apt-get fonts-dejavu-core.
     font_name = "Helvetica"
-    for candidate in ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                      "/System/Library/Fonts/Supplemental/Arial.ttf"):
+    font_paths = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/DejaVuSans.ttf",
+        "/Library/Fonts/Arial Unicode.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "C:\\Windows\\Fonts\\arial.ttf",
+    ]
+    for candidate in font_paths:
         try:
-            pdfmetrics.registerFont(TTFont("Cyr", candidate))
-            font_name = "Cyr"
-            break
+            if os.path.exists(candidate):
+                pdfmetrics.registerFont(TTFont("Cyr", candidate))
+                font_name = "Cyr"
+                log.info("chronicle_font_loaded", path=candidate)
+                break
         except Exception:
             continue
+    else:
+        log.warning("chronicle_no_cyrillic_font",
+                    tried=font_paths,
+                    fallback="Helvetica (cyrillic will not render)")
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4,
