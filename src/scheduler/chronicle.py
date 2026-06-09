@@ -52,7 +52,7 @@ async def generate_weekly_chronicle(memory: Any, bot_manager: Any, chat_id: int,
         if drive_client:
             try:
                 folder_id = await drive_client.ensure_path([
-                    "📖 Хроника", str(end.year),
+                    "📖 Хроника семьи", str(end.year),
                 ])
                 with tempfile.NamedTemporaryFile(
                         suffix=".pdf", delete=False) as tmp:

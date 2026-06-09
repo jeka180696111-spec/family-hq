@@ -396,6 +396,24 @@ class DevOpsAgent(BaseAgent):
                 "input_schema": {"type": "object", "properties": {}},
             },
             {
+                "name": "chronicle_now",
+                "description": (
+                    "Сгенерировать PDF-хронику семьи прямо сейчас за последние "
+                    "N дней. Сохранит в Drive '📖 Хроника семьи/<год>/' и пришлёт "
+                    "ссылку. Триггеры: «сгенерируй хронику», «хроника сейчас», "
+                    "«сделай PDF за неделю»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "days_back": {
+                            "type": "integer",
+                            "description": "За сколько дней назад (по умолчанию 7)",
+                        },
+                    },
+                },
+            },
+            {
                 "name": "battery_autonomy",
                 "description": (
                     "Прогноз сколько часов хватит батареи инвертора при текущем "
@@ -928,6 +946,25 @@ class DevOpsAgent(BaseAgent):
             return await self._vacuum_start(tool_input.get("name", ""), tool_input.get("mode", "auto"))
         elif tool_name == "vacuum_stop":
             return await self._vacuum_stop(tool_input.get("name", ""))
+
+        elif tool_name == "chronicle_now":
+            from src.config import get_settings
+            from src.integrations.drive import DriveClient
+            from src.scheduler.chronicle import generate_weekly_chronicle
+            days_back = int(tool_input.get("days_back", 7))
+            # The job uses fixed 7-day window from now_kyiv(). Reuse it.
+            await generate_weekly_chronicle(
+                self._memory, self._bots, self._chat_id,
+                DriveClient.from_settings(get_settings()),
+            )
+            return {
+                "status": "started",
+                "display_instruction": (
+                    "Скажи юзеру: «📖 Запустил генерацию хроники, ссылку "
+                    "пришлю сразу как готова». Сам PDF Прораб не показывает — "
+                    "хроника шлёт отдельным сообщением со ссылкой на Drive."
+                ),
+            }
 
         elif tool_name == "battery_autonomy":
             return await self._battery_autonomy()
