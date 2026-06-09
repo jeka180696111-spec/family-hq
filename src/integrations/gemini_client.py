@@ -21,14 +21,20 @@ log = structlog.get_logger()
 
 
 _MODEL_CANDIDATES = (
-    # Newest first — auto-promotes when Google ships new ones
+    # Lite first — higher free-tier quotas, fewer 429s under family usage
+    "gemini-flash-lite-latest",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash-lite",
+    "gemini-2.0-flash-lite-001",
+    # Then full flash variants (lower quota, often quota-exhausted on free tier)
     "gemini-2.5-flash",
-    "gemini-2.5-pro",
     "gemini-2.0-flash",
     "gemini-2.0-flash-001",
     "gemini-1.5-flash-latest",
     "gemini-1.5-flash-002",
     "gemini-1.5-flash",
+    # Pro variants last — tightest quota, but most capable
+    "gemini-2.5-pro",
     "gemini-1.5-pro-latest",
     "gemini-1.5-pro-002",
     "gemini-1.5-pro",
@@ -148,7 +154,11 @@ class GeminiClient:
                     async with session.post(url, json=body) as resp:
                         if resp.status == 404:
                             last_err = f"{m}: model not found"
-                            log.info("gemini_model_skip", model=m)
+                            log.info("gemini_model_skip", model=m, reason="404")
+                            continue
+                        if resp.status == 429:
+                            last_err = f"{m}: quota exhausted (429)"
+                            log.info("gemini_model_skip", model=m, reason="quota")
                             continue
                         if resp.status >= 400:
                             err = await resp.text()
