@@ -538,8 +538,15 @@ async def run(dry_run: bool = False) -> None:
         from src.utils.family import apply_overrides
         async with engine.begin() as conn:
             rows = list(await conn.execute(select(FamilyOverride)))
-        apply_overrides({r.key: r.value for r in rows})
+        ovr = {r.key: r.value for r in rows}
+        apply_overrides(ovr)
         log.info("family_overrides_loaded", count=len(rows))
+        # Restore AI provider override that survived previous shutdowns
+        try:
+            from src.integrations.claude_client import load_override_from_overrides
+            load_override_from_overrides(ovr)
+        except Exception:
+            log.exception("ai_override_restore_failed")
     except Exception:
         log.exception("family_overrides_load_failed")
 

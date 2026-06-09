@@ -68,16 +68,67 @@ def signature_emoji() -> str:
 
 
 def set_provider_override(provider: str | None, until_iso: str | None = None) -> dict:
-    """Force-route subsequent text completes through `provider` until
-    `until_iso` (Kyiv-local) passes. Pass provider=None to clear."""
+    """Force-route subsequent completes through `provider` until
+    `until_iso` (Kyiv-local) passes. Pass provider=None to clear.
+
+    Persists to family_overrides table so Railway restarts don't wipe it.
+    """
     if provider not in (None, "claude", "gemini"):
         return {"error": "provider must be 'claude', 'gemini', or null"}
     _AI_STATS["override_provider"] = provider
     _AI_STATS["override_until"] = until_iso
+
+    # Persist (best-effort, sync DB write via separate engine to avoid
+    # async/event-loop conflicts from sync caller contexts)
+    try:
+        import asyncio
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.create_task(_persist_override(provider, until_iso))
+    except Exception:
+        pass
+
     return {
         "override_provider": provider,
         "override_until": until_iso,
     }
+
+
+async def _persist_override(provider: str | None, until_iso: str | None) -> None:
+    try:
+        from sqlalchemy import select, delete, insert
+        from src.db.models import FamilyOverride
+        from src.db.migrations import init_db
+        from src.utils.time import iso_now
+        engine = await init_db()
+        async with engine.begin() as conn:
+            await conn.execute(delete(FamilyOverride).where(
+                FamilyOverride.key.in_(("ai.override_provider", "ai.override_until"))
+            ))
+            now = iso_now()
+            if provider:
+                await conn.execute(insert(FamilyOverride).values(
+                    key="ai.override_provider", value=provider,
+                    updated_at=now,
+                ))
+            if until_iso:
+                await conn.execute(insert(FamilyOverride).values(
+                    key="ai.override_until", value=until_iso,
+                    updated_at=now,
+                ))
+    except Exception:
+        log.exception("ai_override_persist_failed")
+
+
+def load_override_from_overrides(overrides: dict) -> None:
+    """Read persisted override from the family_overrides dict (loaded by
+    main on startup). Call after apply_overrides so module state matches DB."""
+    prov = overrides.get("ai.override_provider")
+    until = overrides.get("ai.override_until")
+    if prov:
+        _AI_STATS["override_provider"] = prov
+    if until:
+        _AI_STATS["override_until"] = until
 
 
 def _override_active() -> str | None:
@@ -240,8 +291,9 @@ class ClaudeClient:
                     )
                     _record_call("gemini", ok=True, model="gemini")
                     return msg
-            except Exception:
+            except Exception as e:
                 _record_call("gemini", ok=False)
+                _AI_STATS["last_gemini_error"] = str(e)[:200]
                 log.exception("gemini_tool_override_failed_fallback_to_claude")
         try:
             result = await self._complete_with_failover(
