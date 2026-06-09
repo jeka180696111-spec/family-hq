@@ -20,3 +20,4 @@ jinja2
 matplotlib>=3.8
 fastapi>=0.115
 uvicorn[standard]>=0.32
+reportlab>=4.0

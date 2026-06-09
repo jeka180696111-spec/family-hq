@@ -21,11 +21,39 @@ log = structlog.get_logger()
 
 
 _MODEL_CANDIDATES = (
+    # Newest first — auto-promotes when Google ships new ones
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
     "gemini-2.0-flash",
+    "gemini-2.0-flash-001",
     "gemini-1.5-flash-latest",
+    "gemini-1.5-flash-002",
     "gemini-1.5-flash",
+    "gemini-1.5-pro-latest",
+    "gemini-1.5-pro-002",
     "gemini-1.5-pro",
 )
+
+
+async def discover_models(api_key: str) -> list[str]:
+    """Call /v1beta/models to get the actual list this key can use."""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                if resp.status >= 400:
+                    return []
+                data = await resp.json()
+    except Exception:
+        log.exception("gemini_discover_failed")
+        return []
+    out = []
+    for m in data.get("models") or []:
+        name = (m.get("name") or "").replace("models/", "")
+        methods = m.get("supportedGenerationMethods") or []
+        if "generateContent" in methods and "gemini" in name:
+            out.append(name)
+    return out
 
 
 # ─── Anthropic-shape duck types ─────────────────────────────────────────

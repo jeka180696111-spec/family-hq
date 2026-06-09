@@ -677,6 +677,17 @@ async def run(dry_run: bool = False) -> None:
     except Exception:
         log.exception("parcel_poll_setup_failed")
 
+    # Weekly Family Chronicle PDF every Sunday 20:00
+    try:
+        from src.integrations.drive import DriveClient
+        from src.scheduler.chronicle import register_chronicle_job
+        register_chronicle_job(
+            scheduler, memory, bot_manager, chat_id,
+            DriveClient.from_settings(settings),
+        )
+    except Exception:
+        log.exception("chronicle_setup_failed")
+
 
     # Unified morning brief at 07:00 — one message from Прораб with
     # news / weather (clothing + walk window) / baby / plans / systems.

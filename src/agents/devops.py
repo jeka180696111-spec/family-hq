@@ -365,6 +365,16 @@ class DevOpsAgent(BaseAgent):
                 "input_schema": {"type": "object", "properties": {}},
             },
             {
+                "name": "gemini_discover_models",
+                "description": (
+                    "Узнать какие модели Gemini доступны для текущего "
+                    "GEMINI_API_KEY. Полезно когда fallback падает с "
+                    "«модель не найдена». Триггеры: «какие модели Gemini», "
+                    "«проверь модели Gemini», «список Gemini»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
                 "name": "gemini_ping",
                 "description": (
                     "Проверить что Gemini API (резервный AI) отвечает. "
@@ -382,6 +392,16 @@ class DevOpsAgent(BaseAgent):
                     "НЕ вызывай на: «привет», «на связи», «как дела», "
                     "обращения к другим агентам, любые упоминания других имён "
                     "(Штурман/Няня/Дозорный и т.д.)."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "battery_autonomy",
+                "description": (
+                    "Прогноз сколько часов хватит батареи инвертора при текущем "
+                    "потреблении + рекомендации что выключить чтобы продлить. "
+                    "Триггеры: «на сколько хватит батареи», «автономность», "
+                    "«сколько проживём без света», «что выключить»."
                 ),
                 "input_schema": {"type": "object", "properties": {}},
             },
@@ -854,6 +874,25 @@ class DevOpsAgent(BaseAgent):
             )
             return stats
 
+        elif tool_name == "gemini_discover_models":
+            from src.config import get_settings
+            from src.integrations.gemini_client import discover_models
+            key = getattr(get_settings(), "gemini_api_key", "")
+            if not key:
+                return {"error": "GEMINI_API_KEY не задан"}
+            models = await discover_models(key)
+            return {
+                "count": len(models),
+                "models": models[:30],
+                "display_instruction": (
+                    "Если count > 0 — перечисли первые 5 моделей и предложи "
+                    "юзеру установить GEMINI_MODEL=<имя> в Railway env для "
+                    "приоритетного использования. Если count == 0 — ключ "
+                    "может не иметь доступа к Gemini API; нужно в Google Cloud "
+                    "Console включить Generative Language API."
+                ),
+            }
+
         elif tool_name == "gemini_ping":
             from src.config import get_settings
             from src.integrations.gemini_client import GeminiClient
@@ -889,6 +928,9 @@ class DevOpsAgent(BaseAgent):
             return await self._vacuum_start(tool_input.get("name", ""), tool_input.get("mode", "auto"))
         elif tool_name == "vacuum_stop":
             return await self._vacuum_stop(tool_input.get("name", ""))
+
+        elif tool_name == "battery_autonomy":
+            return await self._battery_autonomy()
 
         elif tool_name == "solar_status":
             return await self._solar_status()
@@ -1714,6 +1756,104 @@ class DevOpsAgent(BaseAgent):
         ]}
 
     # ─── Solar (LuxCloud) ────────────────────────────────────────────
+
+    # Battery capacity in kWh — for Lux 6kW the user has ~109 kWh worth
+    # configured (showing 96% = 104 kWh free). Hardcoded per his install;
+    # could move to env later.
+    _BATTERY_CAPACITY_KWH = 109.0
+
+    async def _battery_autonomy(self) -> dict:
+        """Compute hours/minutes remaining at current discharge rate +
+        suggest devices to turn off if draw is high."""
+        from src.config import get_settings
+        from src.integrations.luxcloud import LuxCloudClient
+        from src.integrations.tuya import TuyaClient
+        settings = get_settings()
+        lux = LuxCloudClient.from_settings(settings)
+        if not lux:
+            return {"error": "LuxCloud не настроен"}
+        try:
+            rt = await lux.runtime()
+        except Exception as e:
+            return {"error": f"Инвертор недоступен: {e}"}
+
+        battery_pct = float(rt.get("battery_pct") or 0)
+        discharge_w = float(rt.get("battery_discharge_w") or 0)
+        charge_w = float(rt.get("battery_charge_w") or 0)
+        home_w = float(rt.get("home_consumption_w") or 0)
+        on_grid = (charge_w > 30) or (float(rt.get("grid_import_w") or 0) > 30)
+
+        # If we're on grid, no autonomy concern — but we can still
+        # answer "if grid goes out NOW, what's the runtime?"
+        effective_w = discharge_w if discharge_w > 0 else home_w
+        remaining_kwh = (battery_pct / 100.0) * self._BATTERY_CAPACITY_KWH
+        runtime_h = remaining_kwh / (effective_w / 1000.0) if effective_w > 0 else None
+        if runtime_h is None or runtime_h > 999:
+            runtime_str = "практически бесконечно (нет нагрузки)"
+            runtime_minutes = None
+        else:
+            total_min = int(runtime_h * 60)
+            h, m = divmod(total_min, 60)
+            runtime_str = f"{h}ч {m:02d}мин"
+            runtime_minutes = total_min
+
+        # Device-by-device suggestions from Tuya
+        recommendations: list[str] = []
+        try:
+            tuya = TuyaClient.from_settings(settings)
+            if tuya:
+                devices = await tuya.list_devices()
+                # Score each ON device by power draw
+                heavy = []
+                for d in devices:
+                    name = d.get("name") or ""
+                    on = None
+                    power = None
+                    for s in (d.get("status") or []):
+                        c = s.get("code", "")
+                        v = s.get("value")
+                        if (c == "switch" or c.startswith("switch_")) and not c.startswith("switch_led"):
+                            if on is None:
+                                on = bool(v)
+                        if c in ("cur_power", "power"):
+                            try:
+                                power = float(v) / 10 if v and v > 50 else float(v or 0)
+                            except (TypeError, ValueError):
+                                pass
+                    if on:
+                        heavy.append((name, power or 0))
+                heavy.sort(key=lambda x: -x[1])
+                # If we have less than 3 hours OR draw > 300W — suggest
+                if (runtime_minutes is not None and runtime_minutes < 180) or effective_w > 300:
+                    for name, p in heavy[:3]:
+                        if p > 0:
+                            recommendations.append(f"выключить {name} (-{int(p)}Вт)")
+                        else:
+                            recommendations.append(f"выключить {name}")
+        except Exception:
+            log.exception("autonomy_tuya_failed")
+
+        if effective_w > 200 and not recommendations:
+            recommendations.append("зарядить телефоны и павербанки сейчас")
+        if runtime_minutes is not None and runtime_minutes < 60:
+            recommendations.insert(0, "🚨 батарея почти пуста — готовь свечи/фонарь")
+        elif runtime_minutes is not None and runtime_minutes < 180:
+            recommendations.insert(0, "⚠️ меньше 3 часов — собери минимум на ночь")
+
+        return {
+            "on_grid": on_grid,
+            "battery_pct": int(battery_pct),
+            "remaining_kwh": round(remaining_kwh, 1),
+            "current_draw_w": int(effective_w),
+            "runtime_pretty": runtime_str,
+            "runtime_minutes": runtime_minutes,
+            "recommendations": recommendations,
+            "display_instruction": (
+                "Покажи юзеру компактно: «🔋 X% · хватит на Yч Zмин при текущем "
+                "потреблении» + перечисли рекомендации списком. Если on_grid=true — "
+                "уточни «сейчас на сети, если свет уйдёт — хватит на Y»."
+            ),
+        }
 
     async def _solar_status(self) -> dict:
         try:
