@@ -27,11 +27,13 @@ async def generate_weekly_chronicle(
     drive_client: Any,
     start_dt: datetime | None = None,
     end_dt: datetime | None = None,
+    force: bool = False,
 ) -> None:
     """Generate one weekly PDF.
 
-    By default covers the last 7 days. Pass start_dt/end_dt (Kyiv-local
-    naive or aware) to generate a retro chronicle for a different week.
+    By default covers the last 7 days. Pass start_dt/end_dt (Kyiv-local)
+    to generate a retro chronicle for a different week. Pass force=True
+    to bypass the 'must have a photo for every day' check.
     """
     try:
         from src.utils.time import now_kyiv
@@ -40,6 +42,41 @@ async def generate_weekly_chronicle(
         week_number = end.isocalendar()[1]
 
         photos = await _collect_photos(memory, start, end)
+
+        # Rule: every day in the week must have at least one photo.
+        # If a day is missing — warn user and stop. They upload it,
+        # then re-trigger.
+        photos_days = set((p.get("when") or "")[:10] for p in photos if p.get("when"))
+        all_days = []
+        cursor = start.date()
+        end_date = (end - timedelta(seconds=1)).date()
+        while cursor <= end_date:
+            all_days.append(cursor.strftime("%Y-%m-%d"))
+            cursor += timedelta(days=1)
+        missing_days = [d for d in all_days if d not in photos_days]
+
+        if missing_days and not force:
+            if bot_manager and chat_id:
+                pretty = ", ".join(
+                    datetime.strptime(d, "%Y-%m-%d").strftime("%d.%m") for d in missing_days
+                )
+                try:
+                    await bot_manager.send_message(
+                        agent_id="devops", chat_id=chat_id,
+                        text=(
+                            f"📖 <b>Хроника {start.strftime('%d.%m')} — {end.strftime('%d.%m.%Y')}</b>\n\n"
+                            f"⚠️ Нет фото за: <b>{pretty}</b>\n\n"
+                            f"Загрузи по одному фото за каждый из этих дней "
+                            f"(в подписи поставь дату — например «прогулка 03.06»). "
+                            f"Затем скажи «сгенерируй хронику» — соберу полный PDF.\n\n"
+                            f"Или скажи «сгенерируй хронику force» — соберу с пропусками."
+                        ),
+                    )
+                except Exception:
+                    log.exception("chronicle_missing_warn_failed")
+            log.info("chronicle_missing_photos", days=missing_days)
+            return
+
         diary_stats = await _collect_diary_stats(start, end)
         feedings = await _collect_feedings(start, end)
         achievements = await _collect_achievements(start, end)
@@ -827,10 +864,11 @@ def _render_pdf(
 
 def register_chronicle_job(scheduler, memory, bot_manager, chat_id: int,
                            drive_client) -> None:
+    # Tuesday is Матвей's day of week — he was born on Tue 02.12.2025.
     scheduler.add_job(
         generate_weekly_chronicle, "cron",
-        day_of_week="sun", hour=20, minute=0, timezone="Europe/Kiev",
+        day_of_week="tue", hour=20, minute=0, timezone="Europe/Kiev",
         args=[memory, bot_manager, chat_id, drive_client],
         id="weekly_chronicle", replace_existing=True,
     )
-    log.info("chronicle_job_registered")
+    log.info("chronicle_job_registered", day="tue")

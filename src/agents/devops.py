@@ -399,10 +399,13 @@ class DevOpsAgent(BaseAgent):
                 "name": "chronicle_now",
                 "description": (
                     "Сгенерировать PDF-хронику. По умолчанию — последние 7 дней. "
-                    "Можно указать конкретный диапазон через start_date/end_date "
-                    "(для ретроспективной хроники после заполнения дневника). "
+                    "Правило: одно фото за каждый день недели. Если хотя бы один день "
+                    "без фото — НЕ генерирую, а сообщаю какие дни пустые; юзер доливает "
+                    "и снова просит. Если хочется собрать с пропусками — передай "
+                    "force=true. Можно указать конкретный период через "
+                    "start_date/end_date (для ретро-хроники). "
                     "Триггеры: «сгенерируй хронику», «хроника за 02.06-08.06», "
-                    "«сделай PDF за прошлую неделю»."
+                    "«хроника force», «сделай PDF за прошлую неделю»."
                 ),
                 "input_schema": {
                     "type": "object",
@@ -414,6 +417,10 @@ class DevOpsAgent(BaseAgent):
                         "end_date": {
                             "type": "string",
                             "description": "Конец периода (включительно)",
+                        },
+                        "force": {
+                            "type": "boolean",
+                            "description": "Игнорировать дни без фото, собрать как есть",
                         },
                     },
                 },
@@ -1010,6 +1017,7 @@ class DevOpsAgent(BaseAgent):
                 self._memory, self._bots, self._chat_id,
                 DriveClient.from_settings(get_settings()),
                 start_dt=start_dt, end_dt=end_dt,
+                force=bool(tool_input.get("force", False)),
             )
             return {
                 "status": "started",
