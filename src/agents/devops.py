@@ -333,6 +333,14 @@ class DevOpsAgent(BaseAgent):
                 "input_schema": {"type": "object", "properties": {}},
             },
             {
+                "name": "gemini_ping",
+                "description": (
+                    "Проверить что Gemini API (резервный AI) отвечает. "
+                    "Триггеры: «проверь gemini», «пингани gemini», «работает ли gemini»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
                 "name": "morning_brief_now",
                 "description": (
                     "Собрать и прислать утренний брифинг прямо сейчас. "
@@ -794,6 +802,23 @@ class DevOpsAgent(BaseAgent):
             )
         elif tool_name == "parcel_list":
             return await self._parcel_list()
+
+        elif tool_name == "gemini_ping":
+            from src.config import get_settings
+            from src.integrations.gemini_client import GeminiClient
+            client = GeminiClient.from_settings(get_settings())
+            if not client:
+                return {"status": "not_configured",
+                        "message": "GEMINI_API_KEY не задан в Railway env"}
+            try:
+                reply = await client.complete(
+                    system="Ответь одним словом: 'работаю'.",
+                    messages=[{"role": "user", "content": "ping"}],
+                    max_tokens=10,
+                )
+                return {"status": "ok", "model": client.model, "reply": reply[:80]}
+            except Exception as e:
+                return {"status": "error", "error": str(e)[:200]}
 
         elif tool_name == "morning_brief_now":
             from src.scheduler.morning_brief import send_morning_brief
