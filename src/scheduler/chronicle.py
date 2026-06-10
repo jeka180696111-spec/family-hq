@@ -877,9 +877,12 @@ def _render_pdf(
             width="100%", thickness=0.5,
             color=colors.HexColor("#CBD5E0"), spaceAfter=8,
         ))
-        photo_pairs = [(embedded_photos[i],
-                        embedded_photos[i + 1] if i + 1 < len(embedded_photos) else None)
-                       for i in range(0, len(embedded_photos), 2)]
+        # Pair photos, but if the last row would be odd → render
+        # the orphan photo solo on a wider canvas.
+        pair_count = len(embedded_photos) // 2
+        photo_pairs = [(embedded_photos[i * 2], embedded_photos[i * 2 + 1])
+                       for i in range(pair_count)]
+        orphan = embedded_photos[pair_count * 2] if len(embedded_photos) % 2 else None
         for pair in photo_pairs:
             row_cells = []
             for item in pair:
@@ -925,52 +928,123 @@ def _render_pdf(
                 except Exception:
                     pass
                 try:
-                    img = Image(path, width=7.0 * cm, height=7.0 * cm,
+                    img = Image(path, width=8.0 * cm, height=8.0 * cm,
                                 kind="proportional")
-                    cap_html = '<para align="center">'
+                    cap_lines = []
                     if is_monthly and age_label_month:
-                        cap_html += (
+                        cap_lines.append(
                             f'<font name="{bold_font}" size="11" color="#C9A961">'
-                            f'{age_label_month}</font><br/>'
+                            f'{age_label_month}</font>'
                         )
-                    cap_html += (
-                        f'<font color="#2D3748" size="10">{caption or "·"}</font><br/>'
-                        f'<font color="#A0AEC0" size="8">{when_pretty}</font></para>'
+                    if caption and caption.strip():
+                        cap_lines.append(
+                            f'<font color="#2D3748" size="10">{caption}</font>'
+                        )
+                    cap_lines.append(
+                        f'<font color="#A0AEC0" size="8">{when_pretty}</font>'
                     )
-                    cap_text = cap_html
-                    # Birthday photo gets a gold double frame + cream caption bg
+                    cap_text = (
+                        '<para align="center">' + "<br/>".join(cap_lines) + '</para>'
+                    )
                     frame_color = (colors.HexColor("#C9A961") if is_monthly
                                    else colors.HexColor("#CBD5E0"))
-                    frame_width = 1.5 if is_monthly else 0.6
+                    frame_width = 1.5 if is_monthly else 0.4
                     caption_bg = (colors.HexColor("#F0E4C4") if is_monthly
-                                  else colors.white)
+                                  else None)
+                    style_rules = [
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                        ("TOPPADDING", (0, 0), (-1, -1), 2),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                        ("BOX", (0, 0), (-1, -1), frame_width, frame_color),
+                    ]
+                    if caption_bg:
+                        style_rules.append(("BACKGROUND", (0, 1), (0, 1), caption_bg))
                     nt = Table([[img], [Paragraph(cap_text, body_style)]],
-                               colWidths=[7.3 * cm],
-                               style=TableStyle([
-                                   ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                                   ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                                   ("BOX", (0, 0), (0, 0), 1.5, colors.white),
-                                   ("BACKGROUND", (0, 0), (0, 0), colors.white),
-                                   ("BACKGROUND", (0, 1), (0, 1), caption_bg),
-                                   ("TOPPADDING", (0, 0), (0, 0), 4),
-                                   ("BOTTOMPADDING", (0, 0), (0, 0), 4),
-                                   ("LEFTPADDING", (0, 0), (0, 0), 4),
-                                   ("RIGHTPADDING", (0, 0), (0, 0), 4),
-                                   ("BOX", (0, 0), (-1, -1), frame_width, frame_color),
-                               ]))
+                               colWidths=[8.4 * cm],
+                               style=TableStyle(style_rules))
                     row_cells.append(nt)
                 except Exception:
                     log.exception("photo_embed_failed", path=path)
                     row_cells.append("")
-            grid = Table([row_cells], colWidths=[8.4 * cm, 8.4 * cm], hAlign="CENTER")
+            grid = Table([row_cells], colWidths=[8.7 * cm, 8.7 * cm], hAlign="CENTER")
             grid.setStyle(TableStyle([
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 4),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 2),
                 ("TOPPADDING", (0, 0), (-1, -1), 4),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
             ]))
             flow.append(grid)
+
+        # Lone last photo — center it large, no white box
+        if orphan:
+            path, caption, when = orphan
+            when_pretty = when
+            is_monthly_o = False
+            age_label_o = ""
+            try:
+                photo_dt = datetime.strptime(when, "%Y-%m-%d")
+                when_pretty = photo_dt.strftime("%d.%m")
+                if photo_dt.day == 2:
+                    is_monthly_o = True
+                    BABY_DOB = datetime(2025, 12, 2)
+                    months = ((photo_dt.year - BABY_DOB.year) * 12 +
+                              (photo_dt.month - BABY_DOB.month))
+                    if months > 0:
+                        if months < 12:
+                            age_label_o = f"🎂 {months} МЕС"
+                        elif months == 12:
+                            age_label_o = "🎂 1 ГОД"
+                        else:
+                            yrs = months // 12
+                            rem = months % 12
+                            yrs_word = ("ГОД" if yrs == 1
+                                        else "ГОДА" if 2 <= yrs <= 4
+                                        else "ЛЕТ")
+                            age_label_o = (f"🎂 {yrs} {yrs_word}"
+                                           + (f" {rem} МЕС" if rem else ""))
+            except Exception:
+                pass
+            try:
+                img_big = Image(path, width=11.0 * cm, height=11.0 * cm,
+                                kind="proportional")
+                cap_lines = []
+                if is_monthly_o and age_label_o:
+                    cap_lines.append(
+                        f'<font name="{bold_font}" size="13" color="#C9A961">'
+                        f'{age_label_o}</font>'
+                    )
+                if caption and caption.strip():
+                    cap_lines.append(
+                        f'<font color="#2D3748" size="11">{caption}</font>'
+                    )
+                cap_lines.append(
+                    f'<font color="#A0AEC0" size="9">{when_pretty}</font>'
+                )
+                cap_text = ('<para align="center">' + "<br/>".join(cap_lines) +
+                            '</para>')
+                frame_color_o = (colors.HexColor("#C9A961") if is_monthly_o
+                                 else colors.HexColor("#CBD5E0"))
+                style_rules = [
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("TOPPADDING", (0, 0), (-1, -1), 2),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                    ("BOX", (0, 0), (-1, -1),
+                     1.8 if is_monthly_o else 0.4, frame_color_o),
+                ]
+                if is_monthly_o:
+                    style_rules.append(
+                        ("BACKGROUND", (0, 1), (0, 1), colors.HexColor("#F0E4C4"))
+                    )
+                solo = Table([[img_big], [Paragraph(cap_text, body_style)]],
+                             colWidths=[11.5 * cm], hAlign="CENTER",
+                             style=TableStyle(style_rules))
+                flow.append(Spacer(1, 0.2 * cm))
+                flow.append(solo)
+            except Exception:
+                log.exception("photo_embed_orphan_failed", path=path)
 
     # ─── Достижения / Achievements ───
     if achievements:
