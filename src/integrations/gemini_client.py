@@ -95,19 +95,27 @@ class _GeminiMessage:
 
 
 class GeminiClient:
-    def __init__(self, api_key: str, model: str = "gemini-1.5-flash") -> None:
-        self.api_key = api_key
-        # Normalise: strip 'models/' prefix and whitespace
+    def __init__(self, api_key: str, model: str = "gemini-1.5-flash",
+                 extra_keys: list[str] | None = None) -> None:
+        # First key is the primary; extras are tried in order on
+        # 429/403/permission errors (multi-account quota pooling).
+        self.api_keys: list[str] = [api_key] + [k for k in (extra_keys or []) if k]
+        self.api_key = api_key  # backward compat for callers reading .api_key
         self.model = (model or "").strip().replace("models/", "")
         self._working_model: str | None = None
+        self._working_key_idx: int = 0
 
     @classmethod
     def from_settings(cls, settings: Any) -> "GeminiClient | None":
         key = getattr(settings, "gemini_api_key", "")
-        model = getattr(settings, "gemini_model", "gemini-2.0-flash-exp")
+        model = getattr(settings, "gemini_model", "gemini-1.5-flash")
+        extras_raw = getattr(settings, "gemini_api_keys", "") or ""
+        extras = [k.strip() for k in extras_raw.split(",") if k.strip()]
         if not key:
-            return None
-        return cls(key, model)
+            if not extras:
+                return None
+            key = extras.pop(0)
+        return cls(key, model, extra_keys=extras)
 
     async def complete(
         self,
@@ -145,36 +153,38 @@ class GeminiClient:
 
         last_err = "no models attempted"
         async with aiohttp.ClientSession() as session:
-            for m in seen:
-                url = (
-                    f"https://generativelanguage.googleapis.com/v1beta/"
-                    f"models/{m}:generateContent?key={self.api_key}"
-                )
-                try:
-                    async with session.post(url, json=body) as resp:
-                        if resp.status == 404:
-                            last_err = f"{m}: model not found"
-                            log.info("gemini_model_skip", model=m, reason="404")
-                            continue
-                        if resp.status == 429:
-                            last_err = f"{m}: quota exhausted (429)"
-                            log.info("gemini_model_skip", model=m, reason="quota")
-                            continue
-                        if resp.status >= 400:
-                            err = await resp.text()
-                            last_err = f"{m}: HTTP {resp.status}: {err[:120]}"
-                            continue
-                        data = await resp.json()
-                    self._working_model = m
+            # Iterate keys × models. Stop at first success.
+            for key_idx, key in enumerate(self.api_keys):
+                for m in seen:
+                    url = (
+                        f"https://generativelanguage.googleapis.com/v1beta/"
+                        f"models/{m}:generateContent?key={key}"
+                    )
                     try:
-                        return data["candidates"][0]["content"]["parts"][0]["text"]
-                    except (KeyError, IndexError):
-                        log.warning("gemini_empty_response", model=m, payload=str(data)[:200])
-                        return ""
-                except Exception as e:
-                    last_err = f"{m}: {e}"
-                    continue
-        raise RuntimeError(f"Gemini: all models failed. Last error: {last_err[:200]}")
+                        async with session.post(url, json=body) as resp:
+                            if resp.status == 404:
+                                last_err = f"key#{key_idx} {m}: not found"
+                                continue
+                            if resp.status in (429, 403):
+                                last_err = f"key#{key_idx} {m}: HTTP {resp.status}"
+                                # rotate key — likely quota/permission
+                                break
+                            if resp.status >= 400:
+                                err = await resp.text()
+                                last_err = f"key#{key_idx} {m}: HTTP {resp.status}: {err[:120]}"
+                                continue
+                            data = await resp.json()
+                        self._working_model = m
+                        self._working_key_idx = key_idx
+                        try:
+                            return data["candidates"][0]["content"]["parts"][0]["text"]
+                        except (KeyError, IndexError):
+                            log.warning("gemini_empty_response", model=m, payload=str(data)[:200])
+                            return ""
+                    except Exception as e:
+                        last_err = f"key#{key_idx} {m}: {e}"
+                        continue
+        raise RuntimeError(f"Gemini: all keys×models failed. Last: {last_err[:200]}")
 
     # ─── Tool calling (Claude-compatible adapter) ─────────────────────
 
@@ -259,28 +269,38 @@ class GeminiClient:
                 seen.append(m)
 
         last_err = "no models attempted"
+        data = None
         async with aiohttp.ClientSession() as session:
-            for m in seen:
-                url = (
-                    f"https://generativelanguage.googleapis.com/v1beta/"
-                    f"models/{m}:generateContent?key={self.api_key}"
-                )
-                try:
-                    async with session.post(url, json=body) as resp:
-                        if resp.status == 404:
-                            last_err = f"{m}: not found"
-                            continue
-                        if resp.status >= 400:
-                            err_text = await resp.text()
-                            last_err = f"{m}: HTTP {resp.status}: {err_text[:120]}"
-                            continue
-                        data = await resp.json()
-                    self._working_model = m
+            outer_break = False
+            for key_idx, key in enumerate(self.api_keys):
+                for m in seen:
+                    url = (
+                        f"https://generativelanguage.googleapis.com/v1beta/"
+                        f"models/{m}:generateContent?key={key}"
+                    )
+                    try:
+                        async with session.post(url, json=body) as resp:
+                            if resp.status == 404:
+                                last_err = f"key#{key_idx} {m}: not found"
+                                continue
+                            if resp.status in (429, 403):
+                                last_err = f"key#{key_idx} {m}: HTTP {resp.status}"
+                                break  # rotate key
+                            if resp.status >= 400:
+                                err_text = await resp.text()
+                                last_err = f"key#{key_idx} {m}: HTTP {resp.status}: {err_text[:120]}"
+                                continue
+                            data = await resp.json()
+                        self._working_model = m
+                        self._working_key_idx = key_idx
+                        outer_break = True
+                        break
+                    except Exception as e:
+                        last_err = f"key#{key_idx} {m}: {e}"
+                        continue
+                if outer_break:
                     break
-                except Exception as e:
-                    last_err = f"{m}: {e}"
-                    continue
-            else:
+            if data is None:
                 raise RuntimeError(f"Gemini tool-use: {last_err[:200]}")
 
         # Translate Gemini response → Anthropic-shape Message

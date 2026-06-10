@@ -163,6 +163,25 @@ class DriveClient:
         )
         return {"id": f.get("id"), "url": f.get("webViewLink")}
 
+    async def get_filename(self, file_id: str) -> str | None:
+        """Return the file's name in Drive (used to recover dates from
+        '2026-06-02_Matvey_...' style filenames when DB lost them)."""
+        if not file_id:
+            return None
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_filename_sync, file_id)
+
+    def _get_filename_sync(self, file_id: str) -> str | None:
+        try:
+            svc = self._build()
+            f = svc.files().get(
+                fileId=file_id, fields="name", supportsAllDrives=True,
+            ).execute()
+            return f.get("name")
+        except Exception:
+            log.exception("drive_get_filename_failed", file_id=file_id)
+            return None
+
     async def download(self, file_id: str, local_path: str) -> bool:
         """Download a Drive file to local_path. Returns True on success."""
         if not file_id:

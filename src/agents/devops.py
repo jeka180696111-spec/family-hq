@@ -1937,15 +1937,21 @@ class DevOpsAgent(BaseAgent):
     _BATTERY_CAPACITY_KWH = 109.0
 
     async def _backfill_photo_dates(self) -> dict:
-        """Re-parse captions AND drive filenames / paths / tags for existing
-        BabyPhoto rows and rewrite created_at to the captured date."""
+        """Re-parse caption + Drive filename + path/tags for every BabyPhoto
+        and rewrite created_at to the captured date. Queries Drive directly
+        for each photo's filename, which follows our 'YYYY-MM-DD_Matvey_...'
+        convention and is the most reliable date source."""
         import re
         from datetime import datetime
         from sqlalchemy import select, update as sql_update
+        from src.config import get_settings
         from src.db.models import BabyPhoto
         from src.integrations.caption_parser import parse_caption_date
+        from src.integrations.drive import DriveClient
         from src.utils.time import KYIV_TZ
         FNAME_DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+
+        drive = DriveClient.from_settings(get_settings())
 
         updated = 0
         skipped = 0
@@ -1953,12 +1959,26 @@ class DevOpsAgent(BaseAgent):
         async with self._memory._engine.begin() as conn:
             rows = list(await conn.execute(select(BabyPhoto)))
             for r in rows:
-                # 1. Caption
-                parsed = parse_caption_date(r.caption or "")
-                # 2. Drive filename — we don't store it explicitly, but
-                #    local_path / tags often contain the YYYY-MM-DD slug.
+                parsed = None
+                # 1. Drive filename (most reliable — contains the captured date)
+                if drive and r.drive_file_id:
+                    name = await drive.get_filename(r.drive_file_id)
+                    if name:
+                        m = FNAME_DATE.search(name)
+                        if m:
+                            try:
+                                parsed = datetime(
+                                    int(m.group(1)), int(m.group(2)), int(m.group(3)),
+                                    12, 0, tzinfo=KYIV_TZ,
+                                )
+                            except Exception:
+                                pass
+                # 2. Caption
                 if not parsed:
-                    for src in (r.local_path or "", r.tags or "", r.caption or ""):
+                    parsed = parse_caption_date(r.caption or "")
+                # 3. Last resort: local_path / tags
+                if not parsed:
+                    for src in (r.local_path or "", r.tags or ""):
                         m = FNAME_DATE.search(src)
                         if m:
                             try:
@@ -1990,9 +2010,8 @@ class DevOpsAgent(BaseAgent):
             "skipped_info": skipped_info[:20],
             "total": len(rows),
             "display_instruction": (
-                "Скажи юзеру: обновлено N из всего. Если есть пропущенные — "
-                "перечисли их id и подписи, юзер может назвать дату через "
-                "set_photo_date(id, date)."
+                "Скажи юзеру: обновлено N из M, пропущено P. Для пропущенных "
+                "перечисли id + caption — юзер скажет дату через set_photo_date."
             ),
         }
 
