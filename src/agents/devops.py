@@ -396,6 +396,17 @@ class DevOpsAgent(BaseAgent):
                 "input_schema": {"type": "object", "properties": {}},
             },
             {
+                "name": "backfill_photo_dates",
+                "description": (
+                    "Пересчитать даты фото малыша по подписям (для уже "
+                    "загруженных фото где created_at сохранён как время "
+                    "загрузки вместо реальной даты события). Триггеры: "
+                    "«пересчитай даты фото», «backfill фото», «фото не "
+                    "находятся по датам»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
                 "name": "chronicle_now",
                 "description": (
                     "Сгенерировать PDF-хронику. По умолчанию — последние 7 дней. "
@@ -985,6 +996,9 @@ class DevOpsAgent(BaseAgent):
             return await self._vacuum_start(tool_input.get("name", ""), tool_input.get("mode", "auto"))
         elif tool_name == "vacuum_stop":
             return await self._vacuum_stop(tool_input.get("name", ""))
+
+        elif tool_name == "backfill_photo_dates":
+            return await self._backfill_photo_dates()
 
         elif tool_name == "chronicle_now":
             from datetime import datetime, timedelta
@@ -1860,6 +1874,43 @@ class DevOpsAgent(BaseAgent):
     # configured (showing 96% = 104 kWh free). Hardcoded per his install;
     # could move to env later.
     _BATTERY_CAPACITY_KWH = 109.0
+
+    async def _backfill_photo_dates(self) -> dict:
+        """Re-parse captions of existing BabyPhoto rows and rewrite
+        created_at to the captured date. One-off fix for the bug where
+        upload time was stored instead of event date."""
+        from sqlalchemy import select, update as sql_update
+        from src.db.models import BabyPhoto
+        from src.integrations.caption_parser import parse_caption_date
+        updated = 0
+        skipped = 0
+        async with self._memory._engine.begin() as conn:
+            rows = list(await conn.execute(select(BabyPhoto)))
+            for r in rows:
+                cap = r.caption or ""
+                parsed = parse_caption_date(cap)
+                if not parsed:
+                    skipped += 1
+                    continue
+                new_iso = parsed.isoformat()
+                if r.created_at == new_iso:
+                    continue
+                await conn.execute(
+                    sql_update(BabyPhoto).where(BabyPhoto.id == r.id).values(
+                        created_at=new_iso,
+                    )
+                )
+                updated += 1
+        return {
+            "updated": updated,
+            "skipped_no_date_in_caption": skipped,
+            "total": len(rows),
+            "display_instruction": (
+                "Скажи юзеру сколько обновлено и сколько пропущено. "
+                "Пропущенные — те где в подписи нет распознаваемой даты "
+                "(нужна типа '03.06', 'прогулка 3 июня', 'роддом', '2 мес')."
+            ),
+        }
 
     async def _battery_autonomy(self) -> dict:
         """Compute hours/minutes remaining at current discharge rate +

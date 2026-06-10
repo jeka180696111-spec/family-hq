@@ -80,7 +80,9 @@ async def archive_photo(
         log.info("baby_photo_drive_skipped_no_client")
         upload_error = "drive_not_configured"
 
-    # Persist record
+    # Persist record. created_at = the *captured* date (from the
+    # caption or today) so chronicle queries by date find photos on
+    # the day they DEPICT, not the day they were uploaded.
     db_id = None
     try:
         from sqlalchemy import insert
@@ -91,8 +93,8 @@ async def archive_photo(
                 drive_file_id=drive_file_id,
                 caption=safe_caption or None,
                 age_label=age,
-                tags=f"baby,matvey,{age},{when.strftime('%Y-%m')}",
-                created_at=iso_now(),
+                tags=f"baby,matvey,{age},{captured.strftime('%Y-%m')}",
+                created_at=captured.isoformat(),
             ))
             db_id = res.inserted_primary_key[0] if res.inserted_primary_key else None
     except Exception:
