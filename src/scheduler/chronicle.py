@@ -688,7 +688,7 @@ def _render_pdf(
         from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib.units import cm
         from reportlab.platypus import (
-            HRFlowable, Image, Paragraph, SimpleDocTemplate,
+            HRFlowable, Image, KeepTogether, Paragraph, SimpleDocTemplate,
             Spacer, Table, TableStyle,
         )
     except ImportError:
@@ -1206,15 +1206,11 @@ def _render_pdf(
             flow.append(Paragraph(line, body_style))
 
     # ─── Декоративная концовка ───
-    flow.append(Spacer(1, 1.0 * cm))
+    flow.append(Spacer(1, 0.6 * cm))
     ornament_style = ParagraphStyle(
         "Ornament", fontName=sym_font, fontSize=22, leading=26,
         alignment=1, textColor=colors.HexColor("#C9A961"),
     )
-    flow.append(Paragraph(
-        '<para align="center">❦ ❦ ❦</para>', ornament_style,
-    ))
-    flow.append(Spacer(1, 0.4 * cm))
     closing_style = ParagraphStyle(
         "Closing", fontName=text_font, fontSize=10, leading=15,
         alignment=1, textColor=colors.HexColor("#718096"),
@@ -1263,12 +1259,18 @@ def _render_pdf(
          "Спасибо, что ты есть."),
     ]
     epigraph = EPIGRAPHS[week_number % len(EPIGRAPHS)]
-    flow.append(Paragraph(
-        f'<para align="center"><i>{epigraph[0]}<br/>'
-        f'{epigraph[1]}<br/>'
-        f'{epigraph[2]}</i></para>',
-        closing_style,
-    ))
+    # Keep ornament + epigraph together so they don't get split across
+    # pages (which leaves an ugly empty page at the end).
+    flow.append(KeepTogether([
+        Paragraph('<para align="center">❦ ❦ ❦</para>', ornament_style),
+        Spacer(1, 0.4 * cm),
+        Paragraph(
+            f'<para align="center"><i>{epigraph[0]}<br/>'
+            f'{epigraph[1]}<br/>'
+            f'{epigraph[2]}</i></para>',
+            closing_style,
+        ),
+    ]))
 
     doc.build(flow, onFirstPage=_decorate, onLaterPages=_decorate)
     return buf.getvalue()

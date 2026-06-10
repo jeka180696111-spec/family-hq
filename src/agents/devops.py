@@ -452,6 +452,22 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "set_photo_caption",
+                "description": (
+                    "Вручную поставить подпись под конкретное фото "
+                    "(если в Drive имя без подписи). Триггеры: «подпиши "
+                    "фото 17 — Матвей улыбается», «caption фото 8»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "photo_id": {"type": "integer"},
+                        "caption": {"type": "string"},
+                    },
+                    "required": ["photo_id", "caption"],
+                },
+            },
+            {
                 "name": "set_photo_date",
                 "description": (
                     "Установить дату для конкретного фото вручную (если backfill "
@@ -1125,6 +1141,23 @@ class DevOpsAgent(BaseAgent):
             return await self._sync_photos_with_drive(
                 months=int(tool_input.get("months", 3))
             )
+
+        elif tool_name == "set_photo_caption":
+            from sqlalchemy import update as sql_update
+            from src.db.models import BabyPhoto
+            photo_id = int(tool_input.get("photo_id", 0))
+            caption = (tool_input.get("caption") or "").strip()[:120]
+            if not (photo_id and caption):
+                return {"error": "photo_id и caption обязательны"}
+            async with self._memory._engine.begin() as conn:
+                res = await conn.execute(
+                    sql_update(BabyPhoto).where(BabyPhoto.id == photo_id).values(
+                        caption=caption,
+                    )
+                )
+            if not res.rowcount:
+                return {"error": f"Фото id={photo_id} не найдено"}
+            return {"updated_id": photo_id, "caption": caption}
 
         elif tool_name == "set_photo_date":
             return await self._set_photo_date(
