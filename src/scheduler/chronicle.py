@@ -81,6 +81,8 @@ async def generate_weekly_chronicle(
         feedings = await _collect_feedings(start, end)
         achievements = await _collect_achievements(start, end)
         vaccines = await _collect_vaccines(start, end)
+        doctor_visits = await _collect_doctor_visits(start, end)
+        growth = await _collect_growth(start, end)
         outages = await _collect_outages(memory, start, end)
 
         # One photo per day, chronological. Within a day take the latest.
@@ -126,6 +128,8 @@ async def generate_weekly_chronicle(
             feedings=feedings,
             achievements=achievements,
             vaccines=vaccines,
+            doctor_visits=doctor_visits,
+            growth=growth,
             outages=outages,
             nanny_note=nanny_note,
         )
@@ -484,6 +488,113 @@ async def _collect_vaccines(start, end) -> list[dict]:
     return out
 
 
+async def _collect_doctor_visits(start, end) -> list[dict]:
+    """Read 'Врач' sheet for visits this week. Columns:
+    num, date, age, type, doctor/clinic, diagnosis, recommendations."""
+    try:
+        from src.config import get_settings
+        from src.integrations.sheets import SheetsClient
+        s = get_settings()
+        if not (s.google_service_account_json and s.sheet_baby_id):
+            return []
+        sheets = SheetsClient(s.google_service_account_json, s.sheet_baby_id, "")
+        if sheets._gc is None:
+            import gspread
+            from google.oauth2.service_account import Credentials
+            creds = Credentials.from_service_account_info(
+                s.google_service_account_json,
+                scopes=["https://www.googleapis.com/auth/spreadsheets"],
+            )
+            sheets._gc = gspread.authorize(creds)
+
+        def _read():
+            ws = sheets._gc.open_by_key(s.sheet_baby_id).worksheet("Врач")
+            return ws.get_all_values()
+        try:
+            all_rows = await sheets._run_sync(_read)
+        except Exception:
+            log.exception("chronicle_doctor_read_failed")
+            return []
+    except Exception:
+        log.exception("chronicle_doctor_setup_failed")
+        return []
+    out = []
+    for row in all_rows:
+        if len(row) < 4:
+            continue
+        date_s = (row[1] or "").strip()
+        try:
+            dt = datetime.strptime(date_s, "%d.%m.%Y")
+        except ValueError:
+            continue
+        start_naive = start.replace(tzinfo=None) if start.tzinfo else start
+        end_naive = end.replace(tzinfo=None) if end.tzinfo else end
+        if not (start_naive.date() <= dt.date() <= end_naive.date()):
+            continue
+        out.append({
+            "date": date_s,
+            "age": row[2] if len(row) > 2 else "",
+            "type": row[3] if len(row) > 3 else "",
+            "doctor": row[4] if len(row) > 4 else "",
+            "diagnosis": row[5] if len(row) > 5 else "",
+            "notes": row[6] if len(row) > 6 else "",
+        })
+    return out
+
+
+async def _collect_growth(start, end) -> list[dict]:
+    """Read 'Рост' sheet for measurements this week.
+    Columns: date, age, weight_g, height_cm, notes."""
+    try:
+        from src.config import get_settings
+        from src.integrations.sheets import SheetsClient
+        s = get_settings()
+        if not (s.google_service_account_json and s.sheet_baby_id):
+            return []
+        sheets = SheetsClient(s.google_service_account_json, s.sheet_baby_id, "")
+        if sheets._gc is None:
+            import gspread
+            from google.oauth2.service_account import Credentials
+            creds = Credentials.from_service_account_info(
+                s.google_service_account_json,
+                scopes=["https://www.googleapis.com/auth/spreadsheets"],
+            )
+            sheets._gc = gspread.authorize(creds)
+
+        def _read():
+            ws = sheets._gc.open_by_key(s.sheet_baby_id).worksheet("Рост")
+            return ws.get_all_values()
+        try:
+            all_rows = await sheets._run_sync(_read)
+        except Exception:
+            log.exception("chronicle_growth_read_failed")
+            return []
+    except Exception:
+        log.exception("chronicle_growth_setup_failed")
+        return []
+    out = []
+    for row in all_rows:
+        if len(row) < 4:
+            continue
+        date_s = (row[0] or "").strip()
+        try:
+            dt = datetime.strptime(date_s, "%d.%m.%Y")
+        except ValueError:
+            continue
+        start_naive = start.replace(tzinfo=None) if start.tzinfo else start
+        end_naive = end.replace(tzinfo=None) if end.tzinfo else end
+        if not (start_naive.date() <= dt.date() <= end_naive.date()):
+            continue
+        out.append({
+            "date": date_s,
+            "age": row[1] if len(row) > 1 else "",
+            "weight_g": row[2] if len(row) > 2 else "",
+            "height_cm": row[3] if len(row) > 3 else "",
+            "notes": row[4] if len(row) > 4 else "",
+        })
+    return out
+
+
 async def _collect_outages(memory: Any, start, end) -> list[dict]:
     from src.db.models import PowerOutage
     async with memory._engine.connect() as conn:
@@ -553,6 +664,8 @@ def _render_pdf(
     feedings: list,
     achievements: list,
     vaccines: list,
+    doctor_visits: list,
+    growth: list,
     outages: list,
     nanny_note: str = "",
 ) -> bytes:
@@ -572,16 +685,38 @@ def _render_pdf(
     text_font, bold_font, sym_font = _register_fonts()
 
     def _decorate(canvas, doc_):
+        """Album style: cream background, double gold frame, corner dots, footer."""
+        gold = colors.HexColor("#C9A961")
+        cream = colors.HexColor("#FBF7F0")
         canvas.saveState()
-        canvas.setStrokeColor(colors.HexColor("#C9D6E0"))
-        canvas.setLineWidth(0.4)
+        # Cream page background
+        canvas.setFillColor(cream)
+        canvas.rect(0, 0, A4[0], A4[1], fill=1, stroke=0)
+        # Outer gold frame
+        canvas.setStrokeColor(gold)
+        canvas.setLineWidth(0.6)
         canvas.rect(1.0 * cm, 1.0 * cm,
                     A4[0] - 2.0 * cm, A4[1] - 2.0 * cm)
+        # Inner thinner frame
+        canvas.setStrokeColor(colors.HexColor("#9E823F"))
+        canvas.setLineWidth(0.2)
+        canvas.rect(1.4 * cm, 1.4 * cm,
+                    A4[0] - 2.8 * cm, A4[1] - 2.8 * cm)
+        # Corner dots
+        canvas.setFillColor(gold)
+        for x, y in [
+            (1.4 * cm, 1.4 * cm),
+            (A4[0] - 1.4 * cm, 1.4 * cm),
+            (1.4 * cm, A4[1] - 1.4 * cm),
+            (A4[0] - 1.4 * cm, A4[1] - 1.4 * cm),
+        ]:
+            canvas.circle(x, y, 0.15 * cm, fill=1, stroke=0)
+        # Footer
         canvas.setFont(text_font, 8)
-        canvas.setFillColor(colors.HexColor("#A0AEC0"))
+        canvas.setFillColor(gold)
         canvas.drawCentredString(
             A4[0] / 2, 0.55 * cm,
-            f"Семейная хроника · неделя №{week_number} · {start.year}",
+            f"✦ Семейная хроника · неделя №{week_number} · {start.year} ✦",
         )
         canvas.restoreState()
 
@@ -681,6 +816,19 @@ def _render_pdf(
         add("🌟", "достижений", len(achievements))
     if vaccines:
         add("💉", "прививок", len(vaccines))
+    if doctor_visits:
+        add("🩺", "визитов к врачу", len(doctor_visits))
+    if growth:
+        # Show latest weight/height in the cards
+        latest = growth[-1]
+        if latest.get("weight_g"):
+            try:
+                kg = float(latest["weight_g"]) / 1000.0
+                add("⚖️", "вес", f"{kg:.2f} кг")
+            except (TypeError, ValueError):
+                pass
+        if latest.get("height_cm"):
+            add("📏", "рост", f"{latest['height_cm']} см")
     if outages:
         add("⚡", "отключений", len(outages))
 
@@ -734,18 +882,41 @@ def _render_pdf(
                 path, caption, when = item
                 # Format YYYY-MM-DD → DD.MM for the photo caption
                 when_pretty = when
+                is_monthly = False
+                age_label_month = ""
                 try:
-                    when_pretty = datetime.strptime(when, "%Y-%m-%d").strftime("%d.%m")
+                    photo_dt = datetime.strptime(when, "%Y-%m-%d")
+                    when_pretty = photo_dt.strftime("%d.%m")
+                    if photo_dt.day == 2:  # 02 of any month = месячный праздник
+                        is_monthly = True
+                        # Calculate how many months Matvey turned
+                        BABY_DOB = datetime(2025, 12, 2)
+                        months = ((photo_dt.year - BABY_DOB.year) * 12 +
+                                  (photo_dt.month - BABY_DOB.month))
+                        if months > 0:
+                            age_label_month = f"🎂 {months} МЕС"
                 except Exception:
                     pass
                 try:
                     img = Image(path, width=7.0 * cm, height=7.0 * cm,
                                 kind="proportional")
-                    cap_text = (
-                        f'<para align="center">'
+                    cap_html = '<para align="center">'
+                    if is_monthly and age_label_month:
+                        cap_html += (
+                            f'<font name="{bold_font}" size="11" color="#C9A961">'
+                            f'{age_label_month}</font><br/>'
+                        )
+                    cap_html += (
                         f'<font color="#2D3748" size="10">{caption or "·"}</font><br/>'
                         f'<font color="#A0AEC0" size="8">{when_pretty}</font></para>'
                     )
+                    cap_text = cap_html
+                    # Birthday photo gets a gold double frame + cream caption bg
+                    frame_color = (colors.HexColor("#C9A961") if is_monthly
+                                   else colors.HexColor("#CBD5E0"))
+                    frame_width = 1.5 if is_monthly else 0.6
+                    caption_bg = (colors.HexColor("#F0E4C4") if is_monthly
+                                  else colors.white)
                     nt = Table([[img], [Paragraph(cap_text, body_style)]],
                                colWidths=[7.3 * cm],
                                style=TableStyle([
@@ -753,11 +924,12 @@ def _render_pdf(
                                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                                    ("BOX", (0, 0), (0, 0), 1.5, colors.white),
                                    ("BACKGROUND", (0, 0), (0, 0), colors.white),
+                                   ("BACKGROUND", (0, 1), (0, 1), caption_bg),
                                    ("TOPPADDING", (0, 0), (0, 0), 4),
                                    ("BOTTOMPADDING", (0, 0), (0, 0), 4),
                                    ("LEFTPADDING", (0, 0), (0, 0), 4),
                                    ("RIGHTPADDING", (0, 0), (0, 0), 4),
-                                   ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#CBD5E0")),
+                                   ("BOX", (0, 0), (-1, -1), frame_width, frame_color),
                                ]))
                     row_cells.append(nt)
                 except Exception:
@@ -845,6 +1017,68 @@ def _render_pdf(
                 body_style,
             ))
 
+    # ─── Визиты к врачу ───
+    if doctor_visits:
+        flow.append(Paragraph(
+            f"{_icon(sym_font, '🩺')} Визиты к врачу", h2_style,
+        ))
+        flow.append(HRFlowable(
+            width="100%", thickness=0.5,
+            color=colors.HexColor("#CBD5E0"), spaceAfter=8,
+        ))
+        for v in doctor_visits:
+            head = (
+                f'{_icon(sym_font, "◆")} '
+                f'<font name="{bold_font}" color="#2C5282">{v.get("date", "")}</font>'
+                f' — <font name="{bold_font}">{v.get("type", "")}</font>'
+            )
+            if v.get("doctor"):
+                head += f' <font color="#4A5568">· {v["doctor"]}</font>'
+            flow.append(Paragraph(head, body_style))
+            extras = []
+            if v.get("diagnosis"):
+                extras.append(f'<font color="#2C5282">{v["diagnosis"]}</font>')
+            if v.get("notes"):
+                extras.append(f'<font color="#718096">{v["notes"]}</font>')
+            if extras:
+                flow.append(Paragraph(
+                    "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;" + " · ".join(extras),
+                    sub_style,
+                ))
+
+    # ─── Рост / вес ───
+    if growth:
+        flow.append(Paragraph(
+            f"{_icon(sym_font, '📏')} Рост и вес", h2_style,
+        ))
+        flow.append(HRFlowable(
+            width="100%", thickness=0.5,
+            color=colors.HexColor("#CBD5E0"), spaceAfter=8,
+        ))
+        for g in growth:
+            parts = []
+            if g.get("weight_g"):
+                try:
+                    kg = float(g["weight_g"]) / 1000.0
+                    parts.append(f'<font name="{bold_font}">⚖️ {kg:.2f} кг</font>')
+                except (TypeError, ValueError):
+                    parts.append(f'<font name="{bold_font}">⚖️ {g["weight_g"]}г</font>')
+            if g.get("height_cm"):
+                parts.append(f'<font name="{bold_font}">📐 {g["height_cm"]} см</font>')
+            line = (
+                f'{_icon(sym_font, "◆")} '
+                f'<font name="{bold_font}" color="#2C5282">{g.get("date", "")}</font>'
+                + (" — " + " · ".join(parts) if parts else "")
+            )
+            if g.get("age"):
+                line += f' <font color="#718096" size="9">({g["age"]})</font>'
+            flow.append(Paragraph(line, body_style))
+            if g.get("notes"):
+                flow.append(Paragraph(
+                    f'&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<font color="#718096">{g["notes"]}</font>',
+                    sub_style,
+                ))
+
     # ─── Outages ───
     if outages:
         total_min = sum(o.get("duration_min") or 0 for o in outages)
@@ -863,6 +1097,27 @@ def _render_pdf(
             if o.get("duration_min"):
                 line += f" — {o['duration_min']} мин"
             flow.append(Paragraph(line, body_style))
+
+    # ─── Декоративная концовка ───
+    flow.append(Spacer(1, 1.0 * cm))
+    ornament_style = ParagraphStyle(
+        "Ornament", fontName=sym_font, fontSize=22, leading=26,
+        alignment=1, textColor=colors.HexColor("#C9A961"),
+    )
+    flow.append(Paragraph(
+        '<para align="center">❦ ❦ ❦</para>', ornament_style,
+    ))
+    flow.append(Spacer(1, 0.4 * cm))
+    closing_style = ParagraphStyle(
+        "Closing", fontName=text_font, fontSize=10, leading=15,
+        alignment=1, textColor=colors.HexColor("#718096"),
+    )
+    flow.append(Paragraph(
+        '<para align="center"><i>Каждая неделя становится страницей.<br/>'
+        'Каждая страница — частью книги.<br/>'
+        'Каждая книга — частью жизни.</i></para>',
+        closing_style,
+    ))
 
     doc.build(flow, onFirstPage=_decorate, onLaterPages=_decorate)
     return buf.getvalue()
