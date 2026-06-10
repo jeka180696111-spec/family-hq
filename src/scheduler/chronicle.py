@@ -973,17 +973,19 @@ def _render_pdf(
                 except Exception:
                     log.exception("photo_embed_failed", path=path)
                     row_cells.append("")
-            grid = Table([row_cells], colWidths=[8.7 * cm, 8.7 * cm], hAlign="CENTER")
+            # Chess pattern — alternate pair rows LEFT/RIGHT for visual rhythm
+            row_align = "LEFT" if (len(flow) % 2 == 0) else "RIGHT"
+            grid = Table([row_cells], colWidths=[8.7 * cm, 8.7 * cm], hAlign=row_align)
             grid.setStyle(TableStyle([
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 2),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 2),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
             ]))
             flow.append(grid)
 
-        # Lone last photo — center it large, no white box
+        # Lone last photo — same size as grid, alternating side
         if orphan:
             path, caption, when = orphan
             when_pretty = when
@@ -1013,20 +1015,20 @@ def _render_pdf(
             except Exception:
                 pass
             try:
-                img_big = Image(path, width=11.0 * cm, height=11.0 * cm,
-                                kind="proportional")
+                img_solo = Image(path, width=8.0 * cm, height=8.0 * cm,
+                                 kind="proportional")
                 cap_lines = []
                 if is_monthly_o and age_label_o:
                     cap_lines.append(
-                        f'<font name="{bold_font}" size="13" color="#C9A961">'
+                        f'<font name="{bold_font}" size="11" color="#C9A961">'
                         f'{age_label_o}</font>'
                     )
                 if caption and caption.strip():
                     cap_lines.append(
-                        f'<font color="#2D3748" size="11">{caption}</font>'
+                        f'<font color="#2D3748" size="10">{caption}</font>'
                     )
                 cap_lines.append(
-                    f'<font color="#A0AEC0" size="9">{when_pretty}</font>'
+                    f'<font color="#A0AEC0" size="8">{when_pretty}</font>'
                 )
                 cap_text = ('<para align="center">' + "<br/>".join(cap_lines) +
                             '</para>')
@@ -1038,16 +1040,16 @@ def _render_pdf(
                     ("TOPPADDING", (0, 0), (-1, -1), 2),
                     ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
                     ("BOX", (0, 0), (-1, -1),
-                     1.8 if is_monthly_o else 0.4, frame_color_o),
+                     1.5 if is_monthly_o else 0.4, frame_color_o),
                 ]
                 if is_monthly_o:
                     style_rules.append(
                         ("BACKGROUND", (0, 1), (0, 1), colors.HexColor("#F0E4C4"))
                     )
-                solo = Table([[img_big], [Paragraph(cap_text, body_style)]],
-                             colWidths=[11.5 * cm], hAlign="CENTER",
+                solo_align = "LEFT" if (len(flow) % 2 == 0) else "RIGHT"
+                solo = Table([[img_solo], [Paragraph(cap_text, body_style)]],
+                             colWidths=[8.4 * cm], hAlign=solo_align,
                              style=TableStyle(style_rules))
-                flow.append(Spacer(1, 0.2 * cm))
                 flow.append(solo)
             except Exception:
                 log.exception("photo_embed_orphan_failed", path=path)
@@ -1205,14 +1207,12 @@ def _render_pdf(
                 line += f" — {o['duration_min']} мин"
             flow.append(Paragraph(line, body_style))
 
-    # ─── Декоративная концовка ───
-    flow.append(Spacer(1, 0.6 * cm))
-    ornament_style = ParagraphStyle(
-        "Ornament", fontName=sym_font, fontSize=22, leading=26,
-        alignment=1, textColor=colors.HexColor("#C9A961"),
-    )
+    # ─── Компактная декоративная концовка ───
+    # Single-line closer so it always fits at the end of the last content
+    # page and doesn't create an empty trailing page.
+    flow.append(Spacer(1, 0.4 * cm))
     closing_style = ParagraphStyle(
-        "Closing", fontName=text_font, fontSize=10, leading=15,
+        "Closing", fontName=text_font, fontSize=10, leading=14,
         alignment=1, textColor=colors.HexColor("#718096"),
     )
     # Rotating closing epigraph — different one per week so the book
@@ -1259,18 +1259,15 @@ def _render_pdf(
          "Спасибо, что ты есть."),
     ]
     epigraph = EPIGRAPHS[week_number % len(EPIGRAPHS)]
-    # Keep ornament + epigraph together so they don't get split across
-    # pages (which leaves an ugly empty page at the end).
-    flow.append(KeepTogether([
-        Paragraph('<para align="center">❦ ❦ ❦</para>', ornament_style),
-        Spacer(1, 0.4 * cm),
-        Paragraph(
-            f'<para align="center"><i>{epigraph[0]}<br/>'
-            f'{epigraph[1]}<br/>'
-            f'{epigraph[2]}</i></para>',
-            closing_style,
-        ),
-    ]))
+    # Compose one line of joined text — fits anywhere
+    joined = " ".join(epigraph)
+    flow.append(Paragraph(
+        f'<para align="center">'
+        f'<font color="#C9A961" size="13">❦</font> '
+        f'<i>{joined}</i> '
+        f'<font color="#C9A961" size="13">❦</font></para>',
+        closing_style,
+    ))
 
     doc.build(flow, onFirstPage=_decorate, onLaterPages=_decorate)
     return buf.getvalue()
