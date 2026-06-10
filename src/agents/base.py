@@ -224,10 +224,18 @@ class BaseAgent(abc.ABC):
                 self._log.exception("save_agent_response_failed")
             return AgentResponse(text=response_text, agent_id=self.agent_id, actions_taken=actions)
 
-        except Exception:
+        except Exception as exc:
             self._log.exception("handle_failed", message=message_text[:50])
-            error_text = f"{self.emoji} Произошла ошибка при обработке. Попробуй ещё раз."
-            await self.send(error_text)
+            err_type = type(exc).__name__
+            err_msg = str(exc)[:300] or "—"
+            error_text = (
+                f"{self.emoji} Произошла ошибка при обработке.\n"
+                f"<code>{err_type}: {err_msg}</code>"
+            )
+            try:
+                await self.send(error_text)
+            except Exception:
+                await self.send(f"{self.emoji} Ошибка: {err_type}")
             return AgentResponse(text=error_text, agent_id=self.agent_id)
         finally:
             typing_task.cancel()
