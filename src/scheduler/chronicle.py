@@ -894,7 +894,27 @@ def _render_pdf(
                         months = ((photo_dt.year - BABY_DOB.year) * 12 +
                                   (photo_dt.month - BABY_DOB.month))
                         if months > 0:
-                            age_label_month = f"🎂 {months} МЕС"
+                            # Pretty labels for monthly milestones
+                            if months < 12:
+                                age_label_month = f"🎂 {months} МЕС"
+                            elif months == 12:
+                                age_label_month = "🎂 1 ГОД"
+                            elif months % 12 == 0:
+                                yrs = months // 12
+                                # 2 года / 5 лет / 7 лет
+                                if 2 <= yrs <= 4:
+                                    age_label_month = f"🎂 {yrs} ГОДА"
+                                else:
+                                    age_label_month = f"🎂 {yrs} ЛЕТ"
+                            else:
+                                yrs = months // 12
+                                rem = months % 12
+                                yrs_word = (
+                                    "ГОД" if yrs == 1
+                                    else "ГОДА" if 2 <= yrs <= 4
+                                    else "ЛЕТ"
+                                )
+                                age_label_month = f"🎂 {yrs} {yrs_word} {rem} МЕС"
                 except Exception:
                     pass
                 try:
