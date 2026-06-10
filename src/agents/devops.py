@@ -2181,11 +2181,26 @@ class DevOpsAgent(BaseAgent):
                         captured = now
                 else:
                     captured = now
+                # Parse caption from filename. Format:
+                # 'YYYY-MM-DD_Matvey_<age>_<caption>.ext' — keep whatever
+                # comes after the third underscore as the user's note.
+                import os as _os
+                name_no_ext = _os.path.splitext(f["name"])[0]
+                caption = None
+                cap_match = re.match(
+                    r"\d{4}-\d{2}-\d{2}_Matvey_[^_]+_(.+)$",
+                    name_no_ext,
+                )
+                if cap_match:
+                    raw = cap_match.group(1).replace("_", " ").strip()
+                    raw = re.sub(r"^\d{1,2}\.\d{1,2}\s*", "", raw)
+                    if raw and raw.lower() != "foto":
+                        caption = raw[:120]
                 async with self._memory._engine.begin() as conn:
                     await conn.execute(insert(BabyPhoto).values(
                         local_path=f["name"],
                         drive_file_id=f["id"],
-                        caption=None,
+                        caption=caption,
                         age_label="",
                         tags=f"baby,matvey,{ym}",
                         created_at=captured.isoformat(),
