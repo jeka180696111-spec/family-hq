@@ -414,6 +414,25 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "sync_photos_with_drive",
+                "description": (
+                    "Просканировать папки 👶 Матвей · Фото в Google Drive и "
+                    "добавить в БД отсутствующие записи (для фото которые юзер "
+                    "загружал руками через веб-интерфейс Drive, минуя Family HQ). "
+                    "Триггеры: «синхронизируй фото с диском», «подцепи фото из "
+                    "диска», «у меня в Drive больше чем в БД»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "months": {
+                            "type": "integer",
+                            "description": "Сколько месяцев назад сканировать (по умолчанию 3)",
+                        },
+                    },
+                },
+            },
+            {
                 "name": "cleanup_orphan_photos",
                 "description": (
                     "Удалить из БД фото-записи без drive_file_id — это «мусор» от "
@@ -1100,6 +1119,11 @@ class DevOpsAgent(BaseAgent):
         elif tool_name == "cleanup_orphan_photos":
             return await self._cleanup_orphan_photos(
                 dry_run=bool(tool_input.get("dry_run", False))
+            )
+
+        elif tool_name == "sync_photos_with_drive":
+            return await self._sync_photos_with_drive(
+                months=int(tool_input.get("months", 3))
             )
 
         elif tool_name == "set_photo_date":
@@ -2092,6 +2116,93 @@ class DevOpsAgent(BaseAgent):
                 "Покажи юзеру как таблицу: id · дата · подпись · ☁️ если в Drive. "
                 "Если suspicious=true — пометь ⚠️ значит дата = сегодня и подписи нет. "
                 "Предложи юзеру set_photo_date для проблемных."
+            ),
+        }
+
+    async def _sync_photos_with_drive(self, months: int = 3) -> dict:
+        """Scan '👶 Матвей · Фото / YYYY-MM' folders in Drive for files not
+        present in BabyPhoto.drive_file_id; insert them with the date
+        parsed from the filename."""
+        import re
+        from datetime import datetime
+        from sqlalchemy import insert, select
+        from src.config import get_settings
+        from src.db.models import BabyPhoto
+        from src.integrations.drive import DriveClient
+        from src.utils.time import KYIV_TZ, iso_now, now_kyiv
+        FNAME_DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+
+        drive = DriveClient.from_settings(get_settings())
+        if not drive:
+            return {"error": "Drive не настроен"}
+
+        # Build the list of YYYY-MM subfolders to scan
+        now = now_kyiv()
+        scan_months: list[str] = []
+        y, m = now.year, now.month
+        for _ in range(max(1, months)):
+            scan_months.append(f"{y:04d}-{m:02d}")
+            m -= 1
+            if m == 0:
+                m = 12
+                y -= 1
+
+        # Existing drive_file_ids in DB
+        async with self._memory._engine.connect() as conn:
+            rows = list(await conn.execute(
+                select(BabyPhoto.drive_file_id).where(BabyPhoto.drive_file_id.is_not(None))
+            ))
+        existing = {r[0] for r in rows}
+
+        added = 0
+        scanned = 0
+        added_list: list[dict] = []
+        for ym in scan_months:
+            try:
+                folder_id = await drive.ensure_path(["👶 Матвей · Фото", ym])
+            except Exception:
+                continue
+            files = await drive.list_folder_files(folder_id)
+            for f in files:
+                scanned += 1
+                if f["id"] in existing:
+                    continue
+                if not f.get("mime", "").startswith("image/"):
+                    continue
+                # Parse date from filename like '2026-06-02_Matvey_...'
+                m_match = FNAME_DATE.search(f["name"])
+                if m_match:
+                    try:
+                        captured = datetime(
+                            int(m_match.group(1)), int(m_match.group(2)), int(m_match.group(3)),
+                            12, 0, tzinfo=KYIV_TZ,
+                        )
+                    except Exception:
+                        captured = now
+                else:
+                    captured = now
+                async with self._memory._engine.begin() as conn:
+                    await conn.execute(insert(BabyPhoto).values(
+                        local_path=f["name"],
+                        drive_file_id=f["id"],
+                        caption=None,
+                        age_label="",
+                        tags=f"baby,matvey,{ym}",
+                        created_at=captured.isoformat(),
+                    ))
+                added += 1
+                added_list.append({
+                    "name": f["name"], "date": captured.strftime("%Y-%m-%d"),
+                })
+        return {
+            "scanned_months": scan_months,
+            "files_scanned": scanned,
+            "added": added,
+            "added_list": added_list[:20],
+            "display_instruction": (
+                "Скажи юзеру: просканировал N папок, нашёл K файлов, добавил "
+                "M записей. Перечисли добавленные с датами. Если added > 0 — "
+                "теперь хроника увидит все фото."
             ),
         }
 

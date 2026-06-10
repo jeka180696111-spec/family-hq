@@ -163,6 +163,30 @@ class DriveClient:
         )
         return {"id": f.get("id"), "url": f.get("webViewLink")}
 
+    async def list_folder_files(self, folder_id: str) -> list[dict]:
+        """List files (id+name) inside a folder. Used by photo sync."""
+        if not folder_id:
+            return []
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._list_folder_sync, folder_id)
+
+    def _list_folder_sync(self, folder_id: str) -> list[dict]:
+        try:
+            svc = self._build()
+            res = svc.files().list(
+                q=f"'{folder_id}' in parents and trashed=false",
+                fields="files(id,name,mimeType)",
+                pageSize=200, corpora="allDrives", **_LIST_KW,
+            ).execute()
+            return [
+                {"id": f["id"], "name": f.get("name", ""), "mime": f.get("mimeType", "")}
+                for f in (res.get("files") or [])
+                if "folder" not in f.get("mimeType", "")
+            ]
+        except Exception:
+            log.exception("drive_list_folder_failed", folder_id=folder_id)
+            return []
+
     async def get_filename(self, file_id: str) -> str | None:
         """Return the file's name in Drive (used to recover dates from
         '2026-06-02_Matvey_...' style filenames when DB lost them)."""
