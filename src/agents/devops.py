@@ -2009,9 +2009,8 @@ class DevOpsAgent(BaseAgent):
 
     async def _backfill_photo_dates(self) -> dict:
         """Re-parse caption + Drive filename + path/tags for every BabyPhoto
-        and rewrite created_at to the captured date. Queries Drive directly
-        for each photo's filename, which follows our 'YYYY-MM-DD_Matvey_...'
-        convention and is the most reliable date source."""
+        and rewrite created_at + caption."""
+        import os as _os
         import re
         from datetime import datetime
         from sqlalchemy import select, update as sql_update
@@ -2021,33 +2020,35 @@ class DevOpsAgent(BaseAgent):
         from src.integrations.drive import DriveClient
         from src.utils.time import KYIV_TZ
         FNAME_DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+        FNAME_CAP = re.compile(r"\d{4}-\d{2}-\d{2}_Matvey_[^_]+_(.+)$")
+        DUP_DATE = re.compile(r"^\d{1,2}\.\d{1,2}\s*")
 
         drive = DriveClient.from_settings(get_settings())
 
         updated = 0
+        captions_added = 0
         skipped = 0
         skipped_info: list[dict] = []
         async with self._memory._engine.begin() as conn:
             rows = list(await conn.execute(select(BabyPhoto)))
             for r in rows:
                 parsed = None
-                # 1. Drive filename (most reliable — contains the captured date)
+                drive_name = None
                 if drive and r.drive_file_id:
-                    name = await drive.get_filename(r.drive_file_id)
-                    if name:
-                        m = FNAME_DATE.search(name)
-                        if m:
-                            try:
-                                parsed = datetime(
-                                    int(m.group(1)), int(m.group(2)), int(m.group(3)),
-                                    12, 0, tzinfo=KYIV_TZ,
-                                )
-                            except Exception:
-                                pass
-                # 2. Caption
+                    drive_name = await drive.get_filename(r.drive_file_id)
+                # Date: drive filename → caption → local_path/tags
+                if drive_name:
+                    m = FNAME_DATE.search(drive_name)
+                    if m:
+                        try:
+                            parsed = datetime(
+                                int(m.group(1)), int(m.group(2)), int(m.group(3)),
+                                12, 0, tzinfo=KYIV_TZ,
+                            )
+                        except Exception:
+                            pass
                 if not parsed:
                     parsed = parse_caption_date(r.caption or "")
-                # 3. Last resort: local_path / tags
                 if not parsed:
                     for src in (r.local_path or "", r.tags or ""):
                         m = FNAME_DATE.search(src)
@@ -2060,29 +2061,46 @@ class DevOpsAgent(BaseAgent):
                                 break
                             except Exception:
                                 continue
+                # Caption: pull from drive filename if DB row has no caption
+                new_caption = None
+                if not (r.caption and r.caption.strip()) and drive_name:
+                    name_no_ext = _os.path.splitext(drive_name)[0]
+                    cap_match = FNAME_CAP.match(name_no_ext)
+                    if cap_match:
+                        raw = cap_match.group(1).replace("_", " ").strip()
+                        raw = DUP_DATE.sub("", raw)
+                        if raw and raw.lower() != "foto":
+                            new_caption = raw[:120]
+
+                values: dict = {}
+                if parsed:
+                    new_iso = parsed.isoformat()
+                    if r.created_at != new_iso:
+                        values["created_at"] = new_iso
+                if new_caption:
+                    values["caption"] = new_caption
+                if values:
+                    await conn.execute(
+                        sql_update(BabyPhoto).where(BabyPhoto.id == r.id).values(**values)
+                    )
+                    if "created_at" in values:
+                        updated += 1
+                    if "caption" in values:
+                        captions_added += 1
                 if not parsed:
                     skipped += 1
                     skipped_info.append({
                         "id": r.id, "caption": (r.caption or "")[:60],
                     })
-                    continue
-                new_iso = parsed.isoformat()
-                if r.created_at == new_iso:
-                    continue
-                await conn.execute(
-                    sql_update(BabyPhoto).where(BabyPhoto.id == r.id).values(
-                        created_at=new_iso,
-                    )
-                )
-                updated += 1
         return {
-            "updated": updated,
+            "updated_dates": updated,
+            "added_captions": captions_added,
             "skipped_no_date": skipped,
             "skipped_info": skipped_info[:20],
             "total": len(rows),
             "display_instruction": (
-                "Скажи юзеру: обновлено N из M, пропущено P. Для пропущенных "
-                "перечисли id + caption — юзер скажет дату через set_photo_date."
+                "Скажи юзеру: обновлено дат N, добавлено подписей M, "
+                "пропущено P без даты. Для пропущенных перечисли id."
             ),
         }
 

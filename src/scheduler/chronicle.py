@@ -637,15 +637,22 @@ def _register_fonts() -> tuple[str, str, str]:
 
     symbol_font = text_font
     for candidate in (
+        # Symbola has the widest coverage of emoji (monochrome) — preferred
         "/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf",
+        "/usr/share/fonts/truetype/ancient-scripts/Symbola.ttf",
         "/usr/share/fonts/truetype/symbola/Symbola.ttf",
+        "/usr/share/fonts/Symbola.ttf",
+        # Noto symbols cover some, but not all emoji
         "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
         "/usr/share/fonts/truetype/noto/NotoSansSymbols-Regular.ttf",
+        # Fallback to DejaVu (limited emoji)
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     ):
         if os.path.exists(candidate):
             try:
                 pdfmetrics.registerFont(TTFont("Sym", candidate))
                 symbol_font = "Sym"
+                log.info("chronicle_symbol_font_loaded", path=candidate)
                 break
             except Exception:
                 continue
@@ -1132,10 +1139,54 @@ def _render_pdf(
         "Closing", fontName=text_font, fontSize=10, leading=15,
         alignment=1, textColor=colors.HexColor("#718096"),
     )
+    # Rotating closing epigraph — different one per week so the book
+    # doesn't feel repetitive
+    EPIGRAPHS = [
+        ("Каждая неделя становится страницей.",
+         "Каждая страница — частью книги.",
+         "Каждая книга — частью жизни."),
+        ("В каждом дне — маленькое чудо.",
+         "В каждой неделе — большая история.",
+         "Они складываются в детство."),
+        ("Эти кадры мы будем пересматривать.",
+         "Эти строки мы будем перечитывать.",
+         "Эта неделя останется с нами навсегда."),
+        ("Малыш растёт быстрее, чем нам кажется.",
+         "Этот альбом — наша попытка остановить время.",
+         "И запомнить каждую мелочь."),
+        ("Сегодняшние пелёнки — завтрашние воспоминания.",
+         "Сегодняшние слёзы — завтрашние улыбки.",
+         "Спасибо, неделя, что ты была."),
+        ("Дни летят, но мы их ловим.",
+         "Каждый кадр — против забвения.",
+         "Каждое слово — для будущего читателя."),
+        ("Здесь жизнь идёт неспешно.",
+         "Здесь каждый момент — это праздник.",
+         "Здесь — мы вместе."),
+        ("Эта неделя была доброй.",
+         "Эта неделя была светлой.",
+         "Эта неделя была нашей."),
+        ("Не торопись, расти спокойно.",
+         "Мы всё равно успеем всё запомнить.",
+         "Каждое движение, каждый взгляд."),
+        ("Маленькие победы. Большие открытия.",
+         "Тёплые объятия. Сонное молочко.",
+         "Из таких недель и состоит счастье."),
+        ("Однажды Матвей откроет эту книгу.",
+         "И увидит, как сильно его любили.",
+         "С первой страницы."),
+        ("Семь дней, семь фото, одна история.",
+         "И эта история — наша.",
+         "С любовью, всегда."),
+        ("Время летит. Альбом растёт.",
+         "Малыш меняется. Любовь — нет.",
+         "Спасибо, что ты есть."),
+    ]
+    epigraph = EPIGRAPHS[week_number % len(EPIGRAPHS)]
     flow.append(Paragraph(
-        '<para align="center"><i>Каждая неделя становится страницей.<br/>'
-        'Каждая страница — частью книги.<br/>'
-        'Каждая книга — частью жизни.</i></para>',
+        f'<para align="center"><i>{epigraph[0]}<br/>'
+        f'{epigraph[1]}<br/>'
+        f'{epigraph[2]}</i></para>',
         closing_style,
     ))
 
