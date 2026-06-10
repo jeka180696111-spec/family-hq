@@ -414,6 +414,25 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "cleanup_orphan_photos",
+                "description": (
+                    "Удалить из БД фото-записи без drive_file_id — это «мусор» от "
+                    "старых неудачных загрузок (когда Drive не работал из-за SA "
+                    "quota). Они дублируют успешно загруженные фото. Триггеры: "
+                    "«почисти мусорные фото», «удали дубликаты фото», «у меня в "
+                    "БД больше чем в Drive»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "dry_run": {
+                            "type": "boolean",
+                            "description": "Только показать что удалится, не удалять (по умолчанию false)",
+                        },
+                    },
+                },
+            },
+            {
                 "name": "set_photo_date",
                 "description": (
                     "Установить дату для конкретного фото вручную (если backfill "
@@ -1076,6 +1095,11 @@ class DevOpsAgent(BaseAgent):
         elif tool_name == "list_baby_photos":
             return await self._list_baby_photos(
                 bool(tool_input.get("missing_only", False))
+            )
+
+        elif tool_name == "cleanup_orphan_photos":
+            return await self._cleanup_orphan_photos(
+                dry_run=bool(tool_input.get("dry_run", False))
             )
 
         elif tool_name == "set_photo_date":
@@ -2068,6 +2092,32 @@ class DevOpsAgent(BaseAgent):
                 "Покажи юзеру как таблицу: id · дата · подпись · ☁️ если в Drive. "
                 "Если suspicious=true — пометь ⚠️ значит дата = сегодня и подписи нет. "
                 "Предложи юзеру set_photo_date для проблемных."
+            ),
+        }
+
+    async def _cleanup_orphan_photos(self, dry_run: bool = False) -> dict:
+        """Delete BabyPhoto rows without drive_file_id — leftovers from
+        failed Drive uploads that pollute chronicle date queries."""
+        from sqlalchemy import delete, select
+        from src.db.models import BabyPhoto
+        async with self._memory._engine.begin() as conn:
+            rows = list(await conn.execute(
+                select(BabyPhoto).where(BabyPhoto.drive_file_id.is_(None))
+            ))
+            ids = [r.id for r in rows]
+            if not dry_run and ids:
+                await conn.execute(
+                    delete(BabyPhoto).where(BabyPhoto.drive_file_id.is_(None))
+                )
+        return {
+            "found_orphans": len(ids),
+            "deleted": 0 if dry_run else len(ids),
+            "ids": ids[:30],
+            "dry_run": dry_run,
+            "display_instruction": (
+                "Скажи юзеру сколько orphan-записей найдено и удалено (либо "
+                "пометь что был dry_run и удаления не было). После очистки "
+                "следующий запуск хроники возьмёт ровно те фото что в Drive."
             ),
         }
 
