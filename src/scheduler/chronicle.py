@@ -665,8 +665,29 @@ def _register_fonts() -> tuple[str, str, str]:
     return text_font, bold_font, symbol_font
 
 
-def _icon(symbol_font: str, char: str) -> str:
+def _icon(symbol_font: str, char: str, size_pt: float = 14.0) -> str:
+    """Render an emoji as an inline twemoji PNG (works for ALL emoji,
+    not just the ones Symbola happens to ship). Symbola fallback path
+    kept for graceful degradation if the PNG fetch is offline."""
+    try:
+        from src.integrations.emoji_inline import inline_emojis
+        result = inline_emojis(char, size_pt=size_pt)
+        if "<img" in result:
+            return result
+    except Exception:
+        pass
     return f'<font name="{symbol_font}">{char}</font>'
+
+
+def _safe_caption(text: str | None, size_pt: float = 12.0) -> str:
+    """Replace every emoji in a free-form user caption with an inline PNG."""
+    if not text:
+        return ""
+    try:
+        from src.integrations.emoji_inline import inline_emojis
+        return inline_emojis(text, size_pt=size_pt)
+    except Exception:
+        return text
 
 
 def _render_pdf(
@@ -883,176 +904,87 @@ def _render_pdf(
             width="100%", thickness=0.5,
             color=colors.HexColor("#CBD5E0"), spaceAfter=8,
         ))
-        # Pair photos, but if the last row would be odd → render
-        # the orphan photo solo on a wider canvas.
-        pair_count = len(embedded_photos) // 2
-        photo_pairs = [(embedded_photos[i * 2], embedded_photos[i * 2 + 1])
-                       for i in range(pair_count)]
-        orphan = embedded_photos[pair_count * 2] if len(embedded_photos) % 2 else None
-        for pair in photo_pairs:
-            row_cells = []
-            for item in pair:
-                if not item:
-                    row_cells.append("")
-                    continue
-                path, caption, when = item
-                # Format YYYY-MM-DD → DD.MM for the photo caption
-                when_pretty = when
-                is_monthly = False
-                age_label_month = ""
-                try:
-                    photo_dt = datetime.strptime(when, "%Y-%m-%d")
-                    when_pretty = photo_dt.strftime("%d.%m")
-                    if photo_dt.day == 2:  # 02 of any month = месячный праздник
-                        is_monthly = True
-                        # Calculate how many months Matvey turned
-                        BABY_DOB = datetime(2025, 12, 2)
-                        months = ((photo_dt.year - BABY_DOB.year) * 12 +
-                                  (photo_dt.month - BABY_DOB.month))
-                        if months > 0:
-                            # Pretty labels for monthly milestones
-                            if months < 12:
-                                age_label_month = f"🎂 {months} МЕС"
-                            elif months == 12:
-                                age_label_month = "🎂 1 ГОД"
-                            elif months % 12 == 0:
-                                yrs = months // 12
-                                # 2 года / 5 лет / 7 лет
-                                if 2 <= yrs <= 4:
-                                    age_label_month = f"🎂 {yrs} ГОДА"
-                                else:
-                                    age_label_month = f"🎂 {yrs} ЛЕТ"
-                            else:
-                                yrs = months // 12
-                                rem = months % 12
-                                yrs_word = (
-                                    "ГОД" if yrs == 1
-                                    else "ГОДА" if 2 <= yrs <= 4
-                                    else "ЛЕТ"
-                                )
-                                age_label_month = f"🎂 {yrs} {yrs_word} {rem} МЕС"
-                except Exception:
-                    pass
-                try:
-                    img = Image(path, width=8.0 * cm, height=8.0 * cm,
-                                kind="proportional")
-                    cap_lines = []
-                    if is_monthly and age_label_month:
-                        cap_lines.append(
-                            f'<font name="{bold_font}" size="11" color="#C9A961">'
-                            f'{age_label_month}</font>'
-                        )
-                    if caption and caption.strip():
-                        cap_lines.append(
-                            f'<font color="#2D3748" size="10">{caption}</font>'
-                        )
-                    cap_lines.append(
-                        f'<font color="#A0AEC0" size="8">{when_pretty}</font>'
-                    )
-                    cap_text = (
-                        '<para align="center">' + "<br/>".join(cap_lines) + '</para>'
-                    )
-                    frame_color = (colors.HexColor("#C9A961") if is_monthly
-                                   else colors.HexColor("#CBD5E0"))
-                    frame_width = 1.5 if is_monthly else 0.4
-                    caption_bg = (colors.HexColor("#F0E4C4") if is_monthly
-                                  else None)
-                    style_rules = [
-                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                        ("TOPPADDING", (0, 0), (-1, -1), 2),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-                        ("BOX", (0, 0), (-1, -1), frame_width, frame_color),
-                    ]
-                    if caption_bg:
-                        style_rules.append(("BACKGROUND", (0, 1), (0, 1), caption_bg))
-                    nt = Table([[img], [Paragraph(cap_text, body_style)]],
-                               colWidths=[8.4 * cm],
-                               style=TableStyle(style_rules))
-                    row_cells.append(nt)
-                except Exception:
-                    log.exception("photo_embed_failed", path=path)
-                    row_cells.append("")
-            # Chess pattern — alternate pair rows LEFT/RIGHT for visual rhythm
-            row_align = "LEFT" if (len(flow) % 2 == 0) else "RIGHT"
-            grid = Table([row_cells], colWidths=[8.7 * cm, 8.7 * cm], hAlign=row_align)
-            grid.setStyle(TableStyle([
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 2),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 2),
-                ("TOPPADDING", (0, 0), (-1, -1), 2),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-            ]))
-            flow.append(grid)
-
-        # Lone last photo — same size as grid, alternating side
-        if orphan:
-            path, caption, when = orphan
+        # True staircase — every photo on its own row, alternating
+        # LEFT / RIGHT for the zigzag rhythm the user wants.
+        for photo_idx, item in enumerate(embedded_photos):
+            if not item:
+                continue
+            path, caption, when = item
+            # Format YYYY-MM-DD → DD.MM for the photo caption
             when_pretty = when
-            is_monthly_o = False
-            age_label_o = ""
+            is_monthly = False
+            age_label_month = ""
             try:
                 photo_dt = datetime.strptime(when, "%Y-%m-%d")
                 when_pretty = photo_dt.strftime("%d.%m")
-                if photo_dt.day == 2:
-                    is_monthly_o = True
+                if photo_dt.day == 2:  # 02 of any month = месячный праздник
+                    is_monthly = True
                     BABY_DOB = datetime(2025, 12, 2)
                     months = ((photo_dt.year - BABY_DOB.year) * 12 +
                               (photo_dt.month - BABY_DOB.month))
                     if months > 0:
                         if months < 12:
-                            age_label_o = f"🎂 {months} МЕС"
+                            age_label_month = f"🎂 {months} МЕС"
                         elif months == 12:
-                            age_label_o = "🎂 1 ГОД"
+                            age_label_month = "🎂 1 ГОД"
+                        elif months % 12 == 0:
+                            yrs = months // 12
+                            if 2 <= yrs <= 4:
+                                age_label_month = f"🎂 {yrs} ГОДА"
+                            else:
+                                age_label_month = f"🎂 {yrs} ЛЕТ"
                         else:
                             yrs = months // 12
                             rem = months % 12
-                            yrs_word = ("ГОД" if yrs == 1
-                                        else "ГОДА" if 2 <= yrs <= 4
-                                        else "ЛЕТ")
-                            age_label_o = (f"🎂 {yrs} {yrs_word}"
-                                           + (f" {rem} МЕС" if rem else ""))
+                            yrs_word = (
+                                "ГОД" if yrs == 1
+                                else "ГОДА" if 2 <= yrs <= 4
+                                else "ЛЕТ"
+                            )
+                            age_label_month = f"🎂 {yrs} {yrs_word} {rem} МЕС"
             except Exception:
                 pass
             try:
-                img_solo = Image(path, width=8.0 * cm, height=8.0 * cm,
-                                 kind="proportional")
+                img = Image(path, width=8.0 * cm, height=8.0 * cm,
+                            kind="proportional")
                 cap_lines = []
-                if is_monthly_o and age_label_o:
+                if is_monthly and age_label_month:
                     cap_lines.append(
                         f'<font name="{bold_font}" size="11" color="#C9A961">'
-                        f'{age_label_o}</font>'
+                        f'{age_label_month}</font>'
                     )
                 if caption and caption.strip():
                     cap_lines.append(
-                        f'<font color="#2D3748" size="10">{caption}</font>'
+                        f'<font color="#2D3748" size="10">{_safe_caption(caption, 11)}</font>'
                     )
                 cap_lines.append(
                     f'<font color="#A0AEC0" size="8">{when_pretty}</font>'
                 )
-                cap_text = ('<para align="center">' + "<br/>".join(cap_lines) +
-                            '</para>')
-                frame_color_o = (colors.HexColor("#C9A961") if is_monthly_o
-                                 else colors.HexColor("#CBD5E0"))
+                cap_text = (
+                    '<para align="center">' + "<br/>".join(cap_lines) + '</para>'
+                )
+                frame_color = (colors.HexColor("#C9A961") if is_monthly
+                               else colors.HexColor("#CBD5E0"))
+                frame_width = 1.5 if is_monthly else 0.4
+                caption_bg = (colors.HexColor("#F0E4C4") if is_monthly
+                              else None)
                 style_rules = [
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
                     ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                     ("TOPPADDING", (0, 0), (-1, -1), 2),
                     ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-                    ("BOX", (0, 0), (-1, -1),
-                     1.5 if is_monthly_o else 0.4, frame_color_o),
+                    ("BOX", (0, 0), (-1, -1), frame_width, frame_color),
                 ]
-                if is_monthly_o:
-                    style_rules.append(
-                        ("BACKGROUND", (0, 1), (0, 1), colors.HexColor("#F0E4C4"))
-                    )
-                solo_align = "LEFT" if (len(flow) % 2 == 0) else "RIGHT"
-                solo = Table([[img_solo], [Paragraph(cap_text, body_style)]],
-                             colWidths=[8.4 * cm], hAlign=solo_align,
-                             style=TableStyle(style_rules))
-                flow.append(solo)
+                if caption_bg:
+                    style_rules.append(("BACKGROUND", (0, 1), (0, 1), caption_bg))
+                # Staircase: even-index photos LEFT, odd-index RIGHT
+                row_align = "LEFT" if (photo_idx % 2 == 0) else "RIGHT"
+                nt = Table([[img], [Paragraph(cap_text, body_style)]],
+                           colWidths=[8.4 * cm], hAlign=row_align,
+                           style=TableStyle(style_rules))
+                flow.append(nt)
             except Exception:
-                log.exception("photo_embed_orphan_failed", path=path)
+                log.exception("photo_embed_failed", path=path)
 
     # ─── Достижения / Achievements ───
     if achievements:

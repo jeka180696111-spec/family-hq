@@ -438,19 +438,33 @@ class SheetsClient:
         """Append to «Рост» (A=Дата, B=Возраст, C=Вес (г), D=Рост (см), E=Примечание)."""
         from src.utils.baby import matvey_age_short
         ws = await self._open_worksheet(self._baby_sheet_id, _GROWTH_WORKSHEET)
+        date_str = time.strftime("%d.%m.%Y")
+        weight_str = str(weight_g) if weight_g is not None else ""
+        height_str = str(height_cm) if height_cm is not None else ""
         row_values = [
-            time.strftime("%d.%m.%Y"),
+            date_str,
             matvey_age_short(time.date()),
-            str(weight_g) if weight_g is not None else "",
-            str(height_cm) if height_cm is not None else "",
+            weight_str,
+            height_str,
             details,
         ]
 
-        def _append() -> int:
+        def _append() -> tuple[int, bool]:
+            all_rows = ws.get_all_values()
+            # Skip if same date + same weight/height already logged — avoids
+            # duplicate rows when the agent's tool-loop calls us twice.
+            for row in all_rows[-30:]:
+                if (len(row) >= 4 and row[0] == date_str
+                        and row[2] == weight_str and row[3] == height_str):
+                    return len(all_rows), True
             ws.append_row(row_values, value_input_option="USER_ENTERED", table_range="A1")
-            return len(ws.get_all_values())
+            return len(ws.get_all_values()), False
 
-        row_index = await self._run_sync(_append)
+        row_index, dup = await self._run_sync(_append)
+        if dup:
+            log.info("growth_dedup_skipped", weight=weight_g, height=height_cm, date=date_str)
+            return {"row": row_index, "skipped": True, "reason": "duplicate",
+                    "sheet": _GROWTH_WORKSHEET}
         log.info("growth_appended", row=row_index, weight=weight_g, height=height_cm)
         return {"row": row_index, "sheet": _GROWTH_WORKSHEET}
 
@@ -506,18 +520,28 @@ class SheetsClient:
         ws = await self._open_worksheet(self._baby_sheet_id, _DOCTOR_WORKSHEET)
         type_label = _prefix(type_, _DOCTOR_TYPE_PREFIX) or type_
 
-        def _append() -> tuple[int, int]:
-            existing = ws.col_values(1)
+        date_str = time.strftime("%d.%m.%Y")
+
+        def _append() -> tuple[int, int, bool]:
+            all_rows = ws.get_all_values()
+            # Skip if (date, type, name) already logged today — avoids
+            # double-writes when the agent's tool-loop fires twice.
+            for row in all_rows[-30:]:
+                if (len(row) >= 4 and row[1] == date_str
+                        and row[2] == type_label and row[3] == name):
+                    return len(all_rows), -1, True
             next_num = 1
-            for val in reversed(existing):
+            for row in reversed(all_rows):
+                if not row:
+                    continue
                 try:
-                    next_num = int(val) + 1
+                    next_num = int(row[0]) + 1
                     break
-                except (ValueError, TypeError):
+                except (ValueError, TypeError, IndexError):
                     continue
             row_values = [
                 str(next_num),
-                time.strftime("%d.%m.%Y"),
+                date_str,
                 type_label,
                 name,
                 matvey_age_short(time.date()),
@@ -525,9 +549,13 @@ class SheetsClient:
                 details,
             ]
             ws.append_row(row_values, value_input_option="USER_ENTERED", table_range="A1")
-            return len(ws.get_all_values()), next_num
+            return len(ws.get_all_values()), next_num, False
 
-        row_index, next_num = await self._run_sync(_append)
+        row_index, next_num, dup = await self._run_sync(_append)
+        if dup:
+            log.info("doctor_dedup_skipped", type=type_, name=name, date=date_str)
+            return {"row": row_index, "skipped": True, "reason": "duplicate",
+                    "sheet": _DOCTOR_WORKSHEET}
         log.info("doctor_appended", row=row_index, num=next_num, type=type_, name=name)
         return {"row": row_index, "num": next_num, "sheet": _DOCTOR_WORKSHEET}
 
