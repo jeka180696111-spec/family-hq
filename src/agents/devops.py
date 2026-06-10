@@ -2240,28 +2240,56 @@ class DevOpsAgent(BaseAgent):
         }
 
     async def _cleanup_orphan_photos(self, dry_run: bool = False) -> dict:
-        """Delete BabyPhoto rows without drive_file_id — leftovers from
-        failed Drive uploads that pollute chronicle date queries."""
+        """Delete: (a) BabyPhoto rows without drive_file_id; (b) DUPLICATES
+        — multiple rows pointing to the same drive_file_id (keep newest)."""
         from sqlalchemy import delete, select
         from src.db.models import BabyPhoto
         async with self._memory._engine.begin() as conn:
-            rows = list(await conn.execute(
+            # Orphans without drive_file_id
+            orphan_rows = list(await conn.execute(
                 select(BabyPhoto).where(BabyPhoto.drive_file_id.is_(None))
             ))
-            ids = [r.id for r in rows]
-            if not dry_run and ids:
+            orphan_ids = [r.id for r in orphan_rows]
+            if not dry_run and orphan_ids:
                 await conn.execute(
                     delete(BabyPhoto).where(BabyPhoto.drive_file_id.is_(None))
                 )
+            # Duplicates: same drive_file_id, keep the row with longest
+            # caption (more info) — fallback to highest id (newest).
+            all_rows = list(await conn.execute(
+                select(BabyPhoto).where(BabyPhoto.drive_file_id.is_not(None))
+                .order_by(BabyPhoto.id.asc())
+            ))
+            by_file: dict[str, list] = {}
+            for r in all_rows:
+                by_file.setdefault(r.drive_file_id, []).append(r)
+            dup_ids_to_drop: list[int] = []
+            for fid, rows in by_file.items():
+                if len(rows) < 2:
+                    continue
+                # Pick keeper: longest caption, then highest id
+                keeper = max(
+                    rows,
+                    key=lambda x: (len(x.caption or ""), x.id),
+                )
+                for r in rows:
+                    if r.id != keeper.id:
+                        dup_ids_to_drop.append(r.id)
+            if not dry_run and dup_ids_to_drop:
+                await conn.execute(
+                    delete(BabyPhoto).where(BabyPhoto.id.in_(dup_ids_to_drop))
+                )
         return {
-            "found_orphans": len(ids),
-            "deleted": 0 if dry_run else len(ids),
-            "ids": ids[:30],
+            "found_orphans": len(orphan_ids),
+            "found_duplicates": len(dup_ids_to_drop),
+            "deleted": 0 if dry_run else len(orphan_ids) + len(dup_ids_to_drop),
+            "orphan_ids": orphan_ids[:30],
+            "duplicate_ids": dup_ids_to_drop[:30],
             "dry_run": dry_run,
             "display_instruction": (
-                "Скажи юзеру сколько orphan-записей найдено и удалено (либо "
-                "пометь что был dry_run и удаления не было). После очистки "
-                "следующий запуск хроники возьмёт ровно те фото что в Drive."
+                "Скажи юзеру: удалено N orphan-записей (без Drive) и M "
+                "дубликатов (несколько строк на один drive_file_id). "
+                "При дубликатах оставлена строка с самой длинной подписью."
             ),
         }
 

@@ -85,13 +85,19 @@ async def generate_weekly_chronicle(
         growth = await _collect_growth(start, end)
         outages = await _collect_outages(memory, start, end)
 
-        # One photo per day, chronological. Within a day take the latest.
+        # One photo per day, chronological. Within a day prefer the
+        # photo WITH the longest caption (more meaningful), then most
+        # recently uploaded.
         photos_by_day: dict[str, dict] = {}
         for p in sorted(photos, key=lambda x: x.get("when") or ""):
             day = (p.get("when") or "")[:10]
             if not day:
                 continue
-            photos_by_day[day] = p  # last wins
+            current = photos_by_day.get(day)
+            new_score = (len(p.get("caption") or ""), p.get("when") or "")
+            cur_score = (len(current.get("caption") or ""), current.get("when") or "") if current else (-1, "")
+            if new_score >= cur_score:
+                photos_by_day[day] = p
         daily_photos = sorted(photos_by_day.values(), key=lambda x: x.get("when") or "")
         daily_photos = daily_photos[:7]
 
