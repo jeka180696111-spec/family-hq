@@ -732,13 +732,19 @@ def _render_pdf(
                     row_cells.append("")
                     continue
                 path, caption, when = item
+                # Format YYYY-MM-DD → DD.MM for the photo caption
+                when_pretty = when
+                try:
+                    when_pretty = datetime.strptime(when, "%Y-%m-%d").strftime("%d.%m")
+                except Exception:
+                    pass
                 try:
                     img = Image(path, width=7.0 * cm, height=7.0 * cm,
                                 kind="proportional")
                     cap_text = (
                         f'<para align="center">'
                         f'<font color="#2D3748" size="10">{caption or "·"}</font><br/>'
-                        f'<font color="#A0AEC0" size="8">{when}</font></para>'
+                        f'<font color="#A0AEC0" size="8">{when_pretty}</font></para>'
                     )
                     nt = Table([[img], [Paragraph(cap_text, body_style)]],
                                colWidths=[7.3 * cm],

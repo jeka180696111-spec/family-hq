@@ -396,6 +396,22 @@ class DevOpsAgent(BaseAgent):
                 "input_schema": {"type": "object", "properties": {}},
             },
             {
+                "name": "set_photo_date",
+                "description": (
+                    "Установить дату для конкретного фото вручную (если backfill "
+                    "не смог автоматически). Триггеры: «дата фото 42 — 03.06», "
+                    "«поставь фото 17 на 5 июня»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "photo_id": {"type": "integer"},
+                        "date": {"type": "string", "description": "DD.MM или DD.MM.YYYY"},
+                    },
+                    "required": ["photo_id", "date"],
+                },
+            },
+            {
                 "name": "backfill_photo_dates",
                 "description": (
                     "Пересчитать даты фото малыша по подписям (для уже "
@@ -964,19 +980,58 @@ class DevOpsAgent(BaseAgent):
         elif tool_name == "gemini_ping":
             from src.config import get_settings
             from src.integrations.gemini_client import GeminiClient
-            client = GeminiClient.from_settings(get_settings())
+            settings = get_settings()
+            client = GeminiClient.from_settings(settings)
             if not client:
                 return {"status": "not_configured",
                         "message": "GEMINI_API_KEY не задан в Railway env"}
+            # Test BOTH paths: plain complete() and tool-using complete_with_tools().
+            # If lite works for plain but fails for tools, we know lite doesn't
+            # support function calling and we need a flash-variant for tool calls.
+            plain_ok = False
+            plain_err = None
+            tool_ok = False
+            tool_err = None
             try:
                 reply = await client.complete(
-                    system="Ответь одним словом: 'работаю'.",
+                    system="Ответь одним словом.",
                     messages=[{"role": "user", "content": "ping"}],
                     max_tokens=10,
                 )
-                return {"status": "ok", "model": client.model, "reply": reply[:80]}
+                plain_ok = True
             except Exception as e:
-                return {"status": "error", "error": str(e)[:200]}
+                plain_err = str(e)[:200]
+            try:
+                msg = await client.complete_with_tools(
+                    system="Используй tool get_weather с city='Odessa'.",
+                    messages=[{"role": "user", "content": "Какая погода?"}],
+                    tools=[{
+                        "name": "get_weather",
+                        "description": "Get weather",
+                        "input_schema": {
+                            "type": "object",
+                            "properties": {"city": {"type": "string"}},
+                            "required": ["city"],
+                        },
+                    }],
+                    max_tokens=100,
+                )
+                tool_ok = True
+            except Exception as e:
+                tool_err = str(e)[:200]
+            return {
+                "configured_model": client.model,
+                "working_model": client._working_model,
+                "plain_complete": "✅" if plain_ok else f"❌ {plain_err}",
+                "complete_with_tools": "✅" if tool_ok else f"❌ {tool_err}",
+                "display_instruction": (
+                    "Скажи юзеру: какая модель configured/working, "
+                    "работает ли plain и tool режимы по отдельности. "
+                    "Если plain ✅ а tool ❌ — значит модель не поддерживает "
+                    "function calling, надо в env поставить другую "
+                    "(gemini-2.0-flash, gemini-1.5-flash)."
+                ),
+            }
 
         elif tool_name == "morning_brief_now":
             from src.scheduler.morning_brief import send_morning_brief
@@ -999,6 +1054,12 @@ class DevOpsAgent(BaseAgent):
 
         elif tool_name == "backfill_photo_dates":
             return await self._backfill_photo_dates()
+
+        elif tool_name == "set_photo_date":
+            return await self._set_photo_date(
+                int(tool_input.get("photo_id", 0)),
+                tool_input.get("date", ""),
+            )
 
         elif tool_name == "chronicle_now":
             from datetime import datetime, timedelta
@@ -1876,21 +1937,43 @@ class DevOpsAgent(BaseAgent):
     _BATTERY_CAPACITY_KWH = 109.0
 
     async def _backfill_photo_dates(self) -> dict:
-        """Re-parse captions of existing BabyPhoto rows and rewrite
-        created_at to the captured date. One-off fix for the bug where
-        upload time was stored instead of event date."""
+        """Re-parse captions AND drive filenames / paths / tags for existing
+        BabyPhoto rows and rewrite created_at to the captured date."""
+        import re
+        from datetime import datetime
         from sqlalchemy import select, update as sql_update
         from src.db.models import BabyPhoto
         from src.integrations.caption_parser import parse_caption_date
+        from src.utils.time import KYIV_TZ
+        FNAME_DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+
         updated = 0
         skipped = 0
+        skipped_info: list[dict] = []
         async with self._memory._engine.begin() as conn:
             rows = list(await conn.execute(select(BabyPhoto)))
             for r in rows:
-                cap = r.caption or ""
-                parsed = parse_caption_date(cap)
+                # 1. Caption
+                parsed = parse_caption_date(r.caption or "")
+                # 2. Drive filename — we don't store it explicitly, but
+                #    local_path / tags often contain the YYYY-MM-DD slug.
+                if not parsed:
+                    for src in (r.local_path or "", r.tags or "", r.caption or ""):
+                        m = FNAME_DATE.search(src)
+                        if m:
+                            try:
+                                parsed = datetime(
+                                    int(m.group(1)), int(m.group(2)), int(m.group(3)),
+                                    12, 0, tzinfo=KYIV_TZ,
+                                )
+                                break
+                            except Exception:
+                                continue
                 if not parsed:
                     skipped += 1
+                    skipped_info.append({
+                        "id": r.id, "caption": (r.caption or "")[:60],
+                    })
                     continue
                 new_iso = parsed.isoformat()
                 if r.created_at == new_iso:
@@ -1903,14 +1986,45 @@ class DevOpsAgent(BaseAgent):
                 updated += 1
         return {
             "updated": updated,
-            "skipped_no_date_in_caption": skipped,
+            "skipped_no_date": skipped,
+            "skipped_info": skipped_info[:20],
             "total": len(rows),
             "display_instruction": (
-                "Скажи юзеру сколько обновлено и сколько пропущено. "
-                "Пропущенные — те где в подписи нет распознаваемой даты "
-                "(нужна типа '03.06', 'прогулка 3 июня', 'роддом', '2 мес')."
+                "Скажи юзеру: обновлено N из всего. Если есть пропущенные — "
+                "перечисли их id и подписи, юзер может назвать дату через "
+                "set_photo_date(id, date)."
             ),
         }
+
+    async def _set_photo_date(self, photo_id: int, date_str: str) -> dict:
+        """Manually fix the created_at of one photo (DD.MM or DD.MM.YYYY)."""
+        from datetime import datetime
+        from sqlalchemy import select, update as sql_update
+        from src.db.models import BabyPhoto
+        from src.utils.time import KYIV_TZ, now_kyiv
+
+        date_s = (date_str or "").strip()
+        parsed = None
+        for fmt in ("%d.%m.%Y", "%d.%m", "%Y-%m-%d"):
+            try:
+                parsed = datetime.strptime(date_s, fmt)
+                if fmt == "%d.%m":
+                    parsed = parsed.replace(year=now_kyiv().year)
+                parsed = parsed.replace(hour=12, minute=0, tzinfo=KYIV_TZ)
+                break
+            except ValueError:
+                continue
+        if not parsed:
+            return {"error": f"Не разобрал дату '{date_str}'. Пиши 'DD.MM' или 'DD.MM.YYYY'."}
+        async with self._memory._engine.begin() as conn:
+            res = await conn.execute(
+                sql_update(BabyPhoto).where(BabyPhoto.id == photo_id).values(
+                    created_at=parsed.isoformat(),
+                )
+            )
+        if not res.rowcount:
+            return {"error": f"Фото с id={photo_id} не найдено"}
+        return {"updated_id": photo_id, "new_date": parsed.strftime("%d.%m.%Y")}
 
     async def _battery_autonomy(self) -> dict:
         """Compute hours/minutes remaining at current discharge rate +
