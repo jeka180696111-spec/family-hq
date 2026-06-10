@@ -396,6 +396,24 @@ class DevOpsAgent(BaseAgent):
                 "input_schema": {"type": "object", "properties": {}},
             },
             {
+                "name": "list_baby_photos",
+                "description": (
+                    "Показать список фото малыша в БД: id, дата (created_at), "
+                    "подпись, есть ли в Drive. Полезно когда backfill не нашёл "
+                    "дату и нужно понять какие конкретно фото поправить вручную. "
+                    "Триггеры: «покажи фото», «список фото», «какие фото есть»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "missing_only": {
+                            "type": "boolean",
+                            "description": "Показать только те где дата подозрительная (далеко от даты загрузки или равна сейчас)",
+                        },
+                    },
+                },
+            },
+            {
                 "name": "set_photo_date",
                 "description": (
                     "Установить дату для конкретного фото вручную (если backfill "
@@ -1054,6 +1072,11 @@ class DevOpsAgent(BaseAgent):
 
         elif tool_name == "backfill_photo_dates":
             return await self._backfill_photo_dates()
+
+        elif tool_name == "list_baby_photos":
+            return await self._list_baby_photos(
+                bool(tool_input.get("missing_only", False))
+            )
 
         elif tool_name == "set_photo_date":
             return await self._set_photo_date(
@@ -2012,6 +2035,39 @@ class DevOpsAgent(BaseAgent):
             "display_instruction": (
                 "Скажи юзеру: обновлено N из M, пропущено P. Для пропущенных "
                 "перечисли id + caption — юзер скажет дату через set_photo_date."
+            ),
+        }
+
+    async def _list_baby_photos(self, missing_only: bool = False) -> dict:
+        from sqlalchemy import select
+        from src.db.models import BabyPhoto
+        async with self._memory._engine.connect() as conn:
+            rows = list(await conn.execute(
+                select(BabyPhoto).order_by(BabyPhoto.id.asc())
+            ))
+        photos = []
+        for r in rows:
+            created = (r.created_at or "")[:10]
+            # Suspicious: date == today (likely upload time, not real date)
+            from src.utils.time import now_kyiv
+            today = now_kyiv().strftime("%Y-%m-%d")
+            suspicious = (created == today and not (r.caption or "").strip())
+            if missing_only and not suspicious:
+                continue
+            photos.append({
+                "id": r.id,
+                "date": created,
+                "caption": (r.caption or "")[:60] or "—",
+                "in_drive": bool(r.drive_file_id),
+                "suspicious": suspicious,
+            })
+        return {
+            "count": len(photos),
+            "photos": photos,
+            "display_instruction": (
+                "Покажи юзеру как таблицу: id · дата · подпись · ☁️ если в Drive. "
+                "Если suspicious=true — пометь ⚠️ значит дата = сегодня и подписи нет. "
+                "Предложи юзеру set_photo_date для проблемных."
             ),
         }
 
