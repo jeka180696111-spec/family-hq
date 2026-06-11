@@ -904,8 +904,8 @@ def _render_pdf(
             width="100%", thickness=0.5,
             color=colors.HexColor("#CBD5E0"), spaceAfter=8,
         ))
-        def _build_photo_table(item, *, large: bool, hAlign: str = "CENTER"):
-            """Build a single photo Table cell with caption, monthly frame, etc."""
+        def _build_photo_table(item, *, hAlign: str = "CENTER"):
+            """Build a single 8×8 cm photo cell with caption + monthly frame."""
             path, caption, when = item
             when_pretty = when
             is_monthly = False
@@ -936,10 +936,8 @@ def _render_pdf(
             except Exception:
                 pass
 
-            size_cm = 8.0 if large else 6.5
-            col_cm = size_cm + 0.4
             try:
-                img = Image(path, width=size_cm * cm, height=size_cm * cm,
+                img = Image(path, width=8.0 * cm, height=8.0 * cm,
                             kind="proportional")
             except Exception:
                 log.exception("photo_embed_failed", path=path)
@@ -952,8 +950,8 @@ def _render_pdf(
                 )
             if caption and caption.strip():
                 cap_lines.append(
-                    f'<font color="#2D3748" size="{10 if large else 9}">'
-                    f'{_safe_caption(caption, 11 if large else 9)}</font>'
+                    f'<font color="#2D3748" size="10">'
+                    f'{_safe_caption(caption, 11)}</font>'
                 )
             cap_lines.append(
                 f'<font color="#A0AEC0" size="8">{when_pretty}</font>'
@@ -975,27 +973,33 @@ def _render_pdf(
                 ))
             return Table(
                 [[img], [Paragraph(cap_text, body_style)]],
-                colWidths=[col_cm * cm], hAlign=hAlign,
+                colWidths=[8.4 * cm], hAlign=hAlign,
                 style=TableStyle(style_rules),
             )
 
-        # Explicit layout per user request: 2 фото на стр.1, 4 на стр.2, 1 на стр.3.
-        n = len(embedded_photos)
-        page1 = embedded_photos[:2]   # large staircase
-        page2 = embedded_photos[2:6]  # 2×2 grid (4 photos)
-        page3 = embedded_photos[6:7]  # single large photo (last)
-        extras = embedded_photos[7:]  # safety net if >7 photos arrived
+        # Explicit pagination per user request: 2 фото / 4 фото / 1 фото.
+        # All photos stay at the original 8×8 cm; only PageBreaks change.
+        page1 = embedded_photos[:2]
+        page2 = embedded_photos[2:6]
+        page3 = embedded_photos[6:7]
+        extras = embedded_photos[7:]
 
-        # ─ Page 1: staircase (2 large photos, LEFT then RIGHT) ─
-        for idx, item in enumerate(page1):
-            if not item:
-                continue
-            t = _build_photo_table(item, large=True,
-                                   hAlign="LEFT" if idx % 2 == 0 else "RIGHT")
-            if t is not None:
-                flow.append(t)
+        def _render_staircase(items, start_idx: int) -> None:
+            for offset, item in enumerate(items):
+                if not item:
+                    continue
+                global_idx = start_idx + offset
+                t = _build_photo_table(
+                    item,
+                    hAlign="LEFT" if global_idx % 2 == 0 else "RIGHT",
+                )
+                if t is not None:
+                    flow.append(t)
 
-        # ─ Page 2: 2×2 grid (4 photos) ─
+        # ─ Page 1: 2 photos, staircase ─
+        _render_staircase(page1, start_idx=0)
+
+        # ─ Page 2: 4 photos, same staircase ─
         if page2:
             flow.append(PageBreak())
             flow.append(Paragraph(
@@ -1005,30 +1009,9 @@ def _render_pdf(
                 width="100%", thickness=0.5,
                 color=colors.HexColor("#CBD5E0"), spaceAfter=8,
             ))
-            cells = []
-            for item in page2:
-                if not item:
-                    cells.append("")
-                    continue
-                cell = _build_photo_table(item, large=False, hAlign="CENTER")
-                cells.append(cell if cell is not None else "")
-            # pad to 4 so the 2×2 grid stays well-formed
-            while len(cells) < 4:
-                cells.append("")
-            row1 = [cells[0], cells[1]]
-            row2 = [cells[2], cells[3]]
-            grid = Table([row1, row2], colWidths=[8.0 * cm, 8.0 * cm])
-            grid.setStyle(TableStyle([
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 3),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-                ("TOPPADDING", (0, 0), (-1, -1), 6),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ]))
-            flow.append(grid)
+            _render_staircase(page2, start_idx=2)
 
-        # ─ Page 3: single large photo (last one) ─
+        # ─ Page 3: 1 photo, centered (or staircase position-7) ─
         if page3:
             flow.append(PageBreak())
             flow.append(Paragraph(
@@ -1038,18 +1021,10 @@ def _render_pdf(
                 width="100%", thickness=0.5,
                 color=colors.HexColor("#CBD5E0"), spaceAfter=8,
             ))
-            t = _build_photo_table(page3[0], large=True, hAlign="CENTER")
-            if t is not None:
-                flow.append(t)
+            _render_staircase(page3, start_idx=6)
 
-        # ─ Overflow: anything past 7 photos goes after page 3 in staircase ─
-        for idx, item in enumerate(extras):
-            if not item:
-                continue
-            t = _build_photo_table(item, large=True,
-                                   hAlign="LEFT" if idx % 2 == 0 else "RIGHT")
-            if t is not None:
-                flow.append(t)
+        # ─ Overflow: any 8th+ photo just keeps the staircase ─
+        _render_staircase(extras, start_idx=7)
 
     # ─── Достижения / Achievements ───
     if achievements:
