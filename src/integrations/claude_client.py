@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from typing import Any
 
 import anthropic
@@ -248,8 +249,16 @@ class ClaudeClient:
                 max_tokens=max_tokens,
                 tools=tools,
             )
-        except AIOfflineError:
+        except AIOfflineError as claude_err:
             _record_call("claude", ok=False)
+            _AI_STATS["last_claude_error"] = str(claude_err)[:300]
+            if "credit balance" in str(claude_err).lower():
+                try:
+                    from src.utils.time import now_kyiv
+                    until = (now_kyiv() + timedelta(days=7)).isoformat()
+                    set_provider_override("gemini", until)
+                except Exception:
+                    log.exception("auto_override_failed")
             try:
                 from src.config import get_settings
                 from src.integrations.gemini_client import GeminiClient
@@ -262,8 +271,9 @@ class ClaudeClient:
                         )
                         _record_call("gemini", ok=True)
                         return text
-                    except Exception:
+                    except Exception as ge:
                         _record_call("gemini", ok=False)
+                        _AI_STATS["last_gemini_error"] = str(ge)[:300]
                         raise
             except Exception:
                 log.exception("gemini_fallback_failed")
@@ -314,9 +324,21 @@ class ClaudeClient:
             )
             _record_call("claude", ok=True, model=model)
             return result
-        except AIOfflineError:
+        except AIOfflineError as claude_err:
             _record_call("claude", ok=False)
+            _AI_STATS["last_claude_error"] = str(claude_err)[:300]
+            # On Anthropic credit-exhausted error → flip override to Gemini
+            # for a week so we don't keep hitting the dead Claude path.
+            if "credit balance" in str(claude_err).lower():
+                try:
+                    from src.utils.time import now_kyiv
+                    until = (now_kyiv() + timedelta(days=7)).isoformat()
+                    set_provider_override("gemini", until)
+                    log.warning("ai_auto_override_gemini_due_to_credit")
+                except Exception:
+                    log.exception("auto_override_failed")
             # Auto-fallback to Gemini on Anthropic outage
+            gemini_err: Exception | None = None
             try:
                 from src.config import get_settings
                 from src.integrations.gemini_client import GeminiClient
@@ -329,9 +351,17 @@ class ClaudeClient:
                     )
                     _record_call("gemini", ok=True, model="gemini")
                     return msg
-            except Exception:
+                else:
+                    gemini_err = RuntimeError("Gemini не настроен (нет ключей)")
+            except Exception as ge:
+                gemini_err = ge
+                _AI_STATS["last_gemini_error"] = str(ge)[:300]
                 log.exception("gemini_tool_fallback_failed")
-            raise
+            # Both providers failed — raise a combined error so the user
+            # sees the actual cause of each side, not just AIOfflineError.
+            raise AIOfflineError(
+                f"Claude: {claude_err} | Gemini: {gemini_err}"
+            ) from gemini_err or claude_err
 
     async def _complete_with_failover(
         self,
