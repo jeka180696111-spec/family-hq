@@ -984,22 +984,56 @@ def _render_pdf(
         page3 = embedded_photos[6:7]
         extras = embedded_photos[7:]
 
-        def _render_staircase(items, start_idx: int) -> None:
-            for offset, item in enumerate(items):
-                if not item:
+        def _render_staircase(items) -> None:
+            """Render photos in pairs as a side-by-side staircase:
+            left photo at the top of the row, right photo offset DOWN
+            (≈4 cm) so the pair forms the chess/zigzag shape the user wants.
+            Odd trailing photo goes solo on the left."""
+            # Split into pairs of 2
+            pairs = []
+            buf = []
+            for it in items:
+                if not it:
                     continue
-                global_idx = start_idx + offset
-                t = _build_photo_table(
-                    item,
-                    hAlign="LEFT" if global_idx % 2 == 0 else "RIGHT",
-                )
-                if t is not None:
-                    flow.append(t)
+                buf.append(it)
+                if len(buf) == 2:
+                    pairs.append(buf)
+                    buf = []
+            if buf:
+                pairs.append(buf)
 
-        # ─ Page 1: 2 photos, staircase ─
-        _render_staircase(page1, start_idx=0)
+            for pair in pairs:
+                if len(pair) == 2:
+                    left = _build_photo_table(pair[0], hAlign="CENTER")
+                    right = _build_photo_table(pair[1], hAlign="CENTER")
+                    if left is None and right is None:
+                        continue
+                    # Right cell: Spacer (≈4 cm) pushes the photo DOWN
+                    right_stack = []
+                    if right is not None:
+                        right_stack.append(Spacer(1, 4 * cm))
+                        right_stack.append(right)
+                    grid = Table(
+                        [[left or "", right_stack or ""]],
+                        colWidths=[8.7 * cm, 8.7 * cm],
+                    )
+                    grid.setStyle(TableStyle([
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                        ("TOPPADDING", (0, 0), (-1, -1), 0),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                    ]))
+                    flow.append(grid)
+                else:
+                    solo = _build_photo_table(pair[0], hAlign="LEFT")
+                    if solo is not None:
+                        flow.append(solo)
 
-        # ─ Page 2: 4 photos, same staircase ─
+        # ─ Page 1: 2 photos as a side-by-side staircase pair ─
+        _render_staircase(page1)
+
+        # ─ Page 2: 4 photos = two staircase pairs ─
         if page2:
             flow.append(PageBreak())
             flow.append(Paragraph(
@@ -1009,9 +1043,9 @@ def _render_pdf(
                 width="100%", thickness=0.5,
                 color=colors.HexColor("#CBD5E0"), spaceAfter=8,
             ))
-            _render_staircase(page2, start_idx=2)
+            _render_staircase(page2)
 
-        # ─ Page 3: 1 photo, centered (or staircase position-7) ─
+        # ─ Page 3: 1 photo solo on the left ─
         if page3:
             flow.append(PageBreak())
             flow.append(Paragraph(
@@ -1021,10 +1055,10 @@ def _render_pdf(
                 width="100%", thickness=0.5,
                 color=colors.HexColor("#CBD5E0"), spaceAfter=8,
             ))
-            _render_staircase(page3, start_idx=6)
+            _render_staircase(page3)
 
-        # ─ Overflow: any 8th+ photo just keeps the staircase ─
-        _render_staircase(extras, start_idx=7)
+        # ─ Overflow ─
+        _render_staircase(extras)
 
     # ─── Достижения / Achievements ───
     if achievements:
