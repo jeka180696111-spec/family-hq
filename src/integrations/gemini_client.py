@@ -167,8 +167,10 @@ class GeminiClient:
                                 continue
                             if resp.status in (429, 403):
                                 last_err = f"key#{key_idx} {m}: HTTP {resp.status}"
-                                # rotate key — likely quota/permission
-                                break
+                                # Try the next model on the SAME key —
+                                # free-tier quotas are per-model, lighter
+                                # variants may still have budget.
+                                continue
                             if resp.status >= 400:
                                 err = await resp.text()
                                 last_err = f"key#{key_idx} {m}: HTTP {resp.status}: {err[:120]}"
@@ -285,7 +287,9 @@ class GeminiClient:
                                 continue
                             if resp.status in (429, 403):
                                 last_err = f"key#{key_idx} {m}: HTTP {resp.status}"
-                                break  # rotate key
+                                # Try other models on same key first —
+                                # free-tier quotas are per-model.
+                                continue
                             if resp.status >= 400:
                                 err_text = await resp.text()
                                 last_err = f"key#{key_idx} {m}: HTTP {resp.status}: {err_text[:120]}"
