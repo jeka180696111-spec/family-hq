@@ -977,12 +977,13 @@ def _render_pdf(
                 style=TableStyle(style_rules),
             )
 
-        # Explicit pagination per user request: 2 фото / 4 фото / 1 фото.
-        # All photos stay at the original 8×8 cm; only PageBreaks change.
+        # Explicit pagination per user request:
+        #   Page 1: 2 фото (под статистикой).
+        #   Page 2: 5 фото (4 + 1) — всё остальное на одной странице.
         page1 = embedded_photos[:2]
-        page2 = embedded_photos[2:6]
-        page3 = embedded_photos[6:7]
-        extras = embedded_photos[7:]
+        page2 = embedded_photos[2:]
+        page3 = []
+        extras = []
 
         def _render_staircase(items) -> None:
             """Render photos in pairs as a side-by-side staircase:
@@ -1008,10 +1009,11 @@ def _render_pdf(
                     right = _build_photo_table(pair[1], hAlign="CENTER")
                     if left is None and right is None:
                         continue
-                    # Right cell: Spacer (≈4 cm) pushes the photo DOWN
+                    # Right cell: Spacer (~5.5 cm) pushes the photo DOWN
+                    # for the deeper staircase offset the user wants.
                     right_stack = []
                     if right is not None:
-                        right_stack.append(Spacer(1, 4 * cm))
+                        right_stack.append(Spacer(1, 5.5 * cm))
                         right_stack.append(right)
                     grid = Table(
                         [[left or "", right_stack or ""]],

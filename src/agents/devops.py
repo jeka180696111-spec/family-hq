@@ -1222,9 +1222,36 @@ class DevOpsAgent(BaseAgent):
                 end_dt = start_dt + timedelta(days=7)
             if end_dt and not start_dt:
                 start_dt = end_dt - timedelta(days=7)
-            # end_date inclusive — add 1 day to make it exclusive upper bound
             if end_dt:
                 end_dt = end_dt + timedelta(days=1)
+
+            # Dedup guard: prevent the LLM tool-loop from firing the same
+            # chronicle generation 5 times in a row. The tool returns
+            # `status: started` and the actual PDF goes to chat via a
+            # different code path — the LLM doesn't see the result so it
+            # often re-decides to call us again. Same (start, end) within
+            # 90 seconds → no-op.
+            key = (
+                start_dt.isoformat() if start_dt else "",
+                end_dt.isoformat() if end_dt else "",
+            )
+            now_ts = now_kyiv().timestamp()
+            recent = getattr(self, "_chronicle_recent", {})
+            last = recent.get(key)
+            if last and (now_ts - last) < 90:
+                return {
+                    "status": "deduped",
+                    "display_instruction": (
+                        "Скажи юзеру: «📖 Хроника уже запущена минуту назад, "
+                        "жду пока придёт PDF. Не дёргай повторно.» Не вызывай "
+                        "chronicle_now снова — PDF уже идёт."
+                    ),
+                }
+            recent[key] = now_ts
+            # Trim old entries to prevent unbounded growth
+            self._chronicle_recent = {
+                k: v for k, v in recent.items() if now_ts - v < 600
+            }
 
             await generate_weekly_chronicle(
                 self._memory, self._bots, self._chat_id,
@@ -1237,7 +1264,8 @@ class DevOpsAgent(BaseAgent):
                 "display_instruction": (
                     "Скажи юзеру: «📖 Запустил генерацию хроники, ссылку "
                     "пришлю сразу как готова». Сам PDF Прораб не показывает — "
-                    "хроника шлёт отдельным сообщением со ссылкой на Drive."
+                    "хроника шлёт отдельным сообщением со ссылкой на Drive. "
+                    "НЕ вызывай chronicle_now повторно — одного раза достаточно."
                 ),
             }
 
