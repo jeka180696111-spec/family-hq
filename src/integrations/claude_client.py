@@ -359,8 +359,13 @@ class ClaudeClient:
                 log.exception("gemini_tool_fallback_failed")
             # Both providers failed — raise a combined error so the user
             # sees the actual cause of each side, not just AIOfflineError.
+            # Put Gemini first — it's the actionable side (Claude is just
+            # "no money"). Trim Claude error since user already knows that.
+            claude_short = str(claude_err)
+            if "credit balance" in claude_short.lower():
+                claude_short = "нет баланса"
             raise AIOfflineError(
-                f"Claude: {claude_err} | Gemini: {gemini_err}"
+                f"Gemini: {gemini_err} || Claude: {claude_short}"
             ) from gemini_err or claude_err
 
     async def _complete_with_failover(

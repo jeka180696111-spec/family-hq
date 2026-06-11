@@ -227,7 +227,7 @@ class BaseAgent(abc.ABC):
         except Exception as exc:
             self._log.exception("handle_failed", message=message_text[:50])
             err_type = type(exc).__name__
-            err_msg = str(exc)[:300] or "—"
+            err_msg = str(exc)[:1500] or "—"
             error_text = (
                 f"{self.emoji} Произошла ошибка при обработке.\n"
                 f"<code>{err_type}: {err_msg}</code>"
