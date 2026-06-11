@@ -1015,44 +1015,71 @@ class DevOpsAgent(BaseAgent):
             from src.integrations.gemini_client import discover_models
             import aiohttp
             settings = get_settings()
-            key = getattr(settings, "gemini_api_key", "")
-            if not key:
-                return {"error": "GEMINI_API_KEY не задан"}
-            models = await discover_models(key)
+            primary = getattr(settings, "gemini_api_key", "")
+            extras_raw = getattr(settings, "gemini_api_keys", "") or ""
+            extras = [k.strip() for k in extras_raw.split(",") if k.strip()]
+            all_keys: list[str] = []
+            if primary:
+                all_keys.append(primary)
+            all_keys.extend(extras)
+            if not all_keys:
+                return {"error": "Не задан ни GEMINI_API_KEY ни GEMINI_API_KEYS"}
             configured = getattr(settings, "gemini_model", "")
-            # Probe each model name that has 'flash' to find one that actually responds
-            probe_results = []
             test_body = {
                 "contents": [{"role": "user", "parts": [{"text": "ping"}]}],
                 "generationConfig": {"maxOutputTokens": 5},
             }
+            test_models = (
+                "gemini-flash-lite-latest",
+                "gemini-2.5-flash-lite",
+                "gemini-2.0-flash-lite",
+                "gemini-2.5-flash",
+                "gemini-2.0-flash",
+                "gemini-1.5-flash",
+            )
+            per_key = []
             async with aiohttp.ClientSession() as session:
-                for m in models[:10]:
-                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={key}"
-                    try:
-                        async with session.post(url, json=test_body) as resp:
-                            probe_results.append({
-                                "model": m,
-                                "status": resp.status,
-                                "ok": resp.status < 400,
+                for key_idx, key in enumerate(all_keys):
+                    models = await discover_models(key)
+                    probes = []
+                    for m in test_models:
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={key}"
+                        try:
+                            async with session.post(url, json=test_body) as resp:
+                                status = resp.status
+                                err_snippet = ""
+                                if status >= 400:
+                                    err_snippet = (await resp.text())[:120]
+                                probes.append({
+                                    "model": m, "status": status,
+                                    "ok": status < 400,
+                                    "error": err_snippet,
+                                })
+                        except Exception as e:
+                            probes.append({
+                                "model": m, "status": "exception",
+                                "error": str(e)[:80], "ok": False,
                             })
-                    except Exception as e:
-                        probe_results.append({
-                            "model": m, "status": "exception",
-                            "error": str(e)[:80],
-                        })
-            working = [p for p in probe_results if p.get("ok")]
+                    per_key.append({
+                        "key_index": key_idx,
+                        "key_suffix": key[-6:] if len(key) > 6 else "(short)",
+                        "discovered_count": len(models),
+                        "discovered_sample": models[:5],
+                        "probes": probes,
+                        "working": [p["model"] for p in probes if p.get("ok")],
+                    })
             return {
-                "configured": configured,
-                "configured_in_list": configured in models,
-                "available_count": len(models),
-                "probed": probe_results,
-                "working_models": [p["model"] for p in working],
+                "configured_model": configured,
+                "total_keys": len(all_keys),
+                "per_key": per_key,
                 "display_instruction": (
-                    "Покажи юзеру: какая модель сейчас в env (configured), "
-                    "есть ли она в available, какие из протестированных моделей "
-                    "реально ответили (working_models). Если configured не "
-                    "работает, предложи установить GEMINI_MODEL=<первая из working>."
+                    "Покажи юзеру для КАЖДОГО ключа: суффикс (key_suffix), "
+                    "сколько моделей он видит (discovered_count), и какие из "
+                    "тестовых моделей реально отвечают (working). "
+                    "Если у ключа discovered_count=0 — значит у него не включён "
+                    "Generative Language API в его Google Cloud проекте. "
+                    "Если working=[] и все probes показывают 429 — реально квота. "
+                    "Если 403 — права/API не включён."
                 ),
             }
 

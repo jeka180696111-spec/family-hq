@@ -270,7 +270,13 @@ class GeminiClient:
             if m and m not in seen:
                 seen.append(m)
 
-        last_err = "no models attempted"
+        # Per-key status counters so we can tell whether the key is
+        # quota-limited (429), permission-denied (403), wrong model name
+        # (404), or something else.
+        key_stats: list[dict[str, int]] = [
+            {"429": 0, "403": 0, "404": 0, "other": 0, "first_err": ""}
+            for _ in self.api_keys
+        ]
         data = None
         async with aiohttp.ClientSession() as session:
             outer_break = False
@@ -282,17 +288,26 @@ class GeminiClient:
                     )
                     try:
                         async with session.post(url, json=body) as resp:
+                            st = key_stats[key_idx]
                             if resp.status == 404:
-                                last_err = f"key#{key_idx} {m}: not found"
+                                st["404"] += 1
                                 continue
-                            if resp.status in (429, 403):
-                                last_err = f"key#{key_idx} {m}: HTTP {resp.status}"
-                                # Try other models on same key first —
-                                # free-tier quotas are per-model.
+                            if resp.status == 429:
+                                st["429"] += 1
+                                if not st["first_err"]:
+                                    st["first_err"] = f"429 on {m}"
+                                continue
+                            if resp.status == 403:
+                                st["403"] += 1
+                                if not st["first_err"]:
+                                    err_text = await resp.text()
+                                    st["first_err"] = f"403 on {m}: {err_text[:120]}"
                                 continue
                             if resp.status >= 400:
-                                err_text = await resp.text()
-                                last_err = f"key#{key_idx} {m}: HTTP {resp.status}: {err_text[:120]}"
+                                st["other"] += 1
+                                if not st["first_err"]:
+                                    err_text = await resp.text()
+                                    st["first_err"] = f"HTTP {resp.status} on {m}: {err_text[:120]}"
                                 continue
                             data = await resp.json()
                         self._working_model = m
@@ -300,12 +315,19 @@ class GeminiClient:
                         outer_break = True
                         break
                     except Exception as e:
-                        last_err = f"key#{key_idx} {m}: {e}"
+                        key_stats[key_idx]["other"] += 1
+                        if not key_stats[key_idx]["first_err"]:
+                            key_stats[key_idx]["first_err"] = f"{m}: {e}"
                         continue
                 if outer_break:
                     break
             if data is None:
-                raise RuntimeError(f"Gemini tool-use: {last_err[:200]}")
+                summary = " | ".join(
+                    f"key#{i}: 429×{s['429']} 403×{s['403']} 404×{s['404']} other×{s['other']}"
+                    + (f" [{s['first_err']}]" if s['first_err'] else "")
+                    for i, s in enumerate(key_stats)
+                )
+                raise RuntimeError(f"Gemini tool-use: {summary[:800]}")
 
         # Translate Gemini response → Anthropic-shape Message
         cand = (data.get("candidates") or [{}])[0]
