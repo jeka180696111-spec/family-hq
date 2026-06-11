@@ -977,20 +977,20 @@ def _render_pdf(
                 style=TableStyle(style_rules),
             )
 
-        # Explicit pagination per user request:
-        #   Page 1: 2 фото (под статистикой).
-        #   Page 2: 5 фото (4 + 1) — всё остальное на одной странице.
+        # Strict pagination per user request:
+        #   Page 1: 2 фото (под статистикой)
+        #   Page 2: 4 фото
+        #   Page 3: 1 фото + дальше идут разделы
         page1 = embedded_photos[:2]
-        page2 = embedded_photos[2:]
-        page3 = []
-        extras = []
+        page2 = embedded_photos[2:6]
+        page3 = embedded_photos[6:7]
+        extras = embedded_photos[7:]
 
-        def _render_staircase(items) -> None:
+        def _render_staircase(items, offset_cm: float = 5.5) -> None:
             """Render photos in pairs as a side-by-side staircase:
             left photo at the top of the row, right photo offset DOWN
-            (≈4 cm) so the pair forms the chess/zigzag shape the user wants.
+            (offset_cm) so the pair forms the chess/zigzag shape.
             Odd trailing photo goes solo on the left."""
-            # Split into pairs of 2
             pairs = []
             buf = []
             for it in items:
@@ -1009,11 +1009,9 @@ def _render_pdf(
                     right = _build_photo_table(pair[1], hAlign="CENTER")
                     if left is None and right is None:
                         continue
-                    # Right cell: Spacer (~5.5 cm) pushes the photo DOWN
-                    # for the deeper staircase offset the user wants.
                     right_stack = []
                     if right is not None:
-                        right_stack.append(Spacer(1, 5.5 * cm))
+                        right_stack.append(Spacer(1, offset_cm * cm))
                         right_stack.append(right)
                     grid = Table(
                         [[left or "", right_stack or ""]],
@@ -1032,10 +1030,10 @@ def _render_pdf(
                     if solo is not None:
                         flow.append(solo)
 
-        # ─ Page 1: 2 photos as a side-by-side staircase pair ─
-        _render_staircase(page1)
+        # ─ Page 1: 2 photos, deep staircase offset (looks good with cover above) ─
+        _render_staircase(page1, offset_cm=5.5)
 
-        # ─ Page 2: 4 photos = two staircase pairs ─
+        # ─ Page 2: 4 photos as 2 staircase pairs, tight offset so all fit ─
         if page2:
             flow.append(PageBreak())
             flow.append(Paragraph(
@@ -1045,7 +1043,7 @@ def _render_pdf(
                 width="100%", thickness=0.5,
                 color=colors.HexColor("#CBD5E0"), spaceAfter=8,
             ))
-            _render_staircase(page2)
+            _render_staircase(page2, offset_cm=2.0)
 
         # ─ Page 3: 1 photo solo on the left ─
         if page3:
@@ -1057,10 +1055,10 @@ def _render_pdf(
                 width="100%", thickness=0.5,
                 color=colors.HexColor("#CBD5E0"), spaceAfter=8,
             ))
-            _render_staircase(page3)
+            _render_staircase(page3, offset_cm=0.0)
 
         # ─ Overflow ─
-        _render_staircase(extras)
+        _render_staircase(extras, offset_cm=2.0)
 
     # ─── Достижения / Achievements ───
     if achievements:
