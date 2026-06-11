@@ -995,11 +995,18 @@ class DevOpsAgent(BaseAgent):
             from src.integrations.claude_client import get_ai_stats
             stats = get_ai_stats()
             settings = get_settings()
-            stats["gemini_configured"] = bool(getattr(settings, "gemini_api_key", ""))
+            primary = bool(getattr(settings, "gemini_api_key", ""))
+            extras_raw = getattr(settings, "gemini_api_keys", "") or ""
+            extras = [k.strip() for k in extras_raw.split(",") if k.strip()]
+            stats["gemini_configured"] = primary or bool(extras)
+            stats["gemini_key_count"] = (1 if primary else 0) + len(extras)
+            stats["anthropic_primary_set"] = bool(getattr(settings, "anthropic_api_key_primary", ""))
+            stats["anthropic_backup_set"] = bool(getattr(settings, "anthropic_api_key_backup", ""))
             stats["display_instruction"] = (
                 "Покажи юзеру кратко: какой провайдер сейчас работает "
                 "(current_provider), сколько успешных вызовов у каждого, "
-                "сколько падений, настроен ли Gemini как fallback."
+                "сколько падений, сколько ключей Gemini загружено "
+                "(gemini_key_count) и last_gemini_error если есть."
             )
             return stats
 
