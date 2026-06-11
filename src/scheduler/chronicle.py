@@ -1043,7 +1043,7 @@ def _render_pdf(
                 width="100%", thickness=0.5,
                 color=colors.HexColor("#CBD5E0"), spaceAfter=8,
             ))
-            _render_staircase(page2, offset_cm=2.0)
+            _render_staircase(page2, offset_cm=3.0)
 
         # ─ Page 3: 1 photo solo on the left ─
         if page3:
