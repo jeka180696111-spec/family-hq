@@ -95,9 +95,10 @@ def _has_photo_media(message: Any) -> bool:
 
 async def _handle_baby_photo(
     message: Any, caption: str, agents: dict, memory: Any, settings: Any,
-) -> None:
+) -> dict:
     """Download a Telegram photo, archive to Drive + DB via baby_photos module,
-    and have Няня acknowledge in the chat."""
+    and have Няня acknowledge in the chat. Returns the archive result dict
+    so the caller can surface the precise age/path to the LLM."""
     import os as _os
     import tempfile
     from src.integrations.baby_photos import archive_photo
@@ -118,7 +119,7 @@ async def _handle_baby_photo(
                 await nanny.send("📸 Получила фото, но не смогла скачать из Telegram.")
             except Exception:
                 pass
-        return
+        return {}
     result = await archive_photo(local_path, caption, drive_client, memory)
 
     # Drive failed? Try Telegram channel archive as fallback
@@ -173,6 +174,7 @@ async def _handle_baby_photo(
             await nanny.send(ack)
         except Exception:
             log.exception("baby_photo_ack_failed")
+    return result
 
 
 async def handle_new_message(
@@ -234,8 +236,9 @@ async def handle_new_message(
                     await nanny_for_ack.send("📥 Принято фото, обрабатываю…")
                 except Exception:
                     pass
+            archive_result = {}
             try:
-                await _handle_baby_photo(message, text, agents, memory, settings)
+                archive_result = await _handle_baby_photo(message, text, agents, memory, settings) or {}
             except Exception:
                 log.exception("baby_photo_handle_failed")
                 if nanny_for_ack:
@@ -243,10 +246,17 @@ async def handle_new_message(
                         await nanny_for_ack.send("📸 Не получилось сохранить фото — проверь логи Drive.")
                     except Exception:
                         pass
-            # Annotate text for LLM dispatch so Nanny knows photo was present
-            text = (f"[📷 в сообщении было фото — система пытается архивировать]\n{text}"
-                    if text.strip() else
-                    "[📷 в сообщении было фото — система пытается архивировать]")
+            # Annotate text for LLM dispatch with EXACT age the system computed
+            # from the caption date, so the LLM doesn't hallucinate based on
+            # today's age (this prevents "6 мес" replies on a 5-мес photo).
+            archived_age = archive_result.get("age") or ""
+            age_hint = f"возраст на этом фото: {archived_age}." if archived_age else ""
+            sys_note = (
+                "[📷 СИСТЕМА: фото архивировано. "
+                f"{age_hint} НЕ выдумывай возраст — используй точно эту цифру. "
+                "Не повторяй информацию про сохранение/Drive — это уже отправлено отдельным сообщением.]"
+            ) if archived_age else "[📷 в сообщении было фото — система пытается архивировать]"
+            text = (f"{sys_note}\n{text}" if text.strip() else sys_note)
             # Do NOT return — continue normal text flow so caption gets dispatched too
 
         # Voice / audio intake — transcribe via Whisper and use as text
