@@ -709,8 +709,8 @@ def _render_pdf(
         from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib.units import cm
         from reportlab.platypus import (
-            HRFlowable, Image, KeepTogether, Paragraph, SimpleDocTemplate,
-            Spacer, Table, TableStyle,
+            HRFlowable, Image, KeepTogether, PageBreak, Paragraph,
+            SimpleDocTemplate, Spacer, Table, TableStyle,
         )
     except ImportError:
         log.warning("chronicle_reportlab_missing")
@@ -904,87 +904,152 @@ def _render_pdf(
             width="100%", thickness=0.5,
             color=colors.HexColor("#CBD5E0"), spaceAfter=8,
         ))
-        # True staircase — every photo on its own row, alternating
-        # LEFT / RIGHT for the zigzag rhythm the user wants.
-        for photo_idx, item in enumerate(embedded_photos):
-            if not item:
-                continue
+        def _build_photo_table(item, *, large: bool, hAlign: str = "CENTER"):
+            """Build a single photo Table cell with caption, monthly frame, etc."""
             path, caption, when = item
-            # Format YYYY-MM-DD → DD.MM for the photo caption
             when_pretty = when
             is_monthly = False
-            age_label_month = ""
+            age_label = ""
             try:
                 photo_dt = datetime.strptime(when, "%Y-%m-%d")
                 when_pretty = photo_dt.strftime("%d.%m")
-                if photo_dt.day == 2:  # 02 of any month = месячный праздник
+                if photo_dt.day == 2:
                     is_monthly = True
                     BABY_DOB = datetime(2025, 12, 2)
                     months = ((photo_dt.year - BABY_DOB.year) * 12 +
                               (photo_dt.month - BABY_DOB.month))
                     if months > 0:
                         if months < 12:
-                            age_label_month = f"🎂 {months} МЕС"
+                            age_label = f"🎂 {months} МЕС"
                         elif months == 12:
-                            age_label_month = "🎂 1 ГОД"
+                            age_label = "🎂 1 ГОД"
                         elif months % 12 == 0:
                             yrs = months // 12
-                            if 2 <= yrs <= 4:
-                                age_label_month = f"🎂 {yrs} ГОДА"
-                            else:
-                                age_label_month = f"🎂 {yrs} ЛЕТ"
+                            age_label = (f"🎂 {yrs} ГОДА" if 2 <= yrs <= 4
+                                         else f"🎂 {yrs} ЛЕТ")
                         else:
                             yrs = months // 12
                             rem = months % 12
-                            yrs_word = (
-                                "ГОД" if yrs == 1
-                                else "ГОДА" if 2 <= yrs <= 4
-                                else "ЛЕТ"
-                            )
-                            age_label_month = f"🎂 {yrs} {yrs_word} {rem} МЕС"
+                            yrs_word = ("ГОД" if yrs == 1
+                                        else "ГОДА" if 2 <= yrs <= 4 else "ЛЕТ")
+                            age_label = f"🎂 {yrs} {yrs_word} {rem} МЕС"
             except Exception:
                 pass
+
+            size_cm = 8.0 if large else 6.5
+            col_cm = size_cm + 0.4
             try:
-                img = Image(path, width=8.0 * cm, height=8.0 * cm,
+                img = Image(path, width=size_cm * cm, height=size_cm * cm,
                             kind="proportional")
-                cap_lines = []
-                if is_monthly and age_label_month:
-                    cap_lines.append(
-                        f'<font name="{bold_font}" size="11" color="#C9A961">'
-                        f'{age_label_month}</font>'
-                    )
-                if caption and caption.strip():
-                    cap_lines.append(
-                        f'<font color="#2D3748" size="10">{_safe_caption(caption, 11)}</font>'
-                    )
-                cap_lines.append(
-                    f'<font color="#A0AEC0" size="8">{when_pretty}</font>'
-                )
-                cap_text = (
-                    '<para align="center">' + "<br/>".join(cap_lines) + '</para>'
-                )
-                frame_color = (colors.HexColor("#C9A961") if is_monthly
-                               else colors.HexColor("#CBD5E0"))
-                frame_width = 1.5 if is_monthly else 0.4
-                caption_bg = (colors.HexColor("#F0E4C4") if is_monthly
-                              else None)
-                style_rules = [
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                    ("TOPPADDING", (0, 0), (-1, -1), 2),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-                    ("BOX", (0, 0), (-1, -1), frame_width, frame_color),
-                ]
-                if caption_bg:
-                    style_rules.append(("BACKGROUND", (0, 1), (0, 1), caption_bg))
-                # Staircase: even-index photos LEFT, odd-index RIGHT
-                row_align = "LEFT" if (photo_idx % 2 == 0) else "RIGHT"
-                nt = Table([[img], [Paragraph(cap_text, body_style)]],
-                           colWidths=[8.4 * cm], hAlign=row_align,
-                           style=TableStyle(style_rules))
-                flow.append(nt)
             except Exception:
                 log.exception("photo_embed_failed", path=path)
+                return None
+            cap_lines = []
+            if is_monthly and age_label:
+                cap_lines.append(
+                    f'<font name="{bold_font}" size="11" color="#C9A961">'
+                    f'{age_label}</font>'
+                )
+            if caption and caption.strip():
+                cap_lines.append(
+                    f'<font color="#2D3748" size="{10 if large else 9}">'
+                    f'{_safe_caption(caption, 11 if large else 9)}</font>'
+                )
+            cap_lines.append(
+                f'<font color="#A0AEC0" size="8">{when_pretty}</font>'
+            )
+            cap_text = '<para align="center">' + "<br/>".join(cap_lines) + '</para>'
+            frame_color = (colors.HexColor("#C9A961") if is_monthly
+                           else colors.HexColor("#CBD5E0"))
+            frame_width = 1.5 if is_monthly else 0.4
+            style_rules = [
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ("BOX", (0, 0), (-1, -1), frame_width, frame_color),
+            ]
+            if is_monthly:
+                style_rules.append((
+                    "BACKGROUND", (0, 1), (0, 1), colors.HexColor("#F0E4C4"),
+                ))
+            return Table(
+                [[img], [Paragraph(cap_text, body_style)]],
+                colWidths=[col_cm * cm], hAlign=hAlign,
+                style=TableStyle(style_rules),
+            )
+
+        # Explicit layout per user request: 2 фото на стр.1, 4 на стр.2, 1 на стр.3.
+        n = len(embedded_photos)
+        page1 = embedded_photos[:2]   # large staircase
+        page2 = embedded_photos[2:6]  # 2×2 grid (4 photos)
+        page3 = embedded_photos[6:7]  # single large photo (last)
+        extras = embedded_photos[7:]  # safety net if >7 photos arrived
+
+        # ─ Page 1: staircase (2 large photos, LEFT then RIGHT) ─
+        for idx, item in enumerate(page1):
+            if not item:
+                continue
+            t = _build_photo_table(item, large=True,
+                                   hAlign="LEFT" if idx % 2 == 0 else "RIGHT")
+            if t is not None:
+                flow.append(t)
+
+        # ─ Page 2: 2×2 grid (4 photos) ─
+        if page2:
+            flow.append(PageBreak())
+            flow.append(Paragraph(
+                f"{_icon(sym_font, '📸')} Фото малыша", h2_style,
+            ))
+            flow.append(HRFlowable(
+                width="100%", thickness=0.5,
+                color=colors.HexColor("#CBD5E0"), spaceAfter=8,
+            ))
+            cells = []
+            for item in page2:
+                if not item:
+                    cells.append("")
+                    continue
+                cell = _build_photo_table(item, large=False, hAlign="CENTER")
+                cells.append(cell if cell is not None else "")
+            # pad to 4 so the 2×2 grid stays well-formed
+            while len(cells) < 4:
+                cells.append("")
+            row1 = [cells[0], cells[1]]
+            row2 = [cells[2], cells[3]]
+            grid = Table([row1, row2], colWidths=[8.0 * cm, 8.0 * cm])
+            grid.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]))
+            flow.append(grid)
+
+        # ─ Page 3: single large photo (last one) ─
+        if page3:
+            flow.append(PageBreak())
+            flow.append(Paragraph(
+                f"{_icon(sym_font, '📸')} Фото малыша", h2_style,
+            ))
+            flow.append(HRFlowable(
+                width="100%", thickness=0.5,
+                color=colors.HexColor("#CBD5E0"), spaceAfter=8,
+            ))
+            t = _build_photo_table(page3[0], large=True, hAlign="CENTER")
+            if t is not None:
+                flow.append(t)
+
+        # ─ Overflow: anything past 7 photos goes after page 3 in staircase ─
+        for idx, item in enumerate(extras):
+            if not item:
+                continue
+            t = _build_photo_table(item, large=True,
+                                   hAlign="LEFT" if idx % 2 == 0 else "RIGHT")
+            if t is not None:
+                flow.append(t)
 
     # ─── Достижения / Achievements ───
     if achievements:

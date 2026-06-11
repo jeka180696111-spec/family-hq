@@ -13,6 +13,52 @@ log = structlog.get_logger()
 EXTERNAL_AGENT = "EXTERNAL_AGENT"
 
 
+# Direct-address routing — works even when the LLM dispatcher is down.
+# Key: any of these tokens at the start of the message (case-insensitive,
+# optional comma/colon/space after) routes the message to the value agent_id.
+_ADDRESS_PREFIX_TO_AGENT = {
+    "прораб":        "devops",
+    "прорабе":       "devops",
+    "прораба":       "devops",
+    "няня":          "nanny",
+    "няне":          "nanny",
+    "нянь":          "nanny",
+    "гурман":        "cook",
+    "гурмане":       "cook",
+    "повар":         "cook",
+    "дозорный":      "news",
+    "дозорному":     "news",
+    "дозорная":      "news",
+    "айболит":       "health",
+    "айболите":      "health",
+    "доктор":        "health",
+    "штурман":       "navigator",
+    "штурмане":      "navigator",
+    "навигатор":     "navigator",
+    "ежедневник":    "calendar",
+    "календарь":     "calendar",
+}
+
+
+def _direct_address_agent(message_text: str) -> str | None:
+    """If the message starts with an agent's nickname (Прораб, Няня…),
+    return the corresponding agent_id. Beats the LLM dispatcher on
+    speed, cost, and correctness — and works when AI is down."""
+    if not message_text:
+        return None
+    head = message_text.lstrip().lower()
+    # Strip leading @ for telegram @mentions
+    head = head.lstrip("@")
+    for prefix, agent_id in _ADDRESS_PREFIX_TO_AGENT.items():
+        if head.startswith(prefix):
+            # Must be followed by space / punctuation / end-of-string —
+            # avoid matching "прорабе" inside «прорабенок» or similar.
+            tail = head[len(prefix):]
+            if not tail or tail[0] in " ,.:;!?-—\n":
+                return agent_id
+    return None
+
+
 def _extract_json(text: str) -> str:
     """Strip markdown code fences and return the first {...} block."""
     text = text.strip()
@@ -63,6 +109,22 @@ class Dispatcher:
         Returns is_external=True for finance intent (Фінн handles it, dispatcher stays silent).
         Falls back to ["nanny"] if classification fails.
         """
+        # Direct address shortcut — bypass LLM entirely when the user
+        # explicitly addresses an agent ("Прораб, ..." / "Няня, ..."):
+        addressed = _direct_address_agent(message_text)
+        if addressed and addressed in active_agent_ids:
+            log.info("dispatch_direct_address", agent=addressed, message=message_text[:50])
+            return DispatchResult(
+                tasks=[AgentTask(
+                    agent_id=addressed, priority="normal",
+                    reason="direct_address",
+                )],
+                is_critical=False,
+                is_settings_command=False,
+                intent="direct",
+                is_external=False,
+            )
+
         def _label(m: dict) -> str:
             aid = m.get("agent_id")
             if aid:
