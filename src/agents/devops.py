@@ -535,17 +535,6 @@ class DevOpsAgent(BaseAgent):
                 "input_schema": {"type": "object", "properties": {}},
             },
             {
-                "name": "kyivstar_balance",
-                "description": (
-                    "Узнать остатки по номеру Киевстар: баланс ₴, ГБ интернета, "
-                    "минуты, SMS, тариф, дата следующего списания. Триггеры: "
-                    "«сколько на счету», «остаток мегабайт», «остаток интернета», "
-                    "«киевстар баланс», «сколько минут», «когда списание», "
-                    "«мой тариф»."
-                ),
-                "input_schema": {"type": "object", "properties": {}},
-            },
-            {
                 "name": "solar_status",
                 "description": (
                     "Текущее состояние инвертора: солнечная генерация, заряд батареи, "
@@ -1282,30 +1271,6 @@ class DevOpsAgent(BaseAgent):
 
         elif tool_name == "battery_autonomy":
             return await self._battery_autonomy()
-
-        elif tool_name == "kyivstar_balance":
-            from src.config import get_settings
-            from src.integrations.kyivstar import (
-                KyivstarClient, KyivstarError, format_snapshot,
-            )
-            client = KyivstarClient.from_settings(get_settings())
-            if not client:
-                return {
-                    "error": "Киевстар не настроен. Добавь в Railway env: "
-                             "KYIVSTAR_PHONE=380XXXXXXXXX и KYIVSTAR_PASSWORD=<пароль из приложения>",
-                }
-            try:
-                snap = await client.balance()
-            except KyivstarError as e:
-                return {"error": f"Киевстар: {e}"}
-            return {
-                "snapshot": {k: v for k, v in snap.items() if k != "raw"},
-                "display_text": format_snapshot(snap),
-                "display_instruction": (
-                    "Отправь юзеру именно текст из display_text — он уже "
-                    "отформатирован под Telegram HTML. Ничего не добавляй."
-                ),
-            }
 
         elif tool_name == "solar_status":
             return await self._solar_status()

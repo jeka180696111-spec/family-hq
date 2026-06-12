@@ -132,7 +132,6 @@ BOT_MENU_COMMANDS = {
     "devops": [
         {"command": "status", "description": "📊 Статус системы"},
         {"command": "ai", "description": "🤖 Статус ИИ"},
-        {"command": "balance", "description": "📱 Киевстар: баланс/ГБ/минуты"},
         {"command": "chronicle", "description": "📖 Хроника за неделю"},
         {"command": "devices", "description": "🏠 Умный дом"},
         {"command": "battery", "description": "🔋 Аккумулятор / автономия"},

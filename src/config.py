@@ -99,12 +99,6 @@ class Settings(BaseSettings):
     # Nova Poshta tracking — single key, user pastes TTNs manually in chat
     nova_poshta_api_key: str = Field(default="")
 
-    # Киевстар personal account — auto-fetched balance / data / minutes.
-    # Phone is the full international number WITHOUT plus sign, e.g. "380501234567".
-    # Password is the one set in «Мой Киевстар» app → Настройки → Пароль.
-    kyivstar_phone: str = Field(default="")
-    kyivstar_password: str = Field(default="")
-
     # Google Gemini API — text fallback when Anthropic is unavailable
     # (no credits / outage / rate limit). Free tier: 1500 req/day Flash.
     gemini_api_key: str = Field(default="")
