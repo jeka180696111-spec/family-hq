@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import structlog
-from sqlalchemy import select, update as sql_update
+from sqlalchemy import delete as sql_delete, select, update as sql_update
 
 from src.db.memory import SharedMemory
 from src.db.models import ActiveAlert, AutomationRule
@@ -107,13 +107,26 @@ class AutomationEngine:
                             pass
                     action = json.loads(rule.action)
                     await self._execute(rule.name, action)
-                    async with self._memory._engine.begin() as conn:
-                        await conn.execute(
-                            sql_update(AutomationRule).where(AutomationRule.id == rule.id).values(
-                                last_fired_at=iso_now(),
-                                fired_count=rule.fired_count + 1,
+                    # One-shot rules (single datetime trigger) are removed
+                    # after firing — keeps the rules table lean and avoids
+                    # re-checking dead rules on every minute tick.
+                    is_one_shot = (cond.get("type") == "datetime")
+                    if is_one_shot:
+                        async with self._memory._engine.begin() as conn:
+                            await conn.execute(
+                                sql_delete(AutomationRule).where(AutomationRule.id == rule.id)
                             )
-                        )
+                        # Mirror delete into the notebook tab
+                        await self._notebook_delete_rule(rule.name)
+                        log.info("automation_one_shot_consumed", rule=rule.name)
+                    else:
+                        async with self._memory._engine.begin() as conn:
+                            await conn.execute(
+                                sql_update(AutomationRule).where(AutomationRule.id == rule.id).values(
+                                    last_fired_at=iso_now(),
+                                    fired_count=rule.fired_count + 1,
+                                )
+                            )
                     log.info("automation_fired", rule=rule.name)
                 except Exception:
                     log.exception("automation_rule_failed", rule=rule.name)
@@ -366,6 +379,18 @@ class AutomationEngine:
         return 0 <= elapsed_min < 5
 
     # ─── Action execution ────────────────────────────────────────────
+
+    async def _notebook_delete_rule(self, rule_name: str) -> None:
+        """Remove a consumed one-shot rule from the ⚙️ Автоматизации tab."""
+        try:
+            nanny = self._agents.get("nanny")
+            sheets = getattr(nanny, "_sheets", None) if nanny else None
+            if not sheets:
+                return
+            from src.integrations.prorab_notebook import delete_rule
+            await delete_rule(sheets, rule_name)
+        except Exception:
+            log.exception("automation_notebook_delete_failed", rule=rule_name)
 
     async def _notify_chat(self, text: str) -> None:
         if not (self._bots and self._chat_id):
