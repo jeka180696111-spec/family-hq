@@ -263,8 +263,8 @@ async def list_rules_from_sheet(sheets: Any) -> list[dict]:
 
 
 def _normalize(d: dict | None) -> dict:
-    """Accept {<type>: {<fields>}} wrapper shape as equivalent to
-    {"type": "<type>", <fields>}. Mirrors devops._normalize_rule_dict."""
+    """Mirror of devops._normalize_rule_dict — accepts wrapper-style and
+    flat shapes. Kept in sync with the canonical impl."""
     if not isinstance(d, dict):
         return d or {}
     if "type" in d:
@@ -273,6 +273,27 @@ def _normalize(d: dict | None) -> dict:
         key, val = next(iter(d.items()))
         if isinstance(val, dict):
             return {"type": key, **val}
+    if "device" in d and "action" in d and isinstance(d.get("device"), str):
+        return {"type": "device", **d}
+    if "agent" in d and "text" in d:
+        return {"type": "message", **d}
+    if "mode" in d and "enabled" in d:
+        return {"type": "set_mode", **d}
+    if "agent" in d and "tool" in d:
+        return {"type": "tool", **d}
+    if "at" in d:
+        return {"type": "datetime", **d}
+    if "cron" in d:
+        return {"type": "time", **d}
+    if "metric" in d and "op" in d and "value" in d:
+        return {"type": "sensor", **d}
+    if "region" in d:
+        st = (d.get("state") or "").lower()
+        if st == "ended":
+            return {"type": "alert_ended", **d}
+        return {"type": "alert_active", **d}
+    if "state" in d and d.get("state") in ("active", "ended"):
+        return {"type": "power_outage", **d}
     return d
 
 

@@ -2249,20 +2249,47 @@ class DevOpsAgent(BaseAgent):
 
     @staticmethod
     def _normalize_rule_dict(d: Any) -> Any:
-        """Accept the LLM's frequent mistake of writing {<type>: {<rest>}}
-        instead of {"type": "<type>", <rest>}. Returns the dict in canonical
-        form so the automation engine can match it."""
+        """Coerce frequent LLM JSON shapes to the canonical
+        {"type": "<kind>", <fields>} form the automation engine expects."""
         if not isinstance(d, dict):
             return d
         if "type" in d:
-            # Recurse into and/or composite rules
             if d.get("type") in ("and", "or") and isinstance(d.get("rules"), list):
                 d = {**d, "rules": [DevOpsAgent._normalize_rule_dict(r) for r in d["rules"]]}
             return d
+        # Shape A: wrapped — {<type>: {<rest>}}
         if len(d) == 1:
             key, val = next(iter(d.items()))
             if isinstance(val, dict):
                 return {"type": key, **val}
+        # Shape B: flat — characteristic-field inference.
+        # Order matters: most-specific signatures first.
+        if "device" in d and "action" in d and isinstance(d.get("device"), str):
+            return {"type": "device", **d}
+        if "agent" in d and "text" in d:
+            return {"type": "message", **d}
+        if "mode" in d and "enabled" in d:
+            return {"type": "set_mode", **d}
+        if "agent" in d and "tool" in d:
+            return {"type": "tool", **d}
+        if "at" in d:
+            return {"type": "datetime", **d}
+        if "cron" in d or ("hour" in d and "minute" in d):
+            return {"type": "time", **d}
+        if "from" in d and "to" in d:
+            return {"type": "datetime_range", **d}
+        if "metric" in d and "op" in d and "value" in d:
+            return {"type": "sensor", **d}
+        if "region" in d:
+            # Active or ended? state field disambiguates
+            st = (d.get("state") or "").lower()
+            if st == "ended":
+                return {"type": "alert_ended", **d}
+            return {"type": "alert_active", **d}
+        if "state" in d and d.get("state") in ("active", "ended"):
+            return {"type": "power_outage", **d}
+        if "min_minutes" in d:
+            return {"type": "baby_sleeping", **d}
         return d
 
     async def _automation_add(self, tool_input: dict) -> dict:
