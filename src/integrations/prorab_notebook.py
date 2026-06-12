@@ -22,8 +22,7 @@ from src.utils.time import KYIV_TZ, now_kyiv
 log = structlog.get_logger()
 
 
-# Plain text — emoji in worksheet titles is unreliable with gspread API
-WORKSHEET = "Блокнот Прораба"
+WORKSHEET = "📋 Блокнот Прораба"
 _HEADER = ["id", "Создано", "Задача", "Срок", "Статус", "Выполнено", "Заметка"]
 
 
