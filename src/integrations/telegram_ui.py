@@ -133,6 +133,7 @@ BOT_MENU_COMMANDS = {
         {"command": "status", "description": "📊 Статус системы"},
         {"command": "ai", "description": "🤖 Статус ИИ"},
         {"command": "chronicle", "description": "📖 Хроника за неделю"},
+        {"command": "notebook", "description": "📋 Блокнот: задачи Прораба"},
         {"command": "devices", "description": "🏠 Умный дом"},
         {"command": "battery", "description": "🔋 Аккумулятор / автономия"},
         {"command": "cost", "description": "💸 Стоимость API"},

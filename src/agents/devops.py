@@ -535,6 +535,60 @@ class DevOpsAgent(BaseAgent):
                 "input_schema": {"type": "object", "properties": {}},
             },
             {
+                "name": "notebook_add",
+                "description": (
+                    "Записать задачу/обещание в свой блокнот на Google Sheet. "
+                    "ОБЯЗАТЕЛЬНО используй когда обещаешь юзеру что-то сделать "
+                    "в будущем («включу бойлер в 15:00», «напомню утром», "
+                    "«проверю позже») — ЭТО первый шаг до того как отвечаешь юзеру. "
+                    "Если задача автоматизируемая (включить/выключить устройство в "
+                    "конкретное время) — ВМЕСТО блокнота создай add_automation_rule. "
+                    "Блокнот для того, что нельзя автоматизировать или для будущего разбора."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "task": {"type": "string", "description": "Краткое описание задачи (1-2 строки)."},
+                        "due_at": {
+                            "type": "string",
+                            "description": "Срок ISO 'YYYY-MM-DDTHH:MM' в Киевском времени. Опционально.",
+                        },
+                        "note": {"type": "string", "description": "Дополнительный контекст."},
+                    },
+                    "required": ["task"],
+                },
+            },
+            {
+                "name": "notebook_list",
+                "description": (
+                    "Показать задачи из блокнота. Триггеры: «что в блокноте», "
+                    "«какие задачи», «что ты обещал», «список дел». По умолчанию "
+                    "только открытые."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "status": {
+                            "type": "string",
+                            "enum": ["open", "done", "skip", "all"],
+                            "description": "По умолчанию 'open'.",
+                        },
+                    },
+                },
+            },
+            {
+                "name": "notebook_done",
+                "description": "Отметить задачу как выполненную. Триггеры: «выполнено», «сделано», «закрой задачу N».",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "integer"},
+                        "note": {"type": "string", "description": "Что именно сделано."},
+                    },
+                    "required": ["id"],
+                },
+            },
+            {
                 "name": "solar_status",
                 "description": (
                     "Текущее состояние инвертора: солнечная генерация, заряд батареи, "
@@ -1271,6 +1325,49 @@ class DevOpsAgent(BaseAgent):
 
         elif tool_name == "battery_autonomy":
             return await self._battery_autonomy()
+
+        elif tool_name == "notebook_add":
+            peers = getattr(self, "_peer_agents", {})
+            sheets = getattr(peers.get("nanny"), "_sheets", None)
+            if not sheets:
+                return {"error": "Google Sheets не настроен — блокнот недоступен."}
+            from src.integrations.prorab_notebook import add_task
+            return await add_task(
+                sheets,
+                task=tool_input.get("task", ""),
+                due_at=tool_input.get("due_at", ""),
+                note=tool_input.get("note", ""),
+            )
+
+        elif tool_name == "notebook_list":
+            peers = getattr(self, "_peer_agents", {})
+            sheets = getattr(peers.get("nanny"), "_sheets", None)
+            if not sheets:
+                return {"error": "Google Sheets не настроен — блокнот недоступен."}
+            from src.integrations.prorab_notebook import list_tasks
+            status = tool_input.get("status", "open")
+            tasks = await list_tasks(sheets, status=None if status == "all" else status)
+            return {
+                "count": len(tasks),
+                "tasks": tasks[-50:],
+                "display_instruction": (
+                    "Если задач нет — скажи «📋 Блокнот пустой». "
+                    "Иначе покажи списком: '◆ #ID — задача (срок: ...)'."
+                ),
+            }
+
+        elif tool_name == "notebook_done":
+            peers = getattr(self, "_peer_agents", {})
+            sheets = getattr(peers.get("nanny"), "_sheets", None)
+            if not sheets:
+                return {"error": "Google Sheets не настроен — блокнот недоступен."}
+            from src.integrations.prorab_notebook import mark_status
+            return await mark_status(
+                sheets,
+                task_id=int(tool_input.get("id", 0)),
+                status="done",
+                note=tool_input.get("note", ""),
+            )
 
         elif tool_name == "solar_status":
             return await self._solar_status()
