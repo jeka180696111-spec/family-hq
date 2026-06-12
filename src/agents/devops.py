@@ -2244,13 +2244,59 @@ class DevOpsAgent(BaseAgent):
         slug = _re.sub(r"[^a-zA-Z0-9_]+", "_", device.lower())[:20] or "device"
         rule_name = f"{slug}_{action}_{target_dt.strftime('%Y%m%d_%H%M')}"
 
-        return await self._automation_add({
+        rule_result = await self._automation_add({
             "name": rule_name,
             "description": f"{action.upper()} {device} в {at_iso}",
             "condition": {"type": "datetime", "at": at_iso, "late_fire": True},
             "action": {"type": "device", "device": device, "action": action},
             "cooldown_min": 5,
         })
+
+        # Explicit notebook write as a separate step — even if the in-line
+        # mirror inside _automation_add failed, retry here so the user
+        # always sees their scheduled task in the sheet.
+        notebook_state = "unknown"
+        notebook_err = None
+        try:
+            peers = getattr(self, "_peer_agents", {})
+            sheets = getattr(peers.get("nanny"), "_sheets", None)
+            if not sheets:
+                notebook_state = "no_sheets"
+            else:
+                from src.integrations.prorab_notebook import add_task, list_tasks
+                marker = f"[automation:{rule_name}]"
+                tasks = await list_tasks(sheets, status=None)
+                if any(marker in (t.get("note") or "") for t in tasks):
+                    notebook_state = "already_present"
+                else:
+                    await add_task(
+                        sheets,
+                        task=f"⚙️ Авто: {action.upper()} {device}",
+                        due_at=at_iso,
+                        note=marker,
+                    )
+                    notebook_state = "added"
+        except Exception as e:
+            notebook_state = "error"
+            notebook_err = f"{type(e).__name__}: {str(e)[:200]}"
+            log.exception("schedule_device_notebook_write_failed", rule=rule_name)
+
+        return {
+            **rule_result,
+            "scheduled_at": at_iso,
+            "device": device,
+            "action": action,
+            "notebook_state": notebook_state,
+            "notebook_error": notebook_err,
+            "display_instruction": (
+                "Скажи юзеру ОДНОЙ короткой строкой: «✅ <device> <on/off> в "
+                "<scheduled_at>.» Если notebook_state=='added' или "
+                "'already_present' — добавь «В блокнот записал.» Если "
+                "'error' — добавь «⚠️ Блокнот: <notebook_error>». "
+                "НИЧЕГО ДРУГОГО не пиши. Не упоминай Финна, Киевстар, "
+                "баланс, предыдущие разговоры. ТОЛЬКО про планирование."
+            ),
+        }
 
     async def _notebook_mirror_rule(
         self, *, name: str, description: str,
