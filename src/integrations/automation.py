@@ -367,15 +367,48 @@ class AutomationEngine:
 
     # ─── Action execution ────────────────────────────────────────────
 
+    async def _notify_chat(self, text: str) -> None:
+        if not (self._bots and self._chat_id):
+            return
+        try:
+            await self._bots.send_message(
+                agent_id="devops", chat_id=self._chat_id, text=text,
+            )
+        except Exception:
+            log.exception("automation_notify_failed")
+
     async def _execute(self, rule_name: str, action: dict) -> None:
         kind = action.get("type", "")
         if kind == "device":
             from src.config import get_settings
             from src.integrations.tuya import TuyaClient
             client = TuyaClient.from_settings(get_settings())
-            if client:
-                result = await client.control(action.get("device", ""), action.get("action", "off"))
-                log.info("automation_device_controlled", rule=rule_name, result=result)
+            device = action.get("device", "")
+            act = action.get("action", "off")
+            if not client:
+                msg = f"⚠️ [{rule_name}] не сработало: Tuya не настроен."
+                log.warning("automation_no_tuya", rule=rule_name)
+                await self._notify_chat(msg)
+                return
+            try:
+                result = await client.control(device, act)
+            except Exception as e:
+                msg = (
+                    f"⚠️ [{rule_name}] не получилось сделать {act} {device}: "
+                    f"{type(e).__name__}: {str(e)[:140]}"
+                )
+                log.exception("automation_device_failed", rule=rule_name)
+                await self._notify_chat(msg)
+                return
+            ok = isinstance(result, dict) and (result.get("success") or result.get("ok") or "error" not in result)
+            log.info("automation_device_controlled", rule=rule_name, result=result)
+            if not ok:
+                err = (result or {}).get("error") if isinstance(result, dict) else str(result)
+                msg = f"⚠️ [{rule_name}] {act} {device} → ответ Tuya: {str(err)[:160]}"
+                await self._notify_chat(msg)
+            else:
+                # Success — short confirmation so user knows the rule fired.
+                await self._notify_chat(f"⚙️ [{rule_name}] {device} → {act} ✅")
             return
         if kind == "message":
             agent_id = action.get("agent", "devops")
