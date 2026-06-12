@@ -188,6 +188,77 @@ class GeminiClient:
                         continue
         raise RuntimeError(f"Gemini: all keys×models failed. Last: {last_err[:200]}")
 
+    # ─── Vision (multimodal) ─────────────────────────────────────────
+
+    async def vision_complete(
+        self,
+        image_path: str,
+        prompt: str,
+        system: str = "",
+        max_tokens: int = 1024,
+    ) -> str:
+        """Read an image + describe / OCR it. Used for medical scans,
+        prescriptions, lab results, etc. Tries each key × multimodal-capable
+        model until one returns content."""
+        import base64
+        import mimetypes
+        import os as _os
+
+        if not _os.path.exists(image_path):
+            raise RuntimeError(f"vision: file missing {image_path}")
+        with open(image_path, "rb") as f:
+            raw = f.read()
+        mime = mimetypes.guess_type(image_path)[0] or "image/jpeg"
+        b64 = base64.b64encode(raw).decode("ascii")
+
+        contents: list[dict] = [{
+            "role": "user",
+            "parts": [
+                {"inline_data": {"mime_type": mime, "data": b64}},
+                {"text": prompt},
+            ],
+        }]
+        body: dict[str, Any] = {
+            "contents": contents,
+            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.4},
+        }
+        if system:
+            body["systemInstruction"] = {"parts": [{"text": system}]}
+
+        # Only models with vision support — lite variants and flash.
+        vision_models = (
+            "gemini-flash-lite-latest",
+            "gemini-2.5-flash-lite",
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
+        )
+
+        last_err = "no models attempted"
+        async with aiohttp.ClientSession() as session:
+            for key_idx, key in enumerate(self.api_keys):
+                for m in vision_models:
+                    url = (
+                        f"https://generativelanguage.googleapis.com/v1beta/"
+                        f"models/{m}:generateContent?key={key}"
+                    )
+                    try:
+                        async with session.post(url, json=body) as resp:
+                            if resp.status >= 400:
+                                err = await resp.text()
+                                last_err = f"key#{key_idx} {m}: HTTP {resp.status}: {err[:120]}"
+                                continue
+                            data = await resp.json()
+                        try:
+                            return data["candidates"][0]["content"]["parts"][0]["text"]
+                        except (KeyError, IndexError):
+                            log.warning("gemini_vision_empty", model=m)
+                            return ""
+                    except Exception as e:
+                        last_err = f"key#{key_idx} {m}: {e}"
+                        continue
+        raise RuntimeError(f"Gemini vision: {last_err[:200]}")
+
     # ─── Tool calling (Claude-compatible adapter) ─────────────────────
 
     @staticmethod

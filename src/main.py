@@ -177,6 +177,110 @@ async def _handle_baby_photo(
     return result
 
 
+async def _handle_medical_photo(
+    message: Any, caption: str, agents: dict, memory: Any, settings: Any,
+) -> dict:
+    """Read a medical document photo (УЗИ/анализы/заключение), interpret
+    via vision LLM, archive to the right person's Drive folder, and log
+    a short diary entry. Returns dict with person/interpretation/drive_url."""
+    import os as _os
+    import tempfile
+    from src.integrations.drive import DriveClient
+    from src.integrations.medical_photos import (
+        archive_medical_photo, detect_person, interpret_medical_photo,
+        _PERSON_FOLDERS,
+    )
+    log.info("medical_photo_handler_started")
+    drive_client = DriveClient.from_settings(settings)
+
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+        local_path = tmp.name
+    try:
+        await message.download_media(file=local_path)
+    except Exception:
+        log.exception("medical_photo_download_failed")
+        return {}
+
+    person = detect_person(caption)
+    # 1) Vision OCR + interpretation
+    interpretation = await interpret_medical_photo(local_path, caption)
+
+    # 2) Upload to per-person Drive folder with interpretation in description
+    upload = await archive_medical_photo(
+        local_path, caption, person, interpretation, drive_client,
+    )
+
+    # 3) Diary note — Айболит's commentary is multi-line; the diary entry
+    #    is a one-liner so future searches by date find this exam quickly.
+    diary_summary = ""
+    try:
+        from src.integrations.sheets import SheetsClient
+        from src.utils.time import now_kyiv as _now_kyiv
+        sa = getattr(settings, "google_service_account_json", "")
+        baby_sheet_id = getattr(settings, "sheet_baby_id", "")
+        if sa and baby_sheet_id:
+            sheets = SheetsClient(
+                service_account_info=sa,
+                baby_sheet_id=baby_sheet_id,
+                finance_sheet_id=getattr(settings, "sheet_finance_id", ""),
+            )
+            first_line = next(
+                (ln.strip() for ln in interpretation.splitlines() if ln.strip()),
+                "",
+            )[:140]
+            diary_summary = (
+                f"{upload['person_label']}: {first_line}"
+                if first_line
+                else f"{upload['person_label']}: медицинский документ загружен"
+            )
+            await sheets.append_baby_diary(
+                kind="note",
+                event="🏥 Медицинский документ",
+                time=_now_kyiv(),
+                author="family_hq",
+                details=diary_summary,
+            )
+    except Exception:
+        log.exception("medical_photo_diary_log_failed")
+
+    # 4) Reply to user — Айболит's voice
+    aibolit = agents.get("health")
+    nanny = agents.get("nanny")
+    header_bot = aibolit or nanny
+    if header_bot:
+        try:
+            lines = [
+                f"🩺 <b>{upload['person_label']}</b>",
+            ]
+            if interpretation:
+                lines.append(interpretation.strip())
+            if upload.get("drive_url"):
+                lines.append(f"\n☁️ <a href=\"{upload['drive_url']}\">Открыть на Drive</a>")
+            elif upload.get("error") == "drive_not_configured":
+                lines.append("\n⚠️ Drive не настроен — файл не загружен.")
+            elif upload.get("error"):
+                lines.append(f"\n⚠️ Drive: <code>{upload['error'][:160]}</code>")
+            if diary_summary:
+                lines.append("📓 Записано в дневник.")
+            await header_bot.send("\n".join(lines))
+        except Exception:
+            log.exception("medical_photo_ack_failed")
+
+    try:
+        _os.unlink(local_path)
+    except Exception:
+        pass
+
+    return {
+        "person": person,
+        "person_label": upload["person_label"],
+        "interpretation": interpretation,
+        "drive_url": upload.get("drive_url"),
+        "drive_id": upload.get("drive_id"),
+        "diary_logged": bool(diary_summary),
+    }
+
+
 async def handle_new_message(
     message: Any,
     dispatcher: Dispatcher,
@@ -236,19 +340,42 @@ async def handle_new_message(
                     await nanny_for_ack.send("📥 Принято фото, обрабатываю…")
                 except Exception:
                     pass
+
+            # Medical document branch — УЗИ, анализы, эпикриз, заключение…
+            # Route to Айболит's vision pipeline, save under per-person folder,
+            # and append a short note to the diary.
             archive_result = {}
-            try:
-                archive_result = await _handle_baby_photo(message, text, agents, memory, settings) or {}
-            except Exception:
-                log.exception("baby_photo_handle_failed")
-                if nanny_for_ack:
-                    try:
-                        await nanny_for_ack.send("📸 Не получилось сохранить фото — проверь логи Drive.")
-                    except Exception:
-                        pass
+            from src.integrations.medical_photos import is_medical_photo
+            if is_medical_photo(text):
+                try:
+                    archive_result = await _handle_medical_photo(
+                        message, text, agents, memory, settings,
+                    ) or {}
+                    archive_result["_branch"] = "medical"
+                except Exception:
+                    log.exception("medical_photo_handle_failed")
+                    if nanny_for_ack:
+                        try:
+                            await nanny_for_ack.send("🏥 Не получилось обработать медицинский документ — проверь логи.")
+                        except Exception:
+                            pass
+            else:
+                try:
+                    archive_result = await _handle_baby_photo(message, text, agents, memory, settings) or {}
+                except Exception:
+                    log.exception("baby_photo_handle_failed")
+                    if nanny_for_ack:
+                        try:
+                            await nanny_for_ack.send("📸 Не получилось сохранить фото — проверь логи Drive.")
+                        except Exception:
+                            pass
             # Annotate text for LLM dispatch with EXACT age the system computed
             # from the caption date, so the LLM doesn't hallucinate based on
             # today's age (this prevents "6 мес" replies on a 5-мес photo).
+            if archive_result.get("_branch") == "medical":
+                # Айболит already replied with the interpretation; no need
+                # for a second LLM round. Stop dispatching this turn.
+                return
             archived_age = archive_result.get("age") or ""
             age_hint = f"возраст на этом фото: {archived_age}." if archived_age else ""
             sys_note = (
