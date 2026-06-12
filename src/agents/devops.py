@@ -598,6 +598,15 @@ class DevOpsAgent(BaseAgent):
                 "input_schema": {"type": "object", "properties": {}},
             },
             {
+                "name": "notebook_sync_rules",
+                "description": (
+                    "Перенести в блокнот все ВКЛЮЧЁННЫЕ автоматизации из БД, "
+                    "которых там ещё нет. Триггер: «синхронизируй блокнот», "
+                    "«перенеси автоматизации в блокнот», «занеси правила в блокнот»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
                 "name": "solar_status",
                 "description": (
                     "Текущее состояние инвертора: солнечная генерация, заряд батареи, "
@@ -1378,6 +1387,59 @@ class DevOpsAgent(BaseAgent):
                 note=tool_input.get("note", ""),
             )
 
+        elif tool_name == "notebook_sync_rules":
+            import json as _json
+            from sqlalchemy import select
+            from src.db.models import AutomationRule
+            peers = getattr(self, "_peer_agents", {})
+            sheets = getattr(peers.get("nanny"), "_sheets", None)
+            if not sheets:
+                return {"error": "Sheets не настроен — блокнот недоступен."}
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(AutomationRule).where(AutomationRule.enabled == 1)
+                ))
+            added: list[str] = []
+            skipped: list[str] = []
+            errors: list[str] = []
+            for r in rows:
+                try:
+                    condition = _json.loads(r.condition or "{}")
+                    action = _json.loads(r.action or "{}")
+                except Exception as e:
+                    errors.append(f"{r.name}: bad json {e}")
+                    continue
+                try:
+                    before_len = len(await __import__(
+                        "src.integrations.prorab_notebook", fromlist=["list_tasks"],
+                    ).list_tasks(sheets, status=None))
+                    await self._notebook_mirror_rule(
+                        name=r.name,
+                        description=r.description or "",
+                        condition=condition,
+                        action=action,
+                    )
+                    after_len = len(await __import__(
+                        "src.integrations.prorab_notebook", fromlist=["list_tasks"],
+                    ).list_tasks(sheets, status=None))
+                    if after_len > before_len:
+                        added.append(r.name)
+                    else:
+                        skipped.append(r.name)
+                except Exception as e:
+                    errors.append(f"{r.name}: {e}")
+            return {
+                "total_rules": len(rows),
+                "added": added,
+                "already_present": skipped,
+                "errors": errors,
+                "display_instruction": (
+                    "Скажи юзеру: «📋 Синхронизировал блокнот. "
+                    "Добавлено: <added.length>, уже было: <already_present.length>»."
+                    "Если errors не пустой — покажи их одной строкой."
+                ),
+            }
+
         elif tool_name == "notebook_diag":
             peers = getattr(self, "_peer_agents", {})
             sheets = getattr(peers.get("nanny"), "_sheets", None)
@@ -2059,7 +2121,79 @@ class DevOpsAgent(BaseAgent):
                 created_at=iso_now(),
                 created_by=getattr(self, "_current_sender", "") or "",
             ))
+        # Mirror into Прораб's notebook so user has one place to see all
+        # promises (manual reminders + automations).
+        try:
+            await self._notebook_mirror_rule(
+                name=tool_input["name"],
+                description=tool_input.get("description") or "",
+                condition=tool_input["condition"],
+                action=tool_input["action"],
+            )
+        except Exception:
+            log.exception("notebook_mirror_rule_failed", name=tool_input["name"])
         return {"success": True, "name": tool_input["name"]}
+
+    async def _notebook_mirror_rule(
+        self, *, name: str, description: str,
+        condition: dict, action: dict,
+    ) -> None:
+        peers = getattr(self, "_peer_agents", {})
+        sheets = getattr(peers.get("nanny"), "_sheets", None)
+        if not sheets:
+            return
+        from src.integrations.prorab_notebook import add_task, list_tasks
+        # Avoid duplicate mirror entries: if a task with the rule name in
+        # the note already exists, skip.
+        try:
+            existing = await list_tasks(sheets, status=None)
+        except Exception:
+            existing = []
+        marker = f"[automation:{name}]"
+        for t in existing:
+            if marker in (t.get("note") or ""):
+                return
+
+        due_at = self._extract_due_from_condition(condition)
+        action_text = self._summarize_action(action)
+        task_text = f"⚙️ Авто: {description or name} → {action_text}"
+        await add_task(
+            sheets, task=task_text, due_at=due_at, note=marker,
+        )
+
+    @staticmethod
+    def _extract_due_from_condition(condition: dict) -> str:
+        """Best-effort: pull a human-readable due time from rule condition."""
+        kind = (condition or {}).get("type", "")
+        if kind == "datetime":
+            return (condition.get("at") or "")[:16]
+        if kind == "time":
+            cron = condition.get("cron") or ""
+            wd = condition.get("weekday")
+            if cron:
+                return f"ежедн. {cron}" + (f" ({wd})" if wd else "")
+            h = condition.get("hour")
+            m = condition.get("minute", 0)
+            if h is not None:
+                return f"ежедн. {int(h):02d}:{int(m):02d}"
+        if kind == "datetime_range":
+            return f"{condition.get('from','')[:16]} … {condition.get('to','')[:16]}"
+        if kind in ("sensor", "alert_active", "alert_ended", "power_outage", "baby_sleeping"):
+            return f"условие: {kind}"
+        return ""
+
+    @staticmethod
+    def _summarize_action(action: dict) -> str:
+        kind = (action or {}).get("type", "")
+        if kind == "device":
+            return f"{action.get('device','')} → {action.get('action','')}"
+        if kind == "message":
+            return f"сообщение от {action.get('agent','')}"
+        if kind == "set_mode":
+            return f"режим {action.get('mode','')} = {action.get('enabled')}"
+        if kind == "tool":
+            return f"tool {action.get('tool','')} у {action.get('agent','')}"
+        return kind or "?"
 
     async def _automation_list(self) -> dict:
         from sqlalchemy import select
