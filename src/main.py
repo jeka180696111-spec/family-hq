@@ -203,15 +203,21 @@ async def _handle_medical_photo(
 ) -> dict:
     """Read a medical document photo (УЗИ/анализы/заключение), interpret
     via vision LLM, archive to the right person's Drive folder, and log
-    a short diary entry. When `sibling=True` (extra photos in a Telegram
-    album) we skip the LLM/diary work — only upload the file."""
+    a short diary entry.
+
+    For Telegram albums: each photo is OCR'd separately, but the final
+    Айболит summary + diary entry is debounced — sent only after all
+    siblings of the album have been processed (6-second silence after
+    the last photo). This way the conclusion photo (often the LAST one
+    in the album) gets included in the final analysis."""
+    import asyncio
     import os as _os
     import tempfile
     from src.integrations.drive import DriveClient
     from src.integrations.medical_photos import (
-        archive_medical_photo, detect_person, interpret_medical_photo,
-        _PERSON_FOLDERS,
+        archive_medical_photo, detect_person,
     )
+    from src.integrations.gemini_client import GeminiClient
     log.info("medical_photo_handler_started", sibling=sibling)
     drive_client = DriveClient.from_settings(settings)
 
@@ -224,22 +230,153 @@ async def _handle_medical_photo(
         return {}
 
     person = detect_person(caption)
-    # 1) Vision OCR + interpretation — only for the first photo of an album.
-    interpretation = "" if sibling else await interpret_medical_photo(local_path, caption)
+    grouped_id = getattr(message, "grouped_id", None)
 
-    # 2) Upload to per-person Drive folder with interpretation in description
+    # 1) Raw OCR on every photo (cheap, gets the text on the page)
+    raw_ocr = ""
+    gemini = GeminiClient.from_settings(settings)
+    if gemini:
+        try:
+            raw_ocr = await gemini.vision_complete(
+                image_path=local_path,
+                prompt=(
+                    "Распознай ВЕСЬ текст на изображении медицинского "
+                    "документа дословно. Сохрани структуру строк. "
+                    "Если это УЗИ-снимок без текста — кратко опиши что "
+                    "видишь (орган, что измеряется)."
+                ),
+                max_tokens=1200,
+            )
+        except Exception:
+            log.exception("medical_ocr_failed")
+
+    # 2) Upload to per-person Drive folder
     upload = await archive_medical_photo(
-        local_path, caption, person, interpretation, drive_client,
+        local_path, caption, person, raw_ocr, drive_client,
     )
 
-    # 3) Diary note — only for the first photo (siblings share the entry).
+    try:
+        _os.unlink(local_path)
+    except Exception:
+        pass
+
+    # 3a) Solo medical photo (not part of an album) — finalize now.
+    if not grouped_id:
+        await _finalize_medical_album(
+            person=person,
+            person_label=upload["person_label"],
+            caption=caption,
+            ocr_chunks=[raw_ocr] if raw_ocr else [],
+            uploads=[upload],
+            agents=agents,
+            settings=settings,
+        )
+        return {
+            "person": person,
+            "person_label": upload["person_label"],
+            "drive_url": upload.get("drive_url"),
+            "drive_id": upload.get("drive_id"),
+        }
+
+    # 3b) Album member — push OCR into the group buffer and (re)schedule
+    #     a debounced finalizer. The last photo to arrive wins; we wait
+    #     6 seconds of silence then summarize all collected OCR.
+    entry = _MEDIA_GROUP_CACHE.setdefault(grouped_id, {
+        "branch": "medical",
+        "person": person,
+        "person_label": upload["person_label"],
+        "caption": caption,
+        "ocr_chunks": [],
+        "uploads": [],
+        "ts": _now_ts(),
+    })
+    if raw_ocr:
+        entry["ocr_chunks"].append(raw_ocr)
+    entry["uploads"].append(upload)
+    entry["ts"] = _now_ts()
+    if not entry.get("caption") and caption:
+        entry["caption"] = caption
+
+    # Cancel any pending finalize task and reschedule
+    pending = entry.get("flush_task")
+    if pending and not pending.done():
+        pending.cancel()
+
+    async def _delayed_flush() -> None:
+        try:
+            await asyncio.sleep(6.0)
+            data = _MEDIA_GROUP_CACHE.get(grouped_id)
+            if not data:
+                return
+            await _finalize_medical_album(
+                person=data["person"],
+                person_label=data["person_label"],
+                caption=data.get("caption", ""),
+                ocr_chunks=data.get("ocr_chunks", []),
+                uploads=data.get("uploads", []),
+                agents=agents,
+                settings=settings,
+            )
+            _MEDIA_GROUP_CACHE.pop(grouped_id, None)
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            log.exception("medical_album_flush_failed")
+
+    entry["flush_task"] = asyncio.create_task(_delayed_flush())
+
+    return {
+        "person": person,
+        "person_label": upload["person_label"],
+        "drive_url": upload.get("drive_url"),
+        "drive_id": upload.get("drive_id"),
+        "deferred": True,
+    }
+
+
+async def _finalize_medical_album(
+    *, person: str, person_label: str, caption: str,
+    ocr_chunks: list[str], uploads: list[dict],
+    agents: dict, settings: Any,
+) -> None:
+    """After all album siblings are processed, combine OCR texts, ask the
+    vision LLM for ONE structured interpretation, send it to chat as
+    Айболит, and write a single diary entry."""
+    from src.integrations.gemini_client import GeminiClient
+    from src.integrations.medical_photos import _VISION_SYSTEM
+
+    combined_text = "\n\n--- ФОТО ---\n\n".join(
+        c.strip() for c in ocr_chunks if c and c.strip()
+    )
+
+    interpretation = ""
+    gemini = GeminiClient.from_settings(settings)
+    if gemini and combined_text:
+        try:
+            interpretation = await gemini.complete(
+                system=_VISION_SYSTEM,
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        f"Подпись пользователя: «{caption or '—'}»\n\n"
+                        f"Распознанный текст со всех фото медицинского "
+                        f"документа (склеен по фоткам):\n\n{combined_text}\n\n"
+                        "Сделай итоговое заключение по инструкции."
+                    ),
+                }],
+                max_tokens=900,
+            )
+        except Exception:
+            log.exception("medical_album_interpret_failed")
+
+    # Write diary entry
     diary_summary = ""
     try:
         from src.integrations.sheets import SheetsClient
         from src.utils.time import now_kyiv as _now_kyiv
         sa = getattr(settings, "google_service_account_json", "")
         baby_sheet_id = getattr(settings, "sheet_baby_id", "")
-        if not sibling and sa and baby_sheet_id:
+        if sa and baby_sheet_id:
             sheets = SheetsClient(
                 service_account_info=sa,
                 baby_sheet_id=baby_sheet_id,
@@ -250,9 +387,9 @@ async def _handle_medical_photo(
                 "",
             )[:140]
             diary_summary = (
-                f"{upload['person_label']}: {first_line}"
+                f"{person_label}: {first_line}"
                 if first_line
-                else f"{upload['person_label']}: медицинский документ загружен"
+                else f"{person_label}: медицинский документ загружен"
             )
             await sheets.append_baby_diary(
                 kind="note",
@@ -262,44 +399,36 @@ async def _handle_medical_photo(
                 details=diary_summary,
             )
     except Exception:
-        log.exception("medical_photo_diary_log_failed")
+        log.exception("medical_album_diary_failed")
 
-    # 4) Reply to user — Айболит's voice (suppress for sibling photos)
+    # Reply in chat (Айболит's voice with Няня as fallback)
     aibolit = agents.get("health")
     nanny = agents.get("nanny")
     header_bot = aibolit or nanny
-    if header_bot and not sibling:
-        try:
-            lines = [
-                f"🩺 <b>{upload['person_label']}</b>",
-            ]
-            if interpretation:
-                lines.append(interpretation.strip())
-            if upload.get("drive_url"):
-                lines.append(f"\n☁️ <a href=\"{upload['drive_url']}\">Открыть на Drive</a>")
-            elif upload.get("error") == "drive_not_configured":
-                lines.append("\n⚠️ Drive не настроен — файл не загружен.")
-            elif upload.get("error"):
-                lines.append(f"\n⚠️ Drive: <code>{upload['error'][:160]}</code>")
-            if diary_summary:
-                lines.append("📓 Записано в дневник.")
-            await header_bot.send("\n".join(lines))
-        except Exception:
-            log.exception("medical_photo_ack_failed")
-
+    if not header_bot:
+        return
     try:
-        _os.unlink(local_path)
+        lines = [f"🩺 <b>{person_label}</b>"]
+        if len(uploads) > 1:
+            lines.append(f"<i>фото в альбоме: {len(uploads)}</i>")
+        if interpretation:
+            lines.append(interpretation.strip())
+        elif combined_text:
+            lines.append("⚠️ Распознал текст, но не удалось структурировать (LLM упал).")
+        else:
+            lines.append("⚠️ Не удалось распознать содержимое документа.")
+        # Drive links (one per uploaded photo)
+        drive_lines = [
+            f'☁️ <a href="{u["drive_url"]}">Фото {i+1}</a>'
+            for i, u in enumerate(uploads) if u.get("drive_url")
+        ]
+        if drive_lines:
+            lines.append("\n" + " · ".join(drive_lines))
+        if diary_summary:
+            lines.append("📓 Записано в дневник.")
+        await header_bot.send("\n".join(lines))
     except Exception:
-        pass
-
-    return {
-        "person": person,
-        "person_label": upload["person_label"],
-        "interpretation": interpretation,
-        "drive_url": upload.get("drive_url"),
-        "drive_id": upload.get("drive_id"),
-        "diary_logged": bool(diary_summary),
-    }
+        log.exception("medical_album_reply_failed")
 
 
 async def handle_new_message(
