@@ -290,6 +290,11 @@ async def _handle_medical_photo(
         "uploads": [],
         "ts": _now_ts(),
     })
+    # Ensure schema completeness even if cache entry was pre-seeded by main.
+    entry.setdefault("ocr_chunks", [])
+    entry.setdefault("uploads", [])
+    if not entry.get("person_label"):
+        entry["person_label"] = upload["person_label"]
     if raw_ocr:
         entry["ocr_chunks"].append(raw_ocr)
     entry["uploads"].append(upload)
@@ -513,14 +518,19 @@ async def handle_new_message(
                     inherit_caption = hit.get("caption", "") or text
 
             if is_medical_photo(text) or inherit_medical:
-                # Persist decision for siblings if not already cached
+                # Pre-mark the album as medical so concurrent siblings
+                # arriving in parallel ALL see the medical flag in cache
+                # — Telegram delivers album members nearly simultaneously.
                 if grouped_id and not inherit_medical:
-                    _MEDIA_GROUP_CACHE[grouped_id] = {
+                    _MEDIA_GROUP_CACHE.setdefault(grouped_id, {
                         "branch": "medical",
                         "person": detect_person(text),
+                        "person_label": "",
                         "caption": text,
+                        "ocr_chunks": [],
+                        "uploads": [],
                         "ts": _now_ts(),
-                    }
+                    })
                 effective_caption = text if not inherit_medical else inherit_caption
                 try:
                     archive_result = await _handle_medical_photo(

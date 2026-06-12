@@ -27,6 +27,9 @@ class DriveClient:
         self.oauth_client_secret = oauth_client_secret
         self.oauth_refresh_token = oauth_refresh_token
         self._folder_cache: dict[tuple[str, str], str] = {}
+        # Per-(parent, name) lock prevents the 3-folders-same-name race
+        # when an album of photos all call ensure_folder simultaneously.
+        self._folder_locks: dict[tuple[str, str], asyncio.Lock] = {}
         self._service = None
 
     @property
@@ -79,10 +82,18 @@ class DriveClient:
         key = (parent, name)
         if key in self._folder_cache:
             return self._folder_cache[key]
-        loop = asyncio.get_event_loop()
-        folder_id = await loop.run_in_executor(None, self._find_or_create_folder, name, parent)
-        self._folder_cache[key] = folder_id
-        return folder_id
+        lock = self._folder_locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            # Re-check cache under the lock — another concurrent caller
+            # may have created and cached the folder while we awaited.
+            if key in self._folder_cache:
+                return self._folder_cache[key]
+            loop = asyncio.get_event_loop()
+            folder_id = await loop.run_in_executor(
+                None, self._find_or_create_folder, name, parent,
+            )
+            self._folder_cache[key] = folder_id
+            return folder_id
 
     def _find_or_create_folder(self, name: str, parent: str) -> str:
         svc = self._build()
