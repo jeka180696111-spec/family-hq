@@ -64,8 +64,8 @@ def get_devops_prompt(active_agents: list[dict]) -> str:
 ПРИМЕРЫ:
   Юзер: «включи бойлер в 15:00»
   ТЫ: 1) add_automation_rule(name="boiler_today_15", condition=
-        {type:"datetime", at:"2026-06-12T15:00", late_fire:true},
-        action={type:"device", device:"бойлер", action:"on"})
+        {{type:"datetime", at:"2026-06-12T15:00", late_fire:true}},
+        action={{type:"device", device:"бойлер", action:"on"}})
       2) «✅ Правило создано, бойлер включится в 15:00.»
 
   Юзер: «напомни через 2 часа проверить почту»
