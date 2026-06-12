@@ -21,6 +21,14 @@ async def poll_notebook_overdue(
     if not sheets:
         return
 
+    # Force-create the worksheet on first tick so the user can see it in
+    # the spreadsheet even before any task has been added.
+    try:
+        from src.integrations.prorab_notebook import _ensure_worksheet
+        await _ensure_worksheet(sheets)
+    except Exception:
+        log.exception("notebook_ensure_failed")
+
     try:
         tasks = await list_tasks(sheets, status="open")
     except Exception:

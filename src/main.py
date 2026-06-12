@@ -1067,14 +1067,18 @@ async def run(dry_run: bool = False) -> None:
     register_healthcheck_jobs(scheduler, claude, memory, bot_manager, chat_id)
     register_reminder_jobs(scheduler, agents["calendar"], bot_manager, chat_id, memory)
 
-    # Прораб notebook: every 5 min check overdue tasks and ping chat
+    # Прораб notebook: every 5 min check overdue tasks and ping chat.
+    # First tick at 30s so the worksheet gets created immediately on deploy.
     try:
+        from datetime import timedelta as _td
+        from src.utils.time import now_kyiv as _now_kyiv_local
         from src.scheduler.notebook_poll import poll_notebook_overdue
         scheduler.add_job(
             poll_notebook_overdue,
             "interval", minutes=5,
             args=[agents, memory, bot_manager, chat_id],
             id="notebook_poll", coalesce=True, max_instances=1,
+            next_run_time=_now_kyiv_local() + _td(seconds=30),
         )
     except Exception:
         log.exception("notebook_poll_register_failed")
