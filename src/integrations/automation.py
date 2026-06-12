@@ -209,10 +209,10 @@ class AutomationEngine:
             target_m = int(cond.get("minute", 0))
         if target_h < 0:
             return False
-        # Within the current 5-min tick
+        # 1-minute tick window — fires within the exact target minute
         target_minutes = target_h * 60 + target_m
         now_minutes = now.hour * 60 + now.minute
-        return 0 <= (now_minutes - target_minutes) < 5
+        return 0 <= (now_minutes - target_minutes) < 1
 
     def _eval_datetime(self, cond: dict) -> bool:
         """Fire on or after `at` time.
@@ -444,8 +444,10 @@ class AutomationEngine:
 
 
 def register_automation_job(scheduler, engine: AutomationEngine) -> None:
+    # 1-minute tick — `включи в 15:58` фактически должно срабатывать
+    # в 15:58, а не на следующем 5-минутном тике (в 16:00).
     scheduler.add_job(
-        engine.tick, "interval", minutes=5,
+        engine.tick, "interval", minutes=1,
         id="automation_engine", replace_existing=True,
     )
     log.info("automation_engine_registered")
