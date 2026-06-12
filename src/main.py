@@ -93,6 +93,26 @@ def _has_photo_media(message: Any) -> bool:
     return True
 
 
+# ─── Media-group cache ─────────────────────────────────────────────
+# Telegram albums deliver each photo as a separate update. Only the FIRST
+# photo carries the caption. We cache the branch decision (medical / baby)
+# per grouped_id so siblings inherit it.
+import time as _time_mod
+_MEDIA_GROUP_CACHE: dict[int, dict] = {}
+_MEDIA_GROUP_TTL = 120  # seconds
+
+
+def _now_ts() -> float:
+    return _time_mod.time()
+
+
+def _media_group_evict_old(cache: dict) -> None:
+    now = _now_ts()
+    stale = [k for k, v in cache.items() if now - v.get("ts", 0) > _MEDIA_GROUP_TTL]
+    for k in stale:
+        cache.pop(k, None)
+
+
 async def _handle_baby_photo(
     message: Any, caption: str, agents: dict, memory: Any, settings: Any,
 ) -> dict:
@@ -179,10 +199,12 @@ async def _handle_baby_photo(
 
 async def _handle_medical_photo(
     message: Any, caption: str, agents: dict, memory: Any, settings: Any,
+    sibling: bool = False,
 ) -> dict:
     """Read a medical document photo (УЗИ/анализы/заключение), interpret
     via vision LLM, archive to the right person's Drive folder, and log
-    a short diary entry. Returns dict with person/interpretation/drive_url."""
+    a short diary entry. When `sibling=True` (extra photos in a Telegram
+    album) we skip the LLM/diary work — only upload the file."""
     import os as _os
     import tempfile
     from src.integrations.drive import DriveClient
@@ -190,7 +212,7 @@ async def _handle_medical_photo(
         archive_medical_photo, detect_person, interpret_medical_photo,
         _PERSON_FOLDERS,
     )
-    log.info("medical_photo_handler_started")
+    log.info("medical_photo_handler_started", sibling=sibling)
     drive_client = DriveClient.from_settings(settings)
 
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
@@ -202,23 +224,22 @@ async def _handle_medical_photo(
         return {}
 
     person = detect_person(caption)
-    # 1) Vision OCR + interpretation
-    interpretation = await interpret_medical_photo(local_path, caption)
+    # 1) Vision OCR + interpretation — only for the first photo of an album.
+    interpretation = "" if sibling else await interpret_medical_photo(local_path, caption)
 
     # 2) Upload to per-person Drive folder with interpretation in description
     upload = await archive_medical_photo(
         local_path, caption, person, interpretation, drive_client,
     )
 
-    # 3) Diary note — Айболит's commentary is multi-line; the diary entry
-    #    is a one-liner so future searches by date find this exam quickly.
+    # 3) Diary note — only for the first photo (siblings share the entry).
     diary_summary = ""
     try:
         from src.integrations.sheets import SheetsClient
         from src.utils.time import now_kyiv as _now_kyiv
         sa = getattr(settings, "google_service_account_json", "")
         baby_sheet_id = getattr(settings, "sheet_baby_id", "")
-        if sa and baby_sheet_id:
+        if not sibling and sa and baby_sheet_id:
             sheets = SheetsClient(
                 service_account_info=sa,
                 baby_sheet_id=baby_sheet_id,
@@ -243,11 +264,11 @@ async def _handle_medical_photo(
     except Exception:
         log.exception("medical_photo_diary_log_failed")
 
-    # 4) Reply to user — Айболит's voice
+    # 4) Reply to user — Айболит's voice (suppress for sibling photos)
     aibolit = agents.get("health")
     nanny = agents.get("nanny")
     header_bot = aibolit or nanny
-    if header_bot:
+    if header_bot and not sibling:
         try:
             lines = [
                 f"🩺 <b>{upload['person_label']}</b>",
@@ -345,11 +366,37 @@ async def handle_new_message(
             # Route to Айболит's vision pipeline, save under per-person folder,
             # and append a short note to the diary.
             archive_result = {}
-            from src.integrations.medical_photos import is_medical_photo
-            if is_medical_photo(text):
+            from src.integrations.medical_photos import is_medical_photo, detect_person
+            # Telegram albums: only the FIRST photo carries the caption,
+            # siblings come without text. Cache the branch decision per
+            # grouped_id so all photos in the album land in the right folder.
+            grouped_id = getattr(message, "grouped_id", None)
+            inherit_medical = False
+            inherit_person = "matvey"
+            inherit_caption = ""
+            if grouped_id:
+                cache = _MEDIA_GROUP_CACHE
+                _media_group_evict_old(cache)
+                hit = cache.get(grouped_id)
+                if hit and hit.get("branch") == "medical":
+                    inherit_medical = True
+                    inherit_person = hit.get("person", "matvey")
+                    inherit_caption = hit.get("caption", "") or text
+
+            if is_medical_photo(text) or inherit_medical:
+                # Persist decision for siblings if not already cached
+                if grouped_id and not inherit_medical:
+                    _MEDIA_GROUP_CACHE[grouped_id] = {
+                        "branch": "medical",
+                        "person": detect_person(text),
+                        "caption": text,
+                        "ts": _now_ts(),
+                    }
+                effective_caption = text if not inherit_medical else inherit_caption
                 try:
                     archive_result = await _handle_medical_photo(
-                        message, text, agents, memory, settings,
+                        message, effective_caption, agents, memory, settings,
+                        sibling=inherit_medical,
                     ) or {}
                     archive_result["_branch"] = "medical"
                 except Exception:
