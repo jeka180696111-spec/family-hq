@@ -589,6 +589,15 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "notebook_diag",
+                "description": (
+                    "Диагностика блокнота: пытается создать/найти вкладку и "
+                    "вернуть точную ошибку если что-то не так. Использовать "
+                    "только когда юзер говорит «блокнот не работает» / «нет вкладки»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
                 "name": "solar_status",
                 "description": (
                     "Текущее состояние инвертора: солнечная генерация, заряд батареи, "
@@ -1368,6 +1377,54 @@ class DevOpsAgent(BaseAgent):
                 status="done",
                 note=tool_input.get("note", ""),
             )
+
+        elif tool_name == "notebook_diag":
+            peers = getattr(self, "_peer_agents", {})
+            sheets = getattr(peers.get("nanny"), "_sheets", None)
+            if not sheets:
+                return {
+                    "ok": False,
+                    "step": "config",
+                    "error": "У nanny нет атрибута _sheets — SheetsClient не инициализирован. Проверь env GOOGLE_SERVICE_ACCOUNT_JSON и SHEET_BABY_ID.",
+                }
+            try:
+                gc = await sheets._get_client()
+            except Exception as e:
+                return {"ok": False, "step": "gspread_auth", "error": f"{type(e).__name__}: {e}"}
+            try:
+                spreadsheet = await sheets._run_sync(gc.open_by_key, sheets._baby_sheet_id)
+            except Exception as e:
+                return {
+                    "ok": False, "step": "open_spreadsheet",
+                    "error": f"{type(e).__name__}: {e}",
+                    "hint": "Проверь что service account имеет доступ Editor к таблице по ID " + str(sheets._baby_sheet_id),
+                }
+            try:
+                titles = await sheets._run_sync(lambda: [w.title for w in spreadsheet.worksheets()])
+            except Exception as e:
+                return {"ok": False, "step": "list_worksheets", "error": f"{type(e).__name__}: {e}"}
+            from src.integrations.prorab_notebook import WORKSHEET, _ensure_worksheet
+            already = WORKSHEET in titles
+            try:
+                await _ensure_worksheet(sheets)
+            except Exception as e:
+                return {
+                    "ok": False, "step": "ensure_worksheet",
+                    "error": f"{type(e).__name__}: {e}",
+                    "existing_tabs": titles,
+                    "target_name": WORKSHEET,
+                }
+            return {
+                "ok": True,
+                "worksheet_name": WORKSHEET,
+                "already_existed": already,
+                "existing_tabs": titles,
+                "display_instruction": (
+                    "Скажи юзеру: 'Вкладка <name> создана/найдена. "
+                    "Список существующих вкладок: ...'. "
+                    "Если already_existed=False — попроси юзера обновить таблицу в браузере."
+                ),
+            }
 
         elif tool_name == "solar_status":
             return await self._solar_status()
