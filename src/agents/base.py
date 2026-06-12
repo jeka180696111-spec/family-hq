@@ -247,23 +247,66 @@ class BaseAgent(abc.ABC):
     async def _process_tool_calls(
         self, message: Any, history: list[dict]
     ) -> tuple[str, list[str]]:
-        """Process tool use loop until final text response."""
-        import anthropic
-        actions_taken = []
+        """Process tool use loop until final text response.
+
+        Hard caps to stop runaway LLM tool-loops (seen on Gemini especially):
+        - MAX_ITERATIONS: total round-trips before we force a stop.
+        - MAX_CALLS_PER_TOOL: same tool fired more than this many times in
+          one session is almost always a loop. We synthesise a tool_result
+          telling the model to STOP and use its accumulated knowledge.
+        """
+        actions_taken: list[str] = []
+        per_tool_count: dict[str, int] = {}
         current_message = message
         current_history = list(history)
 
+        MAX_ITERATIONS = 8
+        MAX_CALLS_PER_TOOL = 3
+
+        iteration = 0
         while current_message.stop_reason == "tool_use":
+            iteration += 1
+            if iteration > MAX_ITERATIONS:
+                self._log.warning(
+                    "tool_loop_max_iterations",
+                    iteration=iteration, actions=actions_taken[:20],
+                )
+                break
+
             tool_results = []
             for block in current_message.content:
-                if block.type == "tool_use":
-                    result = await self._call_tool(block.name, block.input)
-                    actions_taken.append(f"{block.name}({list(block.input.keys())})")
+                if block.type != "tool_use":
+                    continue
+                tool_name = block.name
+                per_tool_count[tool_name] = per_tool_count.get(tool_name, 0) + 1
+                if per_tool_count[tool_name] > MAX_CALLS_PER_TOOL:
+                    # Block the runaway. Return a stop instruction instead
+                    # of actually running the tool again — the model sees
+                    # the message and (usually) writes the final answer.
+                    self._log.warning(
+                        "tool_loop_per_tool_cap",
+                        tool=tool_name, count=per_tool_count[tool_name],
+                    )
                     tool_results.append({
                         "type": "tool_result",
                         "tool_use_id": block.id,
-                        "content": str(result),
+                        "content": (
+                            f"STOP: инструмент `{tool_name}` уже вызван "
+                            f"{per_tool_count[tool_name]} раз в этой сессии. "
+                            "Это похоже на бесконечный цикл. Дай юзеру "
+                            "финальный ответ из уже полученных данных, "
+                            "не вызывай этот инструмент снова."
+                        ),
+                        "is_error": True,
                     })
+                    continue
+                result = await self._call_tool(tool_name, block.input)
+                actions_taken.append(f"{tool_name}({list(block.input.keys())})")
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": str(result),
+                })
 
             current_history.append({"role": "assistant", "content": current_message.content})
             current_history.append({"role": "user", "content": tool_results})
