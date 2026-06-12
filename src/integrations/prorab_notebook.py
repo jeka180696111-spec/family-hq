@@ -262,9 +262,24 @@ async def list_rules_from_sheet(sheets: Any) -> list[dict]:
     return out
 
 
+def _normalize(d: dict | None) -> dict:
+    """Accept {<type>: {<fields>}} wrapper shape as equivalent to
+    {"type": "<type>", <fields>}. Mirrors devops._normalize_rule_dict."""
+    if not isinstance(d, dict):
+        return d or {}
+    if "type" in d:
+        return d
+    if len(d) == 1:
+        key, val = next(iter(d.items()))
+        if isinstance(val, dict):
+            return {"type": key, **val}
+    return d
+
+
 def describe_trigger(condition: dict) -> str:
     """Human-readable string for the rules tab Триггер column."""
     import json as _json
+    condition = _normalize(condition)
     kind = (condition or {}).get("type", "")
     if kind == "datetime":
         return f"однократно {(condition.get('at') or '')[:16]}"
@@ -303,6 +318,7 @@ def describe_trigger(condition: dict) -> str:
 
 def describe_action(action: dict) -> str:
     import json as _json
+    action = _normalize(action)
     kind = (action or {}).get("type", "")
     if kind == "device":
         return f"{action.get('device','?')} → {action.get('action','?')}"

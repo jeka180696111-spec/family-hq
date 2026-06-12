@@ -234,6 +234,17 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "repair_automation_rules",
+                "description": (
+                    "Прогнать все существующие правила автоматизации через "
+                    "нормализатор JSON — фиксит обёрнутый формат "
+                    "{«power_outage»: {...}} → {«type»: «power_outage», ...}. "
+                    "Также обновляет вкладку «⚙️ Автоматизации». Триггер: "
+                    "«почини правила», «нераспозн в таблице», «триггер не работает»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
                 "name": "inspect_automation_rule",
                 "description": (
                     "Показать ТОЧНУЮ структуру JSON конкретного правила: "
@@ -1076,6 +1087,63 @@ class DevOpsAgent(BaseAgent):
             return await self._automation_delete(tool_input.get("name", ""))
         elif tool_name == "delete_all_automation_rules":
             return await self._automation_delete_all()
+        elif tool_name == "repair_automation_rules":
+            import json as _json
+            from sqlalchemy import select, update as sql_update
+            from src.db.models import AutomationRule
+            fixed: list[str] = []
+            unchanged: list[str] = []
+            errors: list[str] = []
+            async with self._memory._engine.begin() as conn:
+                rows = list(await conn.execute(select(AutomationRule)))
+                for r in rows:
+                    try:
+                        old_c = _json.loads(r.condition or "{}")
+                        old_a = _json.loads(r.action or "{}")
+                        new_c = self._normalize_rule_dict(old_c)
+                        new_a = self._normalize_rule_dict(old_a)
+                        if new_c == old_c and new_a == old_a:
+                            unchanged.append(r.name)
+                            continue
+                        await conn.execute(
+                            sql_update(AutomationRule)
+                            .where(AutomationRule.name == r.name)
+                            .values(
+                                condition=_json.dumps(new_c, ensure_ascii=False),
+                                action=_json.dumps(new_a, ensure_ascii=False),
+                            )
+                        )
+                        fixed.append(r.name)
+                    except Exception as e:
+                        errors.append(f"{r.name}: {e}")
+            # Re-mirror everything into notebook so the user sees fresh triggers/actions
+            peers = getattr(self, "_peer_agents", {})
+            sheets = getattr(peers.get("nanny"), "_sheets", None)
+            if sheets:
+                async with self._memory._engine.connect() as conn:
+                    rows2 = list(await conn.execute(select(AutomationRule)))
+                for r in rows2:
+                    try:
+                        await self._notebook_mirror_rule(
+                            name=r.name,
+                            description=r.description or "",
+                            condition=_json.loads(r.condition or "{}"),
+                            action=_json.loads(r.action or "{}"),
+                            enabled=bool(r.enabled),
+                            cooldown_min=r.cooldown_min or 60,
+                        )
+                    except Exception as e:
+                        errors.append(f"mirror {r.name}: {e}")
+            return {
+                "total": len(fixed) + len(unchanged),
+                "fixed": fixed, "unchanged": unchanged, "errors": errors,
+                "display_instruction": (
+                    "Скажи юзеру: «✅ Починил <fixed.length> из <total> правил. "
+                    "Открой вкладку «⚙️ Автоматизации» и проверь триггеры — "
+                    "вместо «нераспозн.» должны быть нормальные описания.»"
+                ),
+            }
+
         elif tool_name == "inspect_automation_rule":
             from sqlalchemy import select
             from src.db.models import AutomationRule
@@ -2179,14 +2247,36 @@ class DevOpsAgent(BaseAgent):
 
     # ─── Automation rules ────────────────────────────────────────────
 
+    @staticmethod
+    def _normalize_rule_dict(d: Any) -> Any:
+        """Accept the LLM's frequent mistake of writing {<type>: {<rest>}}
+        instead of {"type": "<type>", <rest>}. Returns the dict in canonical
+        form so the automation engine can match it."""
+        if not isinstance(d, dict):
+            return d
+        if "type" in d:
+            # Recurse into and/or composite rules
+            if d.get("type") in ("and", "or") and isinstance(d.get("rules"), list):
+                d = {**d, "rules": [DevOpsAgent._normalize_rule_dict(r) for r in d["rules"]]}
+            return d
+        if len(d) == 1:
+            key, val = next(iter(d.items()))
+            if isinstance(val, dict):
+                return {"type": key, **val}
+        return d
+
     async def _automation_add(self, tool_input: dict) -> dict:
         import json as _json
         from sqlalchemy import insert
         from src.db.models import AutomationRule
         from src.utils.time import iso_now
+        # Normalize wrapper-style JSON ({"power_outage": {...}} → {"type": "power_outage", ...})
+        condition = self._normalize_rule_dict(tool_input.get("condition"))
+        action = self._normalize_rule_dict(tool_input.get("action"))
+        tool_input = {**tool_input, "condition": condition, "action": action}
         try:
-            cond_json = _json.dumps(tool_input["condition"], ensure_ascii=False)
-            act_json = _json.dumps(tool_input["action"], ensure_ascii=False)
+            cond_json = _json.dumps(condition, ensure_ascii=False)
+            act_json = _json.dumps(action, ensure_ascii=False)
         except Exception as e:
             return {"error": f"bad JSON: {e}"}
         async with self._memory._engine.begin() as conn:
