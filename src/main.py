@@ -387,13 +387,34 @@ async def _finalize_medical_album(
                 baby_sheet_id=baby_sheet_id,
                 finance_sheet_id=getattr(settings, "sheet_finance_id", ""),
             )
-            first_line = next(
-                (ln.strip() for ln in interpretation.splitlines() if ln.strip()),
-                "",
-            )[:140]
+            # Pull the line after «📝 Вывод:» if the LLM followed the
+            # structured format we asked for; otherwise pull the first
+            # non-trivial line that isn't a disclaimer / refusal.
+            def _pick_diary_line(text: str) -> str:
+                lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+                # Priority 1: the line that follows «📝 Вывод:» or contains "Вывод:"
+                for i, ln in enumerate(lines):
+                    if "вывод" in ln.lower():
+                        # take the rest of this line after the colon, or next line
+                        after = ln.split(":", 1)[-1].strip() if ":" in ln else ""
+                        if len(after) > 5:
+                            return after
+                        if i + 1 < len(lines):
+                            return lines[i + 1]
+                # Priority 2: skip LLM disclaimers and headers, take first useful sentence
+                bad_starts = (
+                    "к сожалению", "не могу", "извин",
+                    "📄", "📅", "🔍", "📝", "⚠️", "пациент", "что:", "дата:",
+                )
+                for ln in lines:
+                    if not any(ln.lower().startswith(b) for b in bad_starts):
+                        return ln
+                return lines[0] if lines else ""
+
+            picked = _pick_diary_line(interpretation)[:200]
             diary_summary = (
-                f"{person_label}: {first_line}"
-                if first_line
+                f"{person_label}: {picked}"
+                if picked
                 else f"{person_label}: медицинский документ загружен"
             )
             await sheets.append_baby_diary(
@@ -422,13 +443,20 @@ async def _finalize_medical_album(
             lines.append("⚠️ Распознал текст, но не удалось структурировать (LLM упал).")
         else:
             lines.append("⚠️ Не удалось распознать содержимое документа.")
-        # Drive links (one per uploaded photo)
+        # Drive links + explicit count of failures
         drive_lines = [
             f'☁️ <a href="{u["drive_url"]}">Фото {i+1}</a>'
             for i, u in enumerate(uploads) if u.get("drive_url")
         ]
+        failed = [
+            (i + 1, u.get("error") or "unknown")
+            for i, u in enumerate(uploads) if not u.get("drive_url")
+        ]
         if drive_lines:
             lines.append("\n" + " · ".join(drive_lines))
+        if failed:
+            for idx, err in failed:
+                lines.append(f"⚠️ Фото {idx} не загрузилось: <code>{err[:160]}</code>")
         if diary_summary:
             lines.append("📓 Записано в дневник.")
         await header_bot.send("\n".join(lines))

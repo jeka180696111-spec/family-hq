@@ -524,11 +524,16 @@ class SheetsClient:
 
         def _append() -> tuple[int, int, bool]:
             all_rows = ws.get_all_values()
-            # Skip if (date, type, name) already logged today — avoids
-            # double-writes when the agent's tool-loop fires twice.
-            for row in all_rows[-30:]:
-                if (len(row) >= 4 and row[1] == date_str
-                        and row[2] == type_label and row[3] == name):
+            # Dedup by (date, type) only — LLM tool-loops often invent
+            # 5-8 variations of the same exam name ("УЗИ головного мозга",
+            # "Нейросонография", "УЗД гол"…). Strict (date,type,name) dedup
+            # missed all of them. One exam per type per day is a safe rule;
+            # in the rare case a kid gets two different vaccines same day,
+            # they share type=💉 Прививка but distinct names — we accept
+            # that this collapses them; user can edit manually.
+            for row in all_rows[-50:]:
+                if (len(row) >= 3 and row[1] == date_str
+                        and row[2] == type_label):
                     return len(all_rows), -1, True
             next_num = 1
             for row in reversed(all_rows):

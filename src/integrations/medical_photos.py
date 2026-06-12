@@ -153,14 +153,21 @@ async def archive_medical_photo(
     drive_client: Any,
 ) -> dict:
     """Upload photo to per-person Drive folder, embedding the vision
-    interpretation as the file description."""
+    interpretation as the file description. Each photo gets a unique
+    suffix so album members don't collide on identical filenames."""
+    import uuid
     when = now_kyiv()
     safe_caption = (caption or "").strip()[:100]
     ext = os.path.splitext(local_path)[1] or ".jpg"
     person_folder = _PERSON_FOLDERS.get(person, _PERSON_FOLDERS["matvey"])
+    # uuid suffix (8 chars) guarantees uniqueness even when the whole
+    # album has the same caption — all 3 photos save side by side instead
+    # of colliding into one row.
+    unique = uuid.uuid4().hex[:8]
     drive_name = (
-        f"{when.strftime('%Y-%m-%d')}_{person}"
-        f"_{re.sub(r'[^A-Za-zА-Яа-я0-9._-]+', '_', safe_caption)[:50] or 'med'}{ext}"
+        f"{when.strftime('%Y-%m-%d_%H%M%S')}_{person}"
+        f"_{re.sub(r'[^A-Za-zА-Яа-я0-9._-]+', '_', safe_caption)[:40] or 'med'}"
+        f"_{unique}{ext}"
     )
 
     drive_file_id = None
