@@ -23,21 +23,26 @@ log = structlog.get_logger()
 
 
 WORKSHEET = "📋 Блокнот Прораба"
+# Legacy/alternative names — _ensure_worksheet returns any of these if
+# present, prefers the canonical one. Prevents two tabs after a rename.
+_WORKSHEET_ALIASES = (WORKSHEET, "Блокнот Прораба")
 _HEADER = ["id", "Создано", "Задача", "Срок", "Статус", "Выполнено", "Заметка"]
 
 
 async def _ensure_worksheet(sheets: Any) -> Any:
-    """Get or create the notebook worksheet inside the baby spreadsheet."""
+    """Get or create the notebook worksheet inside the baby spreadsheet.
+    Looks for any aliased name; only creates a new tab if NONE exist."""
     gc = await sheets._get_client()
     spreadsheet = await sheets._run_sync(gc.open_by_key, sheets._baby_sheet_id)
 
     def _build_or_get() -> Any:
-        try:
-            return spreadsheet.worksheet(WORKSHEET)
-        except Exception:
-            ws_new = spreadsheet.add_worksheet(title=WORKSHEET, rows=200, cols=8)
-            ws_new.append_row(_HEADER, value_input_option="USER_ENTERED")
-            return ws_new
+        existing = {w.title: w for w in spreadsheet.worksheets()}
+        for alias in _WORKSHEET_ALIASES:
+            if alias in existing:
+                return existing[alias]
+        ws_new = spreadsheet.add_worksheet(title=WORKSHEET, rows=200, cols=8)
+        ws_new.append_row(_HEADER, value_input_option="USER_ENTERED")
+        return ws_new
 
     return await sheets._run_sync(_build_or_get)
 

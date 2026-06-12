@@ -66,7 +66,10 @@ def get_devops_prompt(active_agents: list[dict]) -> str:
   ТЫ: 1) add_automation_rule(name="boiler_today_15", condition=
         {{type:"datetime", at:"2026-06-12T15:00", late_fire:true}},
         action={{type:"device", device:"бойлер", action:"on"}})
-      2) «✅ Правило создано, бойлер включится в 15:00.»
+      2) Смотри ответ инструмента: notebook_mirror=='ok' → говори
+         «✅ Правило создано, бойлер включится в 15:00. В блокнот тоже записал.»
+         notebook_mirror=='error' → говори
+         «✅ Правило создано, но в блокнот не записал: <notebook_mirror_error>».
 
   Юзер: «напомни через 2 часа проверить почту»
   ТЫ: 1) notebook_add(task="проверить почту", due_at="2026-06-12T<сейчас+2ч>")

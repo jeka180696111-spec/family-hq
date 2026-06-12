@@ -2123,36 +2123,44 @@ class DevOpsAgent(BaseAgent):
             ))
         # Mirror into Прораб's notebook so user has one place to see all
         # promises (manual reminders + automations).
+        mirror_status = "ok"
+        mirror_error = None
         try:
-            await self._notebook_mirror_rule(
+            mirrored = await self._notebook_mirror_rule(
                 name=tool_input["name"],
                 description=tool_input.get("description") or "",
                 condition=tool_input["condition"],
                 action=tool_input["action"],
             )
-        except Exception:
+            if not mirrored:
+                mirror_status = "skipped"
+        except Exception as e:
             log.exception("notebook_mirror_rule_failed", name=tool_input["name"])
-        return {"success": True, "name": tool_input["name"]}
+            mirror_status = "error"
+            mirror_error = f"{type(e).__name__}: {str(e)[:200]}"
+        return {
+            "success": True,
+            "name": tool_input["name"],
+            "notebook_mirror": mirror_status,
+            "notebook_mirror_error": mirror_error,
+        }
 
     async def _notebook_mirror_rule(
         self, *, name: str, description: str,
         condition: dict, action: dict,
-    ) -> None:
+    ) -> bool:
+        """Add a row to the notebook for this automation rule.
+        Returns True if a new row was added, False if it already existed."""
         peers = getattr(self, "_peer_agents", {})
         sheets = getattr(peers.get("nanny"), "_sheets", None)
         if not sheets:
-            return
+            raise RuntimeError("sheets client not available for mirror")
         from src.integrations.prorab_notebook import add_task, list_tasks
-        # Avoid duplicate mirror entries: if a task with the rule name in
-        # the note already exists, skip.
-        try:
-            existing = await list_tasks(sheets, status=None)
-        except Exception:
-            existing = []
+        existing = await list_tasks(sheets, status=None)
         marker = f"[automation:{name}]"
         for t in existing:
             if marker in (t.get("note") or ""):
-                return
+                return False
 
         due_at = self._extract_due_from_condition(condition)
         action_text = self._summarize_action(action)
@@ -2160,6 +2168,7 @@ class DevOpsAgent(BaseAgent):
         await add_task(
             sheets, task=task_text, due_at=due_at, note=marker,
         )
+        return True
 
     @staticmethod
     def _extract_due_from_condition(condition: dict) -> str:
