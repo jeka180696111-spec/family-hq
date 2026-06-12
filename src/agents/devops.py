@@ -234,6 +234,20 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "inspect_automation_rule",
+                "description": (
+                    "Показать ТОЧНУЮ структуру JSON конкретного правила: "
+                    "что лежит в condition и action. Используй когда юзер "
+                    "говорит «покажи правило X», «что внутри правила Y», "
+                    "«почему не работает», «триггер не распознан»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                    "required": ["name"],
+                },
+            },
+            {
                 "name": "delete_all_automation_rules",
                 "description": (
                     "Удалить ВСЕ правила автоматизации сразу — и из БД, и из "
@@ -1062,6 +1076,30 @@ class DevOpsAgent(BaseAgent):
             return await self._automation_delete(tool_input.get("name", ""))
         elif tool_name == "delete_all_automation_rules":
             return await self._automation_delete_all()
+        elif tool_name == "inspect_automation_rule":
+            from sqlalchemy import select
+            from src.db.models import AutomationRule
+            name = tool_input.get("name", "")
+            async with self._memory._engine.connect() as conn:
+                row = (await conn.execute(
+                    select(AutomationRule).where(AutomationRule.name == name)
+                )).first()
+            if not row:
+                return {"error": f"Правило {name!r} не найдено."}
+            return {
+                "name": row.name,
+                "description": row.description,
+                "enabled": bool(row.enabled),
+                "cooldown_min": row.cooldown_min,
+                "condition_json": row.condition,
+                "action_json": row.action,
+                "last_fired_at": row.last_fired_at,
+                "display_instruction": (
+                    "Покажи юзеру condition_json и action_json В ТОЧНОСТИ как "
+                    "пришло, БЕЗ переформатирования. Если есть очевидная "
+                    "ошибка в JSON — укажи её одной строкой в конце."
+                ),
+            }
 
         elif tool_name == "wiki_set":
             return await self._wiki_set(

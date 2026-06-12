@@ -264,6 +264,7 @@ async def list_rules_from_sheet(sheets: Any) -> list[dict]:
 
 def describe_trigger(condition: dict) -> str:
     """Human-readable string for the rules tab Триггер column."""
+    import json as _json
     kind = (condition or {}).get("type", "")
     if kind == "datetime":
         return f"однократно {(condition.get('at') or '')[:16]}"
@@ -280,16 +281,28 @@ def describe_trigger(condition: dict) -> str:
         return f"отбой тревоги в {condition.get('region','?')}"
     if kind == "power_outage":
         st = condition.get("state", "?")
-        return f"электричество: {st}" + (f", задержка {condition['delay_min']}мин" if condition.get("delay_min") else "")
+        out = f"электричество: {st}"
+        if condition.get("delay_min"):
+            out += f", задержка {condition['delay_min']}мин"
+        if condition.get("within_min"):
+            out += f", в течение {condition['within_min']}мин"
+        return out
     if kind == "baby_sleeping":
         m = condition.get("min_minutes")
         return f"Матвей спит ≥{m} мин" if m else "Матвей спит"
     if kind in ("and", "or"):
         return kind.upper() + ": " + " / ".join(describe_trigger(r) for r in (condition.get("rules") or []))
-    return kind or "?"
+    # Unknown shape — surface the raw JSON so the user can see what
+    # the LLM actually produced. Far more useful than a silent "?".
+    try:
+        raw = _json.dumps(condition, ensure_ascii=False)
+    except Exception:
+        raw = str(condition)
+    return f"⚠️ нераспозн.: {raw[:140]}"
 
 
 def describe_action(action: dict) -> str:
+    import json as _json
     kind = (action or {}).get("type", "")
     if kind == "device":
         return f"{action.get('device','?')} → {action.get('action','?')}"
@@ -299,7 +312,11 @@ def describe_action(action: dict) -> str:
         return f"режим «{action.get('mode','?')}» = {action.get('enabled')}"
     if kind == "tool":
         return f"вызов tool {action.get('tool','?')} у {action.get('agent','?')}"
-    return kind or "?"
+    try:
+        raw = _json.dumps(action, ensure_ascii=False)
+    except Exception:
+        raw = str(action)
+    return f"⚠️ нераспозн.: {raw[:140]}"
 
 
 def parse_due(due_at: str) -> datetime | None:
