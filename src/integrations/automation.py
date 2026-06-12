@@ -87,7 +87,15 @@ class AutomationEngine:
         return False
 
     async def tick(self) -> None:
-        """Called by scheduler every 5 minutes."""
+        """Called by scheduler every minute."""
+        # Periodic cleanup: drop one-shot datetime rules whose `at` time
+        # passed more than an hour ago — they're either already executed
+        # (lost the auto-delete in an older deploy) or stuck because the
+        # device action keeps failing. Either way they pollute the table.
+        try:
+            await self._cleanup_expired_one_shots()
+        except Exception:
+            log.exception("automation_cleanup_failed")
         try:
             async with self._memory._engine.connect() as conn:
                 rules = list(await conn.execute(select(AutomationRule).where(AutomationRule.enabled == 1)))
@@ -379,6 +387,45 @@ class AutomationEngine:
         return 0 <= elapsed_min < 5
 
     # ─── Action execution ────────────────────────────────────────────
+
+    async def _cleanup_expired_one_shots(self) -> None:
+        """Sweep the AutomationRule table: any datetime rule with `at`
+        older than 1 hour gets deleted. Reasons:
+          - It already fired and we kept it for backwards-compat → flush.
+          - It's stuck because the action errors (Tuya offline, device
+            renamed, …) and now keeps trying every tick → flush.
+        User can always re-create the rule cleanly via Прораб."""
+        now = now_kyiv()
+        cutoff = now - timedelta(hours=1)
+        async with self._memory._engine.connect() as conn:
+            rules = list(await conn.execute(select(AutomationRule)))
+        to_delete: list[tuple[int, str]] = []
+        for r in rules:
+            try:
+                cond = json.loads(r.condition or "{}")
+            except Exception:
+                continue
+            if cond.get("type") != "datetime":
+                continue
+            at_raw = cond.get("at") or ""
+            try:
+                at = datetime.fromisoformat(at_raw)
+            except Exception:
+                continue
+            from src.utils.time import KYIV_TZ
+            if at.tzinfo is None:
+                at = at.replace(tzinfo=KYIV_TZ)
+            if at < cutoff:
+                to_delete.append((r.id, r.name))
+        if not to_delete:
+            return
+        async with self._memory._engine.begin() as conn:
+            for rid, _name in to_delete:
+                await conn.execute(sql_delete(AutomationRule).where(AutomationRule.id == rid))
+        for _rid, name in to_delete:
+            await self._notebook_delete_rule(name)
+        log.info("automation_expired_swept", count=len(to_delete),
+                 names=[n for _, n in to_delete])
 
     async def _notebook_delete_rule(self, rule_name: str) -> None:
         """Remove a consumed one-shot rule from the ⚙️ Автоматизации tab."""
