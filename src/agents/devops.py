@@ -589,6 +589,28 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "schedule_device_action",
+                "description": (
+                    "ПРОСТОЙ способ запланировать включение/выключение устройства "
+                    "на конкретное время. ИСПОЛЬЗУЙ ЭТО вместо ручного "
+                    "add_automation_rule когда надо просто включить/выключить "
+                    "устройство через N минут / в HH:MM. "
+                    "Триггеры: «включи бойлер в 15:00», «через 2 минуты вкл свет», "
+                    "«выключи ТВ через час», «в 22:00 выкл бойлер». "
+                    "Параметр when принимает: «через 5 минут», «через 2 часа», "
+                    "«в 15:00», «в 22:30», или ISO «2026-06-12T15:00»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "device": {"type": "string", "description": "Имя устройства как в умном доме (бойлер, ТВ, свет)."},
+                        "action": {"type": "string", "enum": ["on", "off", "toggle"]},
+                        "when": {"type": "string", "description": "«через N минут», «в HH:MM», или ISO."},
+                    },
+                    "required": ["device", "action", "when"],
+                },
+            },
+            {
                 "name": "notebook_diag",
                 "description": (
                     "Диагностика блокнота: пытается создать/найти вкладку и "
@@ -1387,6 +1409,13 @@ class DevOpsAgent(BaseAgent):
                 note=tool_input.get("note", ""),
             )
 
+        elif tool_name == "schedule_device_action":
+            return await self._schedule_device_action(
+                device=tool_input.get("device", ""),
+                action=tool_input.get("action", "on"),
+                when=tool_input.get("when", ""),
+            )
+
         elif tool_name == "notebook_sync_rules":
             import json as _json
             from sqlalchemy import select
@@ -2144,6 +2173,84 @@ class DevOpsAgent(BaseAgent):
             "notebook_mirror": mirror_status,
             "notebook_mirror_error": mirror_error,
         }
+
+    async def _schedule_device_action(
+        self, *, device: str, action: str, when: str,
+    ) -> dict:
+        """Translate a free-form `when` string into a datetime automation
+        rule. Bullet-proof against LLM JSON errors — we build the JSON."""
+        import re as _re
+        from datetime import timedelta
+        from src.utils.time import now_kyiv
+        if not device:
+            return {"error": "device обязателен"}
+        if action not in ("on", "off", "toggle"):
+            return {"error": f"action должен быть on/off/toggle, было {action!r}"}
+
+        text = (when or "").strip().lower()
+        now = now_kyiv()
+        target_dt = None
+
+        # «через N минут / N часов»
+        m = _re.search(r"через\s+(\d+)\s*(минут|мин|час|часов|hour|hr|min)", text)
+        if m:
+            n = int(m.group(1))
+            unit = m.group(2)
+            if "час" in unit or "hour" in unit or "hr" in unit:
+                target_dt = now + timedelta(hours=n)
+            else:
+                target_dt = now + timedelta(minutes=n)
+
+        # «в HH:MM»
+        if target_dt is None:
+            m = _re.search(r"в\s+(\d{1,2}):(\d{2})", text)
+            if m:
+                h, mn = int(m.group(1)), int(m.group(2))
+                target_dt = now.replace(hour=h, minute=mn, second=0, microsecond=0)
+                if target_dt <= now:
+                    target_dt += timedelta(days=1)
+
+        # plain «HH:MM»
+        if target_dt is None:
+            m = _re.match(r"(\d{1,2}):(\d{2})\s*$", text)
+            if m:
+                h, mn = int(m.group(1)), int(m.group(2))
+                target_dt = now.replace(hour=h, minute=mn, second=0, microsecond=0)
+                if target_dt <= now:
+                    target_dt += timedelta(days=1)
+
+        # ISO «YYYY-MM-DDTHH:MM[:SS]»
+        if target_dt is None:
+            try:
+                from datetime import datetime as _dt
+                from src.utils.time import KYIV_TZ
+                parsed = _dt.fromisoformat(when)
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=KYIV_TZ)
+                target_dt = parsed
+            except Exception:
+                pass
+
+        if target_dt is None:
+            return {
+                "error": (
+                    f"Не разобрал время «{when}». "
+                    "Поддержано: «через N минут», «через N часов», «в HH:MM», "
+                    "«HH:MM», ISO «YYYY-MM-DDTHH:MM»."
+                ),
+            }
+
+        at_iso = target_dt.strftime("%Y-%m-%dT%H:%M")
+        slug = _re.sub(r"[^a-zA-Z0-9_]+", "_", device.lower())[:20] or "device"
+        rule_name = f"{slug}_{action}_{target_dt.strftime('%Y%m%d_%H%M')}"
+
+        return await self._automation_add({
+            "name": rule_name,
+            "description": f"{action.upper()} {device} в {at_iso}",
+            "condition": {"type": "datetime", "at": at_iso, "late_fire": True},
+            "action": {"type": "device", "device": device, "action": action},
+            "cooldown_min": 5,
+        })
 
     async def _notebook_mirror_rule(
         self, *, name: str, description: str,

@@ -63,13 +63,21 @@ def get_devops_prompt(active_agents: list[dict]) -> str:
 
 ПРИМЕРЫ:
   Юзер: «включи бойлер в 15:00»
-  ТЫ: 1) add_automation_rule(name="boiler_today_15", condition=
-        {{type:"datetime", at:"2026-06-12T15:00", late_fire:true}},
-        action={{type:"device", device:"бойлер", action:"on"}})
-      2) Смотри ответ инструмента: notebook_mirror=='ok' → говори
-         «✅ Правило создано, бойлер включится в 15:00. В блокнот тоже записал.»
-         notebook_mirror=='error' → говори
-         «✅ Правило создано, но в блокнот не записал: <notebook_mirror_error>».
+  ТЫ: 1) schedule_device_action(device="бойлер", action="on", when="в 15:00")
+      2) «✅ Бойлер включится в 15:00.»
+
+  Юзер: «через 2 минуты включи бойлер»
+  ТЫ: 1) schedule_device_action(device="бойлер", action="on", when="через 2 минуты")
+      2) «✅ Бойлер включится через 2 минуты.»
+
+  Юзер: «через час выключи свет»
+  ТЫ: 1) schedule_device_action(device="свет", action="off", when="через 1 час")
+      2) «✅ Свет выключится через час.»
+
+ПРАВИЛО: для одноразового включения/выключения устройства в конкретное
+время — ВСЕГДА `schedule_device_action`, НИКОГДА не пытайся сам собрать
+JSON для add_automation_rule. add_automation_rule используй ТОЛЬКО для
+сложных условий (датчики, тревоги, расписания по будням и т.п.).
 
   Юзер: «напомни через 2 часа проверить почту»
   ТЫ: 1) notebook_add(task="проверить почту", due_at="2026-06-12T<сейчас+2ч>")
