@@ -1,14 +1,21 @@
-"""Прораб's notebook — a Google Sheet where devops jots down promises,
-deferred tasks, and reminders so the LLM doesn't have to remember them
-across sessions. Backed by the same baby spreadsheet (so we don't need a
-separate Drive file or auth).
+"""Прораб's notebook — TWO Google Sheets tabs inside the baby spreadsheet:
 
-Columns:  A=id  B=Создано  C=Задача  D=Срок (ISO Kyiv)  E=Статус  F=Выполнено  G=Заметка
+  📋 Блокнот Прораба    — разовые задачи/обещания (что нужно сделать к сроку)
+  ⚙️ Автоматизации     — постоянно работающие правила IF→THEN (с условиями)
 
-Statuses:
-  open  — pending
-  done  — completed
-  skip  — cancelled / no longer relevant
+The auto-tab is the user-facing source of truth for what's scheduled to
+run. DB still stores the execution config; notebook is the readable
+mirror Прораб and the user both look at.
+
+Columns — 📋 Блокнот Прораба:
+  A=id  B=Создано  C=Задача  D=Срок  E=Статус  F=Выполнено  G=Заметка
+
+Columns — ⚙️ Автоматизации:
+  A=Имя_правила      B=Включено
+  C=Описание         D=Триггер (когда срабатывает)
+  E=Действие         F=Cooldown_мин
+  G=Создано          H=Последний_запуск
+  I=Заметка
 """
 from __future__ import annotations
 
@@ -22,11 +29,21 @@ from src.utils.time import KYIV_TZ, now_kyiv
 log = structlog.get_logger()
 
 
+# ─── Tasks tab ────────────────────────────────────────────────────────
+
 WORKSHEET = "📋 Блокнот Прораба"
-# Legacy/alternative names — _ensure_worksheet returns any of these if
-# present, prefers the canonical one. Prevents two tabs after a rename.
 _WORKSHEET_ALIASES = (WORKSHEET, "Блокнот Прораба")
 _HEADER = ["id", "Создано", "Задача", "Срок", "Статус", "Выполнено", "Заметка"]
+
+
+# ─── Automations tab ──────────────────────────────────────────────────
+
+RULES_WORKSHEET = "⚙️ Автоматизации"
+_RULES_ALIASES = (RULES_WORKSHEET, "Автоматизации")
+_RULES_HEADER = [
+    "Имя", "Включено", "Описание", "Триггер",
+    "Действие", "Cooldown_мин", "Создано", "Последний_запуск", "Заметка",
+]
 
 
 async def _ensure_worksheet(sheets: Any) -> Any:
@@ -134,6 +151,155 @@ async def mark_status(sheets: Any, task_id: int, status: str, note: str = "") ->
 
     ok = await sheets._run_sync(_update)
     return {"id": task_id, "updated": ok, "status": status}
+
+
+# ─── Automations tab operations ───────────────────────────────────────
+
+async def _ensure_rules_worksheet(sheets: Any) -> Any:
+    gc = await sheets._get_client()
+    spreadsheet = await sheets._run_sync(gc.open_by_key, sheets._baby_sheet_id)
+
+    def _build_or_get() -> Any:
+        existing = {w.title: w for w in spreadsheet.worksheets()}
+        for alias in _RULES_ALIASES:
+            if alias in existing:
+                return existing[alias]
+        ws_new = spreadsheet.add_worksheet(title=RULES_WORKSHEET, rows=200, cols=10)
+        ws_new.append_row(_RULES_HEADER, value_input_option="USER_ENTERED")
+        return ws_new
+
+    return await sheets._run_sync(_build_or_get)
+
+
+async def upsert_rule(
+    sheets: Any, *, name: str, enabled: bool,
+    description: str, trigger: str, action: str,
+    cooldown_min: int, created_at: str = "",
+    last_fired_at: str = "", note: str = "",
+) -> dict:
+    """Insert or update a rule row keyed by Имя."""
+    ws = await _ensure_rules_worksheet(sheets)
+
+    def _do() -> tuple[str, int]:
+        rows = ws.get_all_values()
+        created = created_at or now_kyiv().strftime("%Y-%m-%d %H:%M")
+        new_row = [
+            name,
+            "✅" if enabled else "⏸",
+            description,
+            trigger,
+            action,
+            str(cooldown_min),
+            created,
+            last_fired_at,
+            note,
+        ]
+        for idx, row in enumerate(rows[1:], start=2):
+            if not row or not row[0]:
+                continue
+            if row[0] == name:
+                ws.update(f"A{idx}:I{idx}", [new_row], value_input_option="USER_ENTERED")
+                return "updated", idx
+        ws.append_row(new_row, value_input_option="USER_ENTERED")
+        return "added", len(ws.get_all_values())
+
+    op, idx = await sheets._run_sync(_do)
+    log.info("notebook_rule_upserted", name=name, op=op)
+    return {"op": op, "row": idx, "name": name}
+
+
+async def delete_rule(sheets: Any, name: str) -> bool:
+    ws = await _ensure_rules_worksheet(sheets)
+
+    def _do() -> bool:
+        rows = ws.get_all_values()
+        for idx, row in enumerate(rows[1:], start=2):
+            if not row or not row[0]:
+                continue
+            if row[0] == name:
+                ws.delete_rows(idx)
+                return True
+        return False
+
+    return await sheets._run_sync(_do)
+
+
+async def clear_all_rules(sheets: Any) -> int:
+    """Wipe every row from the rules tab (keeps the header). Returns count."""
+    ws = await _ensure_rules_worksheet(sheets)
+
+    def _do() -> int:
+        rows = ws.get_all_values()
+        # Number of data rows = total - 1 (header)
+        n = max(0, len(rows) - 1)
+        if n > 0:
+            # Delete from bottom to top to keep indices valid
+            for idx in range(len(rows), 1, -1):
+                ws.delete_rows(idx)
+        return n
+
+    return await sheets._run_sync(_do)
+
+
+async def list_rules_from_sheet(sheets: Any) -> list[dict]:
+    ws = await _ensure_rules_worksheet(sheets)
+    rows = await sheets._run_sync(ws.get_all_values)
+    out = []
+    for row in rows[1:]:
+        if not row or not row[0]:
+            continue
+        out.append({
+            "name": row[0],
+            "enabled": (row[1] if len(row) > 1 else "") == "✅",
+            "description": row[2] if len(row) > 2 else "",
+            "trigger": row[3] if len(row) > 3 else "",
+            "action": row[4] if len(row) > 4 else "",
+            "cooldown_min": row[5] if len(row) > 5 else "",
+            "created_at": row[6] if len(row) > 6 else "",
+            "last_fired_at": row[7] if len(row) > 7 else "",
+            "note": row[8] if len(row) > 8 else "",
+        })
+    return out
+
+
+def describe_trigger(condition: dict) -> str:
+    """Human-readable string for the rules tab Триггер column."""
+    kind = (condition or {}).get("type", "")
+    if kind == "datetime":
+        return f"однократно {(condition.get('at') or '')[:16]}"
+    if kind == "time":
+        cron = condition.get("cron") or ""
+        wd = condition.get("weekday")
+        s = f"ежедневно в {cron}" if cron else f"в {condition.get('hour','?'):02d}:{condition.get('minute',0):02d}"
+        return s + (f" по {wd}" if wd else "")
+    if kind == "sensor":
+        return f"датчик {condition.get('device','?')}.{condition.get('metric','?')} {condition.get('op','?')} {condition.get('value','?')}"
+    if kind == "alert_active":
+        return f"тревога активна в {condition.get('region','?')}"
+    if kind == "alert_ended":
+        return f"отбой тревоги в {condition.get('region','?')}"
+    if kind == "power_outage":
+        st = condition.get("state", "?")
+        return f"электричество: {st}" + (f", задержка {condition['delay_min']}мин" if condition.get("delay_min") else "")
+    if kind == "baby_sleeping":
+        m = condition.get("min_minutes")
+        return f"Матвей спит ≥{m} мин" if m else "Матвей спит"
+    if kind in ("and", "or"):
+        return kind.upper() + ": " + " / ".join(describe_trigger(r) for r in (condition.get("rules") or []))
+    return kind or "?"
+
+
+def describe_action(action: dict) -> str:
+    kind = (action or {}).get("type", "")
+    if kind == "device":
+        return f"{action.get('device','?')} → {action.get('action','?')}"
+    if kind == "message":
+        return f"сообщение от {action.get('agent','devops')}: {(action.get('text','') or '')[:60]}"
+    if kind == "set_mode":
+        return f"режим «{action.get('mode','?')}» = {action.get('enabled')}"
+    if kind == "tool":
+        return f"вызов tool {action.get('tool','?')} у {action.get('agent','?')}"
+    return kind or "?"
 
 
 def parse_due(due_at: str) -> datetime | None:

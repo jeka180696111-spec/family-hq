@@ -226,12 +226,22 @@ class DevOpsAgent(BaseAgent):
             },
             {
                 "name": "delete_automation_rule",
-                "description": "Удалить правило автоматизации.",
+                "description": "Удалить правило автоматизации (по имени) — и из БД, и из вкладки «⚙️ Автоматизации».",
                 "input_schema": {
                     "type": "object",
                     "properties": {"name": {"type": "string"}},
                     "required": ["name"],
                 },
+            },
+            {
+                "name": "delete_all_automation_rules",
+                "description": (
+                    "Удалить ВСЕ правила автоматизации сразу — и из БД, и из "
+                    "вкладки «⚙️ Автоматизации». Триггеры: «удали все автоматизации», "
+                    "«снеси все правила», «очисти автоматизации». ОПАСНАЯ ОПЕРАЦИЯ — "
+                    "перед вызовом удостоверься что юзер сказал «все/всё»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
             },
             {
                 "name": "list_smart_devices",
@@ -1050,6 +1060,8 @@ class DevOpsAgent(BaseAgent):
             return await self._automation_toggle(tool_input.get("name", ""), bool(tool_input.get("enabled", True)))
         elif tool_name == "delete_automation_rule":
             return await self._automation_delete(tool_input.get("name", ""))
+        elif tool_name == "delete_all_automation_rules":
+            return await self._automation_delete_all()
 
         elif tool_name == "wiki_set":
             return await self._wiki_set(
@@ -2160,6 +2172,8 @@ class DevOpsAgent(BaseAgent):
                 description=tool_input.get("description") or "",
                 condition=tool_input["condition"],
                 action=tool_input["action"],
+                enabled=True,
+                cooldown_min=int(tool_input.get("cooldown_min", 60)),
             )
             if not mirrored:
                 mirror_status = "skipped"
@@ -2300,26 +2314,26 @@ class DevOpsAgent(BaseAgent):
 
     async def _notebook_mirror_rule(
         self, *, name: str, description: str,
-        condition: dict, action: dict,
+        condition: dict, action: dict, enabled: bool = True,
+        cooldown_min: int = 60,
     ) -> bool:
-        """Add a row to the notebook for this automation rule.
-        Returns True if a new row was added, False if it already existed."""
+        """Write/update this rule's row in the ⚙️ Автоматизации tab.
+        Returns True (always upsert succeeds when sheets are available)."""
         peers = getattr(self, "_peer_agents", {})
         sheets = getattr(peers.get("nanny"), "_sheets", None)
         if not sheets:
             raise RuntimeError("sheets client not available for mirror")
-        from src.integrations.prorab_notebook import add_task, list_tasks
-        existing = await list_tasks(sheets, status=None)
-        marker = f"[automation:{name}]"
-        for t in existing:
-            if marker in (t.get("note") or ""):
-                return False
-
-        due_at = self._extract_due_from_condition(condition)
-        action_text = self._summarize_action(action)
-        task_text = f"⚙️ Авто: {description or name} → {action_text}"
-        await add_task(
-            sheets, task=task_text, due_at=due_at, note=marker,
+        from src.integrations.prorab_notebook import (
+            upsert_rule, describe_trigger, describe_action,
+        )
+        await upsert_rule(
+            sheets,
+            name=name,
+            enabled=enabled,
+            description=description or name,
+            trigger=describe_trigger(condition),
+            action=describe_action(action),
+            cooldown_min=cooldown_min,
         )
         return True
 
@@ -2358,13 +2372,49 @@ class DevOpsAgent(BaseAgent):
         return kind or "?"
 
     async def _automation_list(self) -> dict:
+        """Sync DB → notebook first, then return the notebook view (which
+        is the user-facing source of truth). Falls back to DB read if the
+        sheet isn't available."""
+        import json as _json
         from sqlalchemy import select
         from src.db.models import AutomationRule
         async with self._memory._engine.connect() as conn:
             rows = list(await conn.execute(select(AutomationRule)))
+
+        # Mirror every DB rule into the notebook so what user sees is what
+        # actually runs.
+        peers = getattr(self, "_peer_agents", {})
+        sheets = getattr(peers.get("nanny"), "_sheets", None)
+        sync_errors: list[str] = []
+        if sheets:
+            for r in rows:
+                try:
+                    await self._notebook_mirror_rule(
+                        name=r.name,
+                        description=r.description or "",
+                        condition=_json.loads(r.condition or "{}"),
+                        action=_json.loads(r.action or "{}"),
+                        enabled=bool(r.enabled),
+                        cooldown_min=r.cooldown_min or 60,
+                    )
+                except Exception as e:
+                    sync_errors.append(f"{r.name}: {e}")
+                    log.exception("notebook_sync_failed", name=r.name)
+
+        # Read back from the notebook for the display payload — this way
+        # Prorab shows the user the same view they'd open in the sheet.
+        notebook_rules: list[dict] = []
+        if sheets:
+            try:
+                from src.integrations.prorab_notebook import list_rules_from_sheet
+                notebook_rules = await list_rules_from_sheet(sheets)
+            except Exception as e:
+                sync_errors.append(f"read: {e}")
+                log.exception("notebook_read_failed")
+
         return {
-            "count": len(rows),
-            "rules": [
+            "count": len(notebook_rules) if notebook_rules else len(rows),
+            "rules": notebook_rules or [
                 {
                     "name": r.name, "description": r.description,
                     "enabled": bool(r.enabled), "cooldown_min": r.cooldown_min,
@@ -2373,15 +2423,40 @@ class DevOpsAgent(BaseAgent):
                 }
                 for r in rows
             ],
+            "source": "notebook" if notebook_rules else "db_fallback",
+            "sync_errors": sync_errors,
+            "display_instruction": (
+                "Покажи юзеру список ВКЛЮЧЁННЫХ правил и (если есть) "
+                "ПРИОСТАНОВЛЕННЫХ отдельно. Формат: '◆ <description> — "
+                "<trigger> → <action>'. Не вызывай list_automation_rules "
+                "больше одного раза подряд."
+            ),
         }
 
     async def _automation_toggle(self, name: str, enabled: bool) -> dict:
-        from sqlalchemy import update as sql_update
+        import json as _json
+        from sqlalchemy import select, update as sql_update
         from src.db.models import AutomationRule
         async with self._memory._engine.begin() as conn:
             res = await conn.execute(
                 sql_update(AutomationRule).where(AutomationRule.name == name).values(enabled=1 if enabled else 0)
             )
+            row = (await conn.execute(
+                select(AutomationRule).where(AutomationRule.name == name)
+            )).first()
+        # Reflect new enabled flag in the notebook
+        if row:
+            try:
+                await self._notebook_mirror_rule(
+                    name=row.name,
+                    description=row.description or "",
+                    condition=_json.loads(row.condition or "{}"),
+                    action=_json.loads(row.action or "{}"),
+                    enabled=bool(enabled),
+                    cooldown_min=row.cooldown_min or 60,
+                )
+            except Exception:
+                log.exception("notebook_toggle_mirror_failed", name=name)
         return {"success": True, "updated": res.rowcount}
 
     async def _automation_delete(self, name: str) -> dict:
@@ -2389,7 +2464,43 @@ class DevOpsAgent(BaseAgent):
         from src.db.models import AutomationRule
         async with self._memory._engine.begin() as conn:
             res = await conn.execute(delete(AutomationRule).where(AutomationRule.name == name))
-        return {"success": True, "deleted": res.rowcount}
+        # Remove the row from the notebook too
+        notebook_removed = False
+        try:
+            peers = getattr(self, "_peer_agents", {})
+            sheets = getattr(peers.get("nanny"), "_sheets", None)
+            if sheets:
+                from src.integrations.prorab_notebook import delete_rule
+                notebook_removed = await delete_rule(sheets, name)
+        except Exception:
+            log.exception("notebook_delete_mirror_failed", name=name)
+        return {
+            "success": True,
+            "deleted_from_db": res.rowcount,
+            "notebook_removed": notebook_removed,
+        }
+
+    async def _automation_delete_all(self) -> dict:
+        from sqlalchemy import delete, select
+        from src.db.models import AutomationRule
+        async with self._memory._engine.begin() as conn:
+            count_row = (await conn.execute(select(AutomationRule))).all()
+            db_total = len(count_row)
+            await conn.execute(delete(AutomationRule))
+        notebook_cleared = 0
+        try:
+            peers = getattr(self, "_peer_agents", {})
+            sheets = getattr(peers.get("nanny"), "_sheets", None)
+            if sheets:
+                from src.integrations.prorab_notebook import clear_all_rules
+                notebook_cleared = await clear_all_rules(sheets)
+        except Exception:
+            log.exception("notebook_delete_all_failed")
+        return {
+            "success": True,
+            "deleted_from_db": db_total,
+            "notebook_cleared": notebook_cleared,
+        }
 
     # ─── Family wiki ─────────────────────────────────────────────────
 
