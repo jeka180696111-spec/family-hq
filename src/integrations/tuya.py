@@ -221,12 +221,44 @@ class TuyaClient:
             ),
         }
 
-    @staticmethod
-    def _find_device(devices: list[dict], needle: str) -> dict | None:
-        n = needle.strip().lower()
+    # Synonym groups — any token in a group matches any device whose name
+    # contains ANY other token in the same group. So «телевизор» matches
+    # «Розетка ТВ», «свет» matches «light strip», etc.
+    _SYNONYM_GROUPS = (
+        ("телевизор", "телек", "тв", "tv", "телик"),
+        ("кондер", "кондиционер", "ac", "сплит", "сплит-система"),
+        ("бойлер", "boiler", "водонагреватель", "котёл", "котел"),
+        ("свет", "светильник", "лампа", "люстра", "light", "лампочка"),
+        ("розетка", "plug", "socket"),
+        ("чайник", "kettle"),
+        ("стиралка", "стиральная машина", "washer"),
+        ("посудомойка", "dishwasher"),
+        ("кофеварка", "coffee"),
+        ("увлажнитель", "humidifier"),
+        ("пылесос", "робот", "vacuum"),
+        ("кроватка", "детская", "малыш"),
+    )
+
+    @classmethod
+    def _find_device(cls, devices: list[dict], needle: str) -> dict | None:
+        n = (needle or "").strip().lower()
+        if not n:
+            return None
         for d in devices:
             if d["id"] == needle:
                 return d
             if n in d.get("name", "").lower():
                 return d
+        # Try synonyms — expand the needle into every alias and look for
+        # device names containing any of them.
+        expanded: set[str] = set()
+        for group in cls._SYNONYM_GROUPS:
+            if n in group:
+                expanded.update(group)
+        for syn in expanded:
+            if syn == n:
+                continue
+            for d in devices:
+                if syn in d.get("name", "").lower():
+                    return d
         return None
