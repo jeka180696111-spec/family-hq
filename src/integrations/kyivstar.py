@@ -27,8 +27,32 @@ import structlog
 log = structlog.get_logger()
 
 
-_MOBILE_BASE = "https://api-my.kyivstar.ua"
-_WEB_BASE = "https://my.kyivstar.ua"
+# Known Kyivstar API host candidates. We try each in order until one
+# responds to /idp/api/v1/mobile/auth. The first hit gets cached for
+# subsequent calls.
+_BASE_CANDIDATES = (
+    "https://mobapi.kyivstar.ua",
+    "https://api.kyivstar.ua",
+    "https://api-my.kyivstar.ua",
+    "https://my.kyivstar.ua",
+    "https://www.kyivstar.ua",
+)
+
+_AUTH_PATH_CANDIDATES = (
+    "/idp/api/v1/mobile/auth",
+    "/api/v1/mobile/auth",
+    "/api/v1/auth/login",
+    "/api/auth/login",
+    "/idp/api/v1/auth",
+)
+
+_DASHBOARD_PATH_CANDIDATES = (
+    "/dashboard/api/v1/info",
+    "/api/v1/dashboard",
+    "/api/v1/info",
+    "/api/v1/profile",
+    "/api/v1/me",
+)
 
 _USER_AGENT = (
     "Mozilla/5.0 (Linux; Android 14; SM-G991B) AppleWebKit/537.36 "
@@ -47,6 +71,9 @@ class KyivstarClient:
         self.password = password or ""
         self._token: str | None = None
         self._token_expires_at: float = 0.0
+        # Cached endpoints once we find a working combo
+        self._auth_url: str | None = None
+        self._dashboard_url: str | None = None
 
     @classmethod
     def from_settings(cls, settings: Any) -> "KyivstarClient | None":
@@ -62,29 +89,65 @@ class KyivstarClient:
         if self._token and time.time() < self._token_expires_at - 30:
             return self._token
 
-        url = f"{_MOBILE_BASE}/idp/api/v1/mobile/auth"
         payload = {"phone": self.phone, "password": self.password}
-        try:
-            async with session.post(
-                url, json=payload,
-                headers={"User-Agent": _USER_AGENT, "Content-Type": "application/json"},
-            ) as resp:
-                if resp.status >= 400:
-                    body = (await resp.text())[:400]
-                    raise KyivstarError(
-                        f"auth HTTP {resp.status}: {body}"
-                    )
-                data = await resp.json()
-        except aiohttp.ClientError as e:
-            raise KyivstarError(f"auth network: {e}") from e
+        headers = {"User-Agent": _USER_AGENT, "Content-Type": "application/json"}
 
-        token = data.get("accessToken") or data.get("token") or data.get("access_token")
+        # Use cached working endpoint if we've discovered it before
+        urls_to_try: list[str] = []
+        if self._auth_url:
+            urls_to_try.append(self._auth_url)
+        else:
+            for base in _BASE_CANDIDATES:
+                for path in _AUTH_PATH_CANDIDATES:
+                    urls_to_try.append(f"{base}{path}")
+
+        attempts: list[str] = []
+        data: dict | None = None
+        chosen_url: str | None = None
+
+        for url in urls_to_try:
+            try:
+                async with session.post(
+                    url, json=payload, headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    body_text = await resp.text()
+                    if resp.status >= 400:
+                        attempts.append(f"{url} → {resp.status}")
+                        continue
+                    try:
+                        data = await resp.json(content_type=None)
+                    except Exception:
+                        attempts.append(f"{url} → 200 non-json")
+                        continue
+                    chosen_url = url
+                    break
+            except aiohttp.ClientError as e:
+                attempts.append(f"{url} → {type(e).__name__}")
+                continue
+            except Exception as e:
+                attempts.append(f"{url} → {type(e).__name__}: {str(e)[:60]}")
+                continue
+
+        if data is None:
+            raise KyivstarError(
+                "ни один auth-endpoint не ответил. Пробовал:\n"
+                + "\n".join(attempts[:12])
+            )
+
+        token = (
+            data.get("accessToken")
+            or data.get("access_token")
+            or data.get("token")
+            or (data.get("data") or {}).get("accessToken")
+        )
         if not token:
-            raise KyivstarError(f"auth response missing token: {str(data)[:200]}")
+            raise KyivstarError(f"auth ок но без токена: {str(data)[:200]}")
+
         self._token = token
-        # default 28 min lifetime if expires_in absent
+        self._auth_url = chosen_url
         self._token_expires_at = time.time() + int(data.get("expiresIn", 1700))
-        log.info("kyivstar_authenticated")
+        log.info("kyivstar_authenticated", url=chosen_url)
         return token
 
     # ─── Public API ──────────────────────────────────────────────
@@ -96,21 +159,52 @@ class KyivstarClient:
         Raises KyivstarError on auth/parse failures."""
         async with aiohttp.ClientSession() as session:
             token = await self._ensure_token(session)
-            url = f"{_MOBILE_BASE}/dashboard/api/v1/info"
-            try:
-                async with session.get(
-                    url,
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "User-Agent": _USER_AGENT,
-                    },
-                ) as resp:
-                    if resp.status >= 400:
-                        body = (await resp.text())[:400]
-                        raise KyivstarError(f"dashboard HTTP {resp.status}: {body}")
-                    data = await resp.json()
-            except aiohttp.ClientError as e:
-                raise KyivstarError(f"dashboard network: {e}") from e
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "User-Agent": _USER_AGENT,
+            }
+
+            # The auth URL we discovered tells us the base; the dashboard
+            # very likely lives on the same host. Try its known paths.
+            urls_to_try: list[str] = []
+            if self._dashboard_url:
+                urls_to_try.append(self._dashboard_url)
+            elif self._auth_url:
+                base = self._auth_url.split("/", 3)
+                base = "/".join(base[:3])  # scheme://host
+                for path in _DASHBOARD_PATH_CANDIDATES:
+                    urls_to_try.append(f"{base}{path}")
+
+            data: dict | None = None
+            attempts: list[str] = []
+            chosen_url: str | None = None
+
+            for url in urls_to_try:
+                try:
+                    async with session.get(
+                        url, headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=10),
+                    ) as resp:
+                        if resp.status >= 400:
+                            attempts.append(f"{url} → {resp.status}")
+                            continue
+                        try:
+                            data = await resp.json(content_type=None)
+                        except Exception:
+                            attempts.append(f"{url} → 200 non-json")
+                            continue
+                        chosen_url = url
+                        break
+                except aiohttp.ClientError as e:
+                    attempts.append(f"{url} → {type(e).__name__}")
+                    continue
+
+            if data is None:
+                raise KyivstarError(
+                    "auth ок, но dashboard endpoint не отвечает. Попытки:\n"
+                    + "\n".join(attempts[:8])
+                )
+            self._dashboard_url = chosen_url
 
         return self._parse_dashboard(data)
 
