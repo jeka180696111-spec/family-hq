@@ -2476,11 +2476,93 @@ class DevOpsAgent(BaseAgent):
             "notebook_mirror_error": mirror_error,
         }
 
-    _AWAY_DEVICES = ("бойлер", "кондер", "телевизор")
+    _TRIP_PAUSE_MARKER = "[paused-by-trip]"
+
+    async def _pause_standing_rules(self) -> list[str]:
+        """Disable all currently-enabled non-one-shot rules and mark them
+        so we can restore the same set when the user comes home."""
+        import json as _json
+        from sqlalchemy import select, update as sql_update
+        from src.db.models import AutomationRule
+        paused: list[str] = []
+        async with self._memory._engine.begin() as conn:
+            rows = list(await conn.execute(
+                select(AutomationRule).where(AutomationRule.enabled == 1)
+            ))
+            for r in rows:
+                try:
+                    cond = _json.loads(r.condition or "{}")
+                except Exception:
+                    continue
+                # Skip one-shot datetime rules — those are explicit
+                # planned events (homecoming prep etc) and should keep firing.
+                if cond.get("type") == "datetime":
+                    continue
+                desc = r.description or ""
+                if self._TRIP_PAUSE_MARKER not in desc:
+                    desc = (desc + " " + self._TRIP_PAUSE_MARKER).strip()
+                await conn.execute(
+                    sql_update(AutomationRule).where(AutomationRule.id == r.id).values(
+                        enabled=0, description=desc,
+                    )
+                )
+                paused.append(r.name)
+        # Re-mirror each to the notebook so user sees the ⏸ status.
+        await self._remirror_rules(paused)
+        return paused
+
+    async def _resume_paused_rules(self) -> list[str]:
+        """Re-enable rules previously paused by trip-mode."""
+        import json as _json
+        from sqlalchemy import select, update as sql_update
+        from src.db.models import AutomationRule
+        resumed: list[str] = []
+        async with self._memory._engine.begin() as conn:
+            rows = list(await conn.execute(select(AutomationRule)))
+            for r in rows:
+                desc = r.description or ""
+                if self._TRIP_PAUSE_MARKER not in desc:
+                    continue
+                new_desc = desc.replace(self._TRIP_PAUSE_MARKER, "").strip()
+                await conn.execute(
+                    sql_update(AutomationRule).where(AutomationRule.id == r.id).values(
+                        enabled=1, description=new_desc,
+                    )
+                )
+                resumed.append(r.name)
+        await self._remirror_rules(resumed)
+        return resumed
+
+    async def _remirror_rules(self, names: list[str]) -> None:
+        if not names:
+            return
+        import json as _json
+        from sqlalchemy import select
+        from src.db.models import AutomationRule
+        async with self._memory._engine.connect() as conn:
+            rows = list(await conn.execute(
+                select(AutomationRule).where(AutomationRule.name.in_(names))
+            ))
+        for r in rows:
+            try:
+                await self._notebook_mirror_rule(
+                    name=r.name,
+                    description=r.description or "",
+                    condition=_json.loads(r.condition or "{}"),
+                    action=_json.loads(r.action or "{}"),
+                    enabled=bool(r.enabled),
+                    cooldown_min=r.cooldown_min or 60,
+                )
+            except Exception:
+                log.exception("remirror_failed", name=r.name)
+
+    # TV intentionally omitted — IR transmitter not paired yet; the smart
+    # socket would work but user prefers not to include it until ready.
+    _AWAY_DEVICES = ("бойлер", "кондер")
 
     async def _enter_away_mode(self) -> dict:
-        """Turn off non-essential devices, mark trip mode active.
-        Inverter / sensors / hub stay on (not in our off-list)."""
+        """Turn off non-essential devices, pause standing rules, mark trip
+        mode active. Inverter / sensors / hub stay on (not in our off-list)."""
         from src.config import get_settings
         from src.integrations.tuya import TuyaClient
         from src.utils.time import iso_now, now_kyiv
@@ -2493,6 +2575,12 @@ class DevOpsAgent(BaseAgent):
                     results.append({"device": dev, "ok": bool(r.get("success")), "raw": r})
                 except Exception as e:
                     results.append({"device": dev, "ok": False, "error": str(e)[:160]})
+        # Pause standing automation rules
+        paused: list[str] = []
+        try:
+            paused = await self._pause_standing_rules()
+        except Exception:
+            log.exception("away_mode_pause_failed")
         # Set family-mode trip = active
         try:
             from sqlalchemy import insert
@@ -2515,7 +2603,7 @@ class DevOpsAgent(BaseAgent):
                 await add_task(
                     sheets,
                     task=f"✈️ Уехал — выключено: {ok_devs}",
-                    note=f"trip mode start {now_kyiv().strftime('%Y-%m-%d %H:%M')}; failed: {fail_devs}",
+                    note=f"trip start {now_kyiv().strftime('%Y-%m-%d %H:%M')}; failed: {fail_devs}; paused: {len(paused)}",
                 )
         except Exception:
             log.exception("away_mode_notebook_failed")
@@ -2523,17 +2611,16 @@ class DevOpsAgent(BaseAgent):
             "mode": "trip",
             "enabled": True,
             "results": results,
+            "paused_rules": paused,
             "display_instruction": (
                 "Скажи юзеру коротко: «✈️ Уехал. Выключил <список ok>. "
-                "Trip-режим включён.» Если есть failed — добавь строку про "
-                "что не получилось."
+                "Trip-режим включён. На паузу N правил (N=len(paused_rules)).» "
+                "Если есть failed — добавь строку про что не получилось."
             ),
         }
 
     async def _exit_away_mode(self) -> dict:
-        """Mark trip mode finished. Devices left as-is — schedule_homecoming
-        rules will have already powered things on (or user is home and can
-        flip the switches manually)."""
+        """Mark trip mode finished and resume all rules paused by trip."""
         from src.utils.time import iso_now
         try:
             from sqlalchemy import update as sql_update
@@ -2546,18 +2633,31 @@ class DevOpsAgent(BaseAgent):
                 )
         except Exception as e:
             return {"error": f"db update failed: {e}"}
+        # Re-enable paused rules
+        resumed: list[str] = []
+        try:
+            resumed = await self._resume_paused_rules()
+        except Exception:
+            log.exception("exit_away_resume_failed")
         # Notebook closer
         try:
             peers = getattr(self, "_peer_agents", {})
             sheets = getattr(peers.get("nanny"), "_sheets", None)
             if sheets:
                 from src.integrations.prorab_notebook import add_task
-                await add_task(sheets, task="🏠 Я дома — trip-режим выключен")
+                await add_task(
+                    sheets,
+                    task=f"🏠 Я дома — trip-режим выключен, восстановлено {len(resumed)} правил",
+                )
         except Exception:
             log.exception("exit_away_notebook_failed")
         return {
             "mode": "trip", "enabled": False,
-            "display_instruction": "Скажи юзеру: «🏠 С возвращением! Trip-режим выключен.»",
+            "resumed_rules": resumed,
+            "display_instruction": (
+                "Скажи юзеру: «🏠 С возвращением! Trip-режим выключен. "
+                "Восстановил N правил автоматизации (N=len(resumed_rules)).»"
+            ),
         }
 
     async def _schedule_homecoming(
@@ -2636,6 +2736,15 @@ class DevOpsAgent(BaseAgent):
                 "mode_hint": ac_mode, "temp_hint": ac_temperature, "result": r,
             })
 
+        # User is on the way home — wake the standing rules NOW so by the
+        # time he arrives, sensor-based automation (temp >26 → AC etc.)
+        # is already active.
+        resumed: list[str] = []
+        try:
+            resumed = await self._resume_paused_rules()
+        except Exception:
+            log.exception("homecoming_resume_failed")
+
         # Notebook overview entry
         try:
             peers = getattr(self, "_peer_agents", {})
@@ -2646,6 +2755,7 @@ class DevOpsAgent(BaseAgent):
                     sheets,
                     task=f"🏠 Возвращение в {target_dt.strftime('%H:%M')}: бойлер +{boiler_hours_before}ч, кондер +{ac_hours_before}ч ({ac_mode} {ac_temperature}°)",
                     due_at=target_dt.strftime("%Y-%m-%dT%H:%M"),
+                    note=f"resumed {len(resumed)} paused rules",
                 )
         except Exception:
             log.exception("homecoming_notebook_failed")
@@ -2654,9 +2764,11 @@ class DevOpsAgent(BaseAgent):
             "arrival": target_dt.strftime("%Y-%m-%dT%H:%M"),
             "ac_mode": ac_mode, "ac_temperature": ac_temperature,
             "scheduled": scheduled,
+            "resumed_rules": resumed,
             "display_instruction": (
                 "Скажи юзеру 3-4 строки: «🏠 Прибытие в HH:MM. "
-                "🚿 Бойлер в HH:MM. ❄️ Кондер в HH:MM (<mode> <temp>°).» "
+                "🚿 Бойлер в HH:MM. ❄️ Кондер в HH:MM (<mode> <temp>°). "
+                "Восстановил N правил автоматизации.» "
                 "Если что-то skipped — упомяни."
             ),
         }
