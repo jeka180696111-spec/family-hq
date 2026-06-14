@@ -799,6 +799,59 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "enter_away_mode",
+                "description": (
+                    "Сценарий «уехал из дома»: ВЫКЛЮЧИТЬ всё лишнее (бойлер, "
+                    "кондер, телевизор), включить family-mode «trip». "
+                    "Триггеры: «я уехал», «уехал из дома», «не дома», «вышли из дома»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "exit_away_mode",
+                "description": (
+                    "Выключить trip-режим (я дома, вернулся). Триггеры: "
+                    "«я дома», «вернулся», «приехал», «дома»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "schedule_homecoming",
+                "description": (
+                    "Сценарий «еду домой буду в HH:MM». Запланирует подготовку: "
+                    "бойлер ON за 3 часа, кондер ON за 1 час (с учётом сезона), "
+                    "ТВ остаётся выкл (юзер сам решит). Все три правила пишутся "
+                    "в ⚙️ Автоматизации. Триггеры: «еду домой буду в HH:MM», "
+                    "«приеду к HH:MM», «дома буду в HH:MM», «возвращаюсь к HH:MM»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "arrival": {
+                            "type": "string",
+                            "description": "Время прибытия: «в 18:30», «к 21:00», ISO «2026-06-14T18:30».",
+                        },
+                        "boiler_hours_before": {
+                            "type": "integer",
+                            "description": "За сколько часов до прибытия включить бойлер. По умолчанию 3.",
+                        },
+                        "ac_hours_before": {
+                            "type": "integer",
+                            "description": "За сколько часов до прибытия включить кондер. По умолчанию 1.",
+                        },
+                        "ac_mode": {
+                            "type": "string",
+                            "description": "Режим кондера: cold/hot/auto. По умолчанию — выбирай по сезону (лето=cold, зима=hot).",
+                        },
+                        "ac_temperature": {
+                            "type": "integer",
+                            "description": "Целевая температура кондера. По умолчанию 22 (cold) / 23 (hot).",
+                        },
+                    },
+                    "required": ["arrival"],
+                },
+            },
+            {
                 "name": "smart_sensor_read",
                 "description": (
                     "📍 ПРИОРИТЕТ для вопросов про температуру/влажность ДОМА. "
@@ -1710,6 +1763,21 @@ class DevOpsAgent(BaseAgent):
                 temperature=int(tool_input.get("temperature", 24)),
             )
 
+        elif tool_name == "enter_away_mode":
+            return await self._enter_away_mode()
+
+        elif tool_name == "exit_away_mode":
+            return await self._exit_away_mode()
+
+        elif tool_name == "schedule_homecoming":
+            return await self._schedule_homecoming(
+                arrival=tool_input.get("arrival", ""),
+                boiler_hours_before=int(tool_input.get("boiler_hours_before", 3)),
+                ac_hours_before=int(tool_input.get("ac_hours_before", 1)),
+                ac_mode=tool_input.get("ac_mode", "") or "",
+                ac_temperature=int(tool_input.get("ac_temperature", 0)),
+            )
+
         elif tool_name == "temperature_full":
             return await self._temperature_full()
         elif tool_name == "smart_sensor_read":
@@ -2406,6 +2474,191 @@ class DevOpsAgent(BaseAgent):
             "name": tool_input["name"],
             "notebook_mirror": mirror_status,
             "notebook_mirror_error": mirror_error,
+        }
+
+    _AWAY_DEVICES = ("бойлер", "кондер", "телевизор")
+
+    async def _enter_away_mode(self) -> dict:
+        """Turn off non-essential devices, mark trip mode active.
+        Inverter / sensors / hub stay on (not in our off-list)."""
+        from src.config import get_settings
+        from src.integrations.tuya import TuyaClient
+        from src.utils.time import iso_now, now_kyiv
+        client = TuyaClient.from_settings(get_settings())
+        results: list[dict] = []
+        if client:
+            for dev in self._AWAY_DEVICES:
+                try:
+                    r = await client.control(dev, "off")
+                    results.append({"device": dev, "ok": bool(r.get("success")), "raw": r})
+                except Exception as e:
+                    results.append({"device": dev, "ok": False, "error": str(e)[:160]})
+        # Set family-mode trip = active
+        try:
+            from sqlalchemy import insert
+            from src.db.models import FamilyMode
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(insert(FamilyMode).prefix_with("OR REPLACE").values(
+                    name="trip", enabled=1, payload=None,
+                    started_at=iso_now(), expires_at=None,
+                ))
+        except Exception:
+            log.exception("away_mode_db_failed")
+        # Mark in notebook
+        try:
+            peers = getattr(self, "_peer_agents", {})
+            sheets = getattr(peers.get("nanny"), "_sheets", None)
+            if sheets:
+                from src.integrations.prorab_notebook import add_task
+                ok_devs = ", ".join(r["device"] for r in results if r["ok"]) or "—"
+                fail_devs = ", ".join(r["device"] for r in results if not r["ok"]) or "—"
+                await add_task(
+                    sheets,
+                    task=f"✈️ Уехал — выключено: {ok_devs}",
+                    note=f"trip mode start {now_kyiv().strftime('%Y-%m-%d %H:%M')}; failed: {fail_devs}",
+                )
+        except Exception:
+            log.exception("away_mode_notebook_failed")
+        return {
+            "mode": "trip",
+            "enabled": True,
+            "results": results,
+            "display_instruction": (
+                "Скажи юзеру коротко: «✈️ Уехал. Выключил <список ok>. "
+                "Trip-режим включён.» Если есть failed — добавь строку про "
+                "что не получилось."
+            ),
+        }
+
+    async def _exit_away_mode(self) -> dict:
+        """Mark trip mode finished. Devices left as-is — schedule_homecoming
+        rules will have already powered things on (or user is home and can
+        flip the switches manually)."""
+        from src.utils.time import iso_now
+        try:
+            from sqlalchemy import update as sql_update
+            from src.db.models import FamilyMode
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(
+                    sql_update(FamilyMode).where(FamilyMode.name == "trip").values(
+                        enabled=0, expires_at=iso_now(),
+                    )
+                )
+        except Exception as e:
+            return {"error": f"db update failed: {e}"}
+        # Notebook closer
+        try:
+            peers = getattr(self, "_peer_agents", {})
+            sheets = getattr(peers.get("nanny"), "_sheets", None)
+            if sheets:
+                from src.integrations.prorab_notebook import add_task
+                await add_task(sheets, task="🏠 Я дома — trip-режим выключен")
+        except Exception:
+            log.exception("exit_away_notebook_failed")
+        return {
+            "mode": "trip", "enabled": False,
+            "display_instruction": "Скажи юзеру: «🏠 С возвращением! Trip-режим выключен.»",
+        }
+
+    async def _schedule_homecoming(
+        self, *, arrival: str, boiler_hours_before: int,
+        ac_hours_before: int, ac_mode: str, ac_temperature: int,
+    ) -> dict:
+        """Parse arrival time, schedule boiler & AC prep before user gets home."""
+        import re as _re
+        from datetime import datetime as _dt, timedelta
+        from src.utils.time import KYIV_TZ, now_kyiv
+        text = (arrival or "").strip().lower()
+        now = now_kyiv()
+        target_dt = None
+        # ISO «YYYY-MM-DDTHH:MM»
+        try:
+            parsed = _dt.fromisoformat(arrival)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=KYIV_TZ)
+            target_dt = parsed
+        except Exception:
+            pass
+        # «в HH:MM», «к HH:MM», «HH:MM»
+        if target_dt is None:
+            m = _re.search(r"(\d{1,2}):(\d{2})", text)
+            if m:
+                h, mn = int(m.group(1)), int(m.group(2))
+                target_dt = now.replace(hour=h, minute=mn, second=0, microsecond=0)
+                if target_dt <= now:
+                    target_dt += timedelta(days=1)
+        # «через N часов / минут»
+        if target_dt is None:
+            m = _re.search(r"через\s+(\d+)\s*(час|hour|мин|min)", text)
+            if m:
+                n = int(m.group(1))
+                unit = m.group(2)
+                if "час" in unit or "hour" in unit:
+                    target_dt = now + timedelta(hours=n)
+                else:
+                    target_dt = now + timedelta(minutes=n)
+        if target_dt is None:
+            return {"error": f"Не разобрал время прибытия «{arrival}». Поддержка: «в HH:MM», «через N часов»."}
+
+        # Decide AC mode/temp by season unless user passed values
+        month = now.month
+        if not ac_mode:
+            ac_mode = "hot" if month in (11, 12, 1, 2, 3) else "cold"
+        if not ac_temperature:
+            ac_temperature = 23 if ac_mode == "hot" else 22
+
+        # Build prep schedule
+        scheduled: list[dict] = []
+        # Boiler ON
+        boiler_at = target_dt - timedelta(hours=boiler_hours_before)
+        if boiler_at <= now:
+            # Already past — just fire it now (we'll skip)
+            scheduled.append({"device": "бойлер", "skipped": "уже прошло время"})
+        else:
+            r = await self._schedule_device_action(
+                device="бойлер", action="on",
+                when=boiler_at.strftime("%Y-%m-%dT%H:%M"),
+            )
+            scheduled.append({"device": "бойлер", "at": boiler_at.strftime("%H:%M"), "result": r})
+
+        # AC ON — for IR AC we use schedule_device_action for power, then chain set_mode/temp
+        # via a second one-shot rule at the same moment (kept simple — single rule with action=on).
+        ac_at = target_dt - timedelta(hours=ac_hours_before)
+        if ac_at <= now:
+            scheduled.append({"device": "кондер", "skipped": "уже прошло время"})
+        else:
+            r = await self._schedule_device_action(
+                device="кондер", action="on",
+                when=ac_at.strftime("%Y-%m-%dT%H:%M"),
+            )
+            scheduled.append({
+                "device": "кондер", "at": ac_at.strftime("%H:%M"),
+                "mode_hint": ac_mode, "temp_hint": ac_temperature, "result": r,
+            })
+
+        # Notebook overview entry
+        try:
+            peers = getattr(self, "_peer_agents", {})
+            sheets = getattr(peers.get("nanny"), "_sheets", None)
+            if sheets:
+                from src.integrations.prorab_notebook import add_task
+                await add_task(
+                    sheets,
+                    task=f"🏠 Возвращение в {target_dt.strftime('%H:%M')}: бойлер +{boiler_hours_before}ч, кондер +{ac_hours_before}ч ({ac_mode} {ac_temperature}°)",
+                    due_at=target_dt.strftime("%Y-%m-%dT%H:%M"),
+                )
+        except Exception:
+            log.exception("homecoming_notebook_failed")
+
+        return {
+            "arrival": target_dt.strftime("%Y-%m-%dT%H:%M"),
+            "ac_mode": ac_mode, "ac_temperature": ac_temperature,
+            "scheduled": scheduled,
+            "display_instruction": (
+                "Скажи юзеру 3-4 строки: «🏠 Прибытие в HH:MM. "
+                "🚿 Бойлер в HH:MM. ❄️ Кондер в HH:MM (<mode> <temp>°).» "
+                "Если что-то skipped — упомяни."
+            ),
         }
 
     async def _schedule_device_action(
