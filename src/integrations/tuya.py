@@ -168,16 +168,50 @@ class TuyaClient:
                 return True
         return False
 
+    async def _wake_device(self, device_id: str) -> None:
+        """Poke a sleeping device by reading its status. Most cheap Tuya
+        IR hubs come back online within ~3-5 seconds of the first status
+        request after sleeping."""
+        try:
+            await self._request("GET", f"/v1.0/devices/{device_id}/status")
+        except Exception:
+            pass
+
     async def _ir_ac_command(self, hub_id: str, ac_id: str, payload: dict) -> dict:
         """POST to /v2.0/infrareds/{hub}/air-conditioners/{ac}/command.
-        payload: {power, mode, temp, wind} — all ints, see Tuya docs."""
+
+        Retries once if the hub appears offline — sends a status read to
+        wake it, sleeps 3s, retries the command. Most Tuya IR hubs sleep
+        after a few minutes of idleness and need a poke to come back."""
+        import asyncio
         import json
         body = json.dumps(payload)
-        return await self._request(
-            "POST",
-            f"/v2.0/infrareds/{hub_id}/air-conditioners/{ac_id}/command",
-            body=body,
+        path = f"/v2.0/infrareds/{hub_id}/air-conditioners/{ac_id}/command"
+
+        data = await self._request("POST", path, body=body)
+        if data.get("success"):
+            return data
+
+        # Failed — likely the IR hub is asleep. Wake & retry.
+        msg = str(data.get("msg") or data.get("code") or "").lower()
+        looks_offline = (
+            "offline" in msg or "off line" in msg or "timeout" in msg
+            or "not reachable" in msg or "не в сети" in msg or "сон" in msg
+            or not data.get("success")
         )
+        if not looks_offline:
+            return data
+
+        log.info("tuya_ir_hub_wake_retry", hub=hub_id, first_msg=msg[:120])
+        await self._wake_device(hub_id)
+        await asyncio.sleep(3.0)
+        data2 = await self._request("POST", path, body=body)
+        # Surface both attempts so the caller can show useful diagnostics
+        if not data2.get("success"):
+            data2.setdefault("first_attempt", data.get("msg") or data.get("code"))
+        else:
+            data2["wake_retried"] = True
+        return data2
 
     async def control(self, device: str, action: str) -> dict:
         """Toggle a device. action ∈ on/off/toggle/status.
