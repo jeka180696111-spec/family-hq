@@ -97,15 +97,14 @@ def register_healthcheck_jobs(
     bot_manager,
     chat_id: int,
 ) -> None:
-    """Register health check jobs."""
-    scheduler.add_job(
-        check_ai_health,
-        "interval",
-        seconds=30,
-        args=[claude_client, memory, bot_manager, chat_id],
-        id="ai_healthcheck",
-        replace_existing=True,
-    )
+    """Register health check jobs.
+
+    Note: the AI healthcheck was removed — it fired every 30 sec and
+    burnt ~2880 Gemini quota per day pinging an LLM just to confirm
+    «alive». Real outages surface through the user's next message
+    instantly (and provider override flips on credit-exhaustion), so
+    proactive polling adds zero value.
+    """
     scheduler.add_job(
         check_external_bots,
         "interval",
@@ -114,4 +113,4 @@ def register_healthcheck_jobs(
         id="external_healthcheck",
         replace_existing=True,
     )
-    log.info("healthcheck_jobs_registered")
+    log.info("healthcheck_jobs_registered_external_only")
