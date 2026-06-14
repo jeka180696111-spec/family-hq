@@ -136,8 +136,55 @@ class TuyaClient:
             for d in devices
         ]
 
+    # Heuristic: a Tuya device is an IR controller hub when its category is
+    # 'wnykq' or its product name contains "IR"/"Infrared"/"ИК". The remote
+    # AC under such a hub appears as a separate device with NO switch DP
+    # — we must control it via /v2.0/infrareds/{hub}/air-conditioners/{ac}/command.
+    _IR_HUB_PRODUCT_HINTS = ("ir ", "infrared", "ик", "пульт", "remote control")
+
+    @classmethod
+    def _is_ir_hub(cls, dev: dict) -> bool:
+        if dev.get("category") in ("wnykq", "infrared"):
+            return True
+        name = (dev.get("name", "") + " " + dev.get("product_name", "")).lower()
+        return any(h in name for h in cls._IR_HUB_PRODUCT_HINTS)
+
+    @classmethod
+    def _find_ir_hub(cls, devices: list[dict]) -> dict | None:
+        for d in devices:
+            if cls._is_ir_hub(d):
+                return d
+        return None
+
+    @classmethod
+    def _is_ir_ac(cls, dev: dict) -> bool:
+        """Virtual AC under an IR hub — no switch DP, name contains AC token."""
+        if any(s.get("code", "") in ("switch",) or s.get("code", "").startswith("switch_")
+               for s in dev.get("status", [])):
+            return False
+        name = (dev.get("name", "") + " " + dev.get("product_name", "")).lower()
+        for syn in cls._SYNONYM_GROUPS:
+            if "кондер" in syn and any(token in name for token in syn):
+                return True
+        return False
+
+    async def _ir_ac_command(self, hub_id: str, ac_id: str, payload: dict) -> dict:
+        """POST to /v2.0/infrareds/{hub}/air-conditioners/{ac}/command.
+        payload: {power, mode, temp, wind} — all ints, see Tuya docs."""
+        import json
+        body = json.dumps(payload)
+        return await self._request(
+            "POST",
+            f"/v2.0/infrareds/{hub_id}/air-conditioners/{ac_id}/command",
+            body=body,
+        )
+
     async def control(self, device: str, action: str) -> dict:
-        """Toggle a switch device. action ∈ on/off/toggle/status."""
+        """Toggle a device. action ∈ on/off/toggle/status.
+
+        Path A: regular switch DP (smart plugs, lights, switches).
+        Path B: IR-virtual AC under an IR hub — uses /v2.0/infrareds/.../command.
+        """
         devices = await self.list_devices()
         target = self._find_device(devices, device)
         if not target:
@@ -146,26 +193,182 @@ class TuyaClient:
         if action == "status":
             return {"device": target["name"], "online": target["online"], "status": target["status"]}
 
-        # Find a switch-like code
+        # Path A — regular switch DP
         switch_code = None
         for s in target["status"]:
             code = s.get("code", "")
             if code == "switch" or code.startswith("switch_"):
                 switch_code = code
                 break
-        if not switch_code:
-            return {"error": f"У '{target['name']}' нет переключателя (switch). Список dpts: {target['status']}"}
 
-        current = next((s["value"] for s in target["status"] if s["code"] == switch_code), False)
-        desired = {"on": True, "off": False, "toggle": not current}.get(action, current)
+        if switch_code:
+            current = next((s["value"] for s in target["status"] if s["code"] == switch_code), False)
+            desired = {"on": True, "off": False, "toggle": not current}.get(action, current)
+            import json
+            body = json.dumps({"commands": [{"code": switch_code, "value": desired}]})
+            data = await self._request("POST", f"/v1.0/devices/{target['id']}/commands", body=body)
+            return {
+                "device": target["name"],
+                "action": action,
+                "set_to": desired,
+                "success": data.get("success", False),
+                "raw": data.get("msg", ""),
+            }
 
+        # Path B — IR-virtual AC (no switch DP)
+        if self._is_ir_ac(target):
+            hub = self._find_ir_hub(devices)
+            if not hub:
+                return {"error": f"У '{target['name']}' нет switch и IR-хаб не найден"}
+            power = 1 if action in ("on", "toggle") else 0  # toggle treated as on
+            # Default sensible cool@24 — user can override with set_temperature/set_mode after.
+            payload = {"power": power, "mode": 0, "temp": 24, "wind": 0}
+            data = await self._ir_ac_command(hub["id"], target["id"], payload)
+            return {
+                "device": target["name"],
+                "via_ir_hub": hub["name"],
+                "action": action,
+                "payload": payload,
+                "success": data.get("success", False),
+                "raw": data.get("msg", ""),
+            }
+
+        return {"error": f"У '{target['name']}' нет переключателя (switch). Список dpts: {target['status']}"}
+
+    # Mode aliases — what user types → Tuya DP value (lower-case)
+    _MODE_ALIASES = {
+        "cool": "cold",        # охлаждение → cold (часто), reuse below
+        "cold": "cold",
+        "холод": "cold",
+        "охлаждение": "cold",
+        "охлад": "cold",
+        "heat": "hot",
+        "hot": "hot",
+        "тепло": "hot",
+        "обогрев": "hot",
+        "теплый": "hot",
+        "тёплый": "hot",
+        "dry": "wet",
+        "wet": "wet",
+        "осушение": "wet",
+        "сушка": "wet",
+        "fan": "wind",
+        "wind": "wind",
+        "вентилятор": "wind",
+        "вентиляция": "wind",
+        "auto": "auto",
+        "авто": "auto",
+        "автоматический": "auto",
+    }
+
+    # IR AC mode value mapping: Tuya expects ints, not strings.
+    _IR_MODE_INT = {"cold": 0, "hot": 1, "auto": 2, "wind": 3, "wet": 4}
+
+    async def set_temperature(self, device: str, temperature: int) -> dict:
+        """Set target temperature on an AC/IR-AC device. Accepts 16-30 °C."""
+        devices = await self.list_devices()
+        target = self._find_device(devices, device)
+        if not target:
+            return {
+                "error": f"Не нашёл устройство '{device}'",
+                "available": [d["name"] for d in devices],
+            }
+        try:
+            t = int(temperature)
+        except (TypeError, ValueError):
+            return {"error": f"температура должна быть числом, получено {temperature!r}"}
+        if not (16 <= t <= 30):
+            return {"error": f"температура {t}°C вне диапазона 16-30°C"}
+
+        # IR AC path
+        if self._is_ir_ac(target):
+            hub = self._find_ir_hub(devices)
+            if not hub:
+                return {"error": "IR-хаб не найден"}
+            payload = {"power": 1, "mode": 0, "temp": t, "wind": 0}
+            data = await self._ir_ac_command(hub["id"], target["id"], payload)
+            return {
+                "device": target["name"],
+                "via_ir_hub": hub["name"],
+                "action": "set_temperature",
+                "set_to": t,
+                "payload": payload,
+                "success": data.get("success", False),
+                "raw": data.get("msg", ""),
+            }
+
+        # Direct DP path for non-IR ACs
+        codes = [s.get("code", "") for s in target.get("status", [])]
+        temp_code = next(
+            (c for c in codes if c in ("temp_set", "temperature", "settemp", "temp")),
+            None,
+        ) or "temp"
         import json
-        body = json.dumps({"commands": [{"code": switch_code, "value": desired}]})
+        body = json.dumps({"commands": [{"code": temp_code, "value": t}]})
         data = await self._request("POST", f"/v1.0/devices/{target['id']}/commands", body=body)
         return {
             "device": target["name"],
-            "action": action,
-            "set_to": desired,
+            "action": "set_temperature",
+            "set_to": t,
+            "code": temp_code,
+            "success": data.get("success", False),
+            "raw": data.get("msg", ""),
+        }
+
+    async def set_mode(self, device: str, mode: str, temperature: int = 24) -> dict:
+        """Set AC mode. Accepts ru/en aliases — see _MODE_ALIASES.
+        For IR ACs the command bundles mode+temp, so we also accept a temp."""
+        devices = await self.list_devices()
+        target = self._find_device(devices, device)
+        if not target:
+            return {
+                "error": f"Не нашёл устройство '{device}'",
+                "available": [d["name"] for d in devices],
+            }
+        m_norm = (mode or "").strip().lower()
+        tuya_mode = self._MODE_ALIASES.get(m_norm)
+        if not tuya_mode:
+            return {
+                "error": f"режим {mode!r} не распознан",
+                "valid_modes": sorted(set(self._MODE_ALIASES.values())),
+            }
+
+        # IR AC path
+        if self._is_ir_ac(target):
+            hub = self._find_ir_hub(devices)
+            if not hub:
+                return {"error": "IR-хаб не найден"}
+            try:
+                t = max(16, min(30, int(temperature)))
+            except (TypeError, ValueError):
+                t = 24
+            payload = {"power": 1, "mode": self._IR_MODE_INT.get(tuya_mode, 0), "temp": t, "wind": 0}
+            data = await self._ir_ac_command(hub["id"], target["id"], payload)
+            return {
+                "device": target["name"],
+                "via_ir_hub": hub["name"],
+                "action": "set_mode",
+                "set_to": tuya_mode,
+                "temperature": t,
+                "payload": payload,
+                "success": data.get("success", False),
+                "raw": data.get("msg", ""),
+            }
+
+        # Direct DP path
+        codes = [s.get("code", "") for s in target.get("status", [])]
+        mode_code = next(
+            (c for c in codes if c in ("mode", "ac_mode", "work_mode")),
+            None,
+        ) or "mode"
+        import json
+        body = json.dumps({"commands": [{"code": mode_code, "value": tuya_mode}]})
+        data = await self._request("POST", f"/v1.0/devices/{target['id']}/commands", body=body)
+        return {
+            "device": target["name"],
+            "action": "set_mode",
+            "set_to": tuya_mode,
+            "code": mode_code,
             "success": data.get("success", False),
             "raw": data.get("msg", ""),
         }

@@ -757,6 +757,48 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "smart_set_temperature",
+                "description": (
+                    "Установить целевую температуру на кондиционере (16-30°C). "
+                    "Триггеры: «кондер на 22 градуса», «поставь сплит на 24», "
+                    "«охлади до 21», «нагрей до 26». ВАЖНО: используй именно этот "
+                    "инструмент, а не control_smart_device, когда юзер называет "
+                    "градусы."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "device": {"type": "string", "description": "Имя устройства (кондер / кондиционер)"},
+                        "temperature": {"type": "integer", "description": "Целевая температура 16-30°C"},
+                    },
+                    "required": ["device", "temperature"],
+                },
+            },
+            {
+                "name": "smart_set_mode",
+                "description": (
+                    "Установить режим работы кондиционера: cold (охлаждение/холод), "
+                    "hot (обогрев/тепло), wet (осушение), wind (вентилятор), auto (авто). "
+                    "Триггеры: «кондер на холод», «включи обогрев», «поставь на осушение», "
+                    "«режим вентилятора»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "device": {"type": "string", "description": "Имя устройства (кондер / кондиционер)"},
+                        "mode": {
+                            "type": "string",
+                            "description": "Режим: cold/hot/wet/wind/auto или ru-алиасы (холод/тепло/осушение/вентилятор/авто)",
+                        },
+                        "temperature": {
+                            "type": "integer",
+                            "description": "Опционально: целевая температура (16-30°C). По умолчанию 24.",
+                        },
+                    },
+                    "required": ["device", "mode"],
+                },
+            },
+            {
                 "name": "smart_sensor_read",
                 "description": (
                     "📍 ПРИОРИТЕТ для вопросов про температуру/влажность ДОМА. "
@@ -1644,6 +1686,29 @@ class DevOpsAgent(BaseAgent):
 
         elif tool_name == "control_smart_device":
             return await self._smart_control(tool_input.get("device", ""), tool_input.get("action", "status"))
+
+        elif tool_name == "smart_set_temperature":
+            from src.config import get_settings
+            from src.integrations.tuya import TuyaClient
+            client = TuyaClient.from_settings(get_settings())
+            if not client:
+                return {"error": "Tuya не настроен"}
+            return await client.set_temperature(
+                tool_input.get("device", ""),
+                int(tool_input.get("temperature", 24)),
+            )
+
+        elif tool_name == "smart_set_mode":
+            from src.config import get_settings
+            from src.integrations.tuya import TuyaClient
+            client = TuyaClient.from_settings(get_settings())
+            if not client:
+                return {"error": "Tuya не настроен"}
+            return await client.set_mode(
+                tool_input.get("device", ""),
+                tool_input.get("mode", "auto"),
+                temperature=int(tool_input.get("temperature", 24)),
+            )
 
         elif tool_name == "temperature_full":
             return await self._temperature_full()
