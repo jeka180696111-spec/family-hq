@@ -799,6 +799,34 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "smart_set_fan_speed",
+                "description": (
+                    "Установить скорость вентилятора кондиционера: auto / low / "
+                    "med / high. Триггеры: «кондер тише», «тихий режим», "
+                    "«низкая скорость», «макс обдув», «турбо», «средний обдув», "
+                    "«автоматическая скорость»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "device": {"type": "string", "description": "Имя устройства (кондер / кондиционер)"},
+                        "speed": {
+                            "type": "string",
+                            "description": "auto / low / med / high или ru-алиасы (тихо/средняя/высокая/макс/турбо/sleep)",
+                        },
+                        "mode": {
+                            "type": "string",
+                            "description": "Опционально: оставить тот же режим. cold/hot/wet/wind/auto.",
+                        },
+                        "temperature": {
+                            "type": "integer",
+                            "description": "Опционально: оставить ту же температуру (16-30°C).",
+                        },
+                    },
+                    "required": ["device", "speed"],
+                },
+            },
+            {
                 "name": "enter_away_mode",
                 "description": (
                     "Сценарий «уехал из дома»: ВЫКЛЮЧИТЬ всё лишнее (бойлер, "
@@ -1761,6 +1789,19 @@ class DevOpsAgent(BaseAgent):
                 tool_input.get("device", ""),
                 tool_input.get("mode", "auto"),
                 temperature=int(tool_input.get("temperature", 24)),
+            )
+
+        elif tool_name == "smart_set_fan_speed":
+            from src.config import get_settings
+            from src.integrations.tuya import TuyaClient
+            client = TuyaClient.from_settings(get_settings())
+            if not client:
+                return {"error": "Tuya не настроен"}
+            return await client.set_fan_speed(
+                tool_input.get("device", ""),
+                tool_input.get("speed", "auto"),
+                mode=tool_input.get("mode"),
+                temperature=tool_input.get("temperature"),
             )
 
         elif tool_name == "enter_away_mode":

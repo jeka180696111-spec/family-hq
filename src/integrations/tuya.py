@@ -298,6 +298,93 @@ class TuyaClient:
     # IR AC mode value mapping: Tuya expects ints, not strings.
     _IR_MODE_INT = {"cold": 0, "hot": 1, "auto": 2, "wind": 3, "wet": 4}
 
+    # Fan-speed aliases: ru/en → Tuya `wind` int (0=auto, 1=low, 2=med, 3=high)
+    _FAN_SPEED_ALIASES = {
+        "auto": 0, "авто": 0, "автоматический": 0,
+        "low": 1, "low_speed": 1, "min": 1, "minimal": 1,
+        "тихо": 1, "тихий": 1, "минимум": 1, "минимальная": 1,
+        "слабая": 1, "слабый": 1, "ниже": 1, "низкая": 1, "низкий": 1,
+        "sleep": 1, "night": 1,
+        "med": 2, "medium": 2, "mid": 2, "normal": 2,
+        "средняя": 2, "средний": 2, "норм": 2, "нормальная": 2,
+        "high": 3, "max": 3, "maximum": 3, "turbo": 3, "boost": 3,
+        "высокая": 3, "высокий": 3, "максимум": 3, "максимальная": 3,
+        "макс": 3, "турбо": 3,
+    }
+
+    async def set_fan_speed(
+        self, device: str, speed: str | int,
+        mode: str | None = None, temperature: int | None = None,
+    ) -> dict:
+        """Set fan speed on an AC. Accepts ru/en aliases or 0-3 int.
+        For IR ACs the IR payload bundles power+mode+temp+wind, so we
+        also accept optional current mode/temperature to keep them stable."""
+        devices = await self.list_devices()
+        target = self._find_device(devices, device)
+        if not target:
+            return {
+                "error": f"Не нашёл устройство '{device}'",
+                "available": [d["name"] for d in devices],
+            }
+        # Normalise speed
+        if isinstance(speed, int):
+            wind = max(0, min(3, speed))
+        else:
+            s_norm = (speed or "").strip().lower()
+            wind = self._FAN_SPEED_ALIASES.get(s_norm)
+            if wind is None:
+                return {
+                    "error": f"скорость {speed!r} не распознана",
+                    "valid_speeds": sorted({"auto", "low", "med", "high",
+                                            "тихо", "средняя", "высокая",
+                                            "макс", "турбо", "sleep"}),
+                }
+
+        # IR AC path
+        if self._is_ir_ac(target):
+            hub = self._find_ir_hub(devices)
+            if not hub:
+                return {"error": "IR-хаб не найден"}
+            # Keep mode/temp stable unless caller passed new ones
+            ir_mode = self._IR_MODE_INT.get(
+                self._MODE_ALIASES.get((mode or "").strip().lower(), "cold"), 0,
+            ) if mode else 0
+            try:
+                t = max(16, min(30, int(temperature))) if temperature else 24
+            except (TypeError, ValueError):
+                t = 24
+            payload = {"power": 1, "mode": ir_mode, "temp": t, "wind": wind}
+            data = await self._ir_ac_command(hub["id"], target["id"], payload)
+            return {
+                "device": target["name"],
+                "via_ir_hub": hub["name"],
+                "action": "set_fan_speed",
+                "set_to": wind,
+                "speed_label": ["auto", "low", "med", "high"][wind],
+                "payload": payload,
+                "success": data.get("success", False),
+                "raw": data.get("msg", ""),
+            }
+
+        # Direct DP path for non-IR ACs (rare for our setup)
+        codes = [s.get("code", "") for s in target.get("status", [])]
+        fan_code = next(
+            (c for c in codes if c in ("wind_speed", "fan_speed", "windspeed", "wind")),
+            None,
+        ) or "wind"
+        import json
+        body = json.dumps({"commands": [{"code": fan_code, "value": wind}]})
+        data = await self._request("POST", f"/v1.0/devices/{target['id']}/commands", body=body)
+        return {
+            "device": target["name"],
+            "action": "set_fan_speed",
+            "set_to": wind,
+            "speed_label": ["auto", "low", "med", "high"][wind],
+            "code": fan_code,
+            "success": data.get("success", False),
+            "raw": data.get("msg", ""),
+        }
+
     async def set_temperature(self, device: str, temperature: int) -> dict:
         """Set target temperature on an AC/IR-AC device. Accepts 16-30 °C."""
         devices = await self.list_devices()
