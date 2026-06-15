@@ -262,9 +262,17 @@ async def list_rules_from_sheet(sheets: Any) -> list[dict]:
     return out
 
 
+_KNOWN_RULE_TYPES = frozenset({
+    "datetime", "datetime_range", "time", "sensor",
+    "alert_active", "alert_ended", "power_outage", "baby_sleeping",
+    "and", "or",
+    "device", "message", "set_mode", "tool",
+})
+
+
 def _normalize(d: dict | None) -> dict:
-    """Mirror of devops._normalize_rule_dict — accepts wrapper-style and
-    flat shapes. Kept in sync with the canonical impl."""
+    """Mirror of devops._normalize_rule_dict — accepts wrapper-style,
+    hybrid wrapper+siblings, and flat shapes. Kept in sync."""
     if not isinstance(d, dict):
         return d or {}
     if "type" in d:
@@ -273,6 +281,11 @@ def _normalize(d: dict | None) -> dict:
         key, val = next(iter(d.items()))
         if isinstance(val, dict):
             return {"type": key, **val}
+    # Hybrid: {<type>: {<some_fields>}, <other_fields>}
+    for key, val in d.items():
+        if key in _KNOWN_RULE_TYPES and isinstance(val, dict):
+            siblings = {k: v for k, v in d.items() if k != key}
+            return {"type": key, **val, **siblings}
     if "device" in d and "action" in d and isinstance(d.get("device"), str):
         return {"type": "device", **d}
     if "agent" in d and "text" in d:

@@ -2421,6 +2421,13 @@ class DevOpsAgent(BaseAgent):
 
     # ─── Automation rules ────────────────────────────────────────────
 
+    _KNOWN_RULE_TYPES = frozenset({
+        "datetime", "datetime_range", "time", "sensor",
+        "alert_active", "alert_ended", "power_outage", "baby_sleeping",
+        "and", "or",
+        "device", "message", "set_mode", "tool",
+    })
+
     @staticmethod
     def _normalize_rule_dict(d: Any) -> Any:
         """Coerce frequent LLM JSON shapes to the canonical
@@ -2436,6 +2443,13 @@ class DevOpsAgent(BaseAgent):
             key, val = next(iter(d.items()))
             if isinstance(val, dict):
                 return {"type": key, **val}
+        # Shape A2: hybrid — {<type>: {<some_fields>}, <other_fields>}
+        # Common LLM mistake: writes {"sensor": {"device": x, "metric": y},
+        # "op": ">", "value": 26}. Merge inner dict with siblings.
+        for key, val in d.items():
+            if key in DevOpsAgent._KNOWN_RULE_TYPES and isinstance(val, dict):
+                siblings = {k: v for k, v in d.items() if k != key}
+                return {"type": key, **val, **siblings}
         # Shape B: flat — characteristic-field inference.
         # Order matters: most-specific signatures first.
         if "device" in d and "action" in d and isinstance(d.get("device"), str):
