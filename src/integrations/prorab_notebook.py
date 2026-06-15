@@ -328,7 +328,8 @@ def describe_trigger(condition: dict) -> str:
         s = f"ежедневно в {cron}" if cron else f"в {condition.get('hour','?'):02d}:{condition.get('minute',0):02d}"
         return s + (f" по {wd}" if wd else "")
     if kind == "sensor":
-        return f"датчик {condition.get('device','?')}.{condition.get('metric','?')} {condition.get('op','?')} {condition.get('value','?')}"
+        dev = condition.get("device") or "(автоматически — первый темп. датчик)"
+        return f"датчик {dev}.{condition.get('metric','?')} {condition.get('op','?')} {condition.get('value','?')}"
     if kind == "alert_active":
         return f"тревога активна в {condition.get('region','?')}"
     if kind == "alert_ended":
