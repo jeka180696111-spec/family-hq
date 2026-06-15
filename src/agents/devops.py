@@ -2425,7 +2425,7 @@ class DevOpsAgent(BaseAgent):
         "datetime", "datetime_range", "time", "sensor",
         "alert_active", "alert_ended", "power_outage", "baby_sleeping",
         "and", "or",
-        "device", "message", "set_mode", "tool",
+        "device", "message", "set_mode", "tool", "ac_command",
     })
 
     @staticmethod
@@ -2444,12 +2444,18 @@ class DevOpsAgent(BaseAgent):
             if isinstance(val, dict):
                 return {"type": key, **val}
         # Shape A2: hybrid — {<type>: {<some_fields>}, <other_fields>}
-        # Common LLM mistake: writes {"sensor": {"device": x, "metric": y},
-        # "op": ">", "value": 26}. Merge inner dict with siblings.
         for key, val in d.items():
             if key in DevOpsAgent._KNOWN_RULE_TYPES and isinstance(val, dict):
                 siblings = {k: v for k, v in d.items() if k != key}
                 return {"type": key, **val, **siblings}
+        # Shape C: AC compound action — Gemini likes to write
+        # {"device": "кондер", "mode": "hot", "temperature": 24} meaning
+        # "set the AC to hot 24°C". No explicit `action`. We turn it
+        # into ac_command which the engine knows how to execute.
+        if isinstance(d.get("device"), str) and (
+            "mode" in d or "temperature" in d or "fan_speed" in d or "speed" in d
+        ) and "action" not in d:
+            return {"type": "ac_command", **d}
         # Shape B: flat — characteristic-field inference.
         # Order matters: most-specific signatures first.
         if "device" in d and "action" in d and isinstance(d.get("device"), str):

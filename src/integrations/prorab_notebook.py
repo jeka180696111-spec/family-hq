@@ -266,7 +266,7 @@ _KNOWN_RULE_TYPES = frozenset({
     "datetime", "datetime_range", "time", "sensor",
     "alert_active", "alert_ended", "power_outage", "baby_sleeping",
     "and", "or",
-    "device", "message", "set_mode", "tool",
+    "device", "message", "set_mode", "tool", "ac_command",
 })
 
 
@@ -286,6 +286,11 @@ def _normalize(d: dict | None) -> dict:
         if key in _KNOWN_RULE_TYPES and isinstance(val, dict):
             siblings = {k: v for k, v in d.items() if k != key}
             return {"type": key, **val, **siblings}
+    # AC compound action — device + mode/temperature without action
+    if isinstance(d.get("device"), str) and (
+        "mode" in d or "temperature" in d or "fan_speed" in d or "speed" in d
+    ) and "action" not in d:
+        return {"type": "ac_command", **d}
     if "device" in d and "action" in d and isinstance(d.get("device"), str):
         return {"type": "device", **d}
     if "agent" in d and "text" in d:
@@ -362,6 +367,15 @@ def describe_action(action: dict) -> str:
         return f"режим «{action.get('mode','?')}» = {action.get('enabled')}"
     if kind == "tool":
         return f"вызов tool {action.get('tool','?')} у {action.get('agent','?')}"
+    if kind == "ac_command":
+        bits = [action.get("device", "?")]
+        if action.get("mode"):
+            bits.append(str(action["mode"]))
+        if action.get("temperature") is not None:
+            bits.append(f"{action['temperature']}°")
+        if action.get("fan_speed") or action.get("speed"):
+            bits.append(f"вент. {action.get('fan_speed') or action.get('speed')}")
+        return " · ".join(bits)
     try:
         raw = _json.dumps(action, ensure_ascii=False)
     except Exception:

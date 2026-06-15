@@ -281,7 +281,21 @@ class AutomationEngine:
             client = TuyaClient.from_settings(get_settings())
             if not client:
                 return False
-            reading = await client.read_sensor(cond.get("device", ""))
+            device = cond.get("device", "")
+            # Fallback: LLM frequently omits device → use the first sensor
+            # that looks temperature-ish.
+            if not device:
+                devices = await client.list_devices()
+                cand = next((d for d in devices if
+                             "sensor" in (d.get("category", "") or "").lower()
+                             or "темп" in (d.get("name", "") or "").lower()
+                             or "датчик" in (d.get("name", "") or "").lower()
+                             or "temp" in (d.get("name", "") or "").lower()),
+                            None)
+                if not cand:
+                    return False
+                device = cand["name"]
+            reading = await client.read_sensor(device)
             if "error" in reading:
                 return False
             metric = cond.get("metric", "")
@@ -499,6 +513,48 @@ class AutomationEngine:
                     expires_at=action.get("until"),
                 ))
             return
+        if kind == "ac_command":
+            # Compound AC action: set mode/temp/fan_speed in one shot via Tuya
+            from src.config import get_settings
+            from src.integrations.tuya import TuyaClient
+            client = TuyaClient.from_settings(get_settings())
+            device = action.get("device", "")
+            if not client:
+                await self._notify_chat(f"⚠️ [{rule_name}] Tuya не настроен.")
+                return
+            mode = action.get("mode")
+            temp = action.get("temperature")
+            speed = action.get("fan_speed") or action.get("speed")
+            try:
+                if mode and temp is not None:
+                    r = await client.set_mode(device, mode, temperature=int(temp))
+                elif mode:
+                    r = await client.set_mode(device, mode)
+                elif temp is not None:
+                    r = await client.set_temperature(device, int(temp))
+                elif speed:
+                    r = await client.set_fan_speed(device, speed)
+                else:
+                    r = await client.control(device, "on")
+            except Exception as e:
+                await self._notify_chat(
+                    f"⚠️ [{rule_name}] ошибка кондера: {type(e).__name__}: {str(e)[:120]}"
+                )
+                return
+            ok = isinstance(r, dict) and (r.get("success") or "error" not in r)
+            if ok:
+                summary = f"{device}"
+                if mode: summary += f" {mode}"
+                if temp is not None: summary += f" {temp}°"
+                if speed: summary += f" вент.{speed}"
+                await self._notify_chat(f"⚙️ [{rule_name}] {summary} ✅")
+            else:
+                err = (r or {}).get("error") if isinstance(r, dict) else str(r)
+                await self._notify_chat(
+                    f"⚠️ [{rule_name}] ответ Tuya: {str(err)[:160]}"
+                )
+            return
+
         if kind == "tool":
             agent = self._agents.get(action.get("agent"))
             if agent:
