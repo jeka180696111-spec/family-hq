@@ -580,18 +580,31 @@ class SheetsClient:
         type_label = _prefix(type_, _FEEDING_TYPE_PREFIX) or f"▪ {type_}"
         reaction_label = _prefix(reaction, _FEEDING_REACTION_PREFIX) if reaction else ""
 
-        def _append() -> tuple[int, int]:
-            existing = ws.col_values(1)
+        date_str = time.strftime("%d.%m.%Y")
+
+        def _append() -> tuple[int, int, bool]:
+            all_rows = ws.get_all_values()
+            # Dedup by (date, product) — when both Няня and Гурман react
+            # to the same «впервые попробовал X» message they'd otherwise
+            # each write their own row. Same-day duplicates of the same
+            # product almost always = the agents tripping over each other.
+            product_norm = (product or "").strip().lower()
+            for row in all_rows[-30:]:
+                if (len(row) >= 5 and row[1] == date_str
+                        and (row[4] or "").strip().lower() == product_norm):
+                    return len(all_rows), -1, True
             next_num = 1
-            for val in reversed(existing):
+            for row in reversed(all_rows):
+                if not row:
+                    continue
                 try:
-                    next_num = int(val) + 1
+                    next_num = int(row[0]) + 1
                     break
-                except (ValueError, TypeError):
+                except (ValueError, TypeError, IndexError):
                     continue
             row_values = [
                 str(next_num),
-                time.strftime("%d.%m.%Y"),
+                date_str,
                 matvey_age_short(time.date()),
                 type_label,
                 product,
@@ -601,9 +614,13 @@ class SheetsClient:
                 author,
             ]
             ws.append_row(row_values, value_input_option="USER_ENTERED", table_range="A1")
-            return len(ws.get_all_values()), next_num
+            return len(ws.get_all_values()), next_num, False
 
-        row_index, next_num = await self._run_sync(_append)
+        row_index, next_num, dup = await self._run_sync(_append)
+        if dup:
+            log.info("feeding_dedup_skipped", product=product, date=date_str)
+            return {"row": row_index, "skipped": True, "reason": "duplicate",
+                    "sheet": _FEEDING_WORKSHEET}
         log.info("feeding_appended", row=row_index, num=next_num, product=product, type=type_)
         return {"row": row_index, "num": next_num, "sheet": _FEEDING_WORKSHEET}
 
