@@ -136,11 +136,14 @@ class TuyaClient:
             for d in devices
         ]
 
-    # Heuristic: a Tuya device is an IR controller hub when its category is
-    # 'wnykq' or its product name contains "IR"/"Infrared"/"ИК". The remote
-    # AC under such a hub appears as a separate device with NO switch DP
-    # — we must control it via /v2.0/infrareds/{hub}/air-conditioners/{ac}/command.
-    _IR_HUB_PRODUCT_HINTS = ("ir ", "infrared", "ик", "пульт", "remote control")
+    # Strong markers for «this is an IR hub». Bare «ик» (2 chars) used to
+    # be here but matches «Датчик», «Телик», «Алкоголик», … — replaced
+    # with «ик-», «ик пульт», «ик-пульт» and similar word-bounded forms.
+    _IR_HUB_PRODUCT_HINTS = (
+        "infrared", "ir hub", "ir blaster", "ir control",
+        "пульт", "remote control",
+        "ик-", "ик пульт", "ик-хаб", "ик хаб",
+    )
 
     @classmethod
     def _is_ir_hub(cls, dev: dict) -> bool:
