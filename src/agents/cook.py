@@ -155,11 +155,53 @@ class CookAgent(BaseAgent):
             return {"success": True}
 
         elif tool_name == "get_introduced_foods":
+            # PRIMARY: read from Google Sheets «Прикорм» — this is what
+            # the user sees and edits. Falls back to local DB only if
+            # sheets are unavailable.
+            try:
+                if getattr(self, "_sheets", None):
+                    sheet_rows = await self._sheets.get_feeding(limit=500)
+                    # Group by product, keep first try date and latest reaction
+                    by_product: dict[str, dict] = {}
+                    for r in sheet_rows:
+                        product = (r.get("product") or "").strip()
+                        if not product:
+                            continue
+                        key = product.lower()
+                        if key not in by_product:
+                            by_product[key] = {
+                                "food": product,
+                                "first_tried": r.get("date", ""),
+                                "first_age": r.get("age", ""),
+                                "reactions": [],
+                                "notes": [],
+                            }
+                        if r.get("reaction"):
+                            by_product[key]["reactions"].append(r["reaction"])
+                        if r.get("details"):
+                            by_product[key]["notes"].append(r["details"])
+                    items = list(by_product.values())
+                    return {
+                        "source": "sheet",
+                        "count": len(items),
+                        "foods": items,
+                        "display_instruction": (
+                            "Покажи юзеру списком ВСЕ продукты с их первой пробой "
+                            "и реакциями. Не фильтруй и не сокращай — он спрашивает "
+                            "именно «что уже пробовали»."
+                        ),
+                    }
+            except Exception:
+                self._log.exception("get_introduced_foods_sheet_failed")
+            # Fallback to local DB
             async with self._memory._engine.connect() as conn:
                 from src.db.models import IntroducedFood
                 from sqlalchemy import select
                 rows = await conn.execute(select(IntroducedFood).order_by(IntroducedFood.first_tried_at.desc()))
-                return [{"food": r.food, "reaction": r.reaction, "tried": r.first_tried_at} for r in rows]
+                return {
+                    "source": "db_fallback",
+                    "foods": [{"food": r.food, "reaction": r.reaction, "tried": r.first_tried_at} for r in rows],
+                }
 
         if tool_name == "food_delivery_links":
             from src.integrations.food_delivery import build_deeplinks

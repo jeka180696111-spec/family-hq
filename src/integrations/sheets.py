@@ -607,6 +607,24 @@ class SheetsClient:
         log.info("feeding_appended", row=row_index, num=next_num, product=product, type=type_)
         return {"row": row_index, "num": next_num, "sheet": _FEEDING_WORKSHEET}
 
+    async def get_feeding(self, limit: int = 200) -> list[dict]:
+        """Read «Прикорм» rows so agents (Гурман) see what user added
+        directly in the sheet, not only what was written via the bot.
+        Columns: №, Дата, Возраст, Тип, Продукт, Порция, Реакция, Примечания, Автор."""
+        ws = await self._open_worksheet(self._baby_sheet_id, _FEEDING_WORKSHEET)
+        rows = await self._run_sync(ws.get_all_values)
+        out = []
+        for row in rows[1:]:
+            if not row or not row[0]:
+                continue
+            padded = row + [""] * (9 - len(row))
+            out.append({
+                "num": padded[0], "date": padded[1], "age": padded[2],
+                "type": padded[3], "product": padded[4], "portion": padded[5],
+                "reaction": padded[6], "details": padded[7], "author": padded[8],
+            })
+        return out[-limit:]
+
     # ------------------------------------------------------------------
     # Finances
     # ------------------------------------------------------------------
