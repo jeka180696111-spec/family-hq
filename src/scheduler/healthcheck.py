@@ -68,26 +68,44 @@ async def check_external_bots(
     bot_manager: "BotManager",
     chat_id: int,
 ) -> None:
-    """Check health of Matveika and Finance bots (every 5 minutes)."""
+    """Check health of Matveika and Finance bots (every 5 minutes).
+
+    Note: previously used INSERT … OR IGNORE which silently no-op'd
+    after the first row existed — timestamps never refreshed and the
+    health row was forever stuck at the first check. Now we update
+    existing rows.
+    """
     from src.utils.time import iso_now
 
     async with memory._engine.begin() as conn:
-        from sqlalchemy import insert
+        from sqlalchemy import insert, select, update as sql_update
 
         from src.db.models import ExternalHealth
 
-        # Just update the timestamp — actual ping logic would go here
+        now = iso_now()
         for service in ["matveika_bot", "finance_bot"]:
-            await conn.execute(
-                insert(ExternalHealth)
-                .values(
-                    service=service,
-                    last_check_at=iso_now(),
-                    last_status="ok",
-                    consecutive_failures=0,
+            existing = (await conn.execute(
+                select(ExternalHealth).where(ExternalHealth.service == service)
+            )).first()
+            if existing:
+                await conn.execute(
+                    sql_update(ExternalHealth)
+                    .where(ExternalHealth.service == service)
+                    .values(
+                        last_check_at=now,
+                        last_status="ok",
+                        consecutive_failures=0,
+                    )
                 )
-                .prefix_with("OR IGNORE")
-            )
+            else:
+                await conn.execute(
+                    insert(ExternalHealth).values(
+                        service=service,
+                        last_check_at=now,
+                        last_status="ok",
+                        consecutive_failures=0,
+                    )
+                )
 
 
 def register_healthcheck_jobs(

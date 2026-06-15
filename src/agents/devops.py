@@ -1175,8 +1175,8 @@ class DevOpsAgent(BaseAgent):
             import os
             path = tool_input["path"].lstrip("/")
             # Security: only allow reading project files
-            safe_path = os.path.normpath(os.path.join("/home/user/many", path))
-            if not safe_path.startswith("/home/user/many"):
+            safe_path = os.path.normpath(os.path.join("/home/user/family-hq", path))
+            if not safe_path.startswith("/home/user/family-hq"):
                 return {"error": "Access denied"}
             try:
                 async with aiofiles.open(safe_path, "r") as f:
@@ -1679,20 +1679,25 @@ class DevOpsAgent(BaseAgent):
                 except Exception as e:
                     errors.append(f"{r.name}: bad json {e}")
                     continue
+                # Compare rules tab before/after — the previous version
+                # compared the manual-tasks tab (📋 Блокнот), which never
+                # changes during a rules sync, so this always reported
+                # "skipped" even when a row was actually added.
+                from src.integrations.prorab_notebook import list_rules_from_sheet
                 try:
-                    before_len = len(await __import__(
-                        "src.integrations.prorab_notebook", fromlist=["list_tasks"],
-                    ).list_tasks(sheets, status=None))
+                    before_names = {
+                        x["name"] for x in await list_rules_from_sheet(sheets)
+                    }
                     await self._notebook_mirror_rule(
                         name=r.name,
                         description=r.description or "",
                         condition=condition,
                         action=action,
                     )
-                    after_len = len(await __import__(
-                        "src.integrations.prorab_notebook", fromlist=["list_tasks"],
-                    ).list_tasks(sheets, status=None))
-                    if after_len > before_len:
+                    after_names = {
+                        x["name"] for x in await list_rules_from_sheet(sheets)
+                    }
+                    if r.name in after_names and r.name not in before_names:
                         added.append(r.name)
                     else:
                         skipped.append(r.name)
@@ -2007,19 +2012,36 @@ class DevOpsAgent(BaseAgent):
         elif tool_name == "set_family_mode":
             import json as _json
             from sqlalchemy import insert
+            from sqlalchemy import select, update as sql_update
             from src.db.models import FamilyMode
             from src.utils.time import iso_now
             payload = tool_input.get("payload")
             payload_str = _json.dumps({"info": payload}) if payload else None
+            mode_name = tool_input["mode"]
+            enabled_val = 1 if tool_input.get("enabled") else 0
             async with self._memory._engine.begin() as conn:
-                await conn.execute(insert(FamilyMode).prefix_with("OR REPLACE").values(
-                    name=tool_input["mode"],
-                    enabled=1 if tool_input.get("enabled") else 0,
-                    payload=payload_str,
-                    started_at=iso_now(),
-                    expires_at=tool_input.get("until"),
-                ))
-            return {"success": True, "mode": tool_input["mode"], "enabled": tool_input.get("enabled")}
+                existing = (await conn.execute(
+                    select(FamilyMode).where(FamilyMode.name == mode_name)
+                )).first()
+                if existing:
+                    # Preserve the original started_at — toggling enabled
+                    # shouldn't reset the start time we recorded earlier.
+                    await conn.execute(
+                        sql_update(FamilyMode).where(FamilyMode.name == mode_name).values(
+                            enabled=enabled_val,
+                            payload=payload_str,
+                            expires_at=tool_input.get("until"),
+                        )
+                    )
+                else:
+                    await conn.execute(insert(FamilyMode).values(
+                        name=mode_name,
+                        enabled=enabled_val,
+                        payload=payload_str,
+                        started_at=iso_now(),
+                        expires_at=tool_input.get("until"),
+                    ))
+            return {"success": True, "mode": mode_name, "enabled": tool_input.get("enabled")}
 
         elif tool_name == "list_active_modes":
             from sqlalchemy import select
@@ -2431,12 +2453,28 @@ class DevOpsAgent(BaseAgent):
     @staticmethod
     def _normalize_rule_dict(d: Any) -> Any:
         """Coerce frequent LLM JSON shapes to the canonical
-        {"type": "<kind>", <fields>} form the automation engine expects."""
+        {"type": "<kind>", <fields>} form the automation engine expects.
+        Recursively normalizes nested and/or children — sub-rules wrapped
+        in LLM-shaped JSON used to silently fail before this."""
         if not isinstance(d, dict):
             return d
+        result = DevOpsAgent._infer_rule_type(d)
+        # If the inferred type is a composite (and/or), recursively
+        # normalize each sub-rule. This was missing before — a hybrid
+        # like {"and": {"rules": [{"sensor": {...}, "op": ">"}, ...]}}
+        # would be unwrapped at the top but inner rules left as-is.
+        if (isinstance(result, dict)
+                and result.get("type") in ("and", "or")
+                and isinstance(result.get("rules"), list)):
+            result = {
+                **result,
+                "rules": [DevOpsAgent._normalize_rule_dict(r) for r in result["rules"]],
+            }
+        return result
+
+    @staticmethod
+    def _infer_rule_type(d: dict) -> Any:
         if "type" in d:
-            if d.get("type") in ("and", "or") and isinstance(d.get("rules"), list):
-                d = {**d, "rules": [DevOpsAgent._normalize_rule_dict(r) for r in d["rules"]]}
             return d
         # Shape A: wrapped — {<type>: {<rest>}}
         if len(d) == 1:
@@ -2448,16 +2486,13 @@ class DevOpsAgent(BaseAgent):
             if key in DevOpsAgent._KNOWN_RULE_TYPES and isinstance(val, dict):
                 siblings = {k: v for k, v in d.items() if k != key}
                 return {"type": key, **val, **siblings}
-        # Shape C: AC compound action — Gemini likes to write
-        # {"device": "кондер", "mode": "hot", "temperature": 24} meaning
-        # "set the AC to hot 24°C". No explicit `action`. We turn it
-        # into ac_command which the engine knows how to execute.
+        # Shape C: AC compound action — {"device": "кондер", "mode": "hot",
+        # "temperature": 24} meaning "set the AC to hot 24°C".
         if isinstance(d.get("device"), str) and (
             "mode" in d or "temperature" in d or "fan_speed" in d or "speed" in d
         ) and "action" not in d:
             return {"type": "ac_command", **d}
-        # Shape B: flat — characteristic-field inference.
-        # Order matters: most-specific signatures first.
+        # Shape B: flat — characteristic-field inference, most-specific first.
         if "device" in d and "action" in d and isinstance(d.get("device"), str):
             return {"type": "device", **d}
         if "agent" in d and "text" in d:
@@ -2475,7 +2510,6 @@ class DevOpsAgent(BaseAgent):
         if "metric" in d and "op" in d and "value" in d:
             return {"type": "sensor", **d}
         if "region" in d:
-            # Active or ended? state field disambiguates
             st = (d.get("state") or "").lower()
             if st == "ended":
                 return {"type": "alert_ended", **d}
@@ -2642,15 +2676,27 @@ class DevOpsAgent(BaseAgent):
             paused = await self._pause_standing_rules()
         except Exception:
             log.exception("away_mode_pause_failed")
-        # Set family-mode trip = active
+        # Set family-mode trip = active — preserve started_at if a prior
+        # row exists (rare; but if it does we don't want to lose the
+        # original timestamp).
         try:
-            from sqlalchemy import insert
+            from sqlalchemy import insert, select, update as sql_update
             from src.db.models import FamilyMode
             async with self._memory._engine.begin() as conn:
-                await conn.execute(insert(FamilyMode).prefix_with("OR REPLACE").values(
-                    name="trip", enabled=1, payload=None,
-                    started_at=iso_now(), expires_at=None,
-                ))
+                existing = (await conn.execute(
+                    select(FamilyMode).where(FamilyMode.name == "trip")
+                )).first()
+                if existing:
+                    await conn.execute(
+                        sql_update(FamilyMode).where(FamilyMode.name == "trip").values(
+                            enabled=1, expires_at=None,
+                        )
+                    )
+                else:
+                    await conn.execute(insert(FamilyMode).values(
+                        name="trip", enabled=1, payload=None,
+                        started_at=iso_now(), expires_at=None,
+                    ))
         except Exception:
             log.exception("away_mode_db_failed")
         # Mark in notebook

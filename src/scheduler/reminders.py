@@ -36,15 +36,19 @@ async def check_upcoming_reminders(
             delta = event.start - now
             hours_until = delta.total_seconds() / 3600
 
-            # Remind at ~24h before and ~1h before
-            if 23 <= hours_until <= 25:
+            # Windows narrowed to <1h wide so the hourly cron job triggers
+            # each window exactly once per event. Previous version had
+            # `23 ≤ x ≤ 25` (2h wide), firing the same reminder twice.
+            if 23 <= hours_until < 24:
                 await bot_manager.send_message(
                     "calendar",
                     chat_id,
                     f"📅 Напоминание: завтра — «{event.title}»\n"
                     f"⏰ {event.start.strftime('%d.%m %H:%M')}",
                 )
-            elif 0.5 <= hours_until <= 1.5:
+            elif 0.5 <= hours_until < 1.5:
+                # Same fix here in principle, but 0.5-1.5 is already only
+                # 1 hour wide so it stays as-is.
                 await bot_manager.send_message(
                     "calendar",
                     chat_id,

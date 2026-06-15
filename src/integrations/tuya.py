@@ -40,6 +40,20 @@ class TuyaClient:
         self.uid = app_user_uid
         self._token: str | None = None
         self._token_exp = 0.0
+        # Lazy-created shared aiohttp session so every command reuses
+        # the same TCP/TLS connection instead of leaking sockets per call.
+        self._session: aiohttp.ClientSession | None = None
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=15),
+            )
+        return self._session
+
+    async def close(self) -> None:
+        if self._session and not self._session.closed:
+            await self._session.close()
 
     @classmethod
     def from_settings(cls, settings: Any) -> "TuyaClient | None":
@@ -61,17 +75,17 @@ class TuyaClient:
         path = "/v1.0/token?grant_type=1"
         ts = str(int(now * 1000))
         sign = self._sign("GET", path, "", ts, "")
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                self.host + path,
-                headers={
-                    "client_id": self.access_id,
-                    "sign": sign,
-                    "t": ts,
-                    "sign_method": "HMAC-SHA256",
-                },
-            ) as resp:
-                data = await resp.json()
+        session = await self._get_session()
+        async with session.get(
+            self.host + path,
+            headers={
+                "client_id": self.access_id,
+                "sign": sign,
+                "t": ts,
+                "sign_method": "HMAC-SHA256",
+            },
+        ) as resp:
+            data = await resp.json()
         if not data.get("success"):
             raise RuntimeError(f"Tuya auth failed: {data}")
         result = data["result"]
@@ -97,12 +111,12 @@ class TuyaClient:
             "sign_method": "HMAC-SHA256",
             "Content-Type": "application/json",
         }
-        async with aiohttp.ClientSession() as session:
-            kwargs: dict = {"headers": headers}
-            if body:
-                kwargs["data"] = body
-            async with session.request(method, self.host + path, **kwargs) as resp:
-                data = await resp.json()
+        session = await self._get_session()
+        kwargs: dict = {"headers": headers}
+        if body:
+            kwargs["data"] = body
+        async with session.request(method, self.host + path, **kwargs) as resp:
+            data = await resp.json()
         return data
 
     # ─── Public API ──────────────────────────────────────────────────
@@ -196,11 +210,14 @@ class TuyaClient:
             return data
 
         # Failed — likely the IR hub is asleep. Wake & retry.
+        # Previous version OR'd in `not data.get("success")` which is
+        # always True here (we already short-circuited on success above),
+        # so retry fired on EVERY failure even for permission errors.
+        # Now we only retry on actual offline-like signals.
         msg = str(data.get("msg") or data.get("code") or "").lower()
         looks_offline = (
             "offline" in msg or "off line" in msg or "timeout" in msg
             or "not reachable" in msg or "не в сети" in msg or "сон" in msg
-            or not data.get("success")
         )
         if not looks_offline:
             return data

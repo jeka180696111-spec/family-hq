@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import aiofiles
 import aiohttp
 import structlog
 
@@ -34,8 +35,9 @@ class TranscribeClient:
             data.add_field("language", language)
         # Hint Whisper that the audio is Russian/Ukrainian to bias decoder
         data.add_field("prompt", "Семейный чат на русском и украинском. Имена: Матвей, Марина, Евгений.")
-        with open(local_path, "rb") as f:
-            audio_bytes = f.read()
+        # aiofiles so a long voice note doesn't block the event loop
+        async with aiofiles.open(local_path, "rb") as f:
+            audio_bytes = await f.read()
         data.add_field(
             "file", audio_bytes,
             filename=local_path.rsplit("/", 1)[-1] or "voice.ogg",

@@ -244,7 +244,7 @@ class Subscription(Base):
     __tablename__ = "subscriptions"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
-    amount: Mapped[float] = mapped_column(Integer, nullable=False)  # SQLite REAL
+    amount: Mapped[float] = mapped_column(Float, nullable=False)
     currency: Mapped[str] = mapped_column(String, nullable=False, default="UAH")
     billing_day: Mapped[int] = mapped_column(Integer, nullable=False, default=1)  # 1-28
     next_charge: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -256,7 +256,7 @@ class UtilityBill(Base):
     __tablename__ = "utility_bills"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     kind: Mapped[str] = mapped_column(String, nullable=False)  # газ/свет/вода/интернет/квартплата
-    amount: Mapped[float] = mapped_column(Integer, nullable=False)
+    amount: Mapped[float] = mapped_column(Float, nullable=False)
     currency: Mapped[str] = mapped_column(String, nullable=False, default="UAH")
     paid_at: Mapped[str | None] = mapped_column(String, nullable=True)
     due_at: Mapped[str | None] = mapped_column(String, nullable=True)

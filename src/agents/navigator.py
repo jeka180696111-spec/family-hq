@@ -485,7 +485,11 @@ class NavigatorAgent(BaseAgent):
             ))
         if len(rows) < 2:
             return
-        # Newest - previous: liters_used between fills
+        # rows is id-desc: rows[0]=newest fill, rows[-1]=oldest. The km
+        # span we measure is (newest_km - oldest_km), so the liters used
+        # to traverse it are all fills *during* the span — every fill
+        # except the oldest tank which fed the trip BEFORE our oldest
+        # km reading. In DESC order that's rows[:-1].
         liters_between = sum(r.liters for r in rows[:-1])
         km_between = rows[0].odometer_km - rows[-1].odometer_km
         if km_between <= 0:

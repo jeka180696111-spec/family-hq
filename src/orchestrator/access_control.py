@@ -47,7 +47,14 @@ class AccessControl:
         return user_id in self._owner_ids
 
     def get_other_owner(self, requester_id: int) -> int | None:
-        """Get the other owner's ID for approval requests."""
+        """Get the other owner's ID for approval requests.
+
+        If `requester_id` is not itself an owner we return None — a
+        non-owner caller has no business spawning approval requests
+        against owners (would allow a stranger to keep nagging Marina
+        or Eugene with /approve buttons)."""
+        if requester_id not in self._owner_ids:
+            return None
         for owner_id in self._owner_ids:
             if owner_id != requester_id:
                 return owner_id

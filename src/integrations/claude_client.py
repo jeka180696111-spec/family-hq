@@ -366,7 +366,7 @@ class ClaudeClient:
                 claude_short = "нет баланса"
             raise AIOfflineError(
                 f"Gemini: {gemini_err} || Claude: {claude_short}"
-            ) from gemini_err or claude_err
+            ) from (gemini_err or claude_err)
 
     async def _complete_with_failover(
         self,

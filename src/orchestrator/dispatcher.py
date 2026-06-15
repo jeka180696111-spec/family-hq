@@ -161,17 +161,22 @@ class Dispatcher:
             data = json.loads(_extract_json(response))
             intent = data.get("intent", "")
 
-            # Finance → external agent (Фінн), dispatcher stays silent
-            if intent == "finance" or not data.get("agents"):
-                if intent == "finance":
-                    log.info("dispatch_external_finn", message=message_text[:50])
-                    return DispatchResult(
-                        tasks=[],
-                        is_critical=False,
-                        is_settings_command=False,
-                        intent="finance",
-                        is_external=True,
-                    )
+            # Finance → external agent (Фінн), dispatcher stays silent.
+            # Previously the condition was `intent == "finance" or not
+            # data.get("agents")` — when agents was empty it entered the
+            # block but fell through with no return, then ended up at
+            # the nanny fallback below. Remove the dead OR clause; empty
+            # agents now flows straight to the fallback (which is the
+            # intended behaviour for unknown intents).
+            if intent == "finance":
+                log.info("dispatch_external_finn", message=message_text[:50])
+                return DispatchResult(
+                    tasks=[],
+                    is_critical=False,
+                    is_settings_command=False,
+                    intent="finance",
+                    is_external=True,
+                )
 
             # Filter to only active agents (JSON uses "id", model uses "agent_id")
             tasks = [

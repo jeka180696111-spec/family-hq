@@ -6,7 +6,13 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import structlog
+import asyncio as _asyncio_mod
+import aiohttp as _aiohttp_mod
 from sqlalchemy import delete as sql_delete, select, update as sql_update
+
+# Aliases used by narrow except clauses below
+aiohttp_ClientError = _aiohttp_mod.ClientError
+asyncio_TimeoutError = _asyncio_mod.TimeoutError
 
 from src.db.memory import SharedMemory
 from src.db.models import ActiveAlert, AutomationRule
@@ -44,6 +50,17 @@ class AutomationEngine:
         self._bots = bot_manager
         self._chat_id = chat_id
         self._agents = agents
+        # Cache Tuya client across rule fires — auth + list_devices used
+        # to be repeated on every device action because we built a new
+        # client each time.
+        self._tuya_client = None
+
+    def _get_tuya(self):
+        from src.config import get_settings
+        from src.integrations.tuya import TuyaClient
+        if self._tuya_client is None:
+            self._tuya_client = TuyaClient.from_settings(get_settings())
+        return self._tuya_client
 
     async def trigger_power_outage(self, active: bool) -> None:
         """Fire all rules whose top-level condition matches the new outage state.
@@ -208,9 +225,15 @@ class AutomationEngine:
                 ">=": value >= threshold, "<=": value <= threshold,
                 "==": value == threshold, "!=": value != threshold,
             }.get(op, False)
-        except Exception:
-            log.exception("weather_eval_failed")
+        except (aiohttp_ClientError, asyncio_TimeoutError, ValueError, KeyError) as e:
+            # Transient: network blip, bad field, malformed JSON. Treat
+            # as «condition not met» so we re-evaluate next tick.
+            log.warning("weather_eval_transient", error=str(e)[:120])
             return False
+        # Other exceptions (TypeError, AttributeError = real bug in our
+        # code) propagate to the engine's tick loop where they get
+        # logged with full traceback and the rule shows up in chat as
+        # a failure rather than silently never matching.
 
     def _eval_time(self, cond: dict) -> bool:
         """Fires once within the 5-min tick window starting at HH:MM."""
@@ -276,9 +299,7 @@ class AutomationEngine:
 
     async def _eval_sensor(self, cond: dict) -> bool:
         try:
-            from src.config import get_settings
-            from src.integrations.tuya import TuyaClient
-            client = TuyaClient.from_settings(get_settings())
+            client = self._get_tuya()
             if not client:
                 return False
             device = cond.get("device", "")
@@ -329,17 +350,36 @@ class AutomationEngine:
 
     async def _eval_alert_ended(self, region: str) -> bool:
         """True if a *previous* tick had an active alert and now it's gone (within 10 min)."""
-        # Simple proxy: there are no active alerts AND last NewsPost is_alert=1 within 10 min
+        # Simple proxy: there are no active alerts AND last NewsPost is_alert=1 within 10 min.
+        # Previously did `NewsPost.date >= cutoff` as a SQL string compare —
+        # that only works if both strings share an identical ISO format
+        # with normalised timezone offset, which we can't rely on across
+        # restarts. Pull the recent alert posts ordered by id (monotonic)
+        # and filter the datetime in Python.
         from src.db.models import NewsPost
         if await self._eval_alert_active(region):
             return False
+        cutoff_dt = now_kyiv() - timedelta(minutes=10)
         async with self._memory._engine.connect() as conn:
-            cutoff = (now_kyiv() - timedelta(minutes=10)).isoformat()
-            stmt = select(NewsPost).where(NewsPost.is_alert == 1).where(NewsPost.date >= cutoff)
+            stmt = (
+                select(NewsPost)
+                .where(NewsPost.is_alert == 1)
+                .order_by(NewsPost.id.desc()).limit(20)
+            )
             if region:
                 stmt = stmt.where(NewsPost.alert_region == region)
-            row = (await conn.execute(stmt.limit(1))).first()
-        return row is not None
+            rows = list(await conn.execute(stmt))
+        from src.utils.time import KYIV_TZ
+        for r in rows:
+            try:
+                dt = datetime.fromisoformat(r.date)
+            except (ValueError, TypeError):
+                continue
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=KYIV_TZ)
+            if dt >= cutoff_dt:
+                return True
+        return False
 
     async def _eval_baby_sleeping(self, cond: dict) -> bool:
         """True when BabyState.sleeping_since is set and recent (<6h).
@@ -466,9 +506,7 @@ class AutomationEngine:
     async def _execute(self, rule_name: str, action: dict) -> None:
         kind = action.get("type", "")
         if kind == "device":
-            from src.config import get_settings
-            from src.integrations.tuya import TuyaClient
-            client = TuyaClient.from_settings(get_settings())
+            client = self._get_tuya()
             device = action.get("device", "")
             act = action.get("action", "off")
             if not client:
@@ -515,9 +553,7 @@ class AutomationEngine:
             return
         if kind == "ac_command":
             # Compound AC action: set mode/temp/fan_speed in one shot via Tuya
-            from src.config import get_settings
-            from src.integrations.tuya import TuyaClient
-            client = TuyaClient.from_settings(get_settings())
+            client = self._get_tuya()
             device = action.get("device", "")
             if not client:
                 await self._notify_chat(f"⚠️ [{rule_name}] Tuya не настроен.")

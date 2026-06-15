@@ -262,6 +262,21 @@ class NannyAgent(BaseAgent):
         elif tool_name == "ask_user":
             return {"question_sent": tool_input.get("question")}
 
+        elif tool_name == "who_check":
+            from src.utils.who import weight_percentile, height_percentile
+            from src.utils.baby import matvey_age_months
+            age = matvey_age_months()
+            result = {"age_months": age}
+            w = tool_input.get("weight_kg")
+            if w:
+                result["weight"] = weight_percentile(float(w), age)
+            h = tool_input.get("height_cm")
+            if h:
+                result["height"] = height_percentile(float(h), age)
+            if not w and not h:
+                return {"error": "укажи weight_kg или height_cm"}
+            return result
+
         elif tool_name in ("write_note", "write_milestone", "write_growth", "write_health", "write_doctor"):
             if not self._sheets:
                 return {"error": "Google Sheets не настроен"}
@@ -289,21 +304,6 @@ class NannyAgent(BaseAgent):
                     details=tool_input.get("details", ""),
                     author=author,
                 )
-            if tool_name == "who_check":
-                from src.utils.who import weight_percentile, height_percentile
-                from src.utils.baby import matvey_age_months
-                age = matvey_age_months()
-                result = {"age_months": age}
-                w = tool_input.get("weight_kg")
-                if w:
-                    result["weight"] = weight_percentile(float(w), age)
-                h = tool_input.get("height_cm")
-                if h:
-                    result["height"] = height_percentile(float(h), age)
-                if not w and not h:
-                    return {"error": "укажи weight_kg или height_cm"}
-                return result
-
             if tool_name == "write_growth":
                 return await self._sheets.append_growth(
                     weight_g=tool_input.get("weight_g"),
