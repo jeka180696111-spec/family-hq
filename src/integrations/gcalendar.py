@@ -44,18 +44,19 @@ class CalendarClient:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def _build_service(self):
+        """Build a fresh Calendar API service (sync). Used both for
+        lazy init and to recover after a broken connection."""
+        creds = Credentials.from_service_account_info(
+            self._sa_info, scopes=_SCOPES
+        )
+        return build("calendar", "v3", credentials=creds, cache_discovery=False)
+
     async def _get_service(self):
         """Lazy-init Calendar API service in a thread executor."""
         if self._service is not None:
             return self._service
-
-        def _build():
-            creds = Credentials.from_service_account_info(
-                self._sa_info, scopes=_SCOPES
-            )
-            return build("calendar", "v3", credentials=creds, cache_discovery=False)
-
-        self._service = await self._run_sync(_build)
+        self._service = await self._run_sync(self._build_service)
         log.info("calendar_service_initialized")
         return self._service
 
@@ -145,11 +146,26 @@ class CalendarClient:
             body["colorId"] = str(color_id)
 
         def _create():
-            return (
-                svc.events()
-                .insert(calendarId=self._calendar_id, body=body)
-                .execute()
-            )
+            # Retry once on transient socket errors — Google API
+            # connections sometimes drop mid-request (BrokenPipe,
+            # ConnectionReset). A single immediate retry recovers.
+            import socket, ssl
+            try:
+                return (
+                    svc.events()
+                    .insert(calendarId=self._calendar_id, body=body)
+                    .execute()
+                )
+            except (BrokenPipeError, ConnectionResetError, socket.error, ssl.SSLError):
+                log.warning("calendar_create_retry")
+                # Rebuild service to get a fresh connection
+                self._service = None
+                fresh = self._build_service()
+                return (
+                    fresh.events()
+                    .insert(calendarId=self._calendar_id, body=body)
+                    .execute()
+                )
 
         raw = await self._run_sync(_create)
         event = self._parse_event(raw)
