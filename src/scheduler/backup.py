@@ -59,6 +59,9 @@ async def run_daily_backup(
         log.exception("backup_failed")
 
 
+_BACKUP_SUBFOLDER = "🗄 БД-бэкапы"
+
+
 async def _upload_to_drive(
     local_path: str,
     filename: str,
@@ -67,9 +70,11 @@ async def _upload_to_drive(
 ) -> None:
     """Upload a file to Google Drive via the shared DriveClient.
 
+    The .db.gz dumps land in a dedicated subfolder so the main backup
+    root stays clean for human-readable items (photos, chronicles).
+
     Picks OAuth when configured (fixes the personal-Gmail 'SA has no
-    quota' bug), falls back to Service Account otherwise. Same code
-    path as photo / receipt uploads, so OAuth setup fixes backups too.
+    quota' bug), falls back to Service Account otherwise.
     """
     from src.config import get_settings
     from src.integrations.drive import DriveClient
@@ -84,7 +89,8 @@ async def _upload_to_drive(
     if not (service_account_info or client.using_oauth):
         log.warning("drive_upload_skipped_no_credentials")
         return
-    await client.upload(local_path, filename, folder_id)
+    target_folder = await client.ensure_folder(_BACKUP_SUBFOLDER, parent_id=folder_id)
+    await client.upload(local_path, filename, target_folder)
 
 
 def register_backup_job(
