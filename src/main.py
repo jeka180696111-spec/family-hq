@@ -140,7 +140,41 @@ async def _handle_baby_photo(
             except Exception:
                 pass
         return {}
+
+    # Classify FIRST — used to be that every photo went to «Матвей · Фото»
+    # so receipts/screenshots/etc. ended up tagged as «Матвей на прогулке».
+    from src.integrations.baby_photos import classify_photo
+    category = await classify_photo(local_path)
+    log.info("photo_classified", category=category)
+    if category not in ("baby", "family", "unknown"):
+        # Не фото малыша/семьи — не сохраняем в архив Матвея и не даём
+        # Няне сочинять «какой довольный малыш».
+        nanny = agents.get("nanny")
+        if nanny:
+            label = {
+                "receipt": "🧾 чек",
+                "document": "📄 документ",
+                "screenshot": "📱 скриншот",
+                "food": "🍽 еда",
+                "scenery": "🌳 пейзаж/интерьер",
+                "object": "📦 предмет",
+            }.get(category, category)
+            try:
+                await nanny.send(
+                    f"📸 Принял фото ({label}), но это не похоже на фото Матвея — не "
+                    f"сохраняю в его архив. Если нужно архивировать — напиши какой "
+                    f"категорией (например «чек», «документ для Айболита»)."
+                )
+            except Exception:
+                pass
+        try:
+            _os.unlink(local_path)
+        except Exception:
+            pass
+        return {"category": category, "skipped": True}
+
     result = await archive_photo(local_path, caption, drive_client, memory)
+    result["category"] = category
 
     # Drive failed? Try Telegram channel archive as fallback
     tg_archive_id = None
@@ -589,6 +623,10 @@ async def handle_new_message(
             if archive_result.get("_branch") == "medical":
                 # Айболит already replied with the interpretation; no need
                 # for a second LLM round. Stop dispatching this turn.
+                return
+            if archive_result.get("skipped") and archive_result.get("category"):
+                # Photo wasn't a baby/family photo — Няня уже сообщила
+                # категорию, не пускаем LLM сочинять про малыша.
                 return
             archived_age = archive_result.get("age") or ""
             age_hint = f"возраст на этом фото: {archived_age}." if archived_age else ""

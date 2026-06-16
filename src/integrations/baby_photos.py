@@ -1,5 +1,10 @@
 """Baby photo memory: archive Telegram photos of Матвей to Google Drive
 in a sane folder tree (Матвей/2026-06/) with auto-computed age + caption.
+
+Includes classify_photo() — a cheap Vision call that decides whether the
+attached image is actually a child/family photo vs something else (chek,
+document, screenshot, food, scenery). Used so the baby pipeline doesn't
+falsely save receipts as «Matvey on a walk with mom».
 """
 from __future__ import annotations
 
@@ -12,6 +17,63 @@ import structlog
 from src.utils.time import KYIV_TZ, iso_now, now_kyiv
 
 log = structlog.get_logger()
+
+
+# ─── Photo classification ──────────────────────────────────────────
+
+# Result categories — single word so the LLM can't waffle
+_PHOTO_CATEGORIES = (
+    "baby",        # Матвей или другой младенец/ребёнок
+    "family",      # фото с родителями/семьёй (могут быть без малыша)
+    "receipt",     # чек из магазина, банкомат
+    "document",    # официальный документ, справка
+    "screenshot",  # скриншот экрана (приложения, чата, веба)
+    "food",        # еда / тарелка / продукты
+    "scenery",     # пейзаж / интерьер без людей
+    "object",      # вещь, упаковка
+    "unknown",     # не разобрать
+)
+
+
+async def classify_photo(image_path: str) -> str:
+    """Return one of `_PHOTO_CATEGORIES`. Best-effort — falls back to
+    'unknown' on failure so the caller can make a safe default choice."""
+    from src.config import get_settings
+    from src.integrations.gemini_client import GeminiClient
+    gemini = GeminiClient.from_settings(get_settings())
+    if not gemini:
+        return "unknown"
+    try:
+        text = await gemini.vision_complete(
+            image_path=image_path,
+            system=(
+                "Ты — классификатор фото. Тебе показывают одну картинку, "
+                "ты возвращаешь РОВНО ОДНО слово из списка категорий. "
+                "Никаких объяснений, никаких знаков препинания."
+            ),
+            prompt=(
+                "Классифицируй это фото. Ответь ОДНИМ словом из списка:\n"
+                "  baby — на фото младенец, маленький ребёнок (0-3 года)\n"
+                "  family — взрослые члены семьи (без явного малыша)\n"
+                "  receipt — чек из магазина, квитанция, банкомат\n"
+                "  document — официальный документ, справка, рецепт\n"
+                "  screenshot — скриншот с экрана приложения/чата\n"
+                "  food — еда, тарелка, упаковка продуктов\n"
+                "  scenery — пейзаж, природа, интерьер без людей\n"
+                "  object — предмет, вещь, упаковка не-еды\n"
+                "  unknown — не могу определить\n\n"
+                "Ответ:"
+            ),
+            max_tokens=10,
+        )
+    except Exception:
+        log.exception("photo_classify_failed")
+        return "unknown"
+    answer = (text or "").strip().lower().split()
+    if not answer:
+        return "unknown"
+    first = answer[0].strip(".,;:!?\"'`")
+    return first if first in _PHOTO_CATEGORIES else "unknown"
 
 
 BABY_DOB = datetime(2025, 12, 2, 10, 0, tzinfo=KYIV_TZ)
