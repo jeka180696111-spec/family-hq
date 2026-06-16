@@ -1083,6 +1083,15 @@ async def run(dry_run: bool = False) -> None:
     except Exception:
         log.exception("notebook_poll_register_failed")
 
+    # Family anniversaries — daily 08:00 check for birthdays + wedding
+    # + relationship dates. Pre-warns at D-7/D-3/D-1, posts consolidated
+    # congrats on the day itself.
+    try:
+        from src.scheduler.anniversaries import register_anniversary_job
+        register_anniversary_job(scheduler, bot_manager, chat_id, memory)
+    except Exception:
+        log.exception("anniversary_register_failed")
+
     # One-shot: seed Ukrainian vaccination schedule for Матвей if not yet seeded
     if calendar_client:
         try:

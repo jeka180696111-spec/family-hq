@@ -68,6 +68,74 @@ HELPERS = [
     {"role": "Бабушка А.", "full_name": "Бабушка Алёна (мама Евгения)"},
 ]
 
+
+# ─────────────────────────────────────────────────────────────────────
+# Семейные даты — дни рождения и годовщины
+# Используются ежедневным джобом anniversaries.py для поздравлений
+# в чат, и попадают в family_context_block так что любой агент в курсе.
+# ─────────────────────────────────────────────────────────────────────
+
+FAMILY_ANNIVERSARIES = [
+    {
+        "date": date(1996, 6, 18),
+        "kind": "birthday",
+        "person": "Евгений",
+        "label": "День рождения Евгения",
+        "emoji": "🎂",
+    },
+    {
+        "date": date(1997, 9, 12),
+        "kind": "birthday",
+        "person": "Марина",
+        "label": "День рождения Марины",
+        "emoji": "🎂",
+    },
+    {
+        "date": date(2025, 12, 2),
+        "kind": "birthday",
+        "person": "Матвей",
+        "label": "День рождения Матвея",
+        "emoji": "🎂",
+    },
+    {
+        "date": date(2019, 11, 4),
+        "kind": "relationship",
+        "person": "Евгений+Марина",
+        "label": "Начало отношений (Евгений и Марина)",
+        "emoji": "💞",
+    },
+    {
+        "date": date(2022, 7, 30),
+        "kind": "wedding",
+        "person": "Евгений+Марина",
+        "label": "Годовщина свадьбы",
+        "emoji": "💍",
+    },
+]
+
+
+def upcoming_anniversaries(within_days: int = 14, today=None) -> list[dict]:
+    """Return dates falling in the next `within_days` days from today,
+    annotated with the year-count if they occur on the actual day."""
+    from datetime import date as _date, timedelta as _td
+    today = today or _date.today()
+    out = []
+    for a in FAMILY_ANNIVERSARIES:
+        # Project this year and next year to handle Dec→Jan wrap
+        for year in (today.year, today.year + 1):
+            try:
+                proj = a["date"].replace(year=year)
+            except ValueError:
+                # 29 February in non-leap year
+                proj = a["date"].replace(year=year, day=28)
+            delta = (proj - today).days
+            if 0 <= delta <= within_days:
+                age_years = year - a["date"].year
+                out.append({**a, "occurs_on": proj, "days_until": delta, "years": age_years})
+                break
+    out.sort(key=lambda x: x["days_until"])
+    return out
+
 LOCATION = {
     "city": "Одесса",
     "district": "Приморский район",
@@ -328,8 +396,23 @@ def family_context_block() -> str:
         f"   {PEDIATRICS['clinic']}, {PEDIATRICS['address']}",
         "",
         f"💰 Финансы: валюта {FINANCE['currency']}, ориентир по малышу {FINANCE['monthly_baby_budget']} {FINANCE['currency']}/мес",
-        "═══",
     ]
+    # Surface near-term family anniversaries so agents are aware without
+    # needing a separate query — same source as the daily reminder job.
+    soon = upcoming_anniversaries(within_days=14)
+    if soon:
+        lines.append("")
+        lines.append("📅 Ближайшие семейные даты:")
+        for a in soon[:5]:
+            when = a["occurs_on"].strftime("%d.%m")
+            if a["days_until"] == 0:
+                tag = "🎉 СЕГОДНЯ"
+            elif a["days_until"] == 1:
+                tag = "завтра"
+            else:
+                tag = f"через {a['days_until']} дн"
+            lines.append(f"   {a['emoji']} {when} ({tag}) — {a['label']} · {a['years']}-летие")
+    lines.append("═══")
     from src.prompts._team import family_wiki_block
     wiki = family_wiki_block(_WIKI_FACTS)
     if wiki:
