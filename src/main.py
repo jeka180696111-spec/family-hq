@@ -141,38 +141,47 @@ async def _handle_baby_photo(
                 pass
         return {}
 
-    # Classify FIRST — used to be that every photo went to «Матвей · Фото»
-    # so receipts/screenshots/etc. ended up tagged as «Матвей на прогулке».
+    # Classify FIRST — exactly 3 types: baby / receipt / medical.
     from src.integrations.baby_photos import classify_photo
     category = await classify_photo(local_path)
     log.info("photo_classified", category=category)
-    if category not in ("baby", "family", "unknown"):
-        # Не фото малыша/семьи — не сохраняем в архив Матвея и не даём
-        # Няне сочинять «какой довольный малыш».
+
+    if category == "receipt":
+        # Чек → отдельный пайплайн, не в архив Матвея
         nanny = agents.get("nanny")
+        from src.integrations.receipt_photos import (
+            archive_receipt, format_summary, parse_receipt,
+        )
+        parsed = await parse_receipt(local_path)
+        upload = await archive_receipt(local_path, parsed, drive_client)
         if nanny:
-            label = {
-                "receipt": "🧾 чек",
-                "document": "📄 документ",
-                "screenshot": "📱 скриншот",
-                "food": "🍽 еда",
-                "scenery": "🌳 пейзаж/интерьер",
-                "object": "📦 предмет",
-            }.get(category, category)
             try:
-                await nanny.send(
-                    f"📸 Принял фото ({label}), но это не похоже на фото Матвея — не "
-                    f"сохраняю в его архив. Если нужно архивировать — напиши какой "
-                    f"категорией (например «чек», «документ для Айболита»)."
-                )
+                await nanny.send(format_summary(parsed, upload.get("drive_url")))
             except Exception:
-                pass
+                log.exception("receipt_ack_failed")
         try:
             _os.unlink(local_path)
         except Exception:
             pass
-        return {"category": category, "skipped": True}
+        return {"category": "receipt", "_branch": "receipt", "parsed": parsed,
+                "drive_url": upload.get("drive_url")}
 
+    if category == "medical":
+        # Vision увидел медицинский документ (бланк/УЗИ/заключение)
+        # даже без ключевых слов в подписи. Передаём в Айболитский
+        # пайплайн — он сам перекачает фото и сделает структурный OCR.
+        try:
+            _os.unlink(local_path)
+        except Exception:
+            pass
+        med_result = await _handle_medical_photo(
+            message, caption, agents, memory, settings,
+        ) or {}
+        med_result["_branch"] = "medical"
+        med_result["category"] = "medical"
+        return med_result
+
+    # baby / unknown → стандартный архив малыша
     result = await archive_photo(local_path, caption, drive_client, memory)
     result["category"] = category
 
@@ -620,13 +629,14 @@ async def handle_new_message(
             # Annotate text for LLM dispatch with EXACT age the system computed
             # from the caption date, so the LLM doesn't hallucinate based on
             # today's age (this prevents "6 мес" replies on a 5-мес photo).
-            if archive_result.get("_branch") == "medical":
-                # Айболит already replied with the interpretation; no need
-                # for a second LLM round. Stop dispatching this turn.
+            if archive_result.get("_branch") in ("medical", "receipt"):
+                # Either Айболит already replied with the interpretation,
+                # or receipt was archived with its own summary — no need
+                # for a second LLM round.
                 return
             if archive_result.get("skipped") and archive_result.get("category"):
-                # Photo wasn't a baby/family photo — Няня уже сообщила
-                # категорию, не пускаем LLM сочинять про малыша.
+                # Vision categorised the photo as something we explicitly
+                # don't process — Няня already said so, skip LLM.
                 return
             archived_age = archive_result.get("age") or ""
             age_hint = f"возраст на этом фото: {archived_age}." if archived_age else ""
