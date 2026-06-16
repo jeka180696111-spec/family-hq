@@ -274,6 +274,44 @@ async def _nanny_weekly_note(
 
 # ─── Data collectors ────────────────────────────────────────────────
 
+# Captions that look medical — chronicle should skip these even if they
+# accidentally landed in BabyPhoto (e.g. uploaded before the Vision
+# classifier patch routed them to the medical pipeline).
+_MEDICAL_CAPTION_HINTS = (
+    "узи", "узд", "ехо", "эхо",
+    "анализ", "аналіз",
+    "эпикриз", "епікриз",
+    "заключение", "висновок",
+    "диагноз", "діагноз",
+    "рентген", "флюорограф", "флг",
+    "мрт", "кт", "томограф",
+    "осмотр", "огляд",
+    "консультация", "консультація",
+    "доктор", "лікар", "врач",
+    "педиатр", "терапевт", "невролог",
+    "медкарт", "карточк",
+    "выписка", "виписка",
+    "рецепт",
+    "проанализир", "проаналізу",  # «Проанализируй и сохрани» → точно мед
+)
+
+
+def _looks_medical(caption: str) -> bool:
+    text = (caption or "").lower()
+    return any(h in text for h in _MEDICAL_CAPTION_HINTS)
+
+
+_LEADING_DATE_RE = __import__("re").compile(
+    r"^\s*\d{1,2}[.\-/]\d{1,2}(?:[.\-/]\d{2,4})?\s*[—\-:.,]?\s*"
+)
+
+
+def _strip_leading_date(text: str) -> str:
+    """Remove a leading DD.MM or DD.MM.YYYY from the caption so chronicle
+    doesn't show the same date twice (once in caption, once below)."""
+    return _LEADING_DATE_RE.sub("", text or "").strip()
+
+
 async def _collect_photos(memory: Any, start, end) -> list[dict]:
     from src.db.models import BabyPhoto
     async with memory._engine.connect() as conn:
@@ -283,11 +321,16 @@ async def _collect_photos(memory: Any, start, end) -> list[dict]:
             .where(BabyPhoto.created_at < end.isoformat())
             .order_by(BabyPhoto.id.desc())
         ))
-    return [
-        {"caption": r.caption or "", "age": r.age_label,
-         "drive_id": r.drive_file_id, "when": r.created_at}
-        for r in rows
-    ]
+    out = []
+    for r in rows:
+        if _looks_medical(r.caption or ""):
+            # Strip медицинские документы из хроники малыша
+            continue
+        out.append({
+            "caption": r.caption or "", "age": r.age_label,
+            "drive_id": r.drive_file_id, "when": r.created_at,
+        })
+    return out
 
 
 async def _collect_diary_stats(start, end) -> dict:
@@ -948,10 +991,15 @@ def _render_pdf(
                     f'<font name="{bold_font}" size="11" color="#C9A961">'
                     f'{age_label}</font>'
                 )
-            if caption and caption.strip():
+            # User часто пишет в подписи дату-префикс типа «10.06», и она
+            # дублируется с системной датой ниже. Срезаем ведущую DD.MM
+            # (с годом или без) — оставляем только полезный текст.
+            clean_caption = (caption or "").strip()
+            clean_caption = _strip_leading_date(clean_caption)
+            if clean_caption:
                 cap_lines.append(
                     f'<font color="#2D3748" size="10">'
-                    f'{_safe_caption(caption, 11)}</font>'
+                    f'{_safe_caption(clean_caption, 11)}</font>'
                 )
             cap_lines.append(
                 f'<font color="#A0AEC0" size="8">{when_pretty}</font>'
