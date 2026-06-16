@@ -48,6 +48,11 @@ FATHER = {
         "Уволен из армии в ноябре 2025",
     ],
     "schedule": "пн-пт 08:30-17:00 (офис, плюс дорога) — недоступен 07:00-18:30",
+    "nicknames": [
+        "Женя", "Женечка", "Жека",
+        "Муж", "Мужик",
+        "Пап", "Папа", "Папочка", "Папулька",
+    ],
 }
 
 MOTHER = {
@@ -55,12 +60,18 @@ MOTHER = {
     "short_name": "Марина",
     "role": "Мамочка",
     "birth_date": date(1997, 9, 12),
-    "weight_kg": 55,
+    "weight_kg": 50,
     "blood_type": "не уверена",
     "allergies": [],
     "medical_history": [],
     "lactating": True,   # Важно для расчёта доз и совместимости лекарств
     "schedule": "в декрете, всегда дома",
+    "nicknames": [
+        "Маришка", "Маришечка", "Мариша",
+        "Киця", "Кися", "Кисуля",
+        "Жена", "Жёна", "Женушка",
+        "Мам", "Мамуля", "Мамочка",
+    ],
 }
 
 HELPERS = [
@@ -372,15 +383,25 @@ def family_context_block() -> str:
         upcoming = ", ".join(f"{name} {dt.strftime('%d.%m.%Y')}" for name, dt in CHILD["vaccines_upcoming"])
         lines.append(f"   Следующая: {upcoming}")
 
+    father_nicks = ", ".join(FATHER.get("nicknames", []))
+    mother_nicks = ", ".join(MOTHER.get("nicknames", []))
     lines += [
         "",
         f"👨 Папа: {FATHER['short_name']} ({FATHER['full_name']}), {father_age}",
         f"   {FATHER['weight_kg']} кг, {FATHER['blood_type']}",
+    ]
+    if father_nicks:
+        lines.append(f"   Прозвища (= {FATHER['short_name']}): {father_nicks}")
+    lines += [
         f"   Анамнез: {'; '.join(FATHER['medical_history']) or 'без особенностей'}",
         f"   Расписание: {FATHER['schedule']}",
         "",
         f"👩 Мама: {MOTHER['short_name']} ({MOTHER['full_name']}), {mother_age}",
         f"   {MOTHER['weight_kg']} кг, группа крови {MOTHER['blood_type']}",
+    ]
+    if mother_nicks:
+        lines.append(f"   Прозвища (= {MOTHER['short_name']}): {mother_nicks}")
+    lines += [
         f"   {'Кормит грудью — учитывай совместимость лекарств' if MOTHER.get('lactating') else 'Не кормит'}",
         f"   Расписание: {MOTHER['schedule']}",
         "",
