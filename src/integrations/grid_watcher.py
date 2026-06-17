@@ -41,6 +41,10 @@ class GridWatcher:
 
     THRESHOLD_DOWN = 5
     THRESHOLD_UP = 2
+    # Inverter goes offline ≥ this many minutes + last seen state showed
+    # battery discharge → presume grid is out. Covers the case where the
+    # router itself is unpowered so the inverter can't push fresh data.
+    INFERRED_OUTAGE_MIN = 3
 
     def __init__(self, memory: Any, devops_agent: Any, bot_manager: Any, chat_id: int, automation_engine: Any = None) -> None:
         self._memory = memory
@@ -53,6 +57,7 @@ class GridWatcher:
         self._outage_active = False  # Mirror of DB state at last tick
         self._last_event_time: str | None = None  # For event-log dedup
         self._battery_alerts_fired: set[int] = set()  # thresholds already pushed this outage
+        self._last_seen_discharging: bool = False  # last tick saw battery feeding the house
 
     async def tick(self) -> None:
         try:
@@ -66,6 +71,14 @@ class GridWatcher:
             # Inverter unreachable — don't draw conclusions
             log.debug("grid_watcher_tick_skip", reason="lux_unreachable")
             return
+
+        # ── Channel 0: inferred outage — inverter went offline while it
+        #    was last seen discharging the battery → grid most likely down
+        #    AND the router is unpowered too (so we get no events).
+        try:
+            await self._maybe_infer_outage(data)
+        except Exception:
+            log.exception("grid_watcher_infer_failed")
 
         # ── Channel 1: event log from LuxCloud ──────────────────────────
         # If LuxCloud exposes recent events, trust them directly: no
@@ -272,22 +285,78 @@ class GridWatcher:
                         log.exception("grid_watcher_battery_alert_failed", threshold=threshold)
                 log.info("grid_watcher_battery_alert", threshold=threshold, pct=pct)
 
-    async def _open(self) -> None:
+    async def _maybe_infer_outage(self, data: dict) -> None:
+        """If the inverter went offline AND last contact showed it was
+        discharging the battery — assume the grid is out (router lost
+        power too, which is why we can't reach the inverter).
+
+        Cleared automatically when LuxCloud starts returning fresh data
+        again with `online: True` (handled in event-log channel).
+        """
+        from datetime import datetime as _dt
+        from src.utils.time import KYIV_TZ, now_kyiv
+
+        online = bool(data.get("online", True))
+        battery_discharge_w = data.get("battery_discharge_w") or 0
+        if online and battery_discharge_w > 0:
+            self._last_seen_discharging = True
+        elif online:
+            self._last_seen_discharging = False
+
+        if self._outage_active or online:
+            return
+
+        # Inverter is offline — how stale is the data?
+        ts_raw = data.get("last_update") or data.get("ts") or data.get("timestamp")
+        if not ts_raw:
+            return
+        try:
+            last = _dt.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=KYIV_TZ)
+        except Exception:
+            return
+        age_min = (now_kyiv() - last).total_seconds() / 60
+        if age_min < self.INFERRED_OUTAGE_MIN:
+            return
+        if not self._last_seen_discharging:
+            # Inverter offline but last we knew it was on grid → could be
+            # a network blip, not an outage. Stay silent.
+            return
+        log.warning(
+            "grid_watcher_inferred_outage",
+            stale_min=int(age_min),
+        )
+        await self._open(inferred=True, stale_min=int(age_min))
+
+    async def _open(self, *, inferred: bool = False, stale_min: int = 0) -> None:
         from sqlalchemy import insert
         from src.db.models import PowerOutage
         from src.utils.time import iso_now
+        notes = (
+            f"Авто-детект (предполож.): инвертор offline {stale_min} мин, "
+            "до этого видели разряд батареи"
+            if inferred
+            else "Авто-детект: инвертор перешёл на батарею"
+        )
         async with self._memory._engine.begin() as conn:
             await conn.execute(insert(PowerOutage).values(
                 started_at=iso_now(),
-                notes="Авто-детект: инвертор перешёл на батарею",
+                notes=notes,
             ))
         self._outage_active = True
         self._battery_alerts_fired.clear()
         if self._bots and self._chat_id:
+            msg = (
+                f"⚡ <b>Похоже, света нет</b>\nИнвертор сам молчит ~{stale_min} мин, "
+                "до этого видели разряд батареи — предполагаю отключение. "
+                "Если ошибся, скажи «свет есть»."
+                if inferred
+                else "⚡ <b>Света нет</b>\nИнвертор перешёл на батарею. Автоматизации сработают."
+            )
             try:
                 await self._bots.send_message(
-                    agent_id="devops", chat_id=self._chat_id,
-                    text="⚡ <b>Света нет</b>\nИнвертор перешёл на батарею. Автоматизации сработают.",
+                    agent_id="devops", chat_id=self._chat_id, text=msg,
                 )
             except Exception:
                 log.exception("grid_watcher_open_push_failed")
