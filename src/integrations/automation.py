@@ -57,6 +57,12 @@ class AutomationEngine:
         # Per-outage dedup: rule names we've already told the user are
         # 'deferred'. Cleared when outage closes via trigger_power_outage.
         self._outage_deferred_notified: set[str] = set()
+        # Rule IDs that have already fired for the CURRENT outage event.
+        # Standing rules with `power_outage` condition would otherwise
+        # re-fire after every cooldown_min (60 by default) — toggling
+        # an already-off boiler is pointless and spammy. Cleared on
+        # outage close.
+        self._outage_fired_rules: set[int] = set()
 
     def _get_tuya(self):
         from src.config import get_settings
@@ -77,6 +83,7 @@ class AutomationEngine:
         # somehow we end up in another outage (e.g. quick on-off-on).
         if not active:
             self._outage_deferred_notified.clear()
+            self._outage_fired_rules.clear()
         try:
             async with self._memory._engine.connect() as conn:
                 rules = list(await conn.execute(select(AutomationRule).where(AutomationRule.enabled == 1)))
@@ -87,6 +94,11 @@ class AutomationEngine:
                         continue
                     if not await self._eval(cond):
                         continue
+                    # Single fire per outage event — don't repeat after
+                    # cooldown lapses while still in the same outage.
+                    if rule.id in self._outage_fired_rules:
+                        continue
+                    self._outage_fired_rules.add(rule.id)
                     action = json.loads(rule.action)
                     await self._execute(rule.name, action)
                     async with self._memory._engine.begin() as conn:
@@ -154,6 +166,13 @@ class AutomationEngine:
                             self._outage_deferred_notified.add(rule.name)
                         log.info("automation_skipped_outage", rule=rule.name)
                         continue
+                    # Standing power_outage rules: fire once per outage
+                    # event, not every cooldown. Toggling an already-off
+                    # boiler is pointless and spams the chat.
+                    if cond.get("type") == "power_outage":
+                        if rule.id in self._outage_fired_rules:
+                            continue
+                        self._outage_fired_rules.add(rule.id)
                     await self._execute(rule.name, action)
                     # One-shot rules (single datetime trigger) are removed
                     # after firing — keeps the rules table lean and avoids
