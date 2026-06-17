@@ -54,6 +54,9 @@ class AutomationEngine:
         # to be repeated on every device action because we built a new
         # client each time.
         self._tuya_client = None
+        # Per-outage dedup: rule names we've already told the user are
+        # 'deferred'. Cleared when outage closes via trigger_power_outage.
+        self._outage_deferred_notified: set[str] = set()
 
     def _get_tuya(self):
         from src.config import get_settings
@@ -70,6 +73,10 @@ class AutomationEngine:
         5-min tick.
         """
         state = "active" if active else "ended"
+        # When grid comes back, allow deferred notifications to re-fire if
+        # somehow we end up in another outage (e.g. quick on-off-on).
+        if not active:
+            self._outage_deferred_notified.clear()
         try:
             async with self._memory._engine.connect() as conn:
                 rules = list(await conn.execute(select(AutomationRule).where(AutomationRule.enabled == 1)))
@@ -131,6 +138,22 @@ class AutomationEngine:
                         except Exception:
                             pass
                     action = json.loads(rule.action)
+                    # Outage takes priority over everything else — when
+                    # the grid is down, ON-commands to power-hungry
+                    # devices would just drain the battery. Skip the
+                    # rule until grid is back; one-shot rules are
+                    # NOT consumed (they'll re-fire on the next tick
+                    # after grid recovery as long as their `at` time
+                    # is still in the past and late_fire=true).
+                    if await self._outage_blocks(action):
+                        if rule.name not in self._outage_deferred_notified:
+                            await self._notify_chat(
+                                f"⏸ [{rule.name}] отложено — сейчас отключение света. "
+                                "Сработает когда сеть вернётся."
+                            )
+                            self._outage_deferred_notified.add(rule.name)
+                        log.info("automation_skipped_outage", rule=rule.name)
+                        continue
                     await self._execute(rule.name, action)
                     # One-shot rules (single datetime trigger) are removed
                     # after firing — keeps the rules table lean and avoids
@@ -492,6 +515,40 @@ class AutomationEngine:
             await delete_rule(sheets, rule_name)
         except Exception:
             log.exception("automation_notebook_delete_failed", rule=rule_name)
+
+    async def _outage_active(self) -> bool:
+        """True if there's an open PowerOutage row (set by GridWatcher)."""
+        try:
+            from src.db.models import PowerOutage
+            async with self._memory._engine.connect() as conn:
+                row = (await conn.execute(
+                    select(PowerOutage).where(PowerOutage.ended_at.is_(None))
+                    .order_by(PowerOutage.id.desc()).limit(1)
+                )).first()
+            return row is not None
+        except Exception:
+            log.exception("automation_outage_check_failed")
+            return False
+
+    async def _outage_blocks(self, action: dict) -> bool:
+        """Return True if an active power outage should block this action.
+        Rules:
+          • device action that turns something ON → blocked
+          • ac_command (always implies powering AC) → blocked
+          • OFF commands, alert-ended responses, set_mode, messages → OK
+            (turning OFF is always safe; messages cost nothing)
+          • Rules whose CONDITION is power_outage are exempt — they
+            include the boiler-off-on-outage rule we explicitly want to fire.
+        """
+        kind = (action or {}).get("type", "")
+        if kind == "device":
+            act = (action.get("action") or "").lower()
+            if act in ("on", "toggle"):
+                return await self._outage_active()
+            return False
+        if kind == "ac_command":
+            return await self._outage_active()
+        return False
 
     async def _notify_chat(self, text: str) -> None:
         if not (self._bots and self._chat_id):
