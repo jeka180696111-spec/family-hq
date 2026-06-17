@@ -61,7 +61,15 @@ class GridWatcher:
     # waiting 5 min for the boiler to switch off after a real outage is
     # too slow when the user can see it happen on their phone in 30s.
     THRESHOLD_DOWN = 3
-    THRESHOLD_UP = 2
+    # Closing the outage requires 5 consecutive 'grid back' ticks (was 2)
+    # plus a minimum total outage duration (see MIN_OUTAGE_MIN below).
+    # The 2-tick threshold caused false 'свет дали' at 09:36 while the
+    # real outage was still going.
+    THRESHOLD_UP = 5
+    # Minimum length of an outage before we'll close it. Real outages
+    # last much longer than 4 minutes — if our detector wants to close
+    # one inside this window it's almost certainly wrong.
+    MIN_OUTAGE_MIN = 4
     # Inverter goes offline ≥ this many minutes + last seen state showed
     # battery discharge → presume grid is out. Covers the case where the
     # router itself is unpowered so the inverter can't push fresh data.
@@ -114,13 +122,24 @@ class GridWatcher:
             grid_state_from_event = self._latest_state_from_events(events)
             if grid_state_from_event is not None:
                 await self._sync_state_with_db()
-                if grid_state_from_event is True and self._outage_active:
-                    # Event says grid is back
-                    await self._close()
-                elif grid_state_from_event is False and not self._outage_active:
+                if grid_state_from_event is False and not self._outage_active:
+                    # Opening on event-log is fine — quick reaction.
                     await self._open()
-                # Skip heuristics — events were authoritative this tick
-                return
+                    return
+                if grid_state_from_event is True and self._outage_active:
+                    # Closing is MUCH stricter: previously we closed on a
+                    # single 'ok' event and got flapping (open 09:34 →
+                    # false close 09:36 while the real outage was hours).
+                    # Now we require BOTH conditions:
+                    #   1. The outage has lasted at least 5 minutes
+                    #   2. Heuristic channel also says grid is back
+                    # The heuristic check happens in the rest of tick(),
+                    # so we don't return early here — let it run, then
+                    # close only when up_streak threshold is hit.
+                    pass
+                else:
+                    # Event was inconclusive for current state — skip heuristic
+                    return
 
         raw = data.get("raw", {}) or {}
 
@@ -392,6 +411,26 @@ class GridWatcher:
         from sqlalchemy import select, update as sql_update
         from src.db.models import PowerOutage
         from src.utils.time import iso_now, now_kyiv
+        # Refuse to close an outage that's lasted less than MIN_OUTAGE_MIN.
+        # Real outages don't end in 90 seconds, and the inverter's status
+        # signals can flicker briefly.
+        async with self._memory._engine.connect() as conn:
+            open_row = (await conn.execute(
+                select(PowerOutage).where(PowerOutage.ended_at.is_(None))
+                .order_by(PowerOutage.id.desc()).limit(1)
+            )).first()
+        if open_row:
+            try:
+                started_dt = datetime.fromisoformat(open_row.started_at)
+                age_min = (now_kyiv() - started_dt).total_seconds() / 60
+            except Exception:
+                age_min = self.MIN_OUTAGE_MIN  # if we can't parse, allow close
+            if age_min < self.MIN_OUTAGE_MIN:
+                log.info(
+                    "grid_watcher_close_too_soon",
+                    age_min=int(age_min), needed=self.MIN_OUTAGE_MIN,
+                )
+                return
         async with self._memory._engine.begin() as conn:
             last = (await conn.execute(
                 select(PowerOutage).where(PowerOutage.ended_at.is_(None))
