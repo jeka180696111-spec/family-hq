@@ -41,6 +41,15 @@ async def generate_weekly_chronicle(
         start = start_dt or (end - timedelta(days=7))
         week_number = end.isocalendar()[1]
 
+        # Sync any photos that exist on Drive but missing from local BabyPhoto
+        # table BEFORE collecting — otherwise a fresh upload that didn't go
+        # through the bot flow (manual Drive upload, or pre-classifier
+        # branches) won't show up in the chronicle.
+        try:
+            await _sync_drive_to_babyphoto(memory, drive_client, months=2)
+        except Exception:
+            log.exception("chronicle_sync_drive_failed")
+
         photos = await _collect_photos(memory, start, end)
 
         # Rule: every day in the week must have at least one photo.
@@ -310,6 +319,92 @@ def _strip_leading_date(text: str) -> str:
     """Remove a leading DD.MM or DD.MM.YYYY from the caption so chronicle
     doesn't show the same date twice (once in caption, once below)."""
     return _LEADING_DATE_RE.sub("", text or "").strip()
+
+
+async def _sync_drive_to_babyphoto(memory: Any, drive_client, months: int = 2) -> dict:
+    """Mirror «👶 Матвей · Фото / YYYY-MM» Drive folders into BabyPhoto.
+
+    Reads the most recent N months of the baby photos folder and inserts
+    any drive_file_id that isn't already in BabyPhoto. Date and caption
+    are parsed from the filename pattern
+    `YYYY-MM-DD_Matvey_<age>_<caption>.<ext>`.
+    """
+    import os as _os
+    import re
+    from src.db.models import BabyPhoto
+    from src.utils.time import KYIV_TZ, now_kyiv
+
+    if not drive_client:
+        return {"skipped": "drive not configured"}
+
+    now = now_kyiv()
+    scan_months: list[str] = []
+    y, m = now.year, now.month
+    for _ in range(max(1, months)):
+        scan_months.append(f"{y:04d}-{m:02d}")
+        m -= 1
+        if m == 0:
+            m = 12
+            y -= 1
+
+    async with memory._engine.connect() as conn:
+        rows = list(await conn.execute(
+            select(BabyPhoto.drive_file_id).where(BabyPhoto.drive_file_id.is_not(None))
+        ))
+    existing = {r[0] for r in rows}
+
+    fname_date = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+    caption_re = re.compile(r"\d{4}-\d{2}-\d{2}_Matvey_[^_]+_(.+)$")
+    added: list[dict] = []
+
+    for ym in scan_months:
+        try:
+            folder_id = await drive_client.ensure_path(["👶 Матвей · Фото", ym])
+        except Exception:
+            continue
+        try:
+            files = await drive_client.list_folder_files(folder_id)
+        except Exception:
+            continue
+        for f in files:
+            if f["id"] in existing:
+                continue
+            if not f.get("mime", "").startswith("image/"):
+                continue
+            m_match = fname_date.search(f["name"])
+            if m_match:
+                try:
+                    captured = datetime(
+                        int(m_match.group(1)), int(m_match.group(2)),
+                        int(m_match.group(3)), 12, 0, tzinfo=KYIV_TZ,
+                    )
+                except Exception:
+                    captured = now
+            else:
+                captured = now
+            name_no_ext = _os.path.splitext(f["name"])[0]
+            cap_m = caption_re.match(name_no_ext)
+            caption = cap_m.group(1).replace("_", " ").strip() if cap_m else None
+            age_label = "?"
+            try:
+                from src.integrations.baby_photos import _age_label, BABY_DOB
+                age_label = _age_label(BABY_DOB, captured)
+            except Exception:
+                pass
+            async with memory._engine.begin() as conn:
+                from sqlalchemy import insert as _insert
+                await conn.execute(_insert(BabyPhoto).values(
+                    local_path=f["name"],
+                    drive_file_id=f["id"],
+                    caption=caption,
+                    age_label=age_label,
+                    tags=f"baby,matvey,{age_label},{ym},auto-synced",
+                    created_at=captured.isoformat(),
+                ))
+            added.append({"id": f["id"], "name": f["name"], "date": captured.isoformat()[:10]})
+    if added:
+        log.info("chronicle_sync_inserted", count=len(added))
+    return {"added": added, "scanned_months": scan_months}
 
 
 async def _collect_photos(memory: Any, start, end) -> list[dict]:
