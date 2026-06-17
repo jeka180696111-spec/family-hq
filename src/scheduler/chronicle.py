@@ -45,12 +45,44 @@ async def generate_weekly_chronicle(
         # table BEFORE collecting — otherwise a fresh upload that didn't go
         # through the bot flow (manual Drive upload, or pre-classifier
         # branches) won't show up in the chronicle.
+        sync_result = {}
         try:
-            await _sync_drive_to_babyphoto(memory, drive_client, months=2)
+            sync_result = await _sync_drive_to_babyphoto(memory, drive_client, months=3)
+            added_list = sync_result.get("added") or []
+            if added_list and bot_manager and chat_id:
+                # Show the user what got pulled in so they can verify
+                preview = ", ".join(
+                    f"{a['date']}: {a['name'][:50]}" for a in added_list[:5]
+                )
+                more = f" (+{len(added_list)-5} ещё)" if len(added_list) > 5 else ""
+                try:
+                    await bot_manager.send_message(
+                        agent_id="devops", chat_id=chat_id,
+                        text=(
+                            f"🔄 Подтянул {len(added_list)} новых фото с Drive перед "
+                            f"хроникой:\n{preview}{more}"
+                        ),
+                    )
+                except Exception:
+                    log.exception("chronicle_sync_announce_failed")
+            elif sync_result.get("error"):
+                if bot_manager and chat_id:
+                    try:
+                        await bot_manager.send_message(
+                            agent_id="devops", chat_id=chat_id,
+                            text=f"⚠️ Drive-sync для хроники упал: {sync_result['error']}",
+                        )
+                    except Exception:
+                        pass
         except Exception:
             log.exception("chronicle_sync_drive_failed")
 
         photos = await _collect_photos(memory, start, end)
+        log.info(
+            "chronicle_photos_collected",
+            count=len(photos),
+            days=sorted({(p.get("when") or "")[:10] for p in photos}),
+        )
 
         # Rule: every day in the week must have at least one photo.
         # If a day is missing — warn user and stop. They upload it,
@@ -103,9 +135,26 @@ async def generate_weekly_chronicle(
             if not day:
                 continue
             current = photos_by_day.get(day)
-            new_score = (len(p.get("caption") or ""), p.get("when") or "")
-            cur_score = (len(current.get("caption") or ""), current.get("when") or "") if current else (-1, "")
-            if new_score >= cur_score:
+            # Score tuple order matters:
+            #   1. has_drive_id — records without drive_id can't be embedded
+            #      in the PDF at all, so prefer ones we can actually render
+            #   2. caption length — meaningful captions win over empty
+            #   3. timestamp — newer wins as tiebreaker
+            new_score = (
+                1 if p.get("drive_id") else 0,
+                len(p.get("caption") or ""),
+                p.get("when") or "",
+            )
+            cur_score = (
+                (1 if current.get("drive_id") else 0,
+                 len(current.get("caption") or ""),
+                 current.get("when") or "")
+                if current else (-1, -1, "")
+            )
+            # Strict `>` instead of `>=` — ties shouldn't be reshuffled
+            # by iteration order (caused id=45 без drive_id to overwrite
+            # id=46 с drive_id when both had the same caption length).
+            if new_score > cur_score:
                 photos_by_day[day] = p
         daily_photos = sorted(photos_by_day.values(), key=lambda x: x.get("when") or "")
         daily_photos = daily_photos[:7]
@@ -356,17 +405,26 @@ async def _sync_drive_to_babyphoto(memory: Any, drive_client, months: int = 2) -
     fname_date = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
     caption_re = re.compile(r"\d{4}-\d{2}-\d{2}_Matvey_[^_]+_(.+)$")
     added: list[dict] = []
+    files_seen: int = 0
+    folders_checked: list[str] = []
+    error_msg: str | None = None
 
     for ym in scan_months:
         try:
             folder_id = await drive_client.ensure_path(["👶 Матвей · Фото", ym])
-        except Exception:
+        except Exception as e:
+            error_msg = f"ensure_path failed for {ym}: {e}"
+            log.warning("chronicle_sync_ensure_path_failed", ym=ym, error=str(e))
             continue
         try:
             files = await drive_client.list_folder_files(folder_id)
-        except Exception:
+        except Exception as e:
+            error_msg = f"list_folder_files failed for {ym}: {e}"
+            log.warning("chronicle_sync_list_failed", ym=ym, error=str(e))
             continue
+        folders_checked.append(f"{ym}({len(files)})")
         for f in files:
+            files_seen += 1
             if f["id"] in existing:
                 continue
             if not f.get("mime", "").startswith("image/"):
