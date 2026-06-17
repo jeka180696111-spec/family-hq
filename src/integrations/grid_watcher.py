@@ -67,9 +67,10 @@ class GridWatcher:
     # real outage was still going.
     THRESHOLD_UP = 5
     # Minimum length of an outage before we'll close it. Real outages
-    # last much longer than 4 minutes — if our detector wants to close
-    # one inside this window it's almost certainly wrong.
-    MIN_OUTAGE_MIN = 4
+    # last much longer than 10 minutes in Odessa (rolling power schedule
+    # blocks are typically 4 hours), so a close attempt inside this
+    # window is almost certainly a sensor glitch.
+    MIN_OUTAGE_MIN = 10
     # Inverter goes offline ≥ this many minutes + last seen state showed
     # battery discharge → presume grid is out. Covers the case where the
     # router itself is unpowered so the inverter can't push fresh data.
@@ -142,6 +143,29 @@ class GridWatcher:
                     return
 
         raw = data.get("raw", {}) or {}
+
+        # ── Hard veto on close: if the inverter status is still warning
+        # with an active grid-loss alarm (W016/W017/F016/F017), the grid
+        # is definitely not back. Force grid_off regardless of voltage
+        # readings, because the inverter's own AC OUTPUT can show ≥100V
+        # via the vac field and fool the heuristic into thinking grid is
+        # up.
+        inverter_status = str(data.get("status") or raw.get("status") or "").lower()
+        active_codes = str(data.get("active_codes") or raw.get("active_codes") or "").lower()
+        last_event = str(data.get("last_event_code") or raw.get("last_event_code") or "").lower()
+        status_blob = f"{inverter_status} {active_codes} {last_event}"
+        hard_grid_off = (
+            "warning" in inverter_status
+            and any(code in status_blob for code in ("w016", "w017", "f016", "f017"))
+        )
+        if hard_grid_off:
+            log.debug("grid_watcher_hard_veto", status=inverter_status, codes=active_codes)
+            self._down_streak += 1
+            self._up_streak = 0
+            await self._sync_state_with_db()
+            if not self._outage_active and self._down_streak >= self.THRESHOLD_DOWN:
+                await self._open()
+            return
 
         # ── Multi-signal grid detection ────────────────────────────────
         #
