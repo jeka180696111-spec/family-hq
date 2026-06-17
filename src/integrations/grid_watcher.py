@@ -57,24 +57,9 @@ class GridWatcher:
     charge from grid → battery_charge_w > 0 is a perfect "grid ON" signal.
     """
 
-    # 3 minutes of consistent grid-off signals before firing — was 5, but
-    # waiting 5 min for the boiler to switch off after a real outage is
-    # too slow when the user can see it happen on their phone in 30s.
-    THRESHOLD_DOWN = 3
-    # Closing the outage requires 5 consecutive 'grid back' ticks (was 2)
-    # plus a minimum total outage duration (see MIN_OUTAGE_MIN below).
-    # The 2-tick threshold caused false 'свет дали' at 09:36 while the
-    # real outage was still going.
-    THRESHOLD_UP = 5
-    # Minimum length of an outage before we'll close it. Real outages
-    # last much longer than 10 minutes in Odessa (rolling power schedule
-    # blocks are typically 4 hours), so a close attempt inside this
-    # window is almost certainly a sensor glitch.
-    MIN_OUTAGE_MIN = 10
-    # Inverter goes offline ≥ this many minutes + last seen state showed
-    # battery discharge → presume grid is out. Covers the case where the
-    # router itself is unpowered so the inverter can't push fresh data.
-    INFERRED_OUTAGE_MIN = 3
+    # All voltage / battery / current heuristics removed — we now react
+    # only to LuxCloud event-log notifications (same source as the
+    # owner's SMS). No thresholds needed.
 
     def __init__(self, memory: Any, devops_agent: Any, bot_manager: Any, chat_id: int, automation_engine: Any = None) -> None:
         self._memory = memory
@@ -82,14 +67,19 @@ class GridWatcher:
         self._bots = bot_manager
         self._chat_id = chat_id
         self._automation = automation_engine
-        self._down_streak = 0
-        self._up_streak = 0
         self._outage_active = False  # Mirror of DB state at last tick
         self._last_event_time: str | None = None  # For event-log dedup
         self._battery_alerts_fired: set[int] = set()  # thresholds already pushed this outage
-        self._last_seen_discharging: bool = False  # last tick saw battery feeding the house
 
     async def tick(self) -> None:
+        """Event-driven detection: trust ONLY the inverter's own
+        notifications (LuxCloud event log). No voltage heuristics, no
+        battery-discharge guessing — just like the SMS the inverter
+        sends the owner, we react to «grid lost» / «grid restored»
+        events and nothing else.
+
+        Battery-percentage alerts during an active outage remain — those
+        are read straight from data and don't classify grid state."""
         try:
             from src.config import get_settings
             from src.integrations.luxcloud import LuxCloudClient
@@ -98,191 +88,36 @@ class GridWatcher:
                 return
             data = await client.runtime()
         except Exception:
-            # Inverter unreachable — don't draw conclusions
             log.debug("grid_watcher_tick_skip", reason="lux_unreachable")
             return
 
-        # ── Channel 0: inferred outage — inverter went offline while it
-        #    was last seen discharging the battery → grid most likely down
-        #    AND the router is unpowered too (so we get no events).
-        try:
-            await self._maybe_infer_outage(data)
-        except Exception:
-            log.exception("grid_watcher_infer_failed")
-
-        # ── Channel 1: event log from LuxCloud ──────────────────────────
-        # If LuxCloud exposes recent events, trust them directly: no
-        # thresholds, no hysteresis, just react to what their backend
-        # already classified.
         try:
             events = await client.recent_events(hours=2)
         except Exception:
             events = []
 
-        if events:
-            grid_state_from_event = self._latest_state_from_events(events)
-            if grid_state_from_event is not None:
-                await self._sync_state_with_db()
-                if grid_state_from_event is False and not self._outage_active:
-                    # Opening on event-log is fine — quick reaction.
-                    await self._open()
-                    return
-                if grid_state_from_event is True and self._outage_active:
-                    # Closing is MUCH stricter: previously we closed on a
-                    # single 'ok' event and got flapping (open 09:34 →
-                    # false close 09:36 while the real outage was hours).
-                    # Now we require BOTH conditions:
-                    #   1. The outage has lasted at least 5 minutes
-                    #   2. Heuristic channel also says grid is back
-                    # The heuristic check happens in the rest of tick(),
-                    # so we don't return early here — let it run, then
-                    # close only when up_streak threshold is hit.
-                    pass
-                else:
-                    # Event was inconclusive for current state — skip heuristic
-                    return
-
-        raw = data.get("raw", {}) or {}
-
-        # ── Hard veto on close: if the inverter status is still warning
-        # with an active grid-loss alarm (W016/W017/F016/F017), the grid
-        # is definitely not back. Force grid_off regardless of voltage
-        # readings, because the inverter's own AC OUTPUT can show ≥100V
-        # via the vac field and fool the heuristic into thinking grid is
-        # up.
-        inverter_status = str(data.get("status") or raw.get("status") or "").lower()
-        active_codes = str(data.get("active_codes") or raw.get("active_codes") or "").lower()
-        last_event = str(data.get("last_event_code") or raw.get("last_event_code") or "").lower()
-        status_blob = f"{inverter_status} {active_codes} {last_event}"
-        hard_grid_off = (
-            "warning" in inverter_status
-            and any(code in status_blob for code in ("w016", "w017", "f016", "f017"))
-        )
-        if hard_grid_off:
-            log.debug("grid_watcher_hard_veto", status=inverter_status, codes=active_codes)
-            self._down_streak += 1
-            self._up_streak = 0
-            await self._sync_state_with_db()
-            if not self._outage_active and self._down_streak >= self.THRESHOLD_DOWN:
-                await self._open()
-            return
-
-        # ── Multi-signal grid detection ────────────────────────────────
-        #
-        # Главное правило: если есть напряжение сети > 100V — сеть ЕСТЬ,
-        # вне зависимости от того, есть ли потребление.
-        # Если напряжения нет/невозможно прочитать — смотрим на разряд
-        # батареи как индикатор перехода на резерв.
-        #
-        # НИКОГДА не делаем вывод «света нет» по «import_w==0 and export_w==0» —
-        # это норма для standby режима ночью когда дом ничего не потребляет.
-
-        def first_present(d: dict, keys: list[str]) -> float | None:
-            for k in keys:
-                v = d.get(k)
-                if v is None:
-                    continue
-                try:
-                    fv = float(v)
-                    if fv > 0:  # voltage 0 isn't valid either — skip
-                        return fv
-                except (TypeError, ValueError):
-                    continue
-            return None
-
-        grid_voltage = first_present(raw, [
-            "vac", "vacr", "vac1", "vGrid", "gridVoltage",
-            "voltageGrid", "gridVolt", "vacR", "v_grid",
-        ])
-        battery_discharge_w = float(data.get("battery_discharge_w") or 0)
-        battery_charge_w = float(data.get("battery_charge_w") or 0)
-        home_w = float(data.get("home_consumption_w") or 0)
-        import_w = float(data.get("grid_import_w") or 0)
-        export_w = float(data.get("grid_export_w") or 0)
-
-        # Setup-specific: NO solar panels, battery charges ONLY from grid.
-        # Therefore battery_charge_w > 30W means grid is definitely ON.
-
-        battery_pct = data.get("battery_pct")
-        try:
-            battery_pct = float(battery_pct) if battery_pct is not None else None
-        except (TypeError, ValueError):
-            battery_pct = None
-
-        # Track battery SOC trajectory across ticks to catch sustained discharge
-        # (covers long outages where instantaneous discharge_w may not always
-        # show — e.g. inverter idle moments during a real outage)
-        if not hasattr(self, "_soc_history"):
-            self._soc_history = []
-        if battery_pct is not None:
-            from src.utils.time import now_kyiv
-            self._soc_history.append((now_kyiv(), battery_pct))
-            # Keep last 20 minutes
-            from datetime import timedelta
-            cutoff_dt = now_kyiv() - timedelta(minutes=20)
-            self._soc_history = [(t, p) for t, p in self._soc_history if t >= cutoff_dt]
-
-        soc_drop_signal = False
-        if len(self._soc_history) >= 3:
-            oldest_t, oldest_pct = self._soc_history[0]
-            newest_t, newest_pct = self._soc_history[-1]
-            delta_pct = oldest_pct - newest_pct
-            from datetime import timedelta
-            elapsed_min = max(1, (newest_t - oldest_t).total_seconds() / 60)
-            # Self-discharge: ~3% per 5h → 0.6% per hour → 0.2% per 20min
-            # If we lose >1% in <15min → real load on battery, no grid
-            if delta_pct > 1.0 and elapsed_min < 15 and battery_charge_w < 5:
-                soc_drop_signal = True
-
-        if battery_charge_w > 30:
-            # Battery is charging → grid must be present
-            grid_off = False
-        elif import_w > 30:
-            # Energy flowing from grid → grid is on
-            grid_off = False
-        elif grid_voltage is not None and grid_voltage > 100:
-            # Explicit voltage confirms grid is on
-            grid_off = False
-        elif battery_discharge_w > 30 and import_w == 0:
-            # Battery actively powering the house AND no import → grid is off
-            grid_off = True
-        elif grid_voltage is not None and grid_voltage < 50:
-            # Explicit voltage gone
-            grid_off = True
-        elif soc_drop_signal:
-            # SOC trajectory shows battery actively discharging faster than
-            # self-discharge — must be powering the house with no grid
-            grid_off = True
-        else:
-            # Ambiguous (idle: nothing charging, nothing discharging, no flow).
-            # Self-discharge ~3%/5h means battery may sit idle when full.
-            # Default to "grid on" — never false-fire on standby.
-            grid_off = False
-
-        log.debug(
-            "grid_watcher_signals",
-            vgrid=grid_voltage, batt_dis=battery_discharge_w,
-            batt_chg=battery_charge_w, home=home_w,
-            imp=import_w, exp=export_w, grid_off=grid_off,
-        )
-
-        if grid_off:
-            self._down_streak += 1
-            self._up_streak = 0
-        else:
-            self._up_streak += 1
-            self._down_streak = 0
-
         await self._sync_state_with_db()
 
-        if not self._outage_active and self._down_streak >= self.THRESHOLD_DOWN:
-            await self._open()
-        elif self._outage_active and self._up_streak >= self.THRESHOLD_UP:
-            await self._close()
+        if events:
+            grid_state_from_event = self._latest_state_from_events(events)
+            if grid_state_from_event is False and not self._outage_active:
+                # Inverter said: grid lost. Open the outage immediately.
+                await self._open()
+            elif grid_state_from_event is True and self._outage_active:
+                # Inverter said: grid back. Close immediately.
+                await self._close()
+            # Inconclusive event OR no state change needed → no-op.
 
-        # Low-battery alerts while running on battery
-        if self._outage_active and battery_pct is not None:
-            await self._maybe_battery_alert(battery_pct)
+        # Low-battery alerts during an active outage. Battery % comes
+        # straight from data; we don't use it to classify grid state.
+        if self._outage_active:
+            battery_pct = data.get("battery_pct")
+            try:
+                battery_pct = float(battery_pct) if battery_pct is not None else None
+            except (TypeError, ValueError):
+                battery_pct = None
+            if battery_pct is not None:
+                await self._maybe_battery_alert(battery_pct)
 
     def _latest_state_from_events(self, events: list[dict]) -> bool | None:
         """Return True if grid is ON, False if OFF, None if no recent grid event."""
@@ -349,78 +184,22 @@ class GridWatcher:
                         log.exception("grid_watcher_battery_alert_failed", threshold=threshold)
                 log.info("grid_watcher_battery_alert", threshold=threshold, pct=pct)
 
-    async def _maybe_infer_outage(self, data: dict) -> None:
-        """If the inverter went offline AND last contact showed it was
-        discharging the battery — assume the grid is out (router lost
-        power too, which is why we can't reach the inverter).
-
-        Cleared automatically when LuxCloud starts returning fresh data
-        again with `online: True` (handled in event-log channel).
-        """
-        from datetime import datetime as _dt
-        from src.utils.time import KYIV_TZ, now_kyiv
-
-        online = bool(data.get("online", True))
-        battery_discharge_w = data.get("battery_discharge_w") or 0
-        if online and battery_discharge_w > 0:
-            self._last_seen_discharging = True
-        elif online:
-            self._last_seen_discharging = False
-
-        if self._outage_active or online:
-            return
-
-        # Inverter is offline — how stale is the data?
-        ts_raw = data.get("last_update") or data.get("ts") or data.get("timestamp")
-        if not ts_raw:
-            return
-        try:
-            last = _dt.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
-            if last.tzinfo is None:
-                last = last.replace(tzinfo=KYIV_TZ)
-        except Exception:
-            return
-        age_min = (now_kyiv() - last).total_seconds() / 60
-        if age_min < self.INFERRED_OUTAGE_MIN:
-            return
-        if not self._last_seen_discharging:
-            # Inverter offline but last we knew it was on grid → could be
-            # a network blip, not an outage. Stay silent.
-            return
-        log.warning(
-            "grid_watcher_inferred_outage",
-            stale_min=int(age_min),
-        )
-        await self._open(inferred=True, stale_min=int(age_min))
-
-    async def _open(self, *, inferred: bool = False, stale_min: int = 0) -> None:
+    async def _open(self) -> None:
         from sqlalchemy import insert
         from src.db.models import PowerOutage
         from src.utils.time import iso_now
-        notes = (
-            f"Авто-детект (предполож.): инвертор offline {stale_min} мин, "
-            "до этого видели разряд батареи"
-            if inferred
-            else "Авто-детект: инвертор перешёл на батарею"
-        )
         async with self._memory._engine.begin() as conn:
             await conn.execute(insert(PowerOutage).values(
                 started_at=iso_now(),
-                notes=notes,
+                notes="Авто-детект: уведомление инвертора «нет сети»",
             ))
         self._outage_active = True
         self._battery_alerts_fired.clear()
         if self._bots and self._chat_id:
-            msg = (
-                f"⚡ <b>Похоже, света нет</b>\nИнвертор сам молчит ~{stale_min} мин, "
-                "до этого видели разряд батареи — предполагаю отключение. "
-                "Если ошибся, скажи «свет есть»."
-                if inferred
-                else "⚡ <b>Света нет</b>\nИнвертор перешёл на батарею. Автоматизации сработают."
-            )
             try:
                 await self._bots.send_message(
-                    agent_id="devops", chat_id=self._chat_id, text=msg,
+                    agent_id="devops", chat_id=self._chat_id,
+                    text="⚡ <b>Света нет</b>\nИнвертор сообщил об отключении сети. Автоматизации сработают.",
                 )
             except Exception:
                 log.exception("grid_watcher_open_push_failed")
@@ -435,26 +214,6 @@ class GridWatcher:
         from sqlalchemy import select, update as sql_update
         from src.db.models import PowerOutage
         from src.utils.time import iso_now, now_kyiv
-        # Refuse to close an outage that's lasted less than MIN_OUTAGE_MIN.
-        # Real outages don't end in 90 seconds, and the inverter's status
-        # signals can flicker briefly.
-        async with self._memory._engine.connect() as conn:
-            open_row = (await conn.execute(
-                select(PowerOutage).where(PowerOutage.ended_at.is_(None))
-                .order_by(PowerOutage.id.desc()).limit(1)
-            )).first()
-        if open_row:
-            try:
-                started_dt = datetime.fromisoformat(open_row.started_at)
-                age_min = (now_kyiv() - started_dt).total_seconds() / 60
-            except Exception:
-                age_min = self.MIN_OUTAGE_MIN  # if we can't parse, allow close
-            if age_min < self.MIN_OUTAGE_MIN:
-                log.info(
-                    "grid_watcher_close_too_soon",
-                    age_min=int(age_min), needed=self.MIN_OUTAGE_MIN,
-                )
-                return
         async with self._memory._engine.begin() as conn:
             last = (await conn.execute(
                 select(PowerOutage).where(PowerOutage.ended_at.is_(None))
