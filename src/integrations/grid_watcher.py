@@ -106,7 +106,33 @@ class GridWatcher:
             elif grid_state_from_event is True and self._outage_active:
                 # Inverter said: grid back. Close immediately.
                 await self._close()
-            # Inconclusive event OR no state change needed → no-op.
+
+        # Fallback close: events sometimes lag (LuxCloud queues them).
+        # If the outage is still open but the inverter is unambiguously
+        # back on the grid, close. Two indicators we trust completely:
+        #   1. battery_charge_w > 100W  — no solar in this setup, so the
+        #      battery can ONLY charge from the grid
+        #   2. status changed back to «normal» from warning
+        # We don't open the outage from these signals — opening still
+        # needs an explicit grid-lost event so we don't fire false
+        # outages on a momentary network blip.
+        if self._outage_active:
+            try:
+                battery_charge_w = float(data.get("battery_charge_w") or 0)
+            except (TypeError, ValueError):
+                battery_charge_w = 0.0
+            raw = data.get("raw", {}) or {}
+            status_now = str(data.get("status") or raw.get("status") or "").lower()
+            grid_back_signal = (
+                battery_charge_w > 100
+                or (status_now == "normal" and battery_charge_w > 30)
+            )
+            if grid_back_signal:
+                log.info(
+                    "grid_watcher_fallback_close",
+                    charge_w=battery_charge_w, status=status_now,
+                )
+                await self._close()
 
         # Low-battery alerts during an active outage. Battery % comes
         # straight from data; we don't use it to classify grid state.
