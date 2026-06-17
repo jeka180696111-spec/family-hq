@@ -10,17 +10,35 @@ log = structlog.get_logger()
 
 
 _GRID_LOSS_KEYWORDS = (
+    # English
     "grid lost", "grid loss", "ac loss", "grid disconnect",
     "power off", "off grid", "off-grid",
     "no ac connection", "no ac", "no grid", "grid down",
     "ac fault", "grid fault", "utility loss",
-    "пропала", "відсутн", "немає мережі", "нет сети",
+    # Russian — broadened to catch separated phrases like
+    # «нет подключения к сети переменного тока AC» (LuxCloud W016 text)
+    "пропала", "нет сети", "нет подключения к сети", "сеть пропала",
+    "нет напряжения", "отключение сети", "нет переменного тока",
+    "сеть отсутствует",
+    # Ukrainian
+    "відсутн", "немає мережі", "немає підключення",
+    "мережа відсутня", "відключення мережі",
+    # LuxPower/Lux fault codes — these directly mean grid is gone
+    "w016",   # No AC grid connection
+    "w017",   # AC grid voltage out of range
+    "f016",
+    "f017",
 )
 _GRID_OK_KEYWORDS = (
     "grid connect", "grid restore", "grid restored", "ac connect", "ac connected",
     "ac connection restored", "ac connection ok", "grid ok", "grid available",
     "power on", "on grid", "on-grid", "recovered",
-    "поновлен", "восстанов", "мережа відновлена", "сеть восстановлена",
+    # Russian
+    "восстанов", "сеть восстановлена", "подключение к сети восстановлено",
+    "напряжение восстановлено", "сеть появилась", "появилось напряжение",
+    # Ukrainian
+    "поновлен", "мережа відновлена", "відновлення мережі",
+    "мережа з'явилась", "мережа з'явилась",
 )
 
 
