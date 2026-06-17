@@ -184,9 +184,38 @@ async def _build_state(memory: Any, settings: Any) -> dict:
                 "battery_discharge_w": rt.get("battery_discharge_w"),
                 "grid_import_w": rt.get("grid_import_w"),
                 "home_consumption_w": rt.get("home_consumption_w"),
+                "online": rt.get("online"),
+                "status": rt.get("status"),
+                "active_codes": rt.get("active_codes"),
             }
     except Exception:
         state["inverter"] = {"error": "unreachable"}
+
+    # Active power outage — read from DB so the dashboard reflects what
+    # GridWatcher knows, not what the inverter currently reports.
+    try:
+        from sqlalchemy import select
+        from src.db.models import PowerOutage
+        from src.utils.time import now_kyiv
+        from datetime import datetime as _dt
+        async with memory._engine.connect() as conn:
+            open_row = (await conn.execute(
+                select(PowerOutage).where(PowerOutage.ended_at.is_(None))
+                .order_by(PowerOutage.id.desc()).limit(1)
+            )).first()
+        if open_row:
+            started = _dt.fromisoformat(open_row.started_at)
+            elapsed_min = int((now_kyiv() - started).total_seconds() / 60)
+            state["outage"] = {
+                "active": True,
+                "started_at": open_row.started_at,
+                "elapsed_min": elapsed_min,
+                "notes": open_row.notes or "",
+            }
+        else:
+            state["outage"] = {"active": False}
+    except Exception:
+        state["outage"] = {"active": False, "error": "db_unreachable"}
 
     # Nursery sensor (Tuya is flaky — 2 attempts)
     try:
@@ -324,11 +353,30 @@ def _render_html(state: dict) -> str:
         return f'<section class="card"><h2>{title}</h2>{body}</section>'
 
     inv = state.get("inverter") or {}
-    inv_html = (
-        f"<p>🔋 Батарея: <b>{inv.get('battery_pct', '?')}%</b><br>"
-        f"⚡ Сеть: импорт <b>{inv.get('grid_import_w', 0)}Вт</b><br>"
+    outage = state.get("outage") or {}
+    outage_banner = ""
+    if outage.get("active"):
+        mins = outage.get("elapsed_min") or 0
+        h, m = divmod(mins, 60)
+        elapsed = f"{h}ч {m}мин" if h else f"{m}мин"
+        outage_banner = (
+            f'<p style="background:#7c1d1d;color:#fff;padding:8px 12px;'
+            f'border-radius:6px;margin:0 0 8px 0;font-weight:600;">'
+            f"⚡ СВЕТА НЕТ — {elapsed}</p>"
+        )
+    discharge = inv.get("battery_discharge_w") or 0
+    on_battery = discharge > 30
+    grid_label = (
+        "🔌 на батарее" if on_battery
+        else f"⚡ сеть: импорт <b>{inv.get('grid_import_w', 0)}Вт</b>"
+    )
+    inv_body = (
+        f"<p>🔋 Батарея: <b>{inv.get('battery_pct', '?')}%</b>"
+        + (f" (разряд {discharge}Вт)" if on_battery else "")
+        + f"<br>{grid_label}<br>"
         f"🏠 Дом: <b>{inv.get('home_consumption_w', 0)}Вт</b></p>"
     ) if "battery_pct" in inv else "<p>—</p>"
+    inv_html = outage_banner + inv_body
 
     nursery = state.get("nursery") or {}
     nursery_html = (
