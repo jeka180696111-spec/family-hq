@@ -70,6 +70,10 @@ class GridWatcher:
         self._outage_active = False  # Mirror of DB state at last tick
         self._last_event_time: str | None = None  # For event-log dedup
         self._battery_alerts_fired: set[int] = set()  # thresholds already pushed this outage
+        # Symmetric to fallback close: consecutive ticks where data
+        # clearly shows we're on battery without grid → open outage.
+        # Three ticks at 30s = 90s confirmation before firing.
+        self._discharge_streak: int = 0
 
     async def tick(self) -> None:
         """Event-driven detection: trust ONLY the inverter's own
@@ -107,22 +111,31 @@ class GridWatcher:
                 # Inverter said: grid back. Close immediately.
                 await self._close()
 
-        # Fallback close: events sometimes lag (LuxCloud queues them).
-        # If the outage is still open but the inverter is unambiguously
-        # back on the grid, close. Two indicators we trust completely:
-        #   1. battery_charge_w > 100W  — no solar in this setup, so the
-        #      battery can ONLY charge from the grid
-        #   2. status changed back to «normal» from warning
-        # We don't open the outage from these signals — opening still
-        # needs an explicit grid-lost event so we don't fire false
-        # outages on a momentary network blip.
+        # Symmetric fallback OPEN + CLOSE. Events sometimes lag, so we
+        # also derive grid state from the data table directly. Anti-flap
+        # protection: 3 consecutive ticks of the same signal before
+        # opening (90s with 30s ticks) — close on a single tick is fine
+        # because mistakenly closing an outage is way less costly than
+        # mistakenly opening one (no smart-plug clicks).
+        try:
+            battery_charge_w = float(data.get("battery_charge_w") or 0)
+        except (TypeError, ValueError):
+            battery_charge_w = 0.0
+        try:
+            battery_discharge_w = float(data.get("battery_discharge_w") or 0)
+        except (TypeError, ValueError):
+            battery_discharge_w = 0.0
+        raw = data.get("raw", {}) or {}
+        status_now = str(data.get("status") or raw.get("status") or "").lower()
+        active_codes = str(
+            data.get("active_codes") or raw.get("active_codes") or ""
+        ).lower()
+        has_grid_loss_alarm = any(
+            code in f"{status_now} {active_codes}"
+            for code in ("w016", "w017", "f016", "f017")
+        )
+
         if self._outage_active:
-            try:
-                battery_charge_w = float(data.get("battery_charge_w") or 0)
-            except (TypeError, ValueError):
-                battery_charge_w = 0.0
-            raw = data.get("raw", {}) or {}
-            status_now = str(data.get("status") or raw.get("status") or "").lower()
             grid_back_signal = (
                 battery_charge_w > 100
                 or (status_now == "normal" and battery_charge_w > 30)
@@ -133,6 +146,25 @@ class GridWatcher:
                     charge_w=battery_charge_w, status=status_now,
                 )
                 await self._close()
+        else:
+            # Open fallback: confirmed grid-loss alarm OR
+            # discharge > 50W with no charging (battery is feeding house).
+            grid_off_signal = (
+                has_grid_loss_alarm
+                or (battery_discharge_w > 50 and battery_charge_w < 5)
+            )
+            if grid_off_signal:
+                self._discharge_streak += 1
+                if self._discharge_streak >= 3:
+                    log.info(
+                        "grid_watcher_fallback_open",
+                        discharge_w=battery_discharge_w,
+                        status=status_now, alarm=has_grid_loss_alarm,
+                    )
+                    await self._open()
+                    self._discharge_streak = 0
+            else:
+                self._discharge_streak = 0
 
         # Low-battery alerts during an active outage. Battery % comes
         # straight from data; we don't use it to classify grid state.
@@ -275,8 +307,10 @@ class GridWatcher:
 
 
 def register_grid_watcher_job(scheduler, watcher: GridWatcher) -> None:
+    # 30-second tick (was 60). Power events are tracked closer to real
+    # time, dashboard и Prорабaб видит обновления заметно быстрее.
     scheduler.add_job(
-        watcher.tick, "interval", seconds=60,
+        watcher.tick, "interval", seconds=30,
         id="grid_watcher", replace_existing=True,
     )
     log.info("grid_watcher_registered")
