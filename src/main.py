@@ -1100,6 +1100,8 @@ async def run(dry_run: bool = False) -> None:
     from src.integrations.automation import AutomationEngine, register_automation_job
     automation_engine = AutomationEngine(memory, bot_manager, chat_id, agents)
     register_automation_job(scheduler, automation_engine)
+    # Expose so devops's log_power_outage can trigger rules manually too.
+    agents["devops"]._automation = automation_engine
 
     # Grid watcher — auto-detect power outages via inverter every 60 sec
     try:

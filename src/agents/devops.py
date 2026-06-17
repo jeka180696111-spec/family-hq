@@ -1940,12 +1940,37 @@ class DevOpsAgent(BaseAgent):
             from src.db.models import PowerOutage
             from src.utils.time import iso_now, now_kyiv
             action = tool_input["action"]
+            automation = getattr(self, "_automation", None)
             if action == "start":
+                # Idempotency — if an open outage already exists, don't
+                # start another. Just return the existing one.
                 async with self._memory._engine.begin() as conn:
+                    open_row = (await conn.execute(
+                        select(PowerOutage).where(PowerOutage.ended_at.is_(None))
+                        .order_by(PowerOutage.id.desc()).limit(1)
+                    )).first()
+                    if open_row:
+                        return {
+                            "success": True, "status": "already_open",
+                            "id": open_row.id, "started_at": open_row.started_at,
+                        }
                     result = await conn.execute(insert(PowerOutage).values(
                         started_at=iso_now(), notes=tool_input.get("notes"),
                     ))
-                return {"success": True, "status": "started", "id": result.inserted_primary_key[0] if result.inserted_primary_key else None}
+                # Trigger user automations now (boiler off etc.) — previously
+                # this tool only wrote to DB and didn't fire any rules.
+                triggered = False
+                if automation:
+                    try:
+                        await automation.trigger_power_outage(active=True)
+                        triggered = True
+                    except Exception:
+                        log.exception("log_power_outage_trigger_failed")
+                return {
+                    "success": True, "status": "started",
+                    "id": result.inserted_primary_key[0] if result.inserted_primary_key else None,
+                    "automations_triggered": triggered,
+                }
             else:  # end
                 async with self._memory._engine.begin() as conn:
                     last = (await conn.execute(
@@ -1962,7 +1987,17 @@ class DevOpsAgent(BaseAgent):
                             ended_at=iso_now(), duration_min=duration_min,
                         )
                     )
-                return {"success": True, "duration_min": duration_min}
+                triggered = False
+                if automation:
+                    try:
+                        await automation.trigger_power_outage(active=False)
+                        triggered = True
+                    except Exception:
+                        log.exception("log_power_outage_trigger_failed")
+                return {
+                    "success": True, "duration_min": duration_min,
+                    "automations_triggered": triggered,
+                }
 
         elif tool_name == "probe_luxcloud_hosts":
             from src.config import get_settings

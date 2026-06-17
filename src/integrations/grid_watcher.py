@@ -39,7 +39,10 @@ class GridWatcher:
     charge from grid → battery_charge_w > 0 is a perfect "grid ON" signal.
     """
 
-    THRESHOLD_DOWN = 5
+    # 3 minutes of consistent grid-off signals before firing — was 5, but
+    # waiting 5 min for the boiler to switch off after a real outage is
+    # too slow when the user can see it happen on their phone in 30s.
+    THRESHOLD_DOWN = 3
     THRESHOLD_UP = 2
     # Inverter goes offline ≥ this many minutes + last seen state showed
     # battery discharge → presume grid is out. Covers the case where the
