@@ -195,6 +195,22 @@ class BaseAgent(abc.ABC):
                 actions = []
 
             response_text = (response_text or "").strip()
+
+            # GUARD: Gemini sometimes emits a tool call as plain text
+            # («smart_set_mode(device='кондер', mode='cold', temperature=22)»)
+            # instead of an actual function_call. Intercept, execute, and
+            # replace the leak with a real result. Otherwise юзер видит
+            # сырую строку и думает, что ничего не сработало.
+            leaked = await self._maybe_execute_leaked_tool_call(response_text)
+            if leaked is not None:
+                tool_name, exec_result = leaked
+                actions.append(f"{tool_name}(leaked)")
+                self._log.warning(
+                    "leaked_tool_call_intercepted",
+                    tool=tool_name, text=response_text[:200],
+                )
+                response_text = f"{self.emoji} Готово. {exec_result}"
+
             if not response_text:
                 if actions:
                     response_text = f"{self.emoji} Готово."
@@ -322,6 +338,44 @@ class BaseAgent(abc.ABC):
         # Extract text from final response
         text_blocks = [b.text for b in current_message.content if hasattr(b, "text")]
         return "\n".join(text_blocks).strip(), actions_taken
+
+    async def _maybe_execute_leaked_tool_call(
+        self, text: str,
+    ) -> tuple[str, str] | None:
+        """If `text` is JUST a tool-call literal (Gemini failure mode),
+        parse it, execute via _call_tool, return (tool_name, short_result).
+        Otherwise return None.
+        """
+        import ast
+        import re
+        if not text or len(text) > 800 or "\n" in text.strip():
+            return None
+        m = re.match(r"^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*)\)\s*\.?\s*$", text)
+        if not m:
+            return None
+        tool_name, args_src = m.group(1), m.group(2)
+        known = {t["name"] for t in self._full_tools()}
+        if tool_name not in known:
+            return None
+        try:
+            tree = ast.parse(f"_f({args_src})", mode="eval")
+            call = tree.body
+            if not isinstance(call, ast.Call):
+                return None
+            kwargs: dict[str, Any] = {}
+            for kw in call.keywords:
+                if kw.arg is None:
+                    return None
+                kwargs[kw.arg] = ast.literal_eval(kw.value)
+            if call.args:
+                return None
+        except Exception:
+            return None
+        try:
+            result = await self._call_tool(tool_name, kwargs)
+        except Exception as exc:
+            return tool_name, f"Ошибка: {type(exc).__name__}"
+        return tool_name, str(result)[:300]
 
     async def _call_tool(self, tool_name: str, tool_input: dict[str, Any]) -> Any:
         """Dispatch a tool call to the appropriate handler. Override in subclasses."""
