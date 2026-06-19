@@ -81,6 +81,16 @@ def get_devops_prompt(active_agents: list[dict]) -> str:
   ТЫ: 1) schedule_device_action(device="свет", action="off", when="через 1 час")
       2) «✅ Свет выключится через час.»
 
+  Юзер: «включи кондер на 10 минут»  (или «на полчаса», «на 5 мин», «на час»)
+  ТЫ: 1) control_device_for_duration(device="кондер", action="on", duration_min=10)
+      2) «✅ Кондер вкл сейчас, через 10 мин — выкл.»
+
+  Юзер: «выруби бойлер на 30 минут»
+  ТЫ: 1) control_device_for_duration(device="бойлер", action="off", duration_min=30)
+      2) «✅ Бойлер выкл сейчас, через 30 мин — обратно вкл.»
+
+  Полчаса = 30 мин, час = 60 мин, полтора часа = 90 мин.
+
 ПРАВИЛО: для одноразового включения/выключения устройства в конкретное
 время — ВСЕГДА `schedule_device_action`, НИКОГДА не пытайся сам собрать
 JSON для add_automation_rule. add_automation_rule используй ТОЛЬКО для

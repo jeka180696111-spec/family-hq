@@ -757,6 +757,32 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "control_device_for_duration",
+                "description": (
+                    "Включить устройство СЕЙЧАС и автоматически выключить через "
+                    "N минут (или наоборот: выключить сейчас и включить через N). "
+                    "Триггеры: «включи кондер на 10 минут», «выключи бойлер на полчаса», "
+                    "«кондер на 5 мин», «включи свет на 20 минут», «вырубай на 1 час». "
+                    "Сам собирает обе операции в один шаг — юзеру не нужно "
+                    "писать два раза «включи» и «через N выключи»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "device": {"type": "string", "description": "Имя устройства"},
+                        "action": {
+                            "type": "string", "enum": ["on", "off"],
+                            "description": "Что сделать СЕЙЧАС (обратное произойдёт через N минут).",
+                        },
+                        "duration_min": {
+                            "type": "integer",
+                            "description": "Длительность в минутах. Принимай «полчаса»=30, «час»=60.",
+                        },
+                    },
+                    "required": ["device", "action", "duration_min"],
+                },
+            },
+            {
                 "name": "smart_set_temperature",
                 "description": (
                     "Установить целевую температуру на кондиционере (16-30°C). "
@@ -1772,6 +1798,13 @@ class DevOpsAgent(BaseAgent):
 
         elif tool_name == "control_smart_device":
             return await self._smart_control(tool_input.get("device", ""), tool_input.get("action", "status"))
+
+        elif tool_name == "control_device_for_duration":
+            return await self._control_device_for_duration(
+                device=tool_input.get("device", ""),
+                action=tool_input.get("action", "on"),
+                duration_min=int(tool_input.get("duration_min", 10)),
+            )
 
         elif tool_name == "smart_set_temperature":
             from src.config import get_settings
@@ -2912,6 +2945,46 @@ class DevOpsAgent(BaseAgent):
                 "🚿 Бойлер в HH:MM. ❄️ Кондер в HH:MM (<mode> <temp>°). "
                 "Восстановил N правил автоматизации.» "
                 "Если что-то skipped — упомяни."
+            ),
+        }
+
+    async def _control_device_for_duration(
+        self, *, device: str, action: str, duration_min: int,
+    ) -> dict:
+        """One-liner: do `action` now, schedule the reverse after N min.
+
+        Covers the common wife-mode pattern «включи кондер на 10 минут».
+        """
+        if duration_min < 1:
+            return {"error": "длительность должна быть ≥1 мин"}
+        if action not in ("on", "off"):
+            return {"error": f"action должно быть on/off, было {action!r}"}
+
+        # 1) immediate control
+        immediate = await self._smart_control(device, action)
+        immediate_ok = isinstance(immediate, dict) and (
+            immediate.get("success") or "error" not in immediate
+        )
+
+        # 2) schedule the reverse action
+        reverse_action = "off" if action == "on" else "on"
+        scheduled = await self._schedule_device_action(
+            device=device,
+            action=reverse_action,
+            when=f"через {duration_min} минут",
+        )
+        return {
+            "device": device,
+            "immediate_action": action,
+            "immediate_ok": immediate_ok,
+            "immediate_raw": immediate,
+            "reverse_in_min": duration_min,
+            "reverse_scheduled": scheduled,
+            "display_instruction": (
+                "Скажи юзеру одной строкой: "
+                "«✅ <device> <on/off> сейчас, через <N> мин — <reverse>.» "
+                "Если immediate_ok=false — упомяни что текущая команда не "
+                "сработала, но обратная всё равно запланирована."
             ),
         }
 
