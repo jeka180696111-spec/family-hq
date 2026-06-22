@@ -210,16 +210,17 @@ class TuyaClient:
             return data
 
         # Failed — likely the IR hub is asleep. Wake & retry.
-        # Previous version OR'd in `not data.get("success")` which is
-        # always True here (we already short-circuited on success above),
-        # so retry fired on EVERY failure even for permission errors.
-        # Now we only retry on actual offline-like signals.
+        # Tuya cloud doesn't always return a clean "offline" string when
+        # the hub momentarily can't reach the AC — sometimes it's a generic
+        # "command failed" or empty msg. Only skip retry on clearly
+        # non-recoverable errors (auth/permission/argument).
         msg = str(data.get("msg") or data.get("code") or "").lower()
-        looks_offline = (
-            "offline" in msg or "off line" in msg or "timeout" in msg
-            or "not reachable" in msg or "не в сети" in msg or "сон" in msg
+        non_recoverable = (
+            "permission" in msg or "forbidden" in msg or "unauthor" in msg
+            or "token" in msg or "invalid param" in msg or "param error" in msg
+            or "no permission" in msg
         )
-        if not looks_offline:
+        if non_recoverable:
             return data
 
         log.info("tuya_ir_hub_wake_retry", hub=hub_id, first_msg=msg[:120])
