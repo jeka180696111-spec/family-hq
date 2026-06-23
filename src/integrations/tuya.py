@@ -538,22 +538,94 @@ class TuyaClient:
 
     async def list_scenes(self) -> list[dict]:
         """Return Tap-to-Run scenes for the user's primary home.
-        Each item: {id, name, status}."""
+        Each item: {id, name, status}. Tries v1.0 first, fallback v2.0."""
         home_id = await self._ensure_home_id()
         if not home_id:
+            log.warning("tuya_list_scenes_no_home")
             return []
-        # v1.0 scenes endpoint — returns Tap-to-Run scenes for the home.
+
+        # v1.0 endpoint — older Scene Management API
         data = await self._request("GET", f"/v1.0/homes/{home_id}/scenes")
         items = data.get("result", []) or []
+        if not data.get("success"):
+            log.warning(
+                "tuya_list_scenes_v1_failed",
+                msg=str(data.get("msg"))[:200], code=data.get("code"),
+            )
+
+        # v2.0 endpoint — Smart Home Scene Linkage (newer)
+        if not items:
+            data2 = await self._request(
+                "GET", f"/v2.0/cloud/scene/rule?space_id={home_id}&type=scene",
+            )
+            res = data2.get("result")
+            if isinstance(res, dict):
+                items = res.get("list", []) or res.get("rules", []) or []
+            elif isinstance(res, list):
+                items = res
+            if not data2.get("success"):
+                log.warning(
+                    "tuya_list_scenes_v2_failed",
+                    msg=str(data2.get("msg"))[:200], code=data2.get("code"),
+                )
+
         return [
             {
-                "id": str(s.get("id") or s.get("scene_id") or ""),
+                "id": str(s.get("id") or s.get("scene_id") or s.get("rule_id") or ""),
                 "name": s.get("name", ""),
                 "status": s.get("status", ""),
             }
             for s in items
-            if s.get("id") or s.get("scene_id")
+            if s.get("id") or s.get("scene_id") or s.get("rule_id")
         ]
+
+    async def diagnose_scenes(self) -> dict:
+        """Return raw API responses so we can see WHY the scenes list is empty."""
+        out: dict = {}
+        try:
+            homes = await self._request("GET", f"/v1.0/users/{self.uid}/homes")
+            out["homes_raw"] = {
+                "success": homes.get("success"),
+                "code": homes.get("code"),
+                "msg": str(homes.get("msg"))[:200],
+                "result_count": len(homes.get("result", []) or []),
+                "result_sample": (homes.get("result") or [])[:2],
+            }
+        except Exception as e:
+            out["homes_error"] = f"{type(e).__name__}: {e}"
+            return out
+
+        home_id = await self._ensure_home_id()
+        out["home_id"] = home_id
+        if not home_id:
+            return out
+
+        try:
+            v1 = await self._request("GET", f"/v1.0/homes/{home_id}/scenes")
+            out["scenes_v1"] = {
+                "success": v1.get("success"),
+                "code": v1.get("code"),
+                "msg": str(v1.get("msg"))[:200],
+                "result_count": len(v1.get("result", []) or []),
+                "result_sample": (v1.get("result") or [])[:3],
+            }
+        except Exception as e:
+            out["scenes_v1_error"] = f"{type(e).__name__}: {e}"
+
+        try:
+            v2 = await self._request(
+                "GET", f"/v2.0/cloud/scene/rule?space_id={home_id}&type=scene",
+            )
+            out["scenes_v2"] = {
+                "success": v2.get("success"),
+                "code": v2.get("code"),
+                "msg": str(v2.get("msg"))[:200],
+                "result_sample": str(v2.get("result"))[:400],
+            }
+        except Exception as e:
+            out["scenes_v2_error"] = f"{type(e).__name__}: {e}"
+
+        return out
 
     @staticmethod
     def _score_scene_match(query: str, scene_name: str) -> int:

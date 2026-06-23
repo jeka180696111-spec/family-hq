@@ -879,6 +879,16 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "diagnose_tuya_scenes",
+                "description": (
+                    "Диагностика: ПОЧЕМУ сцены не подтягиваются. Возвращает "
+                    "сырые ответы Tuya по homes / scenes v1 / scenes v2. "
+                    "Триггер: «почему пусто», «список сцен пустой», "
+                    "«диагностика сцен», «проверь сцены»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
                 "name": "list_tuya_scenes",
                 "description": (
                     "Показать все Tap-to-Run сцены в Tuya Smart Life. "
@@ -1909,6 +1919,14 @@ class DevOpsAgent(BaseAgent):
                 "success": result.get("success", False),
                 "raw": result.get("raw", ""),
             }
+
+        elif tool_name == "diagnose_tuya_scenes":
+            from src.config import get_settings
+            from src.integrations.tuya import TuyaClient
+            client = TuyaClient.from_settings(get_settings())
+            if not client:
+                return {"error": "Tuya не настроен"}
+            return await client.diagnose_scenes()
 
         elif tool_name == "list_tuya_scenes":
             from src.config import get_settings
