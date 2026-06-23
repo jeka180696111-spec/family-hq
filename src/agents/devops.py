@@ -853,6 +853,41 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "run_tuya_scene",
+                "description": (
+                    "🚀 ПРЕДПОЧТИТЕЛЬНЫЙ способ управлять кондиционером. "
+                    "Запускает заранее созданную в Smart Life сцену «Tap-to-Run» "
+                    "(«Миттєвий сценарій»). У юзера есть сцены вида «Кондер 25», "
+                    "«Кондер ВЫКЛ», «Кондер ВКЛ», «Кондер 17» и т.д. "
+                    "Принимает естественный запрос юзера («поставь кондер на 25», "
+                    "«выключи кондер», «холоднее») — внутри fuzzy match по имени. "
+                    "Этот путь надёжнее чем прямые smart_set_mode/smart_set_temperature: "
+                    "сцена выполняется хабом локально по триггеру из облака, а не "
+                    "собирается на лету. ВСЕГДА пробуй сначала ЕГО, fallback на "
+                    "старые smart_* только если run_tuya_scene вернул "
+                    "no_match/ambiguous."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Запрос юзера как есть, например «кондер 25 холод» или «выключи кондер».",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "name": "list_tuya_scenes",
+                "description": (
+                    "Показать все Tap-to-Run сцены в Tuya Smart Life. "
+                    "Используй когда run_tuya_scene вернул no_match или "
+                    "ambiguous, чтобы предложить юзеру варианты по имени."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
                 "name": "enter_away_mode",
                 "description": (
                     "Сценарий «уехал из дома»: ВЫКЛЮЧИТЬ всё лишнее (бойлер, "
@@ -1841,6 +1876,48 @@ class DevOpsAgent(BaseAgent):
                 mode=tool_input.get("mode"),
                 temperature=tool_input.get("temperature"),
             )
+
+        elif tool_name == "run_tuya_scene":
+            from src.config import get_settings
+            from src.integrations.tuya import TuyaClient
+            client = TuyaClient.from_settings(get_settings())
+            if not client:
+                return {"error": "Tuya не настроен"}
+            query = str(tool_input.get("query", "")).strip()
+            if not query:
+                return {"error": "пустой query"}
+            match = await client.find_scene(query)
+            if not match:
+                scenes = await client.list_scenes()
+                return {
+                    "no_match": True,
+                    "query": query,
+                    "available_scenes": [s["name"] for s in scenes],
+                    "hint": "ни одна сцена не подошла. Перечисли юзеру available_scenes и спроси какую запустить.",
+                }
+            if match.get("ambiguous"):
+                return {
+                    "ambiguous": True,
+                    "query": query,
+                    "candidates": [c["name"] for c in match.get("candidates", [])],
+                    "hint": "несколько сцен подходят одинаково. Переспроси юзера какую именно.",
+                }
+            result = await client.run_scene(match["id"])
+            return {
+                "matched_scene": match["name"],
+                "scene_id": match["id"],
+                "success": result.get("success", False),
+                "raw": result.get("raw", ""),
+            }
+
+        elif tool_name == "list_tuya_scenes":
+            from src.config import get_settings
+            from src.integrations.tuya import TuyaClient
+            client = TuyaClient.from_settings(get_settings())
+            if not client:
+                return {"error": "Tuya не настроен"}
+            scenes = await client.list_scenes()
+            return {"scenes": [s["name"] for s in scenes], "count": len(scenes)}
 
         elif tool_name == "enter_away_mode":
             return await self._enter_away_mode()

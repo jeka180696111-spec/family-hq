@@ -40,6 +40,7 @@ class TuyaClient:
         self.uid = app_user_uid
         self._token: str | None = None
         self._token_exp = 0.0
+        self._home_id: str | None = None
         # Lazy-created shared aiohttp session so every command reuses
         # the same TCP/TLS connection instead of leaking sockets per call.
         self._session: aiohttp.ClientSession | None = None
@@ -511,6 +512,110 @@ class TuyaClient:
             "action": "set_mode",
             "set_to": tuya_mode,
             "code": mode_code,
+            "success": data.get("success", False),
+            "raw": data.get("msg", ""),
+        }
+
+    # ─── Tap-to-Run scenes (Tuya Smart Life «Миттєвий сценарій») ──────
+    #
+    # Why scenes: direct IR-AC commands via /v2.0/infrareds/.../command
+    # are unreliable through Tuya cloud (hub frequently «не отвечает»),
+    # but Tap-to-Run scenes — same hub, same cloud — fire reliably from
+    # the app. So we route AC control through pre-created scenes.
+
+    async def _ensure_home_id(self) -> str | None:
+        if self._home_id:
+            return self._home_id
+        try:
+            data = await self._request("GET", f"/v1.0/users/{self.uid}/homes")
+            homes = data.get("result", []) or []
+            if homes:
+                self._home_id = str(homes[0].get("home_id") or homes[0].get("id") or "")
+                return self._home_id or None
+        except Exception:
+            log.exception("tuya_homes_lookup_failed")
+        return None
+
+    async def list_scenes(self) -> list[dict]:
+        """Return Tap-to-Run scenes for the user's primary home.
+        Each item: {id, name, status}."""
+        home_id = await self._ensure_home_id()
+        if not home_id:
+            return []
+        # v1.0 scenes endpoint — returns Tap-to-Run scenes for the home.
+        data = await self._request("GET", f"/v1.0/homes/{home_id}/scenes")
+        items = data.get("result", []) or []
+        return [
+            {
+                "id": str(s.get("id") or s.get("scene_id") or ""),
+                "name": s.get("name", ""),
+                "status": s.get("status", ""),
+            }
+            for s in items
+            if s.get("id") or s.get("scene_id")
+        ]
+
+    @staticmethod
+    def _score_scene_match(query: str, scene_name: str) -> int:
+        """Rough scoring: token overlap + digit (temperature) match weights
+        heaviest. Higher = better match."""
+        import re
+        q = query.lower()
+        s = scene_name.lower()
+        q_digits = set(re.findall(r"\d+", q))
+        s_digits = set(re.findall(r"\d+", s))
+        score = 0
+        # Temperature match dominates — if юзер сказал 25 и сцена имеет 25, это почти гарантия
+        if q_digits and s_digits and (q_digits & s_digits):
+            score += 100
+        # Off/on intent
+        off_words = ("выкл", "вируб", "off", "відключ", "віключ", "вырубай")
+        on_words = ("вкл", "увімкн", "увімк", "on", "включи", "включай")
+        if any(w in q for w in off_words) and any(w in s for w in off_words):
+            score += 80
+        if any(w in q for w in on_words) and any(w in s for w in on_words):
+            score += 60
+        # Cold/heat intent
+        if any(w in q for w in ("холод", "cold", "охлад", "прохлад")) and \
+           any(w in s for w in ("холод", "cold")):
+            score += 20
+        if any(w in q for w in ("тепл", "heat", "обогрев", "грей")) and \
+           any(w in s for w in ("тепл", "heat")):
+            score += 20
+        # Generic token overlap (each shared 3+-letter token)
+        for tok in re.findall(r"[а-яёa-z]{3,}", q):
+            if tok in s:
+                score += 5
+        return score
+
+    async def find_scene(self, query: str) -> dict | None:
+        """Best-match scene by name. Returns None if no plausible match."""
+        scenes = await self.list_scenes()
+        if not scenes:
+            return None
+        ranked = sorted(
+            ((self._score_scene_match(query, s["name"]), s) for s in scenes),
+            key=lambda x: x[0], reverse=True,
+        )
+        top_score, top = ranked[0]
+        # Need at least one signal (digit, on/off, or token overlap)
+        if top_score < 20:
+            return None
+        # If second-best ties within 5 points AND non-trivial — ambiguous
+        if len(ranked) > 1 and ranked[1][0] >= top_score - 5 and ranked[1][0] >= 80:
+            return {"ambiguous": True, "candidates": [s for _, s in ranked[:4] if _ >= top_score - 20]}
+        return top
+
+    async def run_scene(self, scene_id: str) -> dict:
+        """Trigger a Tap-to-Run scene by id."""
+        home_id = await self._ensure_home_id()
+        if not home_id:
+            return {"error": "Не нашёл home_id в Tuya"}
+        data = await self._request(
+            "POST", f"/v1.0/homes/{home_id}/scenes/{scene_id}/trigger",
+        )
+        return {
+            "scene_id": scene_id,
             "success": data.get("success", False),
             "raw": data.get("msg", ""),
         }

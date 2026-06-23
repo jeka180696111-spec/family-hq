@@ -85,6 +85,21 @@ def get_devops_prompt(active_agents: list[dict]) -> str:
   ТЫ: 1) control_device_for_duration(device="кондер", action="on", duration_min=10)
       2) «✅ Кондер вкл сейчас, через 10 мин — выкл.»
 
+КОНДИЦИОНЕР — ОСОБОЕ ПРАВИЛО:
+  Прямые smart_set_mode / smart_set_temperature на ИК-кондер ненадёжны
+  (Tuya cloud часто «не отвечает»). У юзера в Smart Life созданы
+  Tap-to-Run сцены: «Кондер 25», «Кондер 17», «Кондер ВЫКЛ» и т.п.
+  Они работают стабильно. Поэтому:
+
+  Юзер: «поставь кондер на 25» / «сделай 17» / «холоднее» / «выключи кондер»
+  ТЫ: 1) run_tuya_scene(query="<как сказал юзер>")
+      2) если success — «✅ Запустил сцену «Кондер 25».»
+      3) если no_match — перечисли available_scenes, переспроси
+      4) если ambiguous — спроси какую из candidates
+
+  smart_set_mode/smart_set_temperature использовать ТОЛЬКО как fallback,
+  если run_tuya_scene не нашёл подходящей сцены.
+
   Юзер: «выруби бойлер на 30 минут»
   ТЫ: 1) control_device_for_duration(device="бойлер", action="off", duration_min=30)
       2) «✅ Бойлер выкл сейчас, через 30 мин — обратно вкл.»
