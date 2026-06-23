@@ -538,46 +538,73 @@ class TuyaClient:
 
     async def list_scenes(self) -> list[dict]:
         """Return Tap-to-Run scenes for the user's primary home.
-        Each item: {id, name, status}. Tries v1.0 first, fallback v2.0."""
+        Tries v2.0 first (currently the only one with stable access on
+        Smart Home Basic), falls back to v1.0 if v2 returns nothing."""
         home_id = await self._ensure_home_id()
         if not home_id:
             log.warning("tuya_list_scenes_no_home")
             return []
 
-        # v1.0 endpoint — older Scene Management API
-        data = await self._request("GET", f"/v1.0/homes/{home_id}/scenes")
-        items = data.get("result", []) or []
-        if not data.get("success"):
-            log.warning(
-                "tuya_list_scenes_v1_failed",
-                msg=str(data.get("msg"))[:200], code=data.get("code"),
-            )
+        items: list[dict] = []
 
-        # v2.0 endpoint — Smart Home Scene Linkage (newer)
+        # v2.0 endpoint — Smart Home Scene Linkage (preferred).
+        # Pull both type=scene (tap-to-run) and type=automation, paginated.
+        for scene_type in ("scene", "automation"):
+            has_more = True
+            last_id = ""
+            while has_more:
+                path = (
+                    f"/v2.0/cloud/scene/rule"
+                    f"?space_id={home_id}&type={scene_type}&size=50"
+                )
+                if last_id:
+                    path += f"&last_id={last_id}"
+                data2 = await self._request("GET", path)
+                if not data2.get("success"):
+                    log.warning(
+                        "tuya_list_scenes_v2_failed",
+                        scene_type=scene_type,
+                        msg=str(data2.get("msg"))[:200], code=data2.get("code"),
+                    )
+                    break
+                res = data2.get("result") or {}
+                if isinstance(res, dict):
+                    batch = res.get("list", []) or []
+                    has_more = bool(res.get("has_more"))
+                    if batch:
+                        last_id = str(batch[-1].get("id") or "")
+                else:
+                    batch = res or []
+                    has_more = False
+                items.extend(batch)
+                if not batch:
+                    break
+
+        # v1.0 endpoint — fallback only if v2 was empty.
         if not items:
-            data2 = await self._request(
-                "GET", f"/v2.0/cloud/scene/rule?space_id={home_id}&type=scene",
-            )
-            res = data2.get("result")
-            if isinstance(res, dict):
-                items = res.get("list", []) or res.get("rules", []) or []
-            elif isinstance(res, list):
-                items = res
-            if not data2.get("success"):
+            data = await self._request("GET", f"/v1.0/homes/{home_id}/scenes")
+            if data.get("success"):
+                items = data.get("result", []) or []
+            else:
                 log.warning(
-                    "tuya_list_scenes_v2_failed",
-                    msg=str(data2.get("msg"))[:200], code=data2.get("code"),
+                    "tuya_list_scenes_v1_failed",
+                    msg=str(data.get("msg"))[:200], code=data.get("code"),
                 )
 
-        return [
-            {
-                "id": str(s.get("id") or s.get("scene_id") or s.get("rule_id") or ""),
+        # Dedup by id (v2 may overlap scene/automation tabs)
+        seen: set[str] = set()
+        out: list[dict] = []
+        for s in items:
+            sid = str(s.get("id") or s.get("scene_id") or s.get("rule_id") or "")
+            if not sid or sid in seen:
+                continue
+            seen.add(sid)
+            out.append({
+                "id": sid,
                 "name": s.get("name", ""),
                 "status": s.get("status", ""),
-            }
-            for s in items
-            if s.get("id") or s.get("scene_id") or s.get("rule_id")
-        ]
+            })
+        return out
 
     async def diagnose_scenes(self) -> dict:
         """Return raw API responses so we can see WHY the scenes list is empty."""
