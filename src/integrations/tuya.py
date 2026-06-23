@@ -548,37 +548,30 @@ class TuyaClient:
         items: list[dict] = []
 
         # v2.0 endpoint — Smart Home Scene Linkage (preferred).
-        # Pull both type=scene (tap-to-run) and type=automation, paginated.
+        # Bare path — adding pagination params (size/page_size) breaks
+        # the request shape Tuya expects. Pull type=scene AND
+        # type=automation separately; tap-to-run can land in either bucket.
         for scene_type in ("scene", "automation"):
-            has_more = True
-            last_id = ""
-            while has_more:
-                path = (
-                    f"/v2.0/cloud/scene/rule"
-                    f"?space_id={home_id}&type={scene_type}&size=50"
+            path = (
+                f"/v2.0/cloud/scene/rule"
+                f"?space_id={home_id}&type={scene_type}"
+            )
+            data2 = await self._request("GET", path)
+            if not data2.get("success"):
+                log.warning(
+                    "tuya_list_scenes_v2_failed",
+                    scene_type=scene_type,
+                    msg=str(data2.get("msg"))[:200], code=data2.get("code"),
                 )
-                if last_id:
-                    path += f"&last_id={last_id}"
-                data2 = await self._request("GET", path)
-                if not data2.get("success"):
-                    log.warning(
-                        "tuya_list_scenes_v2_failed",
-                        scene_type=scene_type,
-                        msg=str(data2.get("msg"))[:200], code=data2.get("code"),
-                    )
-                    break
-                res = data2.get("result") or {}
-                if isinstance(res, dict):
-                    batch = res.get("list", []) or []
-                    has_more = bool(res.get("has_more"))
-                    if batch:
-                        last_id = str(batch[-1].get("id") or "")
-                else:
-                    batch = res or []
-                    has_more = False
-                items.extend(batch)
-                if not batch:
-                    break
+                continue
+            res = data2.get("result") or {}
+            if isinstance(res, dict):
+                batch = res.get("list", []) or res.get("rules", []) or []
+            elif isinstance(res, list):
+                batch = res
+            else:
+                batch = []
+            items.extend(batch)
 
         # v1.0 endpoint — fallback only if v2 was empty.
         if not items:
