@@ -699,17 +699,35 @@ class TuyaClient:
         return top
 
     async def run_scene(self, scene_id: str) -> dict:
-        """Trigger a Tap-to-Run scene by id."""
+        """Trigger a Tap-to-Run scene. Tries v2 first (Smart Home Scene
+        Linkage), falls back to v1 if v2 rejects."""
         home_id = await self._ensure_home_id()
         if not home_id:
             return {"error": "Не нашёл home_id в Tuya"}
+
+        # v2.0 — preferred (V1 often loses permission on free tier)
         data = await self._request(
+            "POST", f"/v2.0/cloud/scene/rule/{scene_id}/actions/trigger",
+        )
+        if data.get("success"):
+            return {
+                "scene_id": scene_id,
+                "success": True,
+                "via": "v2",
+                "raw": data.get("msg", ""),
+            }
+        v2_msg = str(data.get("msg") or data.get("code") or "")
+
+        # v1.0 fallback
+        data1 = await self._request(
             "POST", f"/v1.0/homes/{home_id}/scenes/{scene_id}/trigger",
         )
         return {
             "scene_id": scene_id,
-            "success": data.get("success", False),
-            "raw": data.get("msg", ""),
+            "success": data1.get("success", False),
+            "via": "v1",
+            "raw": data1.get("msg", ""),
+            "v2_first_attempt": v2_msg[:200],
         }
 
     async def read_sensor(self, sensor: str) -> dict:
