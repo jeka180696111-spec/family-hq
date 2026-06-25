@@ -12,11 +12,6 @@ import structlog
 
 log = structlog.get_logger()
 
-# Heavy household appliances we MAY suggest turning off during an outage.
-# We only suggest a device if it has a smart-plug live wattage reading
-# (cur_power / power_w via Tuya). If no reading, we don't guess — silent.
-_OUTAGE_SUGGEST_DEVICES = ("бойлер", "boiler", "обогреватель", "heater")
-
 
 def _fmt_duration(minutes: float) -> str:
     if minutes < 0:
@@ -61,17 +56,24 @@ async def runtime_report(
 
     suggestions: list[dict] = []
     if tuya_client and load_w > 5:
-        for hint in _OUTAGE_SUGGEST_DEVICES:
+        # Walk ALL devices, look at each that has a power-draw DP and is on.
+        # Universal — works for any plug (бойлер, тв, обогреватель и т.д.)
+        # without hardcoding names.
+        try:
+            devices = await tuya_client.list_devices()
+        except Exception:
+            devices = []
+        for d in devices:
             try:
-                info = await tuya_client.read_device_power_w(hint)
+                info = await tuya_client.read_device_power_w(d.get("name", ""))
             except Exception:
                 continue
             if not isinstance(info, dict) or info.get("error"):
                 continue
-            p = info.get("power_w")
-            if not p or p < 50:  # below 50W не интересно
-                continue
             if not info.get("on"):
+                continue
+            p = info.get("power_w")
+            if not p or p < 30:  # below 30 W не критично, не предлагаем
                 continue
             new_load = max(5.0, load_w - p)
             new_min = usable_wh / new_load * 60.0
@@ -82,6 +84,9 @@ async def runtime_report(
                     "power_w": int(p),
                     "gain_min": int(gain),
                 })
+        # Top 3 by gain
+        suggestions.sort(key=lambda s: s["gain_min"], reverse=True)
+        suggestions = suggestions[:3]
 
     # ── Format text ───────────────────────────────────────────────
     lines = []
