@@ -177,6 +177,31 @@ class CalendarClient:
         )
         return event
 
+    async def list_recent(self, days_back: int = 3) -> list[CalendarEvent]:
+        """List events that started within the last *days_back* days."""
+        svc = await self._get_service()
+        now = datetime.now(timezone.utc)
+        time_min = now - timedelta(days=days_back)
+
+        def _list():
+            return (
+                svc.events()
+                .list(
+                    calendarId=self._calendar_id,
+                    timeMin=time_min.isoformat(),
+                    timeMax=now.isoformat(),
+                    singleEvents=True,
+                    orderBy="startTime",
+                    maxResults=250,
+                )
+                .execute()
+            )
+
+        result = await self._run_sync(_list)
+        events = [self._parse_event(e) for e in result.get("items", [])]
+        log.debug("calendar_list_recent", days_back=days_back, returned=len(events))
+        return events
+
     async def list_upcoming(self, days: int = 7) -> list[CalendarEvent]:
         """List events starting now and within the next *days* days."""
         svc = await self._get_service()

@@ -168,6 +168,55 @@ async def _section_weather() -> str:
 
 # ─── Section: baby ────────────────────────────────────────────────────
 
+async def _section_recent_vaccinations(memory: Any) -> str:
+    """Если за последние 3 дня была прививка — спрашиваем у Марины
+    как реакция (температура, аппетит, капризы). Идемпотентно: для
+    каждого вакцинного события показываем напоминание ровно 3 утра
+    после прививки."""
+    try:
+        from src.config import get_settings
+        from src.integrations.gcalendar import CalendarClient
+        from src.utils.time import now_kyiv
+        s = get_settings()
+        if not (s.google_service_account_json and s.calendar_id):
+            return ""
+        cal = CalendarClient(s.google_service_account_json, s.calendar_id)
+        events = await cal.list_recent(days_back=3)
+    except Exception:
+        log.exception("brief_vaccinations_failed")
+        return ""
+
+    now = now_kyiv().date()
+    interesting = []
+    for e in events:
+        title = (getattr(e, "title", "") or "")
+        low = title.lower()
+        if not ("прививк" in low or "вакц" in low or "💉" in title or "акдс" in low):
+            continue
+        start = getattr(e, "start", None)
+        if not start:
+            continue
+        try:
+            d = start.date() if hasattr(start, "date") else start
+        except Exception:
+            continue
+        delta_days = (now - d).days
+        if 0 <= delta_days <= 3:
+            interesting.append((delta_days, title))
+
+    if not interesting:
+        return ""
+    interesting.sort()
+    lines = ["🩺 <b>После прививки</b>"]
+    for days_ago, title in interesting[:3]:
+        ago = "сегодня" if days_ago == 0 else (
+            "вчера" if days_ago == 1 else f"{days_ago} дня назад"
+        )
+        clean = title.replace("💉", "").strip()
+        lines.append(f"• {clean} ({ago}). Как Матвей? Температура / капризы / аппетит?")
+    return "\n".join(lines)
+
+
 async def _section_baby(nanny_agent: Any, memory: Any) -> str:
     try:
         if not nanny_agent._sheets:
@@ -308,15 +357,16 @@ async def send_morning_brief(
         date_str = now_kyiv().strftime("%d.%m, %A")
         # Run sections in parallel where independent
         import asyncio
-        news_s, weather_s, baby_s, plans_s, systems_s = await asyncio.gather(
+        news_s, weather_s, baby_s, plans_s, systems_s, vacc_s = await asyncio.gather(
             _section_news(news_agent, memory),
             _section_weather(),
             _section_baby(nanny_agent, memory),
             _section_plans(calendar_agent, memory),
             _section_systems(memory),
+            _section_recent_vaccinations(memory),
             return_exceptions=False,
         )
-        sections = [s for s in (news_s, weather_s, baby_s, plans_s, systems_s) if s]
+        sections = [s for s in (news_s, weather_s, baby_s, vacc_s, plans_s, systems_s) if s]
         header = f"☀️ <b>Доброе утро!</b> Сводка на {date_str}"
         body = "\n\n".join([header] + sections)
         await devops_agent.send(body)
