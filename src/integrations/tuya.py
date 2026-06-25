@@ -787,17 +787,24 @@ class TuyaClient:
         temp_str = None
         humi_str = None
         batt_str = None
+        # Strict whitelists — generic «temp in code» also caught
+        # temp_alarm/temp_unit_convert which are strings («cancel»,
+        # «c»/«f») and overwrote the real reading.
+        TEMP_CODES = ("va_temperature", "temp_current", "temperature", "temp_value")
+        HUMI_CODES = ("va_humidity", "humidity_value", "humidity", "humi_value")
+        BATT_CODES = ("battery_percentage", "battery_state", "battery_value", "battery", "va_battery")
+
         for s in target["status"]:
             code = s.get("code", "")
             val = s.get("value")
-            if "temp" in code:
-                temp_val = val / 10 if isinstance(val, (int, float)) and val > 100 else val
+            if code in TEMP_CODES and isinstance(val, (int, float)):
+                temp_val = val / 10 if val > 100 else val
                 readings["temperature"] = f"{temp_val}°C"
                 temp_str = f"{temp_val}°C"
-            elif "humi" in code:
+            elif code in HUMI_CODES and isinstance(val, (int, float)):
                 readings["humidity"] = f"{val}%"
                 humi_str = f"{val}%"
-            elif "battery" in code:
+            elif code in BATT_CODES and isinstance(val, (int, float)):
                 readings["battery"] = f"{val}%"
                 batt_str = f"{val}%"
             else:
