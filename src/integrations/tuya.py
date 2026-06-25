@@ -776,9 +776,24 @@ class TuyaClient:
     async def read_sensor(self, sensor: str) -> dict:
         devices = await self.list_devices()
         if not sensor:
-            # Return any sensor-like device
-            sensors = [d for d in devices if "sensor" in d.get("category", "") or "temp" in d.get("name", "").lower()]
-            return {"count": len(sensors), "sensors": sensors}
+            # Broad filter — sensor categories vary (wsdcgq, temp_hum,
+            # cwwsq, mcs, …). Match by category-prefix OR by any
+            # «датчик / temp / humi» token in the device name.
+            sensors = [
+                d for d in devices
+                if (
+                    any(k in d.get("category", "").lower()
+                        for k in ("sensor", "wsdcgq", "temp", "hum", "mcs", "cwwsq", "ms"))
+                    or any(k in (d.get("name", "") or "").lower()
+                           for k in ("датчик", "sensor", "temp", "влажн", "вологост", "humi"))
+                )
+            ]
+            # If exactly one matches, treat it as the implicit target so
+            # «температура с датчика» (без имени) тоже работает.
+            if len(sensors) == 1:
+                sensor = sensors[0]["name"]
+            else:
+                return {"count": len(sensors), "sensors": [s["name"] for s in sensors]}
         target = self._find_device(devices, sensor)
         if not target:
             return {"error": f"Не нашёл датчик '{sensor}'", "available": [d["name"] for d in devices]}
