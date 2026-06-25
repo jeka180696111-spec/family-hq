@@ -219,6 +219,21 @@ class NannyAgent(BaseAgent):
                 },
             },
             {
+                "name": "wake_window_plan",
+                "description": (
+                    "🌞 ПЛАН БОДРСТВОВАНИЯ для Матвея: чем занять в текущем окне. "
+                    "Учитывает: сколько он бодрствует, сколько ещё до сна, "
+                    "когда был прикорм, погоду (от weather client), время дня. "
+                    "Выдаёт 2-4 коротких пункта: «сейчас прикорм+купание», "
+                    "«через 30 мин 20 мин на прогулку», «как одеть малыша по "
+                    "погоде», «потом тихая игра перед сном». Триггеры: "
+                    "«чем занять», «что делать с Матвеем», «план бодрствования», "
+                    "«что сейчас делать», «как организовать это окно», "
+                    "«погулять или дома», «как одеть»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
                 "name": "next_sleep_advice",
                 "description": (
                     "🕐 «КОГДА следующий сон / когда будить» — для конкретной ситуации "
@@ -458,6 +473,9 @@ class NannyAgent(BaseAgent):
             except Exception as e:
                 return {"error": f"next_sleep_advice failed: {type(e).__name__}: {e}"}
 
+        if tool_name == "wake_window_plan":
+            return await self._wake_window_plan()
+
         return await super()._call_tool(tool_name, tool_input)
 
     async def _update_baby_state(self, kind: str, event: str, at) -> None:
@@ -504,6 +522,113 @@ class NannyAgent(BaseAgent):
                 await conn.execute(sql_update(BabyState).where(BabyState.id == 1).values(**values))
             else:
                 await conn.execute(insert(BabyState).values(id=1, **values))
+
+    async def _wake_window_plan(self) -> dict:
+        """Compose a wake-window plan for Matvey: weather + current state
+        + last feeding context → LLM-rendered short plan."""
+        from datetime import datetime, timedelta
+        from src.integrations.sleep_coach import (
+            next_sleep_advice, _parse_entry_dt, _kind_clean,
+        )
+        from src.utils.time import now_kyiv
+        from src.utils.family import CHILD
+        if not self._sheets:
+            return {"error": "Sheets не подключены"}
+
+        try:
+            advice = await next_sleep_advice(self._sheets)
+        except Exception:
+            advice = {}
+        state = advice.get("state", "unknown")
+
+        # Recent feed
+        last_feed_dt = None
+        try:
+            rows = await self._sheets.get_baby_diary(days=1)
+            for r in rows:
+                d = r.data
+                if _kind_clean(d.get("kind", "")) in ("еда", "food", "прикорм"):
+                    dt = _parse_entry_dt(d)
+                    if dt is not None and (last_feed_dt is None or dt > last_feed_dt):
+                        last_feed_dt = dt
+        except Exception:
+            pass
+
+        # Weather + clothing suggestions
+        weather_block = ""
+        baby_clothing = ""
+        walk_window_hint = ""
+        try:
+            from src.config import get_settings
+            from src.integrations.weather import WeatherClient
+            from src.scheduler.morning_brief import _baby_clothing, _walk_window
+            wc = WeatherClient.from_settings(get_settings())
+            if wc:
+                cur = await wc.current()
+                hourly = await wc.forecast(hours=6)
+                temp = cur.get("temp_c", 0) or 0
+                desc = cur.get("description", "")
+                day_max = max((h.get("temp_c") or temp) for h in hourly[:6])
+                rain = sum((h.get("rain_mm") or 0) for h in hourly[:6])
+                pop = max((h.get("pop_pct") or 0) for h in hourly[:6])
+                baby_clothing = _baby_clothing((temp + day_max) / 2)
+                walk_window_hint = _walk_window(hourly[:6])
+                weather_block = (
+                    f"сейчас {temp:+.0f}°, {desc.lower() or '—'}, "
+                    f"ближайшие 6ч до {day_max:+.0f}°, "
+                    f"дождь {rain:.1f}мм (вероятность до {int(pop)}%)"
+                )
+        except Exception:
+            log.exception("wake_plan_weather_failed")
+
+        now = now_kyiv()
+        birth = CHILD.get("birth_date")
+        age_m = round(((now.date() - birth).days / 30.4375), 1) if birth else 6.0
+
+        feed_str = (
+            f"последнее кормление/прикорм было {last_feed_dt.strftime('%H:%M')} "
+            f"({int((now - last_feed_dt).total_seconds() / 60)} мин назад)"
+            if last_feed_dt else "запись о последнем кормлении не нашлась"
+        )
+
+        ctx = (
+            f"Матвею {age_m} мес, сейчас {now.strftime('%H:%M')}.\n"
+            f"Состояние: {state} ({advice.get('summary_for_agent','')[:300]}).\n"
+            f"Кормление: {feed_str}.\n"
+            f"Погода: {weather_block or 'данных нет'}.\n"
+            f"Прогулка-окно: {walk_window_hint or '—'}.\n"
+            f"Одеть малышу: {baby_clothing or '—'}.\n"
+        )
+
+        prompt = (
+            "Сделай ПЛАН БОДРСТВОВАНИЯ Матвея на ближайший час — короткий, "
+            "2-4 пункта, бытовым языком. Учитывай: возраст, текущее состояние, "
+            "сколько до сна, погоду, время от последнего кормления. "
+            "Структура: что делать СЕЙЧАС (игра/прикорм/купание/прогулка), "
+            "когда что переключить, как одеть если гуляем, во сколько укладывать. "
+            "БЕЗ воды, без сюсюканья, без эмодзи-смайликов кроме одного-двух "
+            "в начале пунктов. Будь конкретной. Если данных мало — скажи "
+            "«хочу видеть запись о Х» вместо догадок.\n\n"
+            f"КОНТЕКСТ:\n{ctx}"
+        )
+
+        try:
+            text = await self._claude.complete(
+                model=self._get_model(),
+                system="Ты — Няня. Тёплая, опытная, но без сюсюканья. План бодрствования.",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=450,
+            )
+        except Exception as e:
+            return {"error": f"LLM failed: {type(e).__name__}: {e}"}
+
+        return {
+            "plan_text": (text or "").strip(),
+            "display_instruction": (
+                "Отправь юзеру поле plan_text как есть, БЕЗ префиксов, "
+                "БЕЗ собственных вводных фраз. Это уже готовый план."
+            ),
+        }
 
     async def _recent_baby_photos(self, limit: int, days_back: int) -> dict:
         from datetime import timedelta
