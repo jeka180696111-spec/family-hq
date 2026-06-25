@@ -590,6 +590,29 @@ class AutomationEngine:
                 log.warning("automation_no_tuya", rule=rule_name)
                 await self._notify_chat(msg)
                 return
+            # AC через сцены надёжнее чем прямой IR-API. Если есть
+            # подходящая Tap-to-Run сцена («Кондер ВЫКЛ» / «Кондер ВКЛ»)
+            # — дёргаем её, fallback только если ни одна не подходит.
+            scene_used = None
+            try:
+                dev_l = (device or "").lower()
+                looks_like_ac = any(
+                    t in dev_l for t in ("кондер", "кондиц", "ac ", "ac_")
+                ) or dev_l == "ac"
+                if looks_like_ac and act in ("on", "off"):
+                    intent = "выкл" if act == "off" else "вкл"
+                    match = await client.find_scene(f"{device} {intent}")
+                    if match and not match.get("ambiguous"):
+                        scene_res = await client.run_scene(match["id"])
+                        if scene_res.get("success"):
+                            scene_used = match["name"]
+                            await self._notify_chat(
+                                f"⚙️ [{rule_name}] сцена «{scene_used}» ✅"
+                            )
+                            return
+            except Exception:
+                log.exception("automation_scene_path_failed", rule=rule_name)
+
             try:
                 result = await client.control(device, act)
             except Exception as e:

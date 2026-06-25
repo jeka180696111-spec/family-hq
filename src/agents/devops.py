@@ -2589,6 +2589,26 @@ class DevOpsAgent(BaseAgent):
             client = TuyaClient.from_settings(get_settings())
             if not client:
                 return {"error": "Tuya не настроен — скажи «список устройств» для инструкции"}
+            # For ACs prefer Tap-to-Run scenes — direct IR API is unreliable.
+            dev_l = (device or "").lower()
+            looks_like_ac = any(
+                t in dev_l for t in ("кондер", "кондиц", "ac ", "ac_")
+            ) or dev_l == "ac"
+            if looks_like_ac and action in ("on", "off"):
+                intent = "выкл" if action == "off" else "вкл"
+                try:
+                    match = await client.find_scene(f"{device} {intent}")
+                    if match and not match.get("ambiguous"):
+                        scene_res = await client.run_scene(match["id"])
+                        if scene_res.get("success"):
+                            return {
+                                "device": device,
+                                "action": action,
+                                "via_scene": match["name"],
+                                "success": True,
+                            }
+                except Exception:
+                    pass
             return await client.control(device, action)
         except Exception as e:
             return {"error": str(e)}
