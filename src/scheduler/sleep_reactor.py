@@ -129,8 +129,33 @@ class SleepReactor:
                 log.info("sleep_reactor_commented", kind=ev["kind"], event=ev["event"][:40])
             except Exception:
                 log.exception("sleep_reactor_send_failed")
+                return
+
+            # Если Матвей только что проснулся — следом шлём план
+            # бодрствования (что делать в это окно). Только на «end»
+            # событие, чтобы не дёргать после «уснул».
+            if ev["kind"] == "end":
+                await self._push_wake_plan()
         except Exception:
             log.exception("sleep_reactor_tick_failed")
+
+    async def _push_wake_plan(self) -> None:
+        try:
+            plan = await self._nanny._wake_window_plan()
+        except Exception:
+            log.exception("wake_plan_compute_failed")
+            return
+        text = (plan or {}).get("plan_text", "").strip()
+        if not text:
+            return
+        try:
+            await self._bots.send_message(
+                agent_id="nanny", chat_id=self._chat_id,
+                text=f"🌞 <b>План на это бодрствование</b>\n{text}",
+            )
+            log.info("wake_plan_pushed")
+        except Exception:
+            log.exception("wake_plan_send_failed")
 
 
 def register_sleep_reactor_job(scheduler, reactor: SleepReactor) -> None:

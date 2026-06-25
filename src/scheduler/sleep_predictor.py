@@ -58,6 +58,9 @@ class SleepPredictor:
         self._bots = bot_manager
         self._chat_id = chat_id
         self._last_warning_for_awake_since: str | None = None
+        # «пора будить» — идемпотентность по sleeping_since, чтобы не
+        # спамить каждые 5 мин пока ребёнок спит.
+        self._last_wake_alert_for_sleeping_since: str | None = None
 
     async def tick(self) -> None:
         try:
@@ -70,8 +73,13 @@ class SleepPredictor:
                 return
             state = await compute_state_from_diary(sheets)
             awake_since_iso = state.get("awake_since")
-            sleeping_since = state.get("sleeping_since")
-            if sleeping_since or not awake_since_iso:
+            sleeping_since_iso = state.get("sleeping_since")
+
+            # ── Если Матвей сейчас СПИТ → проверяем «пора будить» ────
+            if sleeping_since_iso:
+                await self._maybe_wake_alert(sleeping_since_iso)
+                return
+            if not awake_since_iso:
                 return
 
             if awake_since_iso == self._last_warning_for_awake_since:
@@ -128,6 +136,75 @@ class SleepPredictor:
                 log.exception("sleep_warning_push_failed")
         except Exception:
             log.exception("sleep_predictor_tick_failed")
+
+
+    async def _maybe_wake_alert(self, sleeping_since_iso: str) -> None:
+        """If Matvey has been sleeping past the age-typical nap length
+        (or any nap continuing past 17:00) — нужен пуш «пора будить»,
+        чтобы не съесть ночной сон. Один пуш на цикл сна."""
+        if sleeping_since_iso == self._last_wake_alert_for_sleeping_since:
+            return
+        from src.utils.time import now_kyiv
+        from src.utils.family import CHILD
+        sleeping_since = datetime.fromisoformat(sleeping_since_iso)
+        now = now_kyiv()
+        slept_min = (now - sleeping_since).total_seconds() / 60.0
+
+        birth = CHILD.get("birth_date")
+        if not birth:
+            return
+        age_months = (now.date() - birth).days / 30.4375
+
+        # Typical daytime nap length by age (in minutes, rough midpoint)
+        if age_months <= 6:
+            target = 75
+        elif age_months <= 9:
+            target = 90
+        elif age_months <= 15:
+            target = 75
+        else:
+            target = 70
+
+        # Night check — 22:00-06:00 — пусть спит, никаких пушей.
+        if now.hour >= 22 or now.hour < 6:
+            return
+
+        # Триггеры пуша:
+        # 1) Спит уже больше target+20 мин — перебрал.
+        # 2) Спит после 17:00 — это украдёт ночь.
+        late_nap = now.hour >= 17
+        overslept = slept_min > target + 20
+
+        if not (late_nap or overslept):
+            return
+
+        if overslept:
+            text = (
+                f"⏰ <b>Пора будить</b>\n"
+                f"Матвей спит уже {int(slept_min)} мин — это {int(slept_min - target)} мин "
+                f"сверх типичного дневного сна (~{target} мин в его возрасте). "
+                f"Если оставить — украдёт ночь."
+            )
+        else:
+            text = (
+                f"⏰ <b>Пора будить</b>\n"
+                f"Матвей спит, сейчас {now.strftime('%H:%M')}. Дневной сон после "
+                "17:00 сильно бьёт по ночному. Лучше разбудить и держать "
+                "бодрствование 3-4 часа до bedtime."
+            )
+
+        try:
+            await self._bots.send_message(
+                agent_id="nanny", chat_id=self._chat_id, text=text,
+            )
+            self._last_wake_alert_for_sleeping_since = sleeping_since_iso
+            log.info(
+                "wake_alert_pushed",
+                slept_min=int(slept_min), target=target,
+                hour=now.hour,
+            )
+        except Exception:
+            log.exception("wake_alert_push_failed")
 
 
 def register_sleep_predictor_job(scheduler, predictor: SleepPredictor) -> None:
