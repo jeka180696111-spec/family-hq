@@ -100,7 +100,15 @@ class SleepPredictor:
                 return
             age_days = (now.date() - birth).days
             age_months = age_days / 30.4375
-            window_min = _expected_wake_window_min(age_months)
+
+            # Personalised window — берём средний реальный wake window
+            # Матвея за последние 14д. Если данных мало, fallback на
+            # возрастную норму.
+            from src.integrations.sleep_coach import (
+                personal_baseline, _personalised_window_min,
+            )
+            baseline = await personal_baseline(sheets, days=14)
+            window_min, window_src = _personalised_window_min(baseline, age_months)
 
             until_window = window_min - awake_min
             if not (-5 <= until_window <= self._LEAD_WARNING_MIN):
@@ -109,17 +117,16 @@ class SleepPredictor:
             if until_window > 0:
                 text = (
                     "🍼 <b>Матвейка скоро устанет</b>\n"
-                    f"Бодрствует уже {int(awake_min)} мин. По возрасту "
-                    f"({age_months:.1f} мес) окно сна ~{window_min} мин — "
-                    f"осталось ~{int(until_window)} мин. Замедляйся, "
-                    "приглуши свет, готовь к укладыванию."
+                    f"Бодрствует уже {int(awake_min)} мин. Его обычное окно — "
+                    f"~{window_min} мин ({window_src}), осталось ~{int(until_window)} мин. "
+                    "Замедляйся, приглуши свет, готовь к укладыванию."
                 )
             else:
                 text = (
                     "🍼 <b>Перегул</b>\n"
-                    f"Матвей бодрствует {int(awake_min)} мин — окно сна по "
-                    f"возрасту ~{window_min} мин. Чем дальше, тем сложнее "
-                    "будет уложить. Пора."
+                    f"Матвей бодрствует {int(awake_min)} мин — обычное окно "
+                    f"~{window_min} мин ({window_src}). Чем дальше, тем "
+                    "сложнее будет уложить. Пора."
                 )
 
             try:
@@ -155,15 +162,18 @@ class SleepPredictor:
             return
         age_months = (now.date() - birth).days / 30.4375
 
-        # Typical daytime nap length by age (in minutes, rough midpoint)
-        if age_months <= 6:
-            target = 75
-        elif age_months <= 9:
-            target = 90
-        elif age_months <= 15:
-            target = 75
+        # Personalised nap target — реальная средняя длина дневного
+        # сна Матвея. Fallback на возраст если данных недостаточно.
+        from src.integrations.sleep_coach import (
+            personal_baseline, _personalised_nap_target,
+        )
+        sheets = getattr(self._nanny, "_sheets", None)
+        if sheets:
+            baseline = await personal_baseline(sheets, days=14)
+            target, target_src = _personalised_nap_target(baseline, age_months)
         else:
-            target = 70
+            target = 90
+            target_src = "запасной вариант"
 
         # Night check — 22:00-06:00 — пусть спит, никаких пушей.
         if now.hour >= 22 or now.hour < 6:
@@ -182,7 +192,7 @@ class SleepPredictor:
             text = (
                 f"⏰ <b>Пора будить</b>\n"
                 f"Матвей спит уже {int(slept_min)} мин — это {int(slept_min - target)} мин "
-                f"сверх типичного дневного сна (~{target} мин в его возрасте). "
+                f"сверх его обычного дневного сна (~{target} мин, {target_src}). "
                 f"Если оставить — украдёт ночь."
             )
         else:

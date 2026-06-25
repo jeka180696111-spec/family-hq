@@ -304,11 +304,35 @@ async def weekly_analysis(sheets_client: Any, days: int = 7) -> dict:
         "split_nights": split_nights,
     }
 
+    # Personalised baseline (его собственный wake-window)
+    base = await personal_baseline(sheets_client, days=days)
+    his_window = base.get("avg_wake_window_min")
+    his_nap = base.get("avg_nap_duration_min")
+    his_bedtime = base.get("avg_bedtime_hhmm")
+    his_morning = base.get("avg_morning_wake_hhmm")
+    base_conf = base.get("confidence", "none")
+
+    personal_line = ""
+    if base_conf in ("high", "medium") and his_window:
+        personal_line = (
+            f"\nЛИЧНЫЙ baseline Матвея (n={base['sample_n']}, "
+            f"уверенность {base_conf}):\n"
+            f"- его окно бодрствования: {his_window} мин "
+            f"(норма по возрасту {window_min})\n"
+        )
+        if his_nap:
+            personal_line += f"- его дневной сон: ~{his_nap} мин\n"
+        if his_bedtime:
+            personal_line += f"- обычный bedtime: {his_bedtime}\n"
+        if his_morning:
+            personal_line += f"- обычный подъём: {his_morning}\n"
+
     summary_for_agent = (
         f"Матвею {age_m:.1f} мес. По возрастной норме (Weissbluth):\n"
         f"- окно бодрствования {window_min} мин\n"
         f"- {naps_str} дневных сна\n"
-        f"- общий сон {total_low}-{total_high}ч/сут\n\n"
+        f"- общий сон {total_low}-{total_high}ч/сут\n"
+        f"{personal_line}\n"
         f"ФАКТИЧЕСКИ за {days_observed} дней:\n"
         f"- общий сон {observed['avg_total_h']}ч (ночь {round(avg_night_min/60,1)}ч, "
         f"днём {round(avg_naps_min/60,1)}ч в {observed['avg_naps_count']} снов)\n"
@@ -318,8 +342,12 @@ async def weekly_analysis(sheets_client: Any, days: int = 7) -> dict:
         f"ПРОБЛЕМЫ:\n" + ("\n".join(f"- {i}" for i in issues) if issues else "- не вижу явных")
         + "\n\nДай 2-3 КОНКРЕТНЫХ совета на сегодня (bedtime во сколько, последний "
         "дневной сон завершить во сколько, что менять в первую очередь). "
+        "ВАЖНО: опирайся на ЛИЧНЫЙ baseline Матвея (его реальные средние), "
+        "а не на возрастную норму. Возрастная норма — только ориентир «нормально/нет». "
         "Тёплый тон, без догматизма. Помни: коррекция занимает 1-3 недели, "
-        "магии не будет. Если данных мало — попроси подносить аккуратнее."
+        "магии не будет. Если данных мало (confidence='low'/'none') — "
+        "честно скажи Марине, что выводы предварительные, нужно ещё неделя "
+        "записей для надёжного личного baseline."
     )
 
     return {
@@ -335,6 +363,91 @@ async def weekly_analysis(sheets_client: Any, days: int = 7) -> dict:
     }
 
 
+async def personal_baseline(sheets_client: Any, days: int = 14) -> dict:
+    """Compute Matvey's OWN sleep pattern from the last N days.
+
+    Returns:
+      avg_wake_window_min — среднее окно бодрствования (между концом
+        предыдущего сна и началом следующего, для дневных циклов).
+      avg_nap_duration_min — средняя длина дневного сна.
+      avg_night_duration_min — средняя длина ночного.
+      avg_bedtime_hhmm — среднее время начала ночного сна.
+      avg_morning_wake_hhmm — среднее время утреннего подъёма.
+      confidence — 'high' (≥10 wake-windows, 5+ days), 'medium' (3-9),
+        'low' (<3) или 'none' (нет данных).
+      sample_n — сколько wake-windows реально посчитано.
+    """
+    entries = await _load_sleep_entries(sheets_client, days)
+    episodes = _pair_episodes(entries)
+
+    # 1) Wake-windows: gap between sleep_end of one episode and
+    # sleep_start of the next, but only when the gap is within
+    # reasonable bounds (≤6 ч — иначе это переход через ночь).
+    wake_windows: list[float] = []
+    for prev, nxt in zip(episodes, episodes[1:]):
+        gap = (nxt["start"] - prev["end"]).total_seconds() / 60.0
+        if 20 <= gap <= 360:
+            wake_windows.append(gap)
+
+    naps_min = [e["duration_min"] for e in episodes if not e["is_night"]]
+    nights_min = [e["duration_min"] for e in episodes if e["is_night"]]
+
+    bedtimes = [e["start"] for e in episodes if e["is_night"]]
+    wakes = [e["end"] for e in episodes if e["is_night"]]
+
+    def _avg_time(dts):
+        if not dts:
+            return None
+        mins = [dt.hour * 60 + dt.minute for dt in dts]
+        avg = int(sum(mins) / len(mins))
+        return f"{avg // 60:02d}:{avg % 60:02d}"
+
+    def _avg(xs):
+        return round(sum(xs) / len(xs)) if xs else None
+
+    n = len(wake_windows)
+    if n >= 10:
+        conf = "high"
+    elif n >= 3:
+        conf = "medium"
+    elif n >= 1:
+        conf = "low"
+    else:
+        conf = "none"
+
+    return {
+        "avg_wake_window_min": _avg(wake_windows),
+        "avg_nap_duration_min": _avg(naps_min),
+        "avg_night_duration_min": _avg(nights_min),
+        "avg_bedtime_hhmm": _avg_time(bedtimes),
+        "avg_morning_wake_hhmm": _avg_time(wakes),
+        "confidence": conf,
+        "sample_n": n,
+        "days_window": days,
+    }
+
+
+def _personalised_window_min(baseline: dict, age_months: float) -> tuple[int, str]:
+    """Return (window_min, source) — prefers Matvey's own average if
+    confidence is medium+, otherwise falls back to age norm."""
+    if baseline.get("confidence") in ("high", "medium") and baseline.get("avg_wake_window_min"):
+        return int(baseline["avg_wake_window_min"]), f"его собственный за {baseline['days_window']}д (n={baseline['sample_n']})"
+    return expected_wake_window_min(age_months), "возрастная норма (мало данных по Матвею)"
+
+
+def _personalised_nap_target(baseline: dict, age_months: float) -> tuple[int, str]:
+    if baseline.get("confidence") in ("high", "medium") and baseline.get("avg_nap_duration_min"):
+        return int(baseline["avg_nap_duration_min"]), "его собственный"
+    # Bootstrap by age
+    if age_months <= 6:
+        return 75, "возрастная норма"
+    if age_months <= 9:
+        return 90, "возрастная норма"
+    if age_months <= 15:
+        return 75, "возрастная норма"
+    return 70, "возрастная норма"
+
+
 async def next_sleep_advice(sheets_client: Any) -> dict:
     """«Прямо сейчас»: куда мы относительно окна бодрствования / спим
     дольше нормы — пора будить?"""
@@ -346,7 +459,8 @@ async def next_sleep_advice(sheets_client: Any) -> dict:
     now = now_kyiv()
     birth = CHILD.get("birth_date")
     age_m = _age_months(birth, now) if birth else 6.0
-    window_min = expected_wake_window_min(age_m)
+    baseline = await personal_baseline(sheets_client, days=14)
+    window_min, window_src = _personalised_window_min(baseline, age_m)
 
     sleeping_since_iso = state.get("sleeping_since")
     awake_since_iso = state.get("awake_since")
@@ -354,20 +468,12 @@ async def next_sleep_advice(sheets_client: Any) -> dict:
     if sleeping_since_iso:
         sleeping_since = datetime.fromisoformat(sleeping_since_iso)
         slept_min = (now - sleeping_since).total_seconds() / 60.0
-        # Typical nap length for age
-        if age_m <= 6:
-            target_min = 75
-        elif age_m <= 9:
-            target_min = 90
-        elif age_m <= 15:
-            target_min = 75
-        else:
-            target_min = 70
+        target_min, target_src = _personalised_nap_target(baseline, age_m)
         last_nap_cutoff = now.replace(hour=17, minute=0, second=0, microsecond=0)
         verdict = "ok"
         text_for_agent = (
             f"Матвей спит уже {_fmt_hm(slept_min)} (с {sleeping_since.strftime('%H:%M')})."
-            f" Типичная длина дневного сна в его возрасте — около {target_min} мин."
+            f" Типичная длина дневного сна — около {target_min} мин ({target_src})."
         )
         if slept_min > target_min + 20:
             verdict = "wake_now"
@@ -409,7 +515,7 @@ async def next_sleep_advice(sheets_client: Any) -> dict:
         if until > 30:
             text_for_agent = (
                 f"Бодрствует {_fmt_hm(awake_min)} (с {awake_since.strftime('%H:%M')})."
-                f" До типичного окна сна (~{window_min} мин для {age_m:.1f} мес) "
+                f" До типичного окна сна (~{window_min} мин — {window_src}) "
                 f"осталось ~{int(until)} мин — укладывать около {next_sleep_at}."
             )
             verdict = "ok"
