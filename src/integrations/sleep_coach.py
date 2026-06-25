@@ -164,7 +164,7 @@ def _age_months(birth_date, now_dt) -> float:
     return age_days / 30.4375
 
 
-async def weekly_analysis(sheets_client: Any, days: int = 7) -> dict:
+async def weekly_analysis(sheets_client: Any, days: int = 14) -> dict:
     """Aggregate sleep metrics over the window + age-norm comparison +
     LLM-ready summary string. The actual textual recommendation is built
     by the agent prompt — this helper provides the *facts*."""
@@ -363,7 +363,7 @@ async def weekly_analysis(sheets_client: Any, days: int = 7) -> dict:
     }
 
 
-async def personal_baseline(sheets_client: Any, days: int = 14) -> dict:
+async def personal_baseline(sheets_client: Any, days: int = 30) -> dict:
     """Compute Matvey's OWN sleep pattern from the last N days.
 
     Returns:
@@ -459,7 +459,7 @@ async def next_sleep_advice(sheets_client: Any) -> dict:
     now = now_kyiv()
     birth = CHILD.get("birth_date")
     age_m = _age_months(birth, now) if birth else 6.0
-    baseline = await personal_baseline(sheets_client, days=14)
+    baseline = await personal_baseline(sheets_client, days=30)
     window_min, window_src = _personalised_window_min(baseline, age_m)
 
     sleeping_since_iso = state.get("sleeping_since")

@@ -107,7 +107,7 @@ class SleepPredictor:
             from src.integrations.sleep_coach import (
                 personal_baseline, _personalised_window_min,
             )
-            baseline = await personal_baseline(sheets, days=14)
+            baseline = await personal_baseline(sheets, days=30)
             window_min, window_src = _personalised_window_min(baseline, age_months)
 
             until_window = window_min - awake_min
@@ -169,7 +169,7 @@ class SleepPredictor:
         )
         sheets = getattr(self._nanny, "_sheets", None)
         if sheets:
-            baseline = await personal_baseline(sheets, days=14)
+            baseline = await personal_baseline(sheets, days=30)
             target, target_src = _personalised_nap_target(baseline, age_months)
         else:
             target = 90
