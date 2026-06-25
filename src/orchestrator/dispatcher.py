@@ -72,6 +72,49 @@ def _extract_json(text: str) -> str:
     return text
 
 
+# Короткие реплики без своего интента — продолжают разговор с последним
+# отвечавшим агентом. Преднамеренно узкий список — никаких полу-вопросов.
+_COURTESY_TOKENS = {
+    "спасибо", "спс", "спасиб", "благодарю", "благодарность",
+    "пожалуйста", "пожалуста", "пжлст", "пж",
+    "ок", "ok", "окей", "окк", "ок!", "оке",
+    "понял", "поняла", "понятно", "ясно",
+    "угу", "ага", "ясн", "хорошо", "добре",
+    "круто", "класс", "топ", "супер", "гуд", "збс",
+    "красавчик", "красава", "молодец", "молодчина",
+    "братишка", "братан", "родной",
+    "👍", "👌", "❤️", "🤝", "🔥",
+}
+
+
+def _is_courtesy(message_text: str) -> bool:
+    """Reply is short (≤ 4 words) and consists mostly of thanks/ack tokens
+    (with optional addressing like «братишка»). No '?' allowed — questions
+    have their own intent."""
+    if not message_text:
+        return False
+    t = message_text.strip().lower()
+    if "?" in t or len(t) > 60:
+        return False
+    # Strip trailing punctuation and split
+    import re
+    tokens = [w for w in re.split(r"[\s,.!]+", t) if w]
+    if not tokens or len(tokens) > 4:
+        return False
+    return all(w in _COURTESY_TOKENS for w in tokens)
+
+
+def _last_active_agent(recent_context: list[dict[str, Any]] | None) -> str | None:
+    """Most recent agent_id that authored a message in the window."""
+    if not recent_context:
+        return None
+    for m in reversed(recent_context):
+        aid = m.get("agent_id")
+        if aid:
+            return str(aid)
+    return None
+
+
 class AgentTask(BaseModel):
     agent_id: str
     priority: str  # "critical" | "high" | "normal" | "low"
@@ -107,7 +150,7 @@ class Dispatcher:
         """
         Classify a message and return which agents should respond.
         Returns is_external=True for finance intent (Фінн handles it, dispatcher stays silent).
-        Falls back to ["nanny"] if classification fails.
+        Falls back to devops if classification fails or routes to nobody.
         """
         # Direct address shortcut — bypass LLM entirely when the user
         # explicitly addresses an agent ("Прораб, ..." / "Няня, ..."):
@@ -122,6 +165,25 @@ class Dispatcher:
                 is_critical=False,
                 is_settings_command=False,
                 intent="direct",
+                is_external=False,
+            )
+
+        # Courtesy / continuation shortcut — «спасибо», «ок», «понял»,
+        # «угу», «класс», «круто», «гуд» и т.п. Сами по себе не несут
+        # интента — продолжают разговор с тем агентом, который ответил
+        # последним. Без этого LLM на коротком «спасибо» рандомно мажет
+        # (видели, как «Спасибо братишка» отвечала Няня после Прораба).
+        last_agent = _last_active_agent(recent_context)
+        if last_agent and last_agent in active_agent_ids and _is_courtesy(message_text):
+            log.info("dispatch_courtesy_continuation", agent=last_agent, message=message_text[:50])
+            return DispatchResult(
+                tasks=[AgentTask(
+                    agent_id=last_agent, priority="normal",
+                    reason="courtesy_continuation",
+                )],
+                is_critical=False,
+                is_settings_command=False,
+                intent="courtesy",
                 is_external=False,
             )
 
@@ -189,7 +251,11 @@ class Dispatcher:
                 if a.get("id") in active_agent_ids
             ]
             if not tasks:
-                tasks = [AgentTask(agent_id="nanny", priority="normal", reason="fallback")]
+                tasks = [AgentTask(
+                    agent_id=(last_agent if last_agent in active_agent_ids else "devops"),
+                    priority="normal",
+                    reason="fallback_to_last_or_devops",
+                )]
             return DispatchResult(
                 tasks=tasks,
                 is_critical=data.get("is_critical", False),
@@ -199,6 +265,13 @@ class Dispatcher:
             )
         except Exception:
             log.exception("dispatch_failed", message=message_text[:50])
+            fallback_id = (
+                last_agent if last_agent and last_agent in active_agent_ids
+                else ("devops" if "devops" in active_agent_ids else "nanny")
+            )
             return DispatchResult(
-                tasks=[AgentTask(agent_id="nanny", priority="normal", reason="error_fallback")]
+                tasks=[AgentTask(
+                    agent_id=fallback_id, priority="normal",
+                    reason="error_fallback_to_last_or_devops",
+                )]
             )
