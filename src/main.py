@@ -36,6 +36,7 @@ from src.agents.navigator import NavigatorAgent
 from src.scheduler.backup import register_backup_job
 from src.scheduler.healthcheck import register_healthcheck_jobs
 from src.scheduler.reminders import register_reminder_jobs
+from src.scheduler.sleep_predictor import SleepPredictor, register_sleep_predictor_job
 
 log = structlog.get_logger()
 
@@ -1149,6 +1150,17 @@ async def run(dry_run: bool = False) -> None:
             asyncio.create_task(register_vaccine_seed_once(calendar_client, memory))
         except Exception:
             log.exception("vaccine_seed_kickoff_failed")
+
+    # Sleep window predictor — every 5 min checks if Матвей is approaching
+    # his age-typical wake window and pushes Marina a soft warning.
+    try:
+        sleep_predictor = SleepPredictor(
+            memory=memory, nanny_agent=agents["nanny"],
+            bot_manager=bot_manager, chat_id=chat_id,
+        )
+        register_sleep_predictor_job(scheduler, sleep_predictor)
+    except Exception:
+        log.exception("sleep_predictor_register_failed")
 
     scheduler.start()
 
