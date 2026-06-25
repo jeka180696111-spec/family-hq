@@ -853,6 +853,19 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "inverter_runtime",
+                "description": (
+                    "Сколько света осталось от батареи при текущей нагрузке. "
+                    "Возвращает % батареи, нагрузку в Вт, время до 20% резерва, "
+                    "и подсказки «если выкл бойлер → +Xч». Триггеры: "
+                    "«сколько света осталось», «сколько батареи осталось», "
+                    "«состояние инвертора», «инвертор», «батарея», «сколько часов "
+                    "продержимся», «надолго ли батареи». Сразу возвращай юзеру "
+                    "поле `text` целиком (он уже отформатирован)."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
                 "name": "run_tuya_scene",
                 "description": (
                     "🚀 ПРЕДПОЧТИТЕЛЬНЫЙ способ управлять кондиционером. "
@@ -1886,6 +1899,28 @@ class DevOpsAgent(BaseAgent):
                 mode=tool_input.get("mode"),
                 temperature=tool_input.get("temperature"),
             )
+
+        elif tool_name == "inverter_runtime":
+            from src.config import get_settings
+            from src.integrations.luxcloud import LuxCloudClient
+            from src.integrations.tuya import TuyaClient
+            from src.utils.inverter import runtime_report
+            settings = get_settings()
+            lux = LuxCloudClient.from_settings(settings)
+            if not lux:
+                return {"error": "LuxCloud не настроен"}
+            try:
+                data = await lux.runtime()
+            except Exception as e:
+                return {"error": f"LuxCloud недоступен: {type(e).__name__}: {e}"}
+            tuya = TuyaClient.from_settings(settings)
+            report = await runtime_report(
+                lux_data=data,
+                capacity_wh=int(getattr(settings, "battery_capacity_wh", 5184)),
+                reserve_pct=int(getattr(settings, "battery_reserve_pct", 20)),
+                tuya_client=tuya,
+            )
+            return report
 
         elif tool_name == "run_tuya_scene":
             from src.config import get_settings

@@ -83,6 +83,11 @@ class Settings(BaseSettings):
     luxcloud_password: str = Field(default="")
     luxcloud_region: str = Field(default="eu")
     lux_inverter_serial: str = Field(default="")
+    # Battery capacity in Wh — used to estimate runtime during outages.
+    # Default = 108 Ah × 48 V = 5184 Wh (LiFePO4 15S server-rack pack).
+    battery_capacity_wh: int = Field(default=5184)
+    # Cut-off SOC% — autonomy is computed down to this level, not 0.
+    battery_reserve_pct: int = Field(default=20)
 
     # SmartThings (Samsung POWERbot, other ST-connected devices)
     smartthings_token: str = Field(default="")

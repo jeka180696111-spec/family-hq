@@ -235,6 +235,49 @@ class TuyaClient:
             data2["wake_retried"] = True
         return data2
 
+    async def read_device_power_w(self, device: str) -> dict:
+        """Return current power draw of a smart plug / smart switch in
+        watts. Looks for cur_power (0.1 W units), va_power, power_w DPs.
+
+        Returns: {device, online, on, power_w, source} or {error, ...}.
+        """
+        devices = await self.list_devices()
+        target = self._find_device(devices, device)
+        if not target:
+            return {"error": f"Не нашёл устройство '{device}'", "available": [d["name"] for d in devices]}
+        status = target.get("status", []) or []
+        codes = {s.get("code", ""): s.get("value") for s in status}
+        # Power DP candidates (different vendors / firmwares)
+        power_w = None
+        source = None
+        for code, scale in (
+            ("cur_power", 0.1),    # most common Tuya power plug — 0.1 W units
+            ("power_w", 1.0),
+            ("va_power", 1.0),
+            ("Power_consumption", 1.0),
+            ("power", 1.0),
+        ):
+            if code in codes and codes[code] is not None:
+                try:
+                    power_w = float(codes[code]) * scale
+                    source = code
+                    break
+                except (TypeError, ValueError):
+                    continue
+        # Is the switch on?
+        on = None
+        for s_code in ("switch", "switch_1", "switch_led"):
+            if s_code in codes:
+                on = bool(codes[s_code])
+                break
+        return {
+            "device": target["name"],
+            "online": target["online"],
+            "on": on,
+            "power_w": round(power_w, 1) if power_w is not None else None,
+            "source_dp": source,
+        }
+
     async def control(self, device: str, action: str) -> dict:
         """Toggle a device. action ∈ on/off/toggle/status.
 

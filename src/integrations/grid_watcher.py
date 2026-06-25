@@ -74,6 +74,7 @@ class GridWatcher:
         # clearly shows we're on battery without grid → open outage.
         # Three ticks at 30s = 90s confirmation before firing.
         self._discharge_streak: int = 0
+        self._last_runtime_push: datetime | None = None
 
     async def tick(self) -> None:
         """Event-driven detection: trust ONLY the inverter's own
@@ -176,6 +177,46 @@ class GridWatcher:
                 battery_pct = None
             if battery_pct is not None:
                 await self._maybe_battery_alert(battery_pct)
+            await self._maybe_push_runtime(data)
+
+    async def _maybe_push_runtime(self, data: dict) -> None:
+        """During an outage, push «осталось Xч до 20%» on first tick
+        after opening, then every 30 minutes."""
+        from src.utils.time import now_kyiv
+        now = now_kyiv()
+        if self._last_runtime_push is not None:
+            elapsed = (now - self._last_runtime_push).total_seconds() / 60.0
+            if elapsed < 30:
+                return
+        try:
+            from src.config import get_settings
+            from src.integrations.tuya import TuyaClient
+            from src.utils.inverter import runtime_report
+            settings = get_settings()
+            tuya = TuyaClient.from_settings(settings)
+            report = await runtime_report(
+                lux_data=data,
+                capacity_wh=int(getattr(settings, "battery_capacity_wh", 5184)),
+                reserve_pct=int(getattr(settings, "battery_reserve_pct", 20)),
+                tuya_client=tuya,
+            )
+        except Exception:
+            log.exception("grid_watcher_runtime_report_failed")
+            return
+        if not self._bots or not self._chat_id:
+            return
+        try:
+            await self._bots.send_message(
+                agent_id="devops", chat_id=self._chat_id, text=report["text"],
+            )
+            self._last_runtime_push = now
+            log.info(
+                "grid_watcher_runtime_pushed",
+                battery_pct=report.get("battery_pct"),
+                remaining_min=report.get("remaining_min"),
+            )
+        except Exception:
+            log.exception("grid_watcher_runtime_push_failed")
 
     def _latest_state_from_events(self, events: list[dict]) -> bool | None:
         """Return True if grid is ON, False if OFF, None if no recent grid event."""
@@ -266,6 +307,8 @@ class GridWatcher:
                 await self._automation.trigger_power_outage(active=True)
             except Exception:
                 log.exception("grid_watcher_open_automation_failed")
+        # Send first runtime estimate ~30s later (after a stable load reading)
+        self._last_runtime_push = None
         log.info("grid_watcher_outage_opened")
 
     async def _close(self) -> None:
