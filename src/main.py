@@ -37,6 +37,7 @@ from src.scheduler.backup import register_backup_job
 from src.scheduler.healthcheck import register_healthcheck_jobs
 from src.scheduler.reminders import register_reminder_jobs
 from src.scheduler.sleep_predictor import SleepPredictor, register_sleep_predictor_job
+from src.scheduler.sleep_reactor import SleepReactor, register_sleep_reactor_job
 
 log = structlog.get_logger()
 
@@ -1161,6 +1162,17 @@ async def run(dry_run: bool = False) -> None:
         register_sleep_predictor_job(scheduler, sleep_predictor)
     except Exception:
         log.exception("sleep_predictor_register_failed")
+
+    # Sleep reactor — каждые 2 мин сканит Дневник, при новой записи
+    # засыпание/пробуждение Няня немедленно комментирует в чат.
+    try:
+        sleep_reactor = SleepReactor(
+            memory=memory, nanny_agent=agents["nanny"],
+            bot_manager=bot_manager, chat_id=chat_id,
+        )
+        register_sleep_reactor_job(scheduler, sleep_reactor)
+    except Exception:
+        log.exception("sleep_reactor_register_failed")
 
     scheduler.start()
 
