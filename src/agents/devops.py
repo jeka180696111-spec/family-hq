@@ -1930,13 +1930,73 @@ class DevOpsAgent(BaseAgent):
                     "error": f"Не нашёл устройство '{tool_input.get('device')}'",
                     "available": [d["name"] for d in devices],
                 }
+            # Translate raw Tuya DPs into a human-readable card.
+            dps = {s.get("code", ""): s.get("value") for s in target.get("status", []) or []}
+            lines = [f"🛠 <b>{target['name']}</b>"]
+            lines.append("🟢 online" if target.get("online") else "🔴 offline")
+
+            # Switch state
+            switch_val = None
+            for code in ("switch", "switch_1", "switch_led"):
+                if code in dps:
+                    switch_val = dps[code]
+                    break
+            if switch_val is not None:
+                lines.append("🔌 Включён" if switch_val else "⚫ Выключен")
+
+            # Power (0.1 W units на большинстве плагов)
+            if "cur_power" in dps and dps["cur_power"] is not None:
+                try:
+                    p = float(dps["cur_power"]) * 0.1
+                    if p < 1:
+                        lines.append(f"⚡ Мощность: 0 Вт (standby)")
+                    else:
+                        lines.append(f"⚡ Мощность: <b>{p:.0f} Вт</b>")
+                except (TypeError, ValueError):
+                    pass
+            # Voltage (0.1 V units)
+            if "cur_voltage" in dps and dps["cur_voltage"] is not None:
+                try:
+                    v = float(dps["cur_voltage"]) * 0.1
+                    lines.append(f"🔋 Напряжение: {v:.1f} В")
+                except (TypeError, ValueError):
+                    pass
+            # Current (mA)
+            if "cur_current" in dps and dps["cur_current"] is not None:
+                try:
+                    a_ma = float(dps["cur_current"])
+                    if a_ma < 1000:
+                        lines.append(f"📈 Ток: {int(a_ma)} мА")
+                    else:
+                        lines.append(f"📈 Ток: {a_ma / 1000:.2f} А")
+                except (TypeError, ValueError):
+                    pass
+            # Energy counter (0.01 kWh units typical для add_ele)
+            if "add_ele" in dps and dps["add_ele"] is not None:
+                try:
+                    e_kwh = float(dps["add_ele"]) * 0.01
+                    lines.append(f"📊 Накоплено: {e_kwh:.2f} кВт·ч")
+                except (TypeError, ValueError):
+                    pass
+            # Countdown timer
+            if "countdown_1" in dps and dps["countdown_1"]:
+                try:
+                    sec = int(dps["countdown_1"])
+                    if sec > 0:
+                        lines.append(f"⏳ Таймер: ещё {sec // 60} мин")
+                except (TypeError, ValueError):
+                    pass
+            # Fault
+            if "fault" in dps:
+                lines.append("✅ Без ошибок" if not dps["fault"] else f"⚠️ Ошибка: {dps['fault']}")
+
             return {
-                "device": target["name"],
-                "online": target["online"],
-                "category": target.get("category"),
-                "product_name": target.get("product_name"),
-                "all_dps": target.get("status", []),
-                "display_instruction": "Покажи юзеру список all_dps как есть — c кодами и значениями. Без интерпретации.",
+                "pretty": "\n".join(lines),
+                "display_instruction": (
+                    "Отправь юзеру поле `pretty` КАК ЕСТЬ. Без своих "
+                    "комментариев, без префиксов 'вот', без эмодзи "
+                    "помимо тех что в pretty. ОДНИМ блоком."
+                ),
             }
 
         elif tool_name == "inverter_runtime":
