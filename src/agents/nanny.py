@@ -198,6 +198,39 @@ class NannyAgent(BaseAgent):
                 "input_schema": {"type": "object", "properties": {}},
             },
             {
+                "name": "sleep_analysis",
+                "description": (
+                    "📊 АНАЛИЗ СНА Матвея за последние N дней + рекомендации. "
+                    "Читает Дневник, считает дневной/ночной сон, время bedtime/wake, "
+                    "ночные пробуждения. Возвращает age-typical wake window, "
+                    "среднее текущее, и КОНКРЕТНЫЕ советы что попробовать сегодня. "
+                    "Триггеры: «няня, что с сном», «анализ сна», «как Матвей спал», "
+                    "«разбери его сон», «корректировка сна», «помоги со сном», "
+                    "«когда укладывать», «когда буить», «можно ли спать дальше»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "days": {
+                            "type": "integer",
+                            "description": "За сколько дней анализ (по умолчанию 7).",
+                        },
+                    },
+                },
+            },
+            {
+                "name": "next_sleep_advice",
+                "description": (
+                    "🕐 «КОГДА следующий сон / когда будить» — для конкретной ситуации "
+                    "«прямо сейчас». Читает последнюю запись Дневника, считает "
+                    "сколько Матвей бодрствует/спит, и говорит: уложи в HH:MM, "
+                    "буди в HH:MM, либо «спит дольше нормы — пора будить». "
+                    "Триггеры: «когда укладывать», «не пора ли спать», "
+                    "«пора будить», «сколько ещё ему спать», «когда следующее окно»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
                 "name": "recent_baby_photos",
                 "description": (
                     "Показать недавние фото малыша из архива (для альбома, дайджеста бабушкам). "
@@ -403,6 +436,27 @@ class NannyAgent(BaseAgent):
                 limit=int(tool_input.get("limit", 5)),
                 days_back=int(tool_input.get("days_back", 14)),
             )
+
+        if tool_name == "sleep_analysis":
+            from src.integrations.sleep_coach import weekly_analysis
+            if not self._sheets:
+                return {"error": "Sheets не подключены"}
+            try:
+                return await weekly_analysis(
+                    self._sheets,
+                    days=int(tool_input.get("days", 7)),
+                )
+            except Exception as e:
+                return {"error": f"sleep_analysis failed: {type(e).__name__}: {e}"}
+
+        if tool_name == "next_sleep_advice":
+            from src.integrations.sleep_coach import next_sleep_advice
+            if not self._sheets:
+                return {"error": "Sheets не подключены"}
+            try:
+                return await next_sleep_advice(self._sheets)
+            except Exception as e:
+                return {"error": f"next_sleep_advice failed: {type(e).__name__}: {e}"}
 
         return await super()._call_tool(tool_name, tool_input)
 

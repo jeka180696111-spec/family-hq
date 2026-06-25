@@ -217,6 +217,39 @@ async def _section_recent_vaccinations(memory: Any) -> str:
     return "\n".join(lines)
 
 
+async def _section_sleep_coach(nanny_agent: Any) -> str:
+    """Утренняя коротко-сводка от sleep-coach: цифры за неделю + 1-2
+    конкретных совета на сегодня. LLM рендерит из summary_for_agent."""
+    try:
+        if not nanny_agent._sheets:
+            return ""
+        from src.integrations.sleep_coach import weekly_analysis
+        data = await weekly_analysis(nanny_agent._sheets, days=7)
+        if not data.get("observed"):
+            return ""
+        prompt = (
+            "Сформулируй сводку «Сон» для утреннего брифинга — 3-5 строк "
+            "максимум. Без эмоциональной воды. Сначала факт (bedtime, "
+            "длительность, разрывы), потом ОДИН-ДВА конкретных совета на "
+            "сегодня. Тёплый, человечный, но без сюсюканья. "
+            "ВАЖНО: коррекция занимает 1-3 недели — не обещай чудес, "
+            "обещай «попробуем».\n\n"
+            f"ДАННЫЕ:\n{data['summary_for_agent']}"
+        )
+        text = await nanny_agent._claude.complete(
+            model=nanny_agent._get_model(),
+            system="Ты — Няня. Сводка по сну Матвея, очень короткая.",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=400,
+        )
+        if not text:
+            return ""
+        return f"😴 <b>Сон Матвея</b>\n{text.strip()}"
+    except Exception:
+        log.exception("brief_sleep_coach_failed")
+        return ""
+
+
 async def _section_baby(nanny_agent: Any, memory: Any) -> str:
     try:
         if not nanny_agent._sheets:
@@ -357,16 +390,17 @@ async def send_morning_brief(
         date_str = now_kyiv().strftime("%d.%m, %A")
         # Run sections in parallel where independent
         import asyncio
-        news_s, weather_s, baby_s, plans_s, systems_s, vacc_s = await asyncio.gather(
+        news_s, weather_s, baby_s, plans_s, systems_s, vacc_s, sleep_s = await asyncio.gather(
             _section_news(news_agent, memory),
             _section_weather(),
             _section_baby(nanny_agent, memory),
             _section_plans(calendar_agent, memory),
             _section_systems(memory),
             _section_recent_vaccinations(memory),
+            _section_sleep_coach(nanny_agent),
             return_exceptions=False,
         )
-        sections = [s for s in (news_s, weather_s, baby_s, vacc_s, plans_s, systems_s) if s]
+        sections = [s for s in (news_s, weather_s, baby_s, sleep_s, vacc_s, plans_s, systems_s) if s]
         header = f"☀️ <b>Доброе утро!</b> Сводка на {date_str}"
         body = "\n\n".join([header] + sections)
         await devops_agent.send(body)
