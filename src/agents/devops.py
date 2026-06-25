@@ -853,6 +853,23 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "dump_device_dps",
+                "description": (
+                    "Диагностика: дамп всех DPs (data points) устройства "
+                    "Tuya as-is. Используется чтобы увидеть какие коды "
+                    "и значения отдаёт смарт-розетка (cur_power, "
+                    "cur_current, voltage и т.п.). Триггер: «дамп <устр>», "
+                    "«покажи DPs <устр>», «состояние датчиков <устр>»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "device": {"type": "string", "description": "Имя устройства (бойлер, тв, кондер...)"},
+                    },
+                    "required": ["device"],
+                },
+            },
+            {
                 "name": "inverter_runtime",
                 "description": (
                     "Сколько света осталось от батареи при текущей нагрузке. "
@@ -1899,6 +1916,28 @@ class DevOpsAgent(BaseAgent):
                 mode=tool_input.get("mode"),
                 temperature=tool_input.get("temperature"),
             )
+
+        elif tool_name == "dump_device_dps":
+            from src.config import get_settings
+            from src.integrations.tuya import TuyaClient
+            client = TuyaClient.from_settings(get_settings())
+            if not client:
+                return {"error": "Tuya не настроен"}
+            devices = await client.list_devices()
+            target = client._find_device(devices, tool_input.get("device", ""))
+            if not target:
+                return {
+                    "error": f"Не нашёл устройство '{tool_input.get('device')}'",
+                    "available": [d["name"] for d in devices],
+                }
+            return {
+                "device": target["name"],
+                "online": target["online"],
+                "category": target.get("category"),
+                "product_name": target.get("product_name"),
+                "all_dps": target.get("status", []),
+                "display_instruction": "Покажи юзеру список all_dps как есть — c кодами и значениями. Без интерпретации.",
+            }
 
         elif tool_name == "inverter_runtime":
             from src.config import get_settings
