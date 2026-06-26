@@ -100,7 +100,7 @@ class AutomationEngine:
                         continue
                     self._outage_fired_rules.add(rule.id)
                     action = json.loads(rule.action)
-                    await self._execute(rule.name, action)
+                    await self._execute(rule.name, action, cond)
                     async with self._memory._engine.begin() as conn:
                         await conn.execute(
                             sql_update(AutomationRule).where(AutomationRule.id == rule.id).values(
@@ -173,7 +173,7 @@ class AutomationEngine:
                         if rule.id in self._outage_fired_rules:
                             continue
                         self._outage_fired_rules.add(rule.id)
-                    await self._execute(rule.name, action)
+                    await self._execute(rule.name, action, cond)
                     # One-shot rules (single datetime trigger) are removed
                     # after firing — keeps the rules table lean and avoids
                     # re-checking dead rules on every minute tick.
@@ -579,7 +579,80 @@ class AutomationEngine:
         except Exception:
             log.exception("automation_notify_failed")
 
-    async def _execute(self, rule_name: str, action: dict) -> None:
+    async def _format_cond_reason(self, cond: dict) -> str:
+        """Human-readable «почему сработало»: «темпа 27.5° > 26°»,
+        «запланировано на 14:00», «при отключении света», и т.п.
+        Best-effort: для sensor дёргает текущий замер; всё что не
+        распарсилось — возвращает пусто."""
+        if not isinstance(cond, dict):
+            return ""
+        t = cond.get("type", "")
+        try:
+            if t == "and":
+                parts = []
+                for sub in cond.get("conditions", []) or []:
+                    r = await self._format_cond_reason(sub)
+                    if r:
+                        parts.append(r)
+                return " и ".join(parts)
+            if t == "or":
+                parts = []
+                for sub in cond.get("conditions", []) or []:
+                    r = await self._format_cond_reason(sub)
+                    if r:
+                        parts.append(r)
+                return " или ".join(parts)
+            if t == "sensor":
+                sensor = cond.get("sensor", "")
+                metric = cond.get("metric", "temperature")
+                op = cond.get("op", ">")
+                threshold = cond.get("value")
+                # Try to read current value for "потому что было X"
+                try:
+                    client = self._get_tuya()
+                    current = None
+                    if client and sensor:
+                        info = await client.read_sensor(sensor)
+                        if isinstance(info, dict):
+                            r = info.get("readings", {})
+                            v = r.get(metric)
+                            if isinstance(v, str):
+                                import re as _re
+                                m = _re.search(r"-?\d+(\.\d+)?", v)
+                                if m:
+                                    current = float(m.group(0))
+                except Exception:
+                    current = None
+                unit = "°" if "temp" in metric else "%" if "humi" in metric else ""
+                base = f"{sensor}"
+                if current is not None:
+                    return f"{base} {current}{unit} {op} {threshold}{unit}"
+                return f"{base} {op} {threshold}{unit}"
+            if t == "datetime":
+                at = cond.get("at", "")
+                if "T" in at:
+                    return f"запланировано на {at.split('T', 1)[1][:5]}"
+                return f"запланировано на {at}"
+            if t == "time":
+                at = cond.get("at") or cond.get("hour_minute") or ""
+                return f"ежедневно в {at}"
+            if t == "power_outage":
+                want = cond.get("active", True)
+                return "при отключении света" if want else "после восстановления света"
+            if t == "baby_sleeping":
+                want = cond.get("value", True)
+                return "Матвей спит" if want else "Матвей бодрствует"
+            if t == "alert_active":
+                return "во время воздушной тревоги"
+            if t == "alert_ended":
+                return "после отбоя тревоги"
+        except Exception:
+            log.exception("format_cond_reason_failed", t=t)
+        return ""
+
+    async def _execute(self, rule_name: str, action: dict, cond: dict | None = None) -> None:
+        reason = await self._format_cond_reason(cond) if cond else ""
+        suffix = f" — {reason}" if reason else ""
         kind = action.get("type", "")
         if kind == "device":
             client = self._get_tuya()
@@ -607,7 +680,7 @@ class AutomationEngine:
                         if scene_res.get("success"):
                             scene_used = match["name"]
                             await self._notify_chat(
-                                f"⚙️ [{rule_name}] сцена «{scene_used}» ✅"
+                                f"⚙️ [{rule_name}] сцена «{scene_used}» ✅{suffix}"
                             )
                             return
             except Exception:
@@ -631,7 +704,7 @@ class AutomationEngine:
                 await self._notify_chat(msg)
             else:
                 # Success — short confirmation so user knows the rule fired.
-                await self._notify_chat(f"⚙️ [{rule_name}] {device} → {act} ✅")
+                await self._notify_chat(f"⚙️ [{rule_name}] {device} → {act} ✅{suffix}")
             return
         if kind == "message":
             agent_id = action.get("agent", "devops")
