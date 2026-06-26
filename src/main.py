@@ -21,7 +21,7 @@ from src.integrations.sheets import SheetsClient
 from src.integrations.gcalendar import CalendarClient
 from src.integrations.github_api import GitHubClient
 from src.integrations.web_search import WebSearchClient
-from src.orchestrator.dispatcher import Dispatcher
+from src.orchestrator.dispatcher import Dispatcher, DispatchResult, AgentTask
 from src.orchestrator.parser import MessageParser
 from src.orchestrator.conversation import ConversationContext
 from src.orchestrator.access_control import AccessControl
@@ -715,6 +715,24 @@ async def handle_new_message(
             "Пользователь"
         )
 
+        # Reply-to detection — если юзер ответил Reply на чьё-то
+        # сообщение, форсим маршрутизацию только этому агенту.
+        forced_agent = None
+        reply_to_id = getattr(message, "reply_to_msg_id", None)
+        if reply_to_id:
+            try:
+                from sqlalchemy import select
+                from src.db.models import Message
+                async with memory._engine.connect() as conn:
+                    row = (await conn.execute(
+                        select(Message).where(Message.tg_message_id == reply_to_id).limit(1)
+                    )).first()
+                if row and row.agent_id:
+                    forced_agent = row.agent_id
+                    log.info("reply_to_agent_detected", agent=forced_agent, reply_to=reply_to_id)
+            except Exception:
+                log.exception("reply_to_lookup_failed")
+
         # Dispatch loop with peer-to-peer chaining (max 3 hops)
         await _dispatch_chain(
             text=text,
@@ -726,6 +744,7 @@ async def handle_new_message(
             context=context,
             chain_depth=0,
             origin_agent=None,
+            forced_agent=forced_agent,
         )
 
     except Exception:
@@ -867,15 +886,28 @@ async def _dispatch_chain(
     context: ConversationContext,
     chain_depth: int,
     origin_agent: str | None,
+    forced_agent: str | None = None,
 ) -> None:
     """Dispatch a message to agents; if an agent's reply addresses another, recurse."""
     recent = await context.get_recent(8)
-    result = await dispatcher.dispatch(
-        message_text=text,
-        sender_name=sender_name,
-        active_agent_ids=registry.active_ids(),
-        recent_context=recent,
-    )
+    if forced_agent and forced_agent in registry.active_ids():
+        # Telegram-Reply на конкретного агента — байпасс диспетчера,
+        # отвечает ТОЛЬКО он.
+        result = DispatchResult(
+            tasks=[AgentTask(
+                agent_id=forced_agent, priority="normal",
+                reason="telegram_reply_to_agent",
+            )],
+            is_critical=False, is_settings_command=False,
+            intent="reply_to_agent", is_external=False,
+        )
+    else:
+        result = await dispatcher.dispatch(
+            message_text=text,
+            sender_name=sender_name,
+            active_agent_ids=registry.active_ids(),
+            recent_context=recent,
+        )
     parsed = await parser.parse(text)
 
     priority_order = {"critical": 0, "high": 1, "normal": 2, "low": 3}
