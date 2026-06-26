@@ -684,9 +684,12 @@ class AutomationEngine:
                                 track_user_action(f"сцена: {scene_used}")
                             except Exception:
                                 pass
-                            await self._notify_chat(
-                                f"⚙️ [{rule_name}] сцена «{scene_used}» ✅{suffix}"
-                            )
+                            reason = await self._format_cond_reason(cond) if cond else ""
+                            msg_parts = [f"⚙️ <b>{rule_name}</b>"]
+                            msg_parts.append(f"▸ Запустил сцену «{scene_used}» ✅")
+                            if reason:
+                                msg_parts.append(f"💡 {reason}")
+                            await self._notify_chat("\n".join(msg_parts))
                             return
             except Exception:
                 log.exception("automation_scene_path_failed", rule=rule_name)
@@ -709,7 +712,13 @@ class AutomationEngine:
                 await self._notify_chat(msg)
             else:
                 # Success — short confirmation so user knows the rule fired.
-                await self._notify_chat(f"⚙️ [{rule_name}] {device} → {act} ✅{suffix}")
+                reason = await self._format_cond_reason(cond) if cond else ""
+                act_text = {"on": "включил", "off": "выключил", "toggle": "переключил"}.get(act, act)
+                msg_parts = [f"⚙️ <b>{rule_name}</b>"]
+                msg_parts.append(f"▸ {act_text.capitalize()} «{device}» ✅")
+                if reason:
+                    msg_parts.append(f"💡 {reason}")
+                await self._notify_chat("\n".join(msg_parts))
             return
         if kind == "message":
             agent_id = action.get("agent", "devops")

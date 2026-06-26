@@ -138,7 +138,7 @@ class SleepReactor:
                     model=self._nanny._get_model(),
                     system="Ты — Няня. Реактивный комментарий после записи о сне.",
                     messages=[{"role": "user", "content": prompt}],
-                    max_tokens=200,
+                    max_tokens=800 if is_wake else 250,
                 )
             except Exception:
                 log.exception("sleep_reactor_llm_failed")
