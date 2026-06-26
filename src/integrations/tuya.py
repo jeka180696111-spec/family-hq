@@ -741,6 +741,13 @@ class TuyaClient:
             return {"ambiguous": True, "candidates": [s for _, s in ranked[:4] if _ >= top_score - 20]}
         return top
 
+    async def _track_action(self, label: str) -> None:
+        try:
+            from src.utils.family import track_user_action
+            track_user_action(label)
+        except Exception:
+            pass
+
     async def run_scene(self, scene_id: str) -> dict:
         """Trigger a Tap-to-Run scene. Tries v2 first (Smart Home Scene
         Linkage), falls back to v1 if v2 rejects."""

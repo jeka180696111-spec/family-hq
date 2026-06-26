@@ -679,6 +679,11 @@ class AutomationEngine:
                         scene_res = await client.run_scene(match["id"])
                         if scene_res.get("success"):
                             scene_used = match["name"]
+                            try:
+                                from src.utils.family import track_user_action
+                                track_user_action(f"сцена: {scene_used}")
+                            except Exception:
+                                pass
                             await self._notify_chat(
                                 f"⚙️ [{rule_name}] сцена «{scene_used}» ✅{suffix}"
                             )

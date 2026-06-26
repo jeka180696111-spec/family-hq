@@ -2055,6 +2055,12 @@ class DevOpsAgent(BaseAgent):
                     "hint": "несколько сцен подходят одинаково. Переспроси юзера какую именно.",
                 }
             result = await client.run_scene(match["id"])
+            if result.get("success"):
+                try:
+                    from src.utils.family import track_user_action
+                    track_user_action(f"сцена: {match['name']}")
+                except Exception:
+                    pass
             return {
                 "matched_scene": match["name"],
                 "scene_id": match["id"],

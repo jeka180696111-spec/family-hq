@@ -355,6 +355,53 @@ def _override_int(key: str, default: int) -> int:
         return default
 
 
+# Лёгкий tracker недавних действий — обновляется откуда угодно
+# (automation engine, devops handlers). Семидневное окно, тонкий sliding
+# window deque.  family_context_block() читает синхронно без обращения к БД.
+from collections import Counter, deque
+import threading
+from datetime import datetime as _dt, timedelta as _td
+
+_ACTION_LOG: deque[tuple[_dt, str]] = deque(maxlen=500)
+_ACTION_LOCK = threading.Lock()
+
+
+def track_user_action(label: str) -> None:
+    """Записать кодированную метку действия (e.g. «scene:Кондер 17»,
+    «command:вкл бойлер»). family_context_block потом увидит частоту."""
+    if not label:
+        return
+    with _ACTION_LOCK:
+        _ACTION_LOG.append((_dt.now(), label.strip().lower()))
+
+
+def _recent_patterns_block() -> str:
+    """Сборка «👀 ПАТТЕРНЫ за 7 дней» из in-memory tracker'a."""
+    try:
+        cutoff = _dt.now() - _td(days=7)
+        with _ACTION_LOCK:
+            recent = [label for ts, label in _ACTION_LOG if ts >= cutoff]
+        if not recent:
+            return ""
+        c = Counter(recent)
+        top = [(label, n) for label, n in c.most_common(6) if n >= 3]
+        if not top:
+            return ""
+        lines = ["👀 ПАТТЕРНЫ за неделю (юзер часто делает это):"]
+        for label, n in top:
+            lines.append(f"   • {label} — {n}×")
+        lines.append(
+            "Если в ТЕКУЩЕМ сообщении юзер повторяет одно из этих — "
+            "можешь тёпло «узнать» («опять кондер 17?», «третий раз "
+            "за неделю — комфортно?»). Без упрёка, без морализаторства. "
+            "Если в текущем сообщении про эти темы нет — ИГНОРИРУЙ блок, "
+            "ни в коем случае не вспоминай о них."
+        )
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
 def family_context_block() -> str:
     """Formatted summary inserted into agent system prompts."""
     matvey_age = matvey_age_short()
@@ -434,8 +481,14 @@ def family_context_block() -> str:
                 tag = f"через {a['days_until']} дн"
             lines.append(f"   {a['emoji']} {when} ({tag}) — {a['label']} · {a['years']}-летие")
     lines.append("═══")
-    # Global rules for EVERY agent — single source of truth, so no agent
-    # can skip them.
+    # Recent patterns — что юзер делал часто за последнюю неделю.
+    # Даёт агентам возможность «заметить»: «Опять кондер на 17? Третий
+    # день подряд» / «Уже четвёртый раз заказываешь ту же пиццу за
+    # неделю». Не для упрёка — для тёплого узнавания.
+    patterns_block = _recent_patterns_block()
+    if patterns_block:
+        lines.append(patterns_block)
+        lines.append("═══")
     lines.append(_GLOBAL_AGENT_RULES)
     from src.prompts._team import family_wiki_block
     wiki = family_wiki_block(_WIKI_FACTS)
