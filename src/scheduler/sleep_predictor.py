@@ -63,6 +63,13 @@ class SleepPredictor:
         self._last_wake_alert_for_sleeping_since: str | None = None
 
     async def tick(self) -> None:
+        # Не вклиниваться когда юзер активно пишет в чат.
+        try:
+            from src.utils.chat_activity import is_chat_active
+            if is_chat_active(within_seconds=90):
+                return
+        except Exception:
+            pass
         try:
             from src.integrations.baby_state_compute import compute_state_from_diary
             from src.utils.family import CHILD

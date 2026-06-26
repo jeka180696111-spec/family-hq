@@ -182,6 +182,13 @@ class GridWatcher:
     async def _maybe_push_runtime(self, data: dict) -> None:
         """During an outage, push «осталось Xч до 20%» on first tick
         after opening, then every 30 minutes."""
+        # Не вклиниваться когда юзер активно пишет.
+        try:
+            from src.utils.chat_activity import is_chat_active
+            if is_chat_active(within_seconds=90):
+                return
+        except Exception:
+            pass
         from src.utils.time import now_kyiv
         now = now_kyiv()
         if self._last_runtime_push is not None:

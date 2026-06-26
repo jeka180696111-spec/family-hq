@@ -540,6 +540,15 @@ async def handle_new_message(
         user_id = getattr(message, "sender_id", None)
         text = getattr(message, "text", "") or ""
 
+        # Mark «юзер пишет сейчас» — авто-пуши (sleep_predictor, runtime
+        # и т.п.) будут откладываться на 90 секунд, чтобы не вклиниваться
+        # в активный разговор.
+        try:
+            from src.utils.chat_activity import mark_user_message
+            mark_user_message()
+        except Exception:
+            pass
+
         # Slash-command routing: expand short commands into full LLM prompts
         # so existing dispatcher/agents pick them up naturally.
         text = _expand_slash_command(text)

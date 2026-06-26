@@ -724,19 +724,41 @@ class TuyaClient:
         return score
 
     async def find_scene(self, query: str) -> dict | None:
-        """Best-match scene by name. Returns None if no plausible match."""
+        """Best-match scene by name. Returns None if no plausible match.
+
+        КРИТИЧНО: если в запросе есть цифра (например «кондер 26»), и
+        НИ ОДНА сцена не содержит эту цифру — отказываемся подбирать
+        случайную «Кондер N»: возвращаем no_match со списком кандидатов.
+        Лучше переспросить чем включить не то.
+        """
+        import re
         scenes = await self.list_scenes()
         if not scenes:
             return None
+
+        q_digits = set(re.findall(r"\d+", (query or "").lower()))
+        if q_digits:
+            digit_matches = [
+                s for s in scenes
+                if set(re.findall(r"\d+", s["name"].lower())) & q_digits
+            ]
+            if not digit_matches:
+                # Цифра не совпадает ни с одной сценой → отказ.
+                return {
+                    "ambiguous": True,
+                    "candidates": scenes[:8],
+                    "reason": f"нет сцены с цифрой {next(iter(q_digits))}",
+                }
+            # Среди тех что совпали по цифре — выбираем по обычному скору
+            scenes = digit_matches
+
         ranked = sorted(
             ((self._score_scene_match(query, s["name"]), s) for s in scenes),
             key=lambda x: x[0], reverse=True,
         )
         top_score, top = ranked[0]
-        # Need at least one signal (digit, on/off, or token overlap)
         if top_score < 20:
             return None
-        # If second-best ties within 5 points AND non-trivial — ambiguous
         if len(ranked) > 1 and ranked[1][0] >= top_score - 5 and ranked[1][0] >= 80:
             return {"ambiguous": True, "candidates": [s for _, s in ranked[:4] if _ >= top_score - 20]}
         return top

@@ -42,6 +42,12 @@ class SleepReactor:
 
     async def tick(self) -> None:
         try:
+            from src.utils.chat_activity import is_chat_active
+            if is_chat_active(within_seconds=90):
+                return
+        except Exception:
+            pass
+        try:
             from src.integrations.sleep_coach import (
                 _parse_entry_dt, _kind_clean, _is_start, _is_end,
                 next_sleep_advice,
