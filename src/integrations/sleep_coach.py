@@ -482,6 +482,54 @@ def _personalised_nap_target(baseline: dict, age_months: float) -> tuple[int, st
     return 70, "возрастная норма"
 
 
+async def time_of_day_pattern(
+    sheets_client: Any, dt_ref: datetime, days: int = 7, window_h: int = 2,
+) -> dict:
+    """Для конкретного момента (например «уснул в 15:50 сегодня»)
+    собрать что Матвей делал в это же время суток предыдущие дни.
+
+    Возвращает:
+      same_hour_starts: список start-времён эпизодов с началом в окне
+        ±window_h часов вокруг dt_ref.hour:dt_ref.minute, за days дней.
+      same_hour_ends: то же для end-времён.
+      summary: текстовое резюме («за 7д Матвей обычно ложился в
+        15:25-15:40, сегодня 15:50 — в обычном окне +10м»).
+    """
+    entries = await _load_sleep_entries(sheets_client, days=days + 1)
+    episodes = _pair_episodes(entries)
+
+    target_min = dt_ref.hour * 60 + dt_ref.minute
+    half_window = window_h * 60
+
+    def _near(t_min: int) -> bool:
+        diff = abs(t_min - target_min)
+        return diff <= half_window or abs(diff - 24 * 60) <= half_window
+
+    same_starts = []
+    same_ends = []
+    for ep in episodes:
+        if ep["start"].date() == dt_ref.date():
+            continue  # сегодняшние не учитываем
+        sm = ep["start"].hour * 60 + ep["start"].minute
+        em = ep["end"].hour * 60 + ep["end"].minute
+        if _near(sm):
+            same_starts.append(ep["start"])
+        if _near(em):
+            same_ends.append(ep["end"])
+
+    def _fmt_list(dts):
+        return ", ".join(dt.strftime("%d.%m %H:%M") for dt in dts[-5:])
+
+    return {
+        "same_hour_starts": same_starts,
+        "same_hour_ends": same_ends,
+        "starts_str": _fmt_list(same_starts),
+        "ends_str": _fmt_list(same_ends),
+        "n_starts": len(same_starts),
+        "n_ends": len(same_ends),
+    }
+
+
 async def next_sleep_advice(sheets_client: Any) -> dict:
     """«Прямо сейчас»: куда мы относительно окна бодрствования / спим
     дольше нормы — пора будить?"""
@@ -594,21 +642,62 @@ async def next_sleep_advice(sheets_client: Any) -> dict:
             f"{total_naps_norm} дневных сна, общий сон {sleep_low}-{sleep_high}ч/сут"
         )
 
+        # Pattern по времени суток — сравниваем сегодняшние времена с
+        # тем же временем в предыдущие дни.
+        tod_block = ""
+        try:
+            # Когда проснулся сегодня — сравним с end-временами других дней
+            tod_wake = await time_of_day_pattern(sheets_client, awake_since, days=7, window_h=1)
+            # Когда лёг (начало предыдущего сна) — сравним со start-временами
+            tod_sleep_start_str = ""
+            if episodes:
+                last_ep = episodes[-1]
+                if abs((last_ep["end"] - awake_since).total_seconds()) <= 120:
+                    tod_sleep = await time_of_day_pattern(
+                        sheets_client, last_ep["start"], days=7, window_h=1,
+                    )
+                    if tod_sleep["n_starts"]:
+                        tod_sleep_start_str = (
+                            f"  • уложили сегодня в {last_ep['start'].strftime('%H:%M')}; "
+                            f"за 7д в это же время суток было {tod_sleep['n_starts']}× "
+                            f"({tod_sleep['starts_str']})\n"
+                        )
+            tod_wake_str = ""
+            if tod_wake["n_ends"]:
+                tod_wake_str = (
+                    f"  • проснулся в {awake_since.strftime('%H:%M')}; "
+                    f"за 7д в это же время суток было {tod_wake['n_ends']}× "
+                    f"({tod_wake['ends_str']})\n"
+                )
+            if tod_sleep_start_str or tod_wake_str:
+                tod_block = (
+                    f"\nСРАВНЕНИЕ ПО ВРЕМЕНИ СУТОК (тот же час ± 1ч):\n"
+                    f"{tod_sleep_start_str}{tod_wake_str}"
+                )
+        except Exception:
+            log.exception("tod_pattern_failed")
+
         summary_for_agent = (
             f"СЕЙЧАС: {now.strftime('%d.%m %H:%M')}. Матвею {age_m:.1f} мес. "
             f"Только что проснулся в {awake_since.strftime('%H:%M')}.\n\n"
             f"TIMELINE последних 48ч (start → end, длительность):\n"
             f"{timeline_str}\n\n"
             f"BASELINE Матвея:\n{base_str}\n\n"
-            f"AGE-НОРМА:\n{norm_str}\n\n"
+            f"AGE-НОРМА:\n{norm_str}\n"
+            f"{tod_block}\n"
             "ТВОЯ ЗАДАЧА: проанализируй timeline как опытный sleep coach.\n"
             "1) ЧТО ИМЕННО получилось (длительность последнего сна, как он "
             "соотносится с целью, какая была ночь, сколько уже накопилось "
             "дневного сна).\n"
-            "2) НАБЛЮДЕНИЕ из истории (что повторяется/изменилось).\n"
+            "2) НАБЛЮДЕНИЕ из истории — ИСПОЛЬЗУЙ блок «СРАВНЕНИЕ ПО ВРЕМЕНИ "
+            "СУТОК». Сравнивай не средние, а ТЕ ЖЕ часы. Пример: «вчера "
+            "лёг в 15:30, сегодня в 15:50 — рядом, ОК. Вчера встал в 16:40, "
+            "сегодня в 16:00 — на 40 мин раньше обычного, это и есть "
+            "причина короткого сна».\n"
             "3) КОНКРЕТНЫЙ совет на ближайший шаг: время следующего "
             "укладывания (HH:MM), длительность (если важно — короткий "
-            "20-30 мин или полноценный), что учесть до этого момента.\n\n"
+            "20-30 мин или полноценный), что учесть до этого момента. "
+            "Если паттерн ломается — объясни почему и как исправить.\n\n"
             "ВАЖНО: не подгоняй выводы под шаблон. Смотри на ЦИФРЫ. Если "
             "сон короткий — назови это шортнапом. Если длинный — учти как "
             "это сдвинет вечер. Если необычная картина — назови её. "
