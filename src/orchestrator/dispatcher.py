@@ -134,6 +134,39 @@ def _is_courtesy(message_text: str) -> bool:
     return has_strong
 
 
+# Слова которые ОДНОЗНАЧНО переключают тему на нового агента — даже
+# короткий вопрос с ними НЕ считается follow-up к предыдущему агенту.
+_ACTION_VERBS = {
+    "включи", "выключи", "запусти", "включай", "выключай",
+    "поставь", "включить", "выключить", "сделай", "сделать",
+    "запиши", "записать", "напомни", "напомнить", "удали", "удалить",
+    "создай", "создать", "купи", "купить", "сходи", "забронируй",
+    "позвони", "отправь", "найди", "найти", "найди",
+    "увімкни", "вимкни", "увімкнути", "вимкнути",
+}
+
+
+def _is_short_followup_question(message_text: str) -> bool:
+    """Короткий уточняющий вопрос без явных команд → продолжаем
+    разговор с последним отвечавшим. Триггеры: «через 30 минут?»,
+    «а что насчёт X?», «правда?», «точно?», «во сколько?», «когда?»,
+    «а если?»."""
+    if not message_text:
+        return False
+    t = message_text.strip().lower()
+    if "?" not in t and not t.endswith("?"):
+        return False
+    if len(t) > 100:
+        return False
+    import re
+    tokens = [w for w in re.split(r"[\s,.!()«»\"'?]+", t) if w]
+    if not tokens or len(tokens) > 8:
+        return False
+    if any(tok in _ACTION_VERBS for tok in tokens):
+        return False
+    return True
+
+
 def _last_active_agent(recent_context: list[dict[str, Any]] | None) -> str | None:
     """Most recent agent_id that authored a message in the window."""
     if not recent_context:
@@ -214,6 +247,24 @@ class Dispatcher:
                 is_critical=False,
                 is_settings_command=False,
                 intent="courtesy",
+                is_external=False,
+            )
+
+        # Короткий уточняющий вопрос («через 30 минут?», «когда?»,
+        # «правда?») без явных команд — продолжаем разговор с последним
+        # отвечавшим агентом. Без этого LLM-диспетчер видел «30 минут»
+        # и кидал к Прорабу, и тот включал кондёр от балды.
+        if (last_agent and last_agent in active_agent_ids
+                and _is_short_followup_question(message_text)):
+            log.info("dispatch_followup_question", agent=last_agent, message=message_text[:50])
+            return DispatchResult(
+                tasks=[AgentTask(
+                    agent_id=last_agent, priority="normal",
+                    reason="followup_question_to_last_agent",
+                )],
+                is_critical=False,
+                is_settings_command=False,
+                intent="followup",
                 is_external=False,
             )
 
