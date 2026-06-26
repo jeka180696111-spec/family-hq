@@ -787,7 +787,10 @@ class AutomationEngine:
                 ))
             return
         if kind == "ac_command":
-            # Compound AC action: set mode/temp/fan_speed in one shot via Tuya
+            # Compound AC action. Прямой IR API ненадёжен — сперва пробуем
+            # запустить заранее созданную Tap-to-Run сцену (по сборному
+            # запросу «кондер <temp>° <mode>»). Только если совпадения нет
+            # — падаем на старый set_mode/set_temperature.
             client = self._get_tuya()
             device = action.get("device", "")
             if not client:
@@ -796,6 +799,34 @@ class AutomationEngine:
             mode = action.get("mode")
             temp = action.get("temperature")
             speed = action.get("fan_speed") or action.get("speed")
+
+            # Scene path
+            try:
+                query_parts = [device or "кондер"]
+                if temp is not None:
+                    query_parts.append(f"{temp}")
+                if mode:
+                    query_parts.append(self._MODE_HUMAN.get(str(mode).lower(), str(mode)))
+                query = " ".join(query_parts)
+                match = await client.find_scene(query)
+                if match and not match.get("ambiguous"):
+                    scene_res = await client.run_scene(match["id"])
+                    if scene_res.get("success"):
+                        try:
+                            from src.utils.family import track_user_action
+                            track_user_action(f"сцена: {match['name']}")
+                        except Exception:
+                            pass
+                        reason = await self._format_cond_reason(cond) if cond else ""
+                        msg_parts = [f"⚙️ <b>{rule_name}</b>"]
+                        msg_parts.append(f"  🎬 Сцена «{match['name']}» ✅")
+                        if reason:
+                            msg_parts.append(f"  💡 {reason}")
+                        await self._notify_chat("\n".join(msg_parts))
+                        return
+            except Exception:
+                log.exception("automation_ac_scene_failed", rule=rule_name)
+
             try:
                 if mode and temp is not None:
                     r = await client.set_mode(device, mode, temperature=int(temp))
