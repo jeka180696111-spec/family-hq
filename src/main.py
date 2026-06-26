@@ -38,6 +38,7 @@ from src.scheduler.healthcheck import register_healthcheck_jobs
 from src.scheduler.reminders import register_reminder_jobs
 from src.scheduler.sleep_predictor import SleepPredictor, register_sleep_predictor_job
 from src.scheduler.sleep_reactor import SleepReactor, register_sleep_reactor_job
+from src.scheduler.evening_recap import register_evening_recap_job
 
 log = structlog.get_logger()
 
@@ -1173,6 +1174,14 @@ async def run(dry_run: bool = False) -> None:
         register_sleep_reactor_job(scheduler, sleep_reactor)
     except Exception:
         log.exception("sleep_reactor_register_failed")
+
+    # Evening recap — в 22:00 Прораб итожит день и план на завтра.
+    try:
+        register_evening_recap_job(
+            scheduler, agents["devops"], agents.get("calendar"), memory,
+        )
+    except Exception:
+        log.exception("evening_recap_register_failed")
 
     scheduler.start()
 
