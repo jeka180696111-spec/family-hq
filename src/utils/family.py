@@ -402,6 +402,20 @@ def _recent_patterns_block() -> str:
         return ""
 
 
+def _family_style_memo() -> str:
+    """Читает sync-кэш family_style_memo из FamilyMode. Sync чтения нет,
+    поэтому кэшируем в module-global, обновляется через update_style_cache()
+    из cron task."""
+    return _STYLE_CACHE.get("memo", "") or ""
+
+
+_STYLE_CACHE: dict[str, str] = {}
+
+
+def update_style_cache(memo: str) -> None:
+    _STYLE_CACHE["memo"] = (memo or "")[:4000]
+
+
 def family_context_block() -> str:
     """Formatted summary inserted into agent system prompts."""
     matvey_age = matvey_age_short()
@@ -488,6 +502,15 @@ def family_context_block() -> str:
     patterns_block = _recent_patterns_block()
     if patterns_block:
         lines.append(patterns_block)
+        lines.append("═══")
+    style_memo = _family_style_memo()
+    if style_memo:
+        lines.append("🗣 СТИЛЬ СЕМЬИ (обновляется еженедельно):")
+        lines.append(style_memo)
+        lines.append(
+            "Адаптируй тон под того кто пишет (но без передразнивания "
+            "и кривляния — мягкая подстройка)."
+        )
         lines.append("═══")
     lines.append(_GLOBAL_AGENT_RULES)
     from src.prompts._team import family_wiki_block

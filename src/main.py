@@ -39,6 +39,7 @@ from src.scheduler.reminders import register_reminder_jobs
 from src.scheduler.sleep_predictor import SleepPredictor, register_sleep_predictor_job
 from src.scheduler.sleep_reactor import SleepReactor, register_sleep_reactor_job
 from src.scheduler.evening_recap import register_evening_recap_job
+from src.scheduler.family_style import register_family_style_job
 
 log = structlog.get_logger()
 
@@ -1182,6 +1183,29 @@ async def run(dry_run: bool = False) -> None:
         )
     except Exception:
         log.exception("evening_recap_register_failed")
+
+    # Family style memo — еженедельно генерится профайл стиля каждого
+    # участника + warm-up через 5 мин после старта (если в БД уже есть
+    # последний memo — подгружаем синхронно сейчас).
+    try:
+        async def _bootstrap_style_cache():
+            try:
+                from sqlalchemy import select
+                from src.db.models import FamilyMode
+                from src.utils.family import update_style_cache
+                async with memory._engine.connect() as conn:
+                    row = (await conn.execute(
+                        select(FamilyMode).where(FamilyMode.name == "family_style_memo").limit(1)
+                    )).first()
+                    if row and row.payload:
+                        update_style_cache(row.payload)
+                        log.info("family_style_cache_loaded", chars=len(row.payload))
+            except Exception:
+                log.exception("style_cache_bootstrap_failed")
+        asyncio.create_task(_bootstrap_style_cache())
+        register_family_style_job(scheduler, agents["devops"], memory)
+    except Exception:
+        log.exception("family_style_register_failed")
 
     # Advice tracker — каждые 30 мин оценивает советы старше 12ч,
     # сравнивает с реальностью (фактическая запись в Дневнике).
