@@ -369,6 +369,27 @@ class AgentSetting(Base):
 # ---------------------------------------------------------------------------
 
 
+class AgentAdvice(Base):
+    """Совет агента, который потом можно сравнить с реальностью.
+
+    Например Няня советует «уложить в 19:30 на 90 мин» — сохраняем как
+    advice_type=nap_target, target_payload={target_time:"19:30",
+    target_duration_min:90}. Через сутки evaluate сравнивает с реальной
+    записью в Дневнике и проставляет outcome (hit / partial / miss).
+    """
+    __tablename__ = "agent_advice"
+    __table_args__ = (Index("idx_advice_agent_given", "agent_id", "given_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    agent_id: Mapped[str] = mapped_column(String, nullable=False)
+    advice_type: Mapped[str] = mapped_column(String, nullable=False)
+    given_at: Mapped[str] = mapped_column(String, nullable=False)
+    target_payload: Mapped[str] = mapped_column(Text, nullable=False)  # JSON
+    evaluated_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    outcome: Mapped[str | None] = mapped_column(String, nullable=True)  # hit/partial/miss
+    actual_payload: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
+
+
 class EventLog(Base):
     __tablename__ = "event_log"
     __table_args__ = (Index("idx_log_level_date", "level", "created_at"),)

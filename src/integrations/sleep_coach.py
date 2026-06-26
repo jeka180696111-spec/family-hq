@@ -164,7 +164,7 @@ def _age_months(birth_date, now_dt) -> float:
     return age_days / 30.4375
 
 
-async def weekly_analysis(sheets_client: Any, days: int = 14) -> dict:
+async def weekly_analysis(sheets_client: Any, days: int = 14, memory: Any = None) -> dict:
     """Aggregate sleep metrics over the window + age-norm comparison +
     LLM-ready summary string. The actual textual recommendation is built
     by the agent prompt — this helper provides the *facts*."""
@@ -342,6 +342,17 @@ async def weekly_analysis(sheets_client: Any, days: int = 14) -> dict:
         "\n".join(timeline_lines) if timeline_lines else "  (записей нет)"
     )
 
+    # Прошлый трекинг: чему советы сбылись, чему нет.
+    advice_block = ""
+    if memory is not None:
+        try:
+            from src.integrations.advice_tracker import recent_advice_summary
+            adv = await recent_advice_summary(memory, "nanny", days=4)
+            if adv:
+                advice_block = f"\nИСТОРИЯ СОВЕТОВ:\n{adv}\n"
+        except Exception:
+            log.exception("weekly_analysis_advice_block_failed")
+
     summary_for_agent = (
         f"Матвею {age_m:.1f} мес. Возрастные ориентиры (только как «норма/нет»):\n"
         f"- окно бодрствования {_fmt_hm(window_min)}\n"
@@ -356,7 +367,8 @@ async def weekly_analysis(sheets_client: Any, days: int = 14) -> dict:
         f"- последний дневной сон заканчивается ~{avg_last_nap or '—'}\n"
         f"- ночей с разрывом: {split_nights}/{days_observed}\n\n"
         f"СЫРОЙ TIMELINE последних эпизодов (для реального анализа):\n"
-        f"{timeline_block}\n\n"
+        f"{timeline_block}\n"
+        f"{advice_block}\n"
         "ТВОЯ ЗАДАЧА: проанализируй timeline и средние как опытный sleep "
         "coach. НЕ ВЫДАВАЙ ШАБЛОНЫ. Смотри на конкретные цифры этого "
         "ребёнка. Найди:\n"

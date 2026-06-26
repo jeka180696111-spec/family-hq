@@ -1183,6 +1183,25 @@ async def run(dry_run: bool = False) -> None:
     except Exception:
         log.exception("evening_recap_register_failed")
 
+    # Advice tracker — каждые 30 мин оценивает советы старше 12ч,
+    # сравнивает с реальностью (фактическая запись в Дневнике).
+    try:
+        async def _eval_advice():
+            try:
+                from src.integrations.advice_tracker import evaluate_pending
+                sheets = getattr(agents.get("nanny"), "_sheets", None)
+                if sheets:
+                    await evaluate_pending(memory, sheets)
+            except Exception:
+                log.exception("advice_eval_tick_failed")
+        scheduler.add_job(
+            _eval_advice, "interval", minutes=30,
+            id="advice_evaluator", replace_existing=True,
+            coalesce=True, max_instances=1,
+        )
+    except Exception:
+        log.exception("advice_eval_register_failed")
+
     scheduler.start()
 
     if dry_run:

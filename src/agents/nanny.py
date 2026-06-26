@@ -460,6 +460,7 @@ class NannyAgent(BaseAgent):
                 return await weekly_analysis(
                     self._sheets,
                     days=int(tool_input.get("days", 7)),
+                    memory=self._memory,
                 )
             except Exception as e:
                 return {"error": f"sleep_analysis failed: {type(e).__name__}: {e}"}

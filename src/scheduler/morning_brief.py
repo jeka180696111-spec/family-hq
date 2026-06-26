@@ -224,7 +224,7 @@ async def _section_sleep_coach(nanny_agent: Any) -> str:
         if not nanny_agent._sheets:
             return ""
         from src.integrations.sleep_coach import weekly_analysis
-        data = await weekly_analysis(nanny_agent._sheets, days=7)
+        data = await weekly_analysis(nanny_agent._sheets, days=7, memory=getattr(nanny_agent, "_memory", None))
         if not data.get("observed"):
             return ""
         prompt = (

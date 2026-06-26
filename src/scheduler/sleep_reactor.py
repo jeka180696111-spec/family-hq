@@ -160,6 +160,34 @@ class SleepReactor:
             # событие, чтобы не дёргать после «уснул».
             if ev["kind"] == "end":
                 await self._push_wake_plan()
+                # Записать ожидание по следующему сну для tracking
+                try:
+                    from src.integrations.advice_tracker import record_advice
+                    from datetime import datetime as _dt, timedelta as _td
+                    nx = (advice or {}).get("next_sleep_at") if isinstance(advice, dict) else None
+                    if nx:
+                        # advice уже посчитан внутри _next_sleep_advice
+                        # Сохраним target_at и duration (берём средний nap target)
+                        target_dur = (advice or {}).get("target_min") or 0
+                        # Парсим HH:MM в datetime сегодня (или завтра если HH:MM уже прошёл)
+                        try:
+                            h, m = nx.split(":")
+                            now = ev["dt"]
+                            t = now.replace(hour=int(h), minute=int(m), second=0, microsecond=0)
+                            if t < now:
+                                t = t + _td(days=1)
+                            await record_advice(
+                                self._memory, "nanny", "nap_target",
+                                {
+                                    "target_at": t.isoformat(),
+                                    "target_duration_min": int(target_dur) if target_dur else None,
+                                    "source_awake_since": ev["dt"].isoformat(),
+                                },
+                            )
+                        except Exception:
+                            log.exception("sleep_advice_record_failed")
+                except Exception:
+                    log.exception("sleep_advice_hook_failed")
         except Exception:
             log.exception("sleep_reactor_tick_failed")
 
