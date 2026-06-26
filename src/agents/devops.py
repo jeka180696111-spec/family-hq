@@ -253,6 +253,33 @@ class DevOpsAgent(BaseAgent):
                 "input_schema": {"type": "object", "properties": {}},
             },
             {
+                "name": "edit_automation_rule",
+                "description": (
+                    "Изменить ПОЛЯ существующего правила автоматизации, "
+                    "не удаляя его. Триггеры: «поменяй автоматизацию X», "
+                    "«измени правило Y», «обнови условие в правиле Z», "
+                    "«поставь порог в Y градусов», «измени температуру». "
+                    "Можно поменять любое из полей: condition (новое условие), "
+                    "action (новое действие), cooldown_min, enabled, "
+                    "description. Поля которые не переданы — остаются как "
+                    "были. ВАЖНО: сначала вызови inspect_automation_rule "
+                    "чтобы увидеть текущую структуру, потом передай ТОЛЬКО "
+                    "те поля что нужно поменять."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Имя правила"},
+                        "condition": {"type": "object", "description": "Новое условие (опционально)"},
+                        "action": {"type": "object", "description": "Новое действие (опционально)"},
+                        "cooldown_min": {"type": "integer"},
+                        "enabled": {"type": "boolean"},
+                        "description": {"type": "string"},
+                    },
+                    "required": ["name"],
+                },
+            },
+            {
                 "name": "inspect_automation_rule",
                 "description": (
                     "Показать ТОЧНУЮ структуру JSON конкретного правила: "
@@ -1317,6 +1344,8 @@ class DevOpsAgent(BaseAgent):
             return await self._automation_toggle(tool_input.get("name", ""), bool(tool_input.get("enabled", True)))
         elif tool_name == "delete_automation_rule":
             return await self._automation_delete(tool_input.get("name", ""))
+        elif tool_name == "edit_automation_rule":
+            return await self._automation_edit(tool_input)
         elif tool_name == "delete_all_automation_rules":
             return await self._automation_delete_all()
         elif tool_name == "repair_automation_rules":
@@ -3461,6 +3490,67 @@ class DevOpsAgent(BaseAgent):
                 "ПРИОСТАНОВЛЕННЫХ отдельно. Формат: '◆ <description> — "
                 "<trigger> → <action>'. Не вызывай list_automation_rules "
                 "больше одного раза подряд."
+            ),
+        }
+
+    async def _automation_edit(self, payload: dict) -> dict:
+        import json as _json
+        from sqlalchemy import select, update as sql_update
+        from src.db.models import AutomationRule
+        name = (payload or {}).get("name", "").strip()
+        if not name:
+            return {"error": "имя правила обязательно"}
+        # Найти правило
+        async with self._memory._engine.connect() as conn:
+            row = (await conn.execute(
+                select(AutomationRule).where(AutomationRule.name == name).limit(1)
+            )).first()
+        if not row:
+            return {"error": f"Правило «{name}» не найдено"}
+
+        updates: dict = {}
+        if "condition" in payload and payload["condition"] is not None:
+            updates["condition"] = _json.dumps(payload["condition"], ensure_ascii=False)
+        if "action" in payload and payload["action"] is not None:
+            updates["action"] = _json.dumps(payload["action"], ensure_ascii=False)
+        if "cooldown_min" in payload and payload["cooldown_min"] is not None:
+            updates["cooldown_min"] = int(payload["cooldown_min"])
+        if "enabled" in payload and payload["enabled"] is not None:
+            updates["enabled"] = 1 if payload["enabled"] else 0
+        if "description" in payload and payload["description"] is not None:
+            updates["description"] = str(payload["description"])
+        if not updates:
+            return {"error": "нечего менять — передай хотя бы одно поле"}
+
+        async with self._memory._engine.begin() as conn:
+            await conn.execute(
+                sql_update(AutomationRule).where(AutomationRule.name == name).values(**updates)
+            )
+
+        # Зеркалим в таблицу Прораб-блокнот если включена интеграция.
+        try:
+            new_cond = _json.loads(updates.get("condition", row.condition))
+            new_act = _json.loads(updates.get("action", row.action))
+            await self._notebook_mirror_rule(
+                name=name,
+                description=updates.get("description", row.description or ""),
+                condition=new_cond,
+                action=new_act,
+                enabled=bool(updates.get("enabled", row.enabled)),
+                cooldown_min=int(updates.get("cooldown_min", row.cooldown_min)),
+            )
+        except Exception:
+            log.exception("automation_edit_mirror_failed")
+
+        return {
+            "ok": True,
+            "name": name,
+            "updated_fields": sorted(updates.keys()),
+            "display_instruction": (
+                "Скажи юзеру одной строкой: «✏️ Обновил правило «<name>»: "
+                "<какие поля поменял в человеческом виде>». БЕЗ JSON, БЕЗ "
+                "технических деталей. Если поменял порог — назови новое "
+                "значение."
             ),
         }
 
