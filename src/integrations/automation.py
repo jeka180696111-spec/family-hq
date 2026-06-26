@@ -579,6 +579,50 @@ class AutomationEngine:
         except Exception:
             log.exception("automation_notify_failed")
 
+    # ─── Локализация действий для красивых уведомлений ─────────────
+    _ACTION_VERB = {
+        "on": "Включил", "off": "Выключил", "toggle": "Переключил",
+    }
+    _MODE_HUMAN = {
+        "cold": "охлаждение", "cool": "охлаждение",
+        "hot": "обогрев", "heat": "обогрев",
+        "wet": "осушение", "dry": "осушение",
+        "wind": "вентилятор", "fan": "вентилятор",
+        "auto": "авто",
+    }
+    _ACTION_EMOJI = {
+        "on": "🟢", "off": "🔴", "toggle": "🔄",
+        "cold": "❄️", "cool": "❄️",
+        "hot": "🔥", "heat": "🔥",
+        "wet": "💧", "dry": "💧",
+        "wind": "💨", "fan": "💨",
+    }
+
+    def _format_action_line(self, kind: str, action: dict) -> str:
+        """Pretty multi-line action description for notifications."""
+        if kind == "device":
+            device = action.get("device", "")
+            act = action.get("action", "")
+            verb = self._ACTION_VERB.get(act, act.capitalize())
+            emoji = self._ACTION_EMOJI.get(act, "•")
+            return f"{emoji} {verb} «{device}»"
+        if kind == "ac_command":
+            device = action.get("device", "")
+            mode = (action.get("mode") or "").lower()
+            temp = action.get("temperature")
+            speed = action.get("fan_speed") or action.get("speed")
+            emoji = self._ACTION_EMOJI.get(mode, "❄️")
+            mode_h = self._MODE_HUMAN.get(mode, mode)
+            parts = [f"{emoji} «{device}»"]
+            if mode_h:
+                parts.append(f"режим: {mode_h}")
+            if temp is not None:
+                parts.append(f"{temp}°")
+            if speed:
+                parts.append(f"вент.{speed}")
+            return " · ".join(parts)
+        return ""
+
     async def _format_cond_reason(self, cond: dict) -> str:
         """Human-readable «почему сработало»: «темпа 27.5° > 26°»,
         «запланировано на 14:00», «при отключении света», и т.п.
@@ -603,15 +647,17 @@ class AutomationEngine:
                         parts.append(r)
                 return " или ".join(parts)
             if t == "sensor":
-                sensor = cond.get("sensor", "")
+                sensor = cond.get("sensor") or cond.get("device") or ""
                 metric = cond.get("metric", "temperature")
                 op = cond.get("op", ">")
                 threshold = cond.get("value")
-                # Try to read current value for "потому что было X"
+                # Try to read current value for "сейчас X"
+                current = None
                 try:
                     client = self._get_tuya()
-                    current = None
-                    if client and sensor:
+                    if client:
+                        # Если имя датчика не указано, read_sensor("")
+                        # сам найдёт единственный подходящий.
                         info = await client.read_sensor(sensor)
                         if isinstance(info, dict):
                             r = info.get("readings", {})
@@ -621,13 +667,16 @@ class AutomationEngine:
                                 m = _re.search(r"-?\d+(\.\d+)?", v)
                                 if m:
                                     current = float(m.group(0))
+                            # Достать реальное имя из ответа
+                            sensor = info.get("device") or sensor
                 except Exception:
-                    current = None
+                    pass
                 unit = "°" if "temp" in metric else "%" if "humi" in metric else ""
-                base = f"{sensor}"
+                metric_h = "темпа" if "temp" in metric else "влажность" if "humi" in metric else metric
+                location = sensor or "датчик в комнате"
                 if current is not None:
-                    return f"{base} {current}{unit} {op} {threshold}{unit}"
-                return f"{base} {op} {threshold}{unit}"
+                    return f"{metric_h} {location}: {current}{unit} {op} порога {threshold}{unit}"
+                return f"{metric_h} {location} {op} {threshold}{unit}"
             if t == "datetime":
                 at = cond.get("at", "")
                 if "T" in at:
@@ -686,9 +735,9 @@ class AutomationEngine:
                                 pass
                             reason = await self._format_cond_reason(cond) if cond else ""
                             msg_parts = [f"⚙️ <b>{rule_name}</b>"]
-                            msg_parts.append(f"▸ Запустил сцену «{scene_used}» ✅")
+                            msg_parts.append(f"  🎬 Сцена «{scene_used}» ✅")
                             if reason:
-                                msg_parts.append(f"💡 {reason}")
+                                msg_parts.append(f"  💡 {reason}")
                             await self._notify_chat("\n".join(msg_parts))
                             return
             except Exception:
@@ -713,11 +762,11 @@ class AutomationEngine:
             else:
                 # Success — short confirmation so user knows the rule fired.
                 reason = await self._format_cond_reason(cond) if cond else ""
-                act_text = {"on": "включил", "off": "выключил", "toggle": "переключил"}.get(act, act)
+                action_line = self._format_action_line("device", {"device": device, "action": act})
                 msg_parts = [f"⚙️ <b>{rule_name}</b>"]
-                msg_parts.append(f"▸ {act_text.capitalize()} «{device}» ✅")
+                msg_parts.append(f"  {action_line} ✅")
                 if reason:
-                    msg_parts.append(f"💡 {reason}")
+                    msg_parts.append(f"  💡 {reason}")
                 await self._notify_chat("\n".join(msg_parts))
             return
         if kind == "message":
@@ -765,11 +814,12 @@ class AutomationEngine:
                 return
             ok = isinstance(r, dict) and (r.get("success") or "error" not in r)
             if ok:
-                summary = f"{device}"
-                if mode: summary += f" {mode}"
-                if temp is not None: summary += f" {temp}°"
-                if speed: summary += f" вент.{speed}"
-                await self._notify_chat(f"⚙️ [{rule_name}] {summary} ✅")
+                reason = await self._format_cond_reason(cond) if cond else ""
+                action_line = self._format_action_line("ac_command", action)
+                msg_parts = [f"⚙️ <b>{rule_name}</b>", f"  {action_line} ✅"]
+                if reason:
+                    msg_parts.append(f"  💡 {reason}")
+                await self._notify_chat("\n".join(msg_parts))
             else:
                 err = (r or {}).get("error") if isinstance(r, dict) else str(r)
                 await self._notify_chat(
