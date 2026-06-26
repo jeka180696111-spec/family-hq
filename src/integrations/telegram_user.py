@@ -60,6 +60,54 @@ class UserBot:
 
         hq_chat_id = self._chat_id
 
+        # Реакции на сообщения в HQ-группе — Telethon ловит через
+        # raw update UpdateMessageReactions / UpdateBotMessageReactions.
+        from telethon.tl.types import UpdateMessageReactions, UpdateBotMessageReactions
+        @self._client.on(events.Raw([UpdateMessageReactions, UpdateBotMessageReactions]))
+        async def on_reaction(update: Any) -> None:
+            try:
+                peer = getattr(update, "peer", None)
+                channel_id = getattr(peer, "channel_id", None) or getattr(peer, "chat_id", None)
+                if channel_id and -(1000000000000 + (channel_id or 0)) != hq_chat_id and channel_id != hq_chat_id:
+                    return  # not our chat
+                msg_id = getattr(update, "msg_id", None)
+                reactions_obj = getattr(update, "reactions", None)
+                if not reactions_obj or msg_id is None:
+                    return
+                # Извлечь сами эмодзи / custom reactions
+                results = getattr(reactions_obj, "results", []) or []
+                emojis = []
+                for r in results:
+                    reaction = getattr(r, "reaction", None)
+                    emoji = getattr(reaction, "emoticon", None)
+                    if emoji:
+                        emojis.append(emoji)
+                # Сохранить в event_log
+                try:
+                    from src.db.memory import _get_engine
+                    from src.db.models import EventLog
+                    from src.utils.time import iso_now
+                    from sqlalchemy import insert
+                    import json as _json
+                    engine = _get_engine()
+                    if engine is not None:
+                        async with engine.begin() as conn:
+                            await conn.execute(insert(EventLog).values(
+                                created_at=iso_now(),
+                                level="INFO",
+                                component="reaction",
+                                message=f"reaction_on_msg:{msg_id}",
+                                payload=_json.dumps({
+                                    "msg_id": msg_id,
+                                    "emojis": emojis,
+                                }, ensure_ascii=False),
+                            ))
+                            log.info("reaction_recorded", msg_id=msg_id, emojis=emojis)
+                except Exception:
+                    log.exception("reaction_save_failed")
+            except Exception:
+                log.exception("reaction_handler_failed")
+
         @self._client.on(events.NewMessage())
         async def on_new_message(event: events.NewMessage.Event) -> None:
             chat = event.chat_id
