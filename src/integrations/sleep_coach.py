@@ -512,6 +512,61 @@ async def next_sleep_advice(sheets_client: Any) -> dict:
         awake_min = (now - awake_since).total_seconds() / 60.0
         until = window_min - awake_min
         next_sleep_at = (awake_since + timedelta(minutes=window_min)).strftime("%H:%M")
+
+        # «Только что проснулся» — посчитать длительность ПРЕДЫДУЩЕГО
+        # сна и сравнить с целью. Это критично чтобы Няня не писала
+        # «отлично выспался» когда фактически шортнап.
+        last_sleep_verdict: dict = {}
+        try:
+            entries = await _load_sleep_entries(sheets_client, days=2)
+            episodes = _pair_episodes(entries)
+            # Самый свежий эпизод чей end ≈ awake_since (с допуском 2 мин)
+            for ep in reversed(episodes):
+                if abs((ep["end"] - awake_since).total_seconds()) <= 120:
+                    dur = ep["duration_min"]
+                    nap_target, target_src = _personalised_nap_target(baseline, age_m)
+                    if ep["is_night"]:
+                        # Ночной — нужен иной таргет; не цепляемся.
+                        last_sleep_verdict = {
+                            "label": "night",
+                            "duration_min": dur,
+                            "summary": f"ночной сон {_fmt_hm(dur)}",
+                        }
+                    else:
+                        if dur < nap_target * 0.7:
+                            label = "short"
+                            tone = (
+                                f"⚠️ КОРОТКИЙ дневной сон: {int(dur)} мин при "
+                                f"типичной длине ~{nap_target} мин ({target_src}). "
+                                "Это шортнап — Матвей мог недоспать. Окно "
+                                "бодрствования к следующему сну СОКРАТИ "
+                                "(~70-80% от обычного), иначе перегул "
+                                "и сложное укладывание."
+                            )
+                        elif dur > nap_target * 1.3:
+                            label = "long"
+                            tone = (
+                                f"Длинный дневной сон: {int(dur)} мин при "
+                                f"типичной длине ~{nap_target} мин ({target_src}). "
+                                "Если будет ещё сон сегодня — учти что вечерний "
+                                "может быть труднее. Bedtime возможно сдвинется."
+                            )
+                        else:
+                            label = "ok"
+                            tone = (
+                                f"Длительность сна в норме: {int(dur)} мин "
+                                f"(целевая ~{nap_target} мин)."
+                            )
+                        last_sleep_verdict = {
+                            "label": label,
+                            "duration_min": int(dur),
+                            "target_min": int(nap_target),
+                            "summary": tone,
+                        }
+                    break
+        except Exception:
+            log.exception("sleep_coach_last_episode_failed")
+
         if until > 30:
             text_for_agent = (
                 f"Бодрствует {_fmt_hm(awake_min)} (с {awake_since.strftime('%H:%M')})."
@@ -533,14 +588,27 @@ async def next_sleep_advice(sheets_client: Any) -> dict:
             )
             verdict = "sleep_now"
 
+        prev_sleep_block = ""
+        if last_sleep_verdict.get("summary"):
+            prev_sleep_block = (
+                f"\n\nПРЕДЫДУЩИЙ СОН (только что закончился):\n"
+                f"{last_sleep_verdict['summary']}\n"
+                "ВАЖНО: тон твоего ответа должен соответствовать этой "
+                "оценке. Если КОРОТКИЙ — НЕ пиши «отлично выспался», "
+                "это введёт Марину в заблуждение. Признай факт, "
+                "предложи корректировку (сократить wake window)."
+            )
+
         return {
             "state": "awake",
             "awake_min": int(awake_min),
             "window_min": window_min,
             "next_sleep_at": next_sleep_at,
             "verdict": verdict,
+            "last_sleep": last_sleep_verdict,
             "summary_for_agent": (
-                text_for_agent + "\n\nКоротко скажи Марине одной фразой."
+                text_for_agent + prev_sleep_block +
+                "\n\nКоротко скажи Марине одной-двумя фразами."
             ),
         }
 
