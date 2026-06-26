@@ -317,37 +317,59 @@ async def weekly_analysis(sheets_client: Any, days: int = 14) -> dict:
         personal_line = (
             f"\nЛИЧНЫЙ baseline Матвея (n={base['sample_n']}, "
             f"уверенность {base_conf}):\n"
-            f"- его окно бодрствования: {his_window} мин "
-            f"(норма по возрасту {window_min})\n"
+            f"- его окно бодрствования: {_fmt_hm(his_window)} "
+            f"(норма по возрасту {_fmt_hm(window_min)})\n"
         )
         if his_nap:
-            personal_line += f"- его дневной сон: ~{his_nap} мин\n"
+            personal_line += f"- его дневной сон: ~{_fmt_hm(his_nap)}\n"
         if his_bedtime:
             personal_line += f"- обычный bedtime: {his_bedtime}\n"
         if his_morning:
             personal_line += f"- обычный подъём: {his_morning}\n"
 
+    # Полный timeline за период — даём LLM сырую картинку, чтоб она
+    # реально анализировала, а не пересказывала средние.
+    timeline_lines = []
+    sleep_entries = await _load_sleep_entries(sheets_client, days=days)
+    sleep_episodes = _pair_episodes(sleep_entries)
+    for ep in sleep_episodes[-30:]:
+        tag = "🌙 ночь" if ep["is_night"] else "☀️ день"
+        timeline_lines.append(
+            f"  {ep['start'].strftime('%d.%m %H:%M')} → "
+            f"{ep['end'].strftime('%H:%M')}  ({_fmt_hm(ep['duration_min'])}, {tag})"
+        )
+    timeline_block = (
+        "\n".join(timeline_lines) if timeline_lines else "  (записей нет)"
+    )
+
     summary_for_agent = (
-        f"Матвею {age_m:.1f} мес. По возрастной норме (Weissbluth):\n"
-        f"- окно бодрствования {window_min} мин\n"
+        f"Матвею {age_m:.1f} мес. Возрастные ориентиры (только как «норма/нет»):\n"
+        f"- окно бодрствования {_fmt_hm(window_min)}\n"
         f"- {naps_str} дневных сна\n"
         f"- общий сон {total_low}-{total_high}ч/сут\n"
         f"{personal_line}\n"
-        f"ФАКТИЧЕСКИ за {days_observed} дней:\n"
-        f"- общий сон {observed['avg_total_h']}ч (ночь {round(avg_night_min/60,1)}ч, "
-        f"днём {round(avg_naps_min/60,1)}ч в {observed['avg_naps_count']} снов)\n"
+        f"СРЕДНИЕ за {days_observed} дней (его реальные):\n"
+        f"- общий сон {observed['avg_total_h']}ч "
+        f"(ночь {round(avg_night_min/60,1)}ч, днём "
+        f"{round(avg_naps_min/60,1)}ч в {observed['avg_naps_count']} снов)\n"
         f"- bedtime ~{avg_bedtime or '—'}, подъём ~{avg_wake or '—'}\n"
         f"- последний дневной сон заканчивается ~{avg_last_nap or '—'}\n"
         f"- ночей с разрывом: {split_nights}/{days_observed}\n\n"
-        f"ПРОБЛЕМЫ:\n" + ("\n".join(f"- {i}" for i in issues) if issues else "- не вижу явных")
-        + "\n\nДай 2-3 КОНКРЕТНЫХ совета на сегодня (bedtime во сколько, последний "
-        "дневной сон завершить во сколько, что менять в первую очередь). "
-        "ВАЖНО: опирайся на ЛИЧНЫЙ baseline Матвея (его реальные средние), "
-        "а не на возрастную норму. Возрастная норма — только ориентир «нормально/нет». "
-        "Тёплый тон, без догматизма. Помни: коррекция занимает 1-3 недели, "
-        "магии не будет. Если данных мало (confidence='low'/'none') — "
-        "честно скажи Марине, что выводы предварительные, нужно ещё неделя "
-        "записей для надёжного личного baseline."
+        f"СЫРОЙ TIMELINE последних эпизодов (для реального анализа):\n"
+        f"{timeline_block}\n\n"
+        "ТВОЯ ЗАДАЧА: проанализируй timeline и средние как опытный sleep "
+        "coach. НЕ ВЫДАВАЙ ШАБЛОНЫ. Смотри на конкретные цифры этого "
+        "ребёнка. Найди:\n"
+        "1) Реально хорошо сложилось — что именно (с временами).\n"
+        "2) Реальная проблема — что повторяется (с примерами из timeline).\n"
+        "3) КОНКРЕТНЫЙ план на сегодня — bedtime во сколько (HH:MM), "
+        "когда последний дневной сон закончить, нужно ли сократить какое-то "
+        "окно бодрствования. Не общие «попробуйте раньше» — точные HH:MM "
+        "и почему именно так.\n\n"
+        "ТОН: тёплый, человечный, опытный. Без догматизма. Если данных "
+        "мало или картина противоречивая — честно скажи. Коррекция занимает "
+        "1-3 недели, магии не обещай. Длительности — формат Хч YYм, "
+        "не «120 мин»."
     )
 
     return {
@@ -513,103 +535,81 @@ async def next_sleep_advice(sheets_client: Any) -> dict:
         until = window_min - awake_min
         next_sleep_at = (awake_since + timedelta(minutes=window_min)).strftime("%H:%M")
 
-        # «Только что проснулся» — посчитать длительность ПРЕДЫДУЩЕГО
-        # сна и сравнить с целью. Это критично чтобы Няня не писала
-        # «отлично выспался» когда фактически шортнап.
-        last_sleep_verdict: dict = {}
+        # Готовим СЫРОЙ контекст: timeline последних 48ч + baseline.
+        # Никаких пред-выводов — пусть LLM реально анализирует, как
+        # делал бы опытный sleep coach глядя на цифры.
         try:
             entries = await _load_sleep_entries(sheets_client, days=2)
             episodes = _pair_episodes(entries)
-            # Самый свежий эпизод чей end ≈ awake_since (с допуском 2 мин)
-            for ep in reversed(episodes):
-                if abs((ep["end"] - awake_since).total_seconds()) <= 120:
-                    dur = ep["duration_min"]
-                    nap_target, target_src = _personalised_nap_target(baseline, age_m)
-                    if ep["is_night"]:
-                        # Ночной — нужен иной таргет; не цепляемся.
-                        last_sleep_verdict = {
-                            "label": "night",
-                            "duration_min": dur,
-                            "summary": f"ночной сон {_fmt_hm(dur)}",
-                        }
-                    else:
-                        if dur < nap_target * 0.7:
-                            label = "short"
-                            tone = (
-                                f"⚠️ КОРОТКИЙ дневной сон: {int(dur)} мин при "
-                                f"типичной длине ~{nap_target} мин ({target_src}). "
-                                "Это шортнап — Матвей мог недоспать. Окно "
-                                "бодрствования к следующему сну СОКРАТИ "
-                                "(~70-80% от обычного), иначе перегул "
-                                "и сложное укладывание."
-                            )
-                        elif dur > nap_target * 1.3:
-                            label = "long"
-                            tone = (
-                                f"Длинный дневной сон: {int(dur)} мин при "
-                                f"типичной длине ~{nap_target} мин ({target_src}). "
-                                "Если будет ещё сон сегодня — учти что вечерний "
-                                "может быть труднее. Bedtime возможно сдвинется."
-                            )
-                        else:
-                            label = "ok"
-                            tone = (
-                                f"Длительность сна в норме: {int(dur)} мин "
-                                f"(целевая ~{nap_target} мин)."
-                            )
-                        last_sleep_verdict = {
-                            "label": label,
-                            "duration_min": int(dur),
-                            "target_min": int(nap_target),
-                            "summary": tone,
-                        }
-                    break
         except Exception:
-            log.exception("sleep_coach_last_episode_failed")
+            entries, episodes = [], []
+            log.exception("sleep_coach_load_failed")
 
-        if until > 30:
-            text_for_agent = (
-                f"Бодрствует {_fmt_hm(awake_min)} (с {awake_since.strftime('%H:%M')})."
-                f" До типичного окна сна (~{window_min} мин — {window_src}) "
-                f"осталось ~{int(until)} мин — укладывать около {next_sleep_at}."
+        timeline_lines = []
+        for ep in episodes[-20:]:
+            tag = "🌙 ночь" if ep["is_night"] else "☀️ день"
+            timeline_lines.append(
+                f"  {ep['start'].strftime('%d.%m %H:%M')} → "
+                f"{ep['end'].strftime('%H:%M')}  ({_fmt_hm(ep['duration_min'])}, {tag})"
             )
-            verdict = "ok"
-        elif until > 0:
-            text_for_agent = (
-                f"Бодрствует {_fmt_hm(awake_min)}. До окна сна осталось ~{int(until)} мин. "
-                f"Готовь к укладыванию (приглуши свет, тише). Цель: {next_sleep_at}."
-            )
-            verdict = "prep"
-        else:
-            over = -until
-            text_for_agent = (
-                f"🟠 Перегул: бодрствует {_fmt_hm(awake_min)}, окно ~{window_min} мин. "
-                f"Перебор {int(over)} мин. Уложи СЕЙЧАС — дольше будет сложнее."
-            )
-            verdict = "sleep_now"
+        timeline_str = "\n".join(timeline_lines) if timeline_lines else "  (нет данных)"
 
-        prev_sleep_block = ""
-        if last_sleep_verdict.get("summary"):
-            prev_sleep_block = (
-                f"\n\nПРЕДЫДУЩИЙ СОН (только что закончился):\n"
-                f"{last_sleep_verdict['summary']}\n"
-                "ВАЖНО: тон твоего ответа должен соответствовать этой "
-                "оценке. Если КОРОТКИЙ — НЕ пиши «отлично выспался», "
-                "это введёт Марину в заблуждение. Признай факт, "
-                "предложи корректировку (сократить wake window)."
+        base_lines = []
+        if baseline.get("avg_wake_window_min"):
+            base_lines.append(
+                f"  окно бодрствования (среднее за 30д): "
+                f"{_fmt_hm(baseline['avg_wake_window_min'])} (n={baseline['sample_n']})"
             )
+        if baseline.get("avg_nap_duration_min"):
+            base_lines.append(
+                f"  средний дневной сон: {_fmt_hm(baseline['avg_nap_duration_min'])}"
+            )
+        if baseline.get("avg_night_duration_min"):
+            base_lines.append(
+                f"  средний ночной блок: {_fmt_hm(baseline['avg_night_duration_min'])}"
+            )
+        if baseline.get("avg_bedtime_hhmm"):
+            base_lines.append(f"  обычный bedtime: {baseline['avg_bedtime_hhmm']}")
+        if baseline.get("avg_morning_wake_hhmm"):
+            base_lines.append(f"  обычный подъём: {baseline['avg_morning_wake_hhmm']}")
+        base_str = "\n".join(base_lines) if base_lines else "  (мало данных для baseline)"
+
+        from src.utils.family import CHILD
+        total_naps_norm = expected_daytime_naps(age_m)
+        sleep_low, sleep_high = expected_total_sleep_hours(age_m)
+        norm_str = (
+            f"  возрастная норма: окно ~{_fmt_hm(window_min)}, "
+            f"{total_naps_norm} дневных сна, общий сон {sleep_low}-{sleep_high}ч/сут"
+        )
+
+        summary_for_agent = (
+            f"СЕЙЧАС: {now.strftime('%d.%m %H:%M')}. Матвею {age_m:.1f} мес. "
+            f"Только что проснулся в {awake_since.strftime('%H:%M')}.\n\n"
+            f"TIMELINE последних 48ч (start → end, длительность):\n"
+            f"{timeline_str}\n\n"
+            f"BASELINE Матвея:\n{base_str}\n\n"
+            f"AGE-НОРМА:\n{norm_str}\n\n"
+            "ТВОЯ ЗАДАЧА: проанализируй timeline как опытный sleep coach.\n"
+            "1) ЧТО ИМЕННО получилось (длительность последнего сна, как он "
+            "соотносится с целью, какая была ночь, сколько уже накопилось "
+            "дневного сна).\n"
+            "2) НАБЛЮДЕНИЕ из истории (что повторяется/изменилось).\n"
+            "3) КОНКРЕТНЫЙ совет на ближайший шаг: время следующего "
+            "укладывания (HH:MM), длительность (если важно — короткий "
+            "20-30 мин или полноценный), что учесть до этого момента.\n\n"
+            "ВАЖНО: не подгоняй выводы под шаблон. Смотри на ЦИФРЫ. Если "
+            "сон короткий — назови это шортнапом. Если длинный — учти как "
+            "это сдвинет вечер. Если необычная картина — назови её. "
+            "Используй формат HH:MM для всех времён и Хч YYм для длительностей."
+        )
 
         return {
             "state": "awake",
             "awake_min": int(awake_min),
             "window_min": window_min,
             "next_sleep_at": next_sleep_at,
-            "verdict": verdict,
-            "last_sleep": last_sleep_verdict,
-            "summary_for_agent": (
-                text_for_agent + prev_sleep_block +
-                "\n\nКоротко скажи Марине одной-двумя фразами."
-            ),
+            "verdict": "ok" if until > 0 else "sleep_now",
+            "summary_for_agent": summary_for_agent,
         }
 
     return {

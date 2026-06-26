@@ -114,18 +114,19 @@ class SleepPredictor:
             if not (-5 <= until_window <= self._LEAD_WARNING_MIN):
                 return
 
+            from src.integrations.sleep_coach import _fmt_hm
             if until_window > 0:
                 text = (
                     "🍼 <b>Матвейка скоро устанет</b>\n"
-                    f"Бодрствует уже {int(awake_min)} мин. Его обычное окно — "
-                    f"~{window_min} мин ({window_src}), осталось ~{int(until_window)} мин. "
+                    f"Бодрствует уже {_fmt_hm(awake_min)}. Его обычное окно — "
+                    f"~{_fmt_hm(window_min)} ({window_src}), осталось ~{_fmt_hm(until_window)}. "
                     "Замедляйся, приглуши свет, готовь к укладыванию."
                 )
             else:
                 text = (
                     "🍼 <b>Перегул</b>\n"
-                    f"Матвей бодрствует {int(awake_min)} мин — обычное окно "
-                    f"~{window_min} мин ({window_src}). Чем дальше, тем "
+                    f"Матвей бодрствует {_fmt_hm(awake_min)} — обычное окно "
+                    f"~{_fmt_hm(window_min)} ({window_src}). Чем дальше, тем "
                     "сложнее будет уложить. Пора."
                 )
 
@@ -188,11 +189,12 @@ class SleepPredictor:
         if not (late_nap or overslept):
             return
 
+        from src.integrations.sleep_coach import _fmt_hm
         if overslept:
             text = (
                 f"⏰ <b>Пора будить</b>\n"
-                f"Матвей спит уже {int(slept_min)} мин — это {int(slept_min - target)} мин "
-                f"сверх его обычного дневного сна (~{target} мин, {target_src}). "
+                f"Матвей спит уже {_fmt_hm(slept_min)} — это {_fmt_hm(slept_min - target)} "
+                f"сверх его обычного дневного сна (~{_fmt_hm(target)}, {target_src}). "
                 f"Если оставить — украдёт ночь."
             )
         else:
@@ -200,7 +202,7 @@ class SleepPredictor:
                 f"⏰ <b>Пора будить</b>\n"
                 f"Матвей спит, сейчас {now.strftime('%H:%M')}. Дневной сон после "
                 "17:00 сильно бьёт по ночному. Лучше разбудить и держать "
-                "бодрствование 3-4 часа до bedtime."
+                "бодрствование 3-4ч до bedtime."
             )
 
         try:
