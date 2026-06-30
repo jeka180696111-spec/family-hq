@@ -133,33 +133,51 @@ async def send_weekly_digest(news_agent, nanny_agent, memory) -> None:
         week_ago = (now - timedelta(days=7)).isoformat()
         week_ago_date = (date.today() - timedelta(days=7)).isoformat()
 
-        # Baby data from Дневник
-        baby_summary = ""
+        # Baby data from Дневник — реальные строки, не счётчики
+        diary_text = ""
+        feeding_text = ""
+        growth_text = ""
+        milestones_text = ""
         if nanny_agent._sheets:
             try:
                 from src.integrations.history_search import _search_sheet
                 cutoff = now - timedelta(days=7)
-                diary = await _search_sheet(nanny_agent._sheets, "Дневник", "", cutoff, 500)
-                feeding = await _search_sheet(nanny_agent._sheets, "Прикорм", "", cutoff, 100)
-                growth = await _search_sheet(nanny_agent._sheets, "Рост", "", cutoff, 10)
+                diary = await _search_sheet(nanny_agent._sheets, "Дневник", "", cutoff, 200)
+                feeding = await _search_sheet(nanny_agent._sheets, "Прикорм", "", cutoff, 50)
+                growth = await _search_sheet(nanny_agent._sheets, "Рост", "", cutoff, 5)
                 milestones = await _search_sheet(nanny_agent._sheets, "Достижения", "", cutoff, 20)
-                baby_summary = json.dumps(
-                    {"diary_rows": len(diary), "feeding_rows": len(feeding),
-                     "growth_rows": growth[-2:] if growth else [],
-                     "new_milestones": milestones},
-                    ensure_ascii=False, default=str,
-                )[:3000]
+                # Реальные строки до 60 шт, обрезанные
+                diary_text = "\n".join(
+                    f"  · {row.get('date','')} {row.get('time','')} {row.get('kind','')} — {row.get('event','')[:80]}"
+                    for row in diary[-60:]
+                ) or "  (записей нет)"
+                feeding_text = "\n".join(
+                    f"  · {row.get('Дата','')} {row.get('Продукт','')} · реакция: {row.get('Реакция','')[:60]}"
+                    for row in feeding[-30:]
+                ) or "  (новых продуктов не вводили)"
+                growth_text = "\n".join(
+                    f"  · {row.get('Дата','')} вес {row.get('Вес','')} рост {row.get('Рост','')}"
+                    for row in growth
+                ) or "  (замеров не было)"
+                milestones_text = "\n".join(
+                    f"  · {row.get('Дата','')} — {row.get('Достижение','')[:120]}"
+                    for row in milestones[-15:]
+                ) or "  (новых достижений не отмечено)"
             except Exception:
                 log.exception("weekly_baby_failed")
+                diary_text = "  (ошибка чтения Дневника)"
 
-        # News alerts
+        # News alerts (with regions)
         async with memory._engine.connect() as conn:
             alerts = list(await conn.execute(
                 select(NewsPost).where(NewsPost.date >= week_ago)
-                .where(NewsPost.is_alert == 1).order_by(NewsPost.date.desc()).limit(50)
+                .where(NewsPost.is_alert == 1).order_by(NewsPost.date.desc()).limit(200)
             ))
             shop_done = list(await conn.execute(
                 select(ShoppingItem).where(ShoppingItem.done_at >= week_ago_date)
+            ))
+            shop_open = list(await conn.execute(
+                select(ShoppingItem).where(ShoppingItem.done_at.is_(None)).limit(20)
             ))
             api = list(await conn.execute(
                 select(ApiUsage).where(ApiUsage.date >= week_ago_date)
@@ -167,26 +185,82 @@ async def send_weekly_digest(news_agent, nanny_agent, memory) -> None:
 
         api_in = sum(r.input_tokens for r in api)
         api_out = sum(r.output_tokens for r in api)
+        # Оценочная стоимость по Sonnet 4.5: $3/M input, $15/M output
+        api_cost = api_in / 1_000_000 * 3 + api_out / 1_000_000 * 15
+
+        shop_done_text = "\n".join(f"  · {r.item}" for r in shop_done[-15:]) or "  (закрытых покупок нет)"
+        shop_open_text = "\n".join(f"  · {r.item}" + (f" [{r.place}]" if r.place else "") for r in shop_open) or "  (список пуст)"
+
+        # Calendar на следующие 7 дней — для секции «На следующую неделю»
+        next_week_events = ""
+        try:
+            # nanny_agent has no calendar; нужно вытащить из настроек.
+            from src.config import get_settings
+            from src.integrations.gcalendar import CalendarClient
+            settings = get_settings()
+            if settings.google_service_account_json and settings.calendar_id:
+                cal = CalendarClient(settings.google_service_account_json, settings.calendar_id)
+                evs = await cal.list_upcoming(days=7)
+                next_week_events = "\n".join(
+                    f"  · {e.start.strftime('%d.%m %H:%M')} — {e.title}"
+                    for e in evs[:15]
+                ) or "  (в календаре пусто на эту неделю)"
+        except Exception:
+            log.exception("weekly_calendar_failed")
+            next_week_events = "  (календарь недоступен)"
 
         prompt = (
-            "Воскресный итог недели. Структура:\n"
-            "👶 МАЛЫШ — тренды (сон/еда/подгузники), новые продукты прикорма, достижения\n"
-            "📰 ОБСТАНОВКА — сколько тревог по регионам, тенденция\n"
-            "🛒 БЫТОВОЕ — что купили, что осталось в списке\n"
-            "💸 СИСТЕМА — стоимость API за неделю\n"
-            "🔮 НА СЛЕДУЮЩУЮ НЕДЕЛЮ — что в календаре, прививки, важные даты\n\n"
-            f"МАЛЫШ:\n{baby_summary}\n\n"
-            f"ТРЕВОГ ЗА НЕДЕЛЮ: {len(alerts)}\n"
-            f"ПОКУПОК ЗАКРЫТО: {len(shop_done)}\n"
-            f"API ТОКЕНОВ: in={api_in}, out={api_out}"
+            "Воскресный итог недели для семьи Евгения и Марины (Матвей, 6 мес).\n\n"
+            "ЖЁСТКИЕ ПРАВИЛА:\n"
+            "1. НИКАКИХ ПЛЕЙСХОЛДЕРОВ. Запрещено писать «[вставить продукт]», "
+            "«[Дата]», «[навык]» — это галлюцинация. Если данных нет — ЧЕСТНО "
+            "скажи «нет записей за эту неделю».\n"
+            "2. Только то, что ЕСТЬ в данных ниже. Не выдумывай прививки, "
+            "достижения, события, тенденции которых не было.\n"
+            "3. Стоимость API считай по реальным цифрам что я дал.\n"
+            "4. Тон — старший брат-наблюдатель. Без штамповки.\n\n"
+            "СТРУКТУРА:\n"
+            "👶 МАЛЫШ — реальные тренды по diary, реальные новые продукты, реальные достижения\n"
+            "📰 ОБСТАНОВКА — тревоги (точное число), без пафоса\n"
+            "🛒 БЫТОВОЕ — что куплено, что осталось в списке (реальные позиции)\n"
+            "💸 СИСТЕМА — токены, стоимость, проблемы недели если были\n"
+            "🔮 НА СЛЕДУЮЩУЮ НЕДЕЛЮ — реальные события из календаря\n\n"
+            "═══ ДАННЫЕ ═══\n\n"
+            f"ДНЕВНИК МАТВЕЯ (последние 60 записей):\n{diary_text}\n\n"
+            f"НОВЫЕ ПРОДУКТЫ ПРИКОРМА:\n{feeding_text}\n\n"
+            f"РОСТ/ВЕС (замеры):\n{growth_text}\n\n"
+            f"ДОСТИЖЕНИЯ:\n{milestones_text}\n\n"
+            f"ВОЗДУШНЫЕ ТРЕВОГИ ЗА НЕДЕЛЮ: {len(alerts)}\n\n"
+            f"ПОКУПКИ — закрыто за неделю:\n{shop_done_text}\n\n"
+            f"ПОКУПКИ — осталось в списке:\n{shop_open_text}\n\n"
+            f"API ТОКЕНЫ: in={api_in:,} out={api_out:,}\n"
+            f"СТОИМОСТЬ API ОЦЕНОЧНО: ${api_cost:.2f}\n\n"
+            f"КАЛЕНДАРЬ НА БЛИЖАЙШИЕ 7 ДНЕЙ:\n{next_week_events}"
         )
         response = await news_agent._claude.complete(
             model=news_agent._get_model(),
-            system="Ты — Дозорный, делаешь воскресный обзор недели для семьи.",
+            system=(
+                "Ты — Дозорный. Воскресный обзор семьи. РАБОТАЕШЬ ТОЛЬКО "
+                "С ДАННЫМИ ИЗ ПРОМПТА. Никаких плейсхолдеров, никакой "
+                "выдумки. Если поле пусто — скажи что нет данных, не "
+                "придумывай содержимое."
+            ),
             messages=[{"role": "user", "content": prompt}],
             max_tokens=1500,
         )
-        await news_agent.send(f"🗓 ИТОГИ НЕДЕЛИ ({now.strftime('%d.%m')}):\n\n{response.strip()}")
+        # Anti-placeholder guard — на случай если LLM всё-таки протёк
+        out = response.strip()
+        if any(marker in out for marker in ("[вставить", "[Дата]", "[Date]", "[insert", "[вписать", "[название")):
+            log.warning("weekly_digest_placeholder_detected", excerpt=out[:200])
+            out = (
+                "⚠️ Не смог собрать корректный отчёт — данные неполные. "
+                "Реальные цифры:\n"
+                f"• Тревог: {len(alerts)}\n"
+                f"• Покупок закрыто: {len(shop_done)}\n"
+                f"• API: {api_in:,} in / {api_out:,} out (≈${api_cost:.2f})\n\n"
+                "Дневник Матвея, достижения и календарь — смотри в Sheets/Drive."
+            )
+        await news_agent.send(f"🗓 ИТОГИ НЕДЕЛИ ({now.strftime('%d.%m')}):\n\n{out}")
         log.info("weekly_digest_sent")
     except Exception:
         log.exception("weekly_digest_failed")
