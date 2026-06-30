@@ -1083,7 +1083,10 @@ async def run(dry_run: bool = False) -> None:
     parser = MessageParser(claude, settings.model_cheap)
 
     # Scheduler
-    scheduler = AsyncIOScheduler()
+    # Все cron-задания используют Kyiv-time — иначе 22:00 на UTC-сервере
+    # стреляет в 01:00 ночи по Киеву (реальный кейс с evening_recap).
+    from src.utils.time import KYIV_TZ
+    scheduler = AsyncIOScheduler(timezone=KYIV_TZ)
     # Give Navigator a scheduler handle so it can arm one-shot trip jobs
     agents["navigator"]._scheduler = scheduler
     # Standalone morning digests removed — superseded by unified brief at 07:00.

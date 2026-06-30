@@ -364,10 +364,44 @@ async def _section_systems(memory: Any) -> str:
             lines.append(f"🔋 Инвертор: {int(lux_battery)}% ({lux_state})")
         if alert_row:
             lines.append(f"🚨 Тревога активна: {alert_row.region}")
+        # Tuya health check — реальный тык в облако, не «всё ок по
+        # умолчанию». Если quota исчерпана или auth упал — Прораб
+        # должен это утром сказать, а не делать вид что всё хорошо.
+        try:
+            from src.integrations.tuya import TuyaClient
+            t = TuyaClient.from_settings(settings)
+            if t:
+                try:
+                    await t.list_devices()
+                    lines.append("🏠 Tuya cloud: ок")
+                except Exception as e:
+                    err = str(e).lower()
+                    if "quota" in err or "exhaust" in err:
+                        lines.append("🏠 Tuya cloud: ❌ КВОТА ИСЧЕРПАНА (команды не пройдут до восстановления)")
+                    elif "permission" in err or "auth" in err:
+                        lines.append("🏠 Tuya cloud: ❌ нет доступа (проверь подписки)")
+                    else:
+                        lines.append(f"🏠 Tuya cloud: ❌ {type(e).__name__}: {str(e)[:80]}")
+        except Exception:
+            log.exception("brief_tuya_health_failed")
+
         fires_24h = sum(getattr(r, "fired_count", 0) or 0 for r in rules)  # cumulative — approx
         lines.append(f"🤖 Автоматизаций: {len(rules)} активных")
         if errs:
+            # Покажем последние 3 уникальные ошибки чтобы понять что упало
+            seen = set()
+            err_examples = []
+            for e in errs[-15:]:
+                msg = (e.message or "")[:80]
+                if msg in seen:
+                    continue
+                seen.add(msg)
+                err_examples.append(msg)
+                if len(err_examples) >= 3:
+                    break
             lines.append(f"⚠️ Ошибок за сутки: {len(errs)}")
+            for ex in err_examples:
+                lines.append(f"  · {ex}")
         else:
             lines.append("✅ Ошибок нет")
         return "🛠 <b>Системы</b>\n" + "\n".join(lines)
