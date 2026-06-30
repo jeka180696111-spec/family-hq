@@ -905,6 +905,16 @@ class DevOpsAgent(BaseAgent):
                 },
             },
             {
+                "name": "inverter_diagnose",
+                "description": (
+                    "Сырые данные LuxCloud — какие поля и значения "
+                    "реально пришли с инвертора. Используется когда "
+                    "нагрузка показывается 0 Вт но батарея разряжается. "
+                    "Триггер: «диагностика инвертора», «что говорит LuxCloud»."
+                ),
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
                 "name": "inverter_runtime",
                 "description": (
                     "Сколько света осталось от батареи при текущей нагрузке. "
@@ -2033,6 +2043,38 @@ class DevOpsAgent(BaseAgent):
                     "Отправь юзеру поле `pretty` КАК ЕСТЬ. Без своих "
                     "комментариев, без префиксов 'вот', без эмодзи "
                     "помимо тех что в pretty. ОДНИМ блоком."
+                ),
+            }
+
+        elif tool_name == "inverter_diagnose":
+            from src.config import get_settings
+            from src.integrations.luxcloud import LuxCloudClient
+            lux = LuxCloudClient.from_settings(get_settings())
+            if not lux:
+                return {"error": "LuxCloud не настроен"}
+            try:
+                data = await lux.runtime()
+            except Exception as e:
+                return {"error": f"LuxCloud упал: {type(e).__name__}: {e}"}
+            raw = data.get("raw") or {}
+            # Все ключи с числовым значением > 0 — потенциальные
+            # кандидаты на мощность.
+            interesting = {
+                k: v for k, v in raw.items()
+                if isinstance(v, (int, float)) and abs(v) > 0
+                and ("p" in k.lower() or "power" in k.lower()
+                     or "load" in k.lower() or "soc" in k.lower()
+                     or "bat" in k.lower())
+            }
+            return {
+                "parsed": {k: v for k, v in data.items() if k != "raw"},
+                "raw_power_fields": interesting,
+                "display_instruction": (
+                    "Покажи юзеру: 1) parsed (что мы извлекли) и "
+                    "2) raw_power_fields (что РЕАЛЬНО пришло). Если "
+                    "battery_pct падает но home_consumption_w=0, а в "
+                    "raw_power_fields есть какое-то pXYZ > 0 — назови "
+                    "это поле, я добавлю его в маппинг."
                 ),
             }
 

@@ -194,17 +194,42 @@ class LuxCloudClient:
         if data is None:
             raise RuntimeError(f"LuxCloud runtime: все эндпоинты упали. Последний: {last_err}")
 
+        # LuxCloud для разных моделей инверторов отдаёт мощности под
+        # разными ключами. Пробуем все известные варианты по очереди и
+        # берём первый не-нулевой.
+        def _first_nonzero(*keys):
+            for k in keys:
+                v = data.get(k)
+                try:
+                    if v is not None and float(v) != 0:
+                        return float(v)
+                except (TypeError, ValueError):
+                    continue
+            return 0.0
+
+        # Battery charge: pCharge / pBatChg / pBattChg
+        battery_charge_w = _first_nonzero("pCharge", "pBatChg", "pBattChg", "pChg")
+        # Battery discharge: pDischarge / pBatDis / pBattDis / pDis
+        battery_discharge_w = _first_nonzero(
+            "pDischarge", "pBatDis", "pBattDis", "pDis", "pDisCharge",
+        )
+        # Home consumption: pInv / pLoad / pConsumption / pHouse / pToLoad
+        home_consumption_w = _first_nonzero(
+            "pInv", "pLoad", "pConsumption", "pHouse", "pToLoad",
+            "pConsume", "pHomeConsumption", "pUserLoad",
+        )
+
         return {
             "pv1_w": data.get("pv1Power") or data.get("ppv1") or 0,
             "pv2_w": data.get("pv2Power") or data.get("ppv2") or 0,
             "pv_total_w": (data.get("pv1Power") or 0) + (data.get("pv2Power") or 0)
                           + (data.get("pv3Power") or 0),
             "battery_pct": data.get("soc", data.get("batCapacity", 0)),
-            "battery_charge_w": data.get("pCharge", 0),
-            "battery_discharge_w": data.get("pDischarge", 0),
-            "grid_import_w": data.get("pToUser", data.get("pGrid", 0)),
-            "grid_export_w": data.get("pToGrid", 0),
-            "home_consumption_w": data.get("pInv", data.get("pLoad", 0)),
+            "battery_charge_w": battery_charge_w,
+            "battery_discharge_w": battery_discharge_w,
+            "grid_import_w": _first_nonzero("pToUser", "pGrid", "pImport"),
+            "grid_export_w": _first_nonzero("pToGrid", "pExport"),
+            "home_consumption_w": home_consumption_w,
             "status": data.get("status", "unknown"),
             "online": bool(data.get("lostFlag", 1) == 0),
             "raw": data,
