@@ -6,11 +6,45 @@ would extend autonomy the most.
 """
 from __future__ import annotations
 
+from collections import deque
+from datetime import datetime, timedelta
 from typing import Any
 
 import structlog
 
 log = structlog.get_logger()
+
+# Sliding window недавних замеров SOC — используется как fallback
+# когда LuxCloud отдаёт home_consumption_w=0 (а батарея реально
+# разряжается).  (ts, soc_pct)
+_SOC_HISTORY: deque[tuple[datetime, float]] = deque(maxlen=20)
+
+
+def _estimate_load_from_soc(capacity_wh: int, current_soc: float) -> float | None:
+    """Если LuxCloud не отдаёт нагрузку, оцениваем через скорость
+    разряда SOC. Берём первый замер из истории старше 5 мин и считаем
+    среднюю мощность за этот интервал. Возвращает Вт или None."""
+    now = datetime.now()
+    _SOC_HISTORY.append((now, current_soc))
+    # Чистим старше 30 мин
+    cutoff = now - timedelta(minutes=30)
+    while _SOC_HISTORY and _SOC_HISTORY[0][0] < cutoff:
+        _SOC_HISTORY.popleft()
+    if len(_SOC_HISTORY) < 2:
+        return None
+    # Ищем замер старше 5 мин с заметной разницей
+    for ts, soc in _SOC_HISTORY:
+        delta_min = (now - ts).total_seconds() / 60.0
+        if delta_min < 5:
+            continue
+        delta_soc = soc - current_soc  # положительное если разряжается
+        if delta_soc <= 0.3:
+            continue
+        wh_used = delta_soc / 100.0 * capacity_wh
+        power_w = wh_used / (delta_min / 60.0)
+        if power_w > 5:
+            return power_w
+    return None
 
 
 def _fmt_duration(minutes: float) -> str:
@@ -43,9 +77,24 @@ async def runtime_report(
     """
     battery_pct = _to_float(lux_data.get("battery_pct"))
     load_w = _to_float(lux_data.get("home_consumption_w"))
+    load_source = "home_consumption_w"
     # Fallback to discharge_w if home_consumption is 0/missing
     if load_w <= 5:
         load_w = _to_float(lux_data.get("battery_discharge_w"))
+        load_source = "battery_discharge_w"
+    # Если оба поля 0 — оцениваем через скорость падения SOC.
+    # Реальный кейс: LuxCloud вернул home_consumption=0 пока батарея
+    # реально разряжалась 96→87%. Без этого fallback мы спамим
+    # «нагрузка слишком маленькая» при работающем кондёре.
+    if load_w <= 5:
+        estimated = _estimate_load_from_soc(capacity_wh, battery_pct)
+        if estimated:
+            load_w = estimated
+            load_source = "soc_delta_estimate"
+    else:
+        # Кормим SOC-историю даже когда у нас есть прямой load_w —
+        # чтобы fallback был готов если LuxCloud начнёт врать.
+        _estimate_load_from_soc(capacity_wh, battery_pct)
 
     usable_wh = max(0.0, (battery_pct - reserve_pct) / 100.0 * capacity_wh)
 
@@ -108,6 +157,7 @@ async def runtime_report(
     return {
         "battery_pct": int(battery_pct),
         "load_w": int(load_w),
+        "load_source": load_source,
         "remaining_min": int(remaining_min) if remaining_min is not None else None,
         "reserve_pct": reserve_pct,
         "capacity_wh": capacity_wh,

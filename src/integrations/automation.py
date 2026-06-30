@@ -746,19 +746,37 @@ class AutomationEngine:
             try:
                 result = await client.control(device, act)
             except Exception as e:
-                msg = (
-                    f"⚠️ [{rule_name}] не получилось сделать {act} {device}: "
-                    f"{type(e).__name__}: {str(e)[:140]}"
-                )
+                err_text = str(e).lower()
+                # Подавляем шум от известных Tuya cloud сбоев
+                # (quota exhausted, permission, не в сети) — это не
+                # семейная новость, это инфраструктура.
+                quiet = any(s in err_text for s in (
+                    "quota is exhausted", "trial quota",
+                    "no permission", "permission denied",
+                    "offline", "off line",
+                ))
                 log.exception("automation_device_failed", rule=rule_name)
-                await self._notify_chat(msg)
+                if not quiet:
+                    msg = (
+                        f"⚠️ [{rule_name}] не получилось сделать {act} {device}: "
+                        f"{type(e).__name__}: {str(e)[:140]}"
+                    )
+                    await self._notify_chat(msg)
                 return
             ok = isinstance(result, dict) and (result.get("success") or result.get("ok") or "error" not in result)
             log.info("automation_device_controlled", rule=rule_name, result=result)
             if not ok:
                 err = (result or {}).get("error") if isinstance(result, dict) else str(result)
-                msg = f"⚠️ [{rule_name}] {act} {device} → ответ Tuya: {str(err)[:160]}"
-                await self._notify_chat(msg)
+                err_text = str(err).lower()
+                quiet = any(s in err_text for s in (
+                    "quota is exhausted", "trial quota",
+                    "no permission", "permission denied",
+                    "offline", "off line",
+                ))
+                log.info("automation_device_err", rule=rule_name, err=str(err)[:120])
+                if not quiet:
+                    msg = f"⚠️ [{rule_name}] {act} {device} → ответ Tuya: {str(err)[:160]}"
+                    await self._notify_chat(msg)
             else:
                 # Success — short confirmation so user knows the rule fired.
                 reason = await self._format_cond_reason(cond) if cond else ""

@@ -212,6 +212,17 @@ class GridWatcher:
             return
         if not self._bots or not self._chat_id:
             return
+        # Не спамить когда оценить нагрузку не удалось (LuxCloud
+        # отдаёт 0 Вт и SOC-fallback тоже пуст). Сохраняем
+        # _last_runtime_push чтобы повторно не дёргать тот же неудачный
+        # тик чаще чем раз в 30 мин.
+        if report.get("remaining_min") is None and report.get("load_w", 0) <= 5:
+            self._last_runtime_push = now
+            log.info(
+                "grid_watcher_runtime_skipped_no_load",
+                battery_pct=report.get("battery_pct"),
+            )
+            return
         try:
             await self._bots.send_message(
                 agent_id="devops", chat_id=self._chat_id, text=report["text"],
@@ -221,6 +232,7 @@ class GridWatcher:
                 "grid_watcher_runtime_pushed",
                 battery_pct=report.get("battery_pct"),
                 remaining_min=report.get("remaining_min"),
+                load_source=report.get("load_source"),
             )
         except Exception:
             log.exception("grid_watcher_runtime_push_failed")
