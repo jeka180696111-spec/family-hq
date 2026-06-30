@@ -219,6 +219,40 @@ class LuxCloudClient:
             "pConsume", "pHomeConsumption", "pUserLoad",
         )
 
+        # Last-resort: вычислить мощность через V_bat × I_bat если
+        # ни одно прямое поле не дало числа. Реальный кейс: LuxCloud
+        # отдаёт vBat=53.2 и iBat=-50 (разряд 2660 Вт), но
+        # home_consumption_w=0. Подходит только если ток отрицательный
+        # (батарея разряжается) и напряжение в разумном диапазоне.
+        if home_consumption_w <= 5 and battery_discharge_w <= 5:
+            v_bat = _first_nonzero(
+                "vBat", "vBattery", "vBatt", "batVoltage", "bat_voltage",
+                "vBus", "v_bat",
+            )
+            # Ток ищем во всех ключах, включая отрицательные значения
+            i_bat = None
+            for k in ("iBat", "iBattery", "iBatt", "batCurrent",
+                      "bat_current", "i_bat"):
+                v = data.get(k)
+                if v is None:
+                    continue
+                try:
+                    fv = float(v)
+                    if abs(fv) > 1:  # не шум
+                        i_bat = fv
+                        break
+                except (TypeError, ValueError):
+                    continue
+            if v_bat and 40 <= v_bat <= 60 and i_bat is not None and i_bat < -1:
+                # Отрицательный ток = разряд
+                computed = abs(v_bat * i_bat)
+                battery_discharge_w = computed
+                home_consumption_w = computed
+                log.info(
+                    "luxcloud_power_from_v_i",
+                    v_bat=v_bat, i_bat=i_bat, watt=computed,
+                )
+
         return {
             "pv1_w": data.get("pv1Power") or data.get("ppv1") or 0,
             "pv2_w": data.get("pv2Power") or data.get("ppv2") or 0,
