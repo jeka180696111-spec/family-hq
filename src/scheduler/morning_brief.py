@@ -321,6 +321,10 @@ async def _section_plans(calendar_agent: Any, memory: Any) -> str:
 # ─── Section: systems ────────────────────────────────────────────────
 
 async def _section_systems(memory: Any) -> str:
+    """Health-report — сначала список ПРОБЛЕМ (даже если пусто), потом
+    статусы. Задача: чтобы юзер утром сразу видел что упало и что нужно
+    сделать — пополнить Claude, продлить Tuya, разобраться с Google auth."""
+    problems: list[str] = []  # список конкретных «что делать»
     try:
         from src.config import get_settings
         from src.db.models import AutomationRule, EventLog, PowerOutage, ActiveAlert
@@ -431,6 +435,56 @@ async def _section_systems(memory: Any) -> str:
         except Exception:
             log.exception("brief_tuya_health_failed")
 
+        # === AI-провайдеры ===
+        try:
+            from src.integrations.claude_client import get_ai_stats
+            ai = get_ai_stats()
+            current = ai.get("current_provider", "?")
+            claude_fail = ai.get("claude_fail_count", 0)
+            gemini_fail = ai.get("gemini_fail_count", 0)
+            gemini_keys = ai.get("gemini_key_count", 0)
+            # Если сейчас работает Gemini а Клод падал — вероятно Клоду нужен top-up
+            if current == "gemini" and claude_fail > 0:
+                problems.append("💳 Клод упал — вероятно баланс на исходе, пополни на console.anthropic.com")
+                lines.append(f"🤖 AI: работает Gemini (Клод падал {claude_fail}× за сессию)")
+            elif claude_fail > 0 and current == "claude":
+                lines.append(f"🤖 AI: Клод (падал {claude_fail}× но восстановился)")
+            else:
+                lines.append(f"🤖 AI: {current}")
+            if gemini_fail > 3:
+                problems.append(f"⚠️ Gemini падал {gemini_fail}× — возможно квота кончилась, проверь ключи")
+        except Exception:
+            log.exception("brief_ai_health_failed")
+
+        # === LuxCloud ===
+        try:
+            from src.integrations.luxcloud import LuxCloudClient
+            lux = LuxCloudClient.from_settings(settings)
+            if lux:
+                try:
+                    rt = await lux.runtime()
+                    if not rt.get("online"):
+                        problems.append("📉 LuxCloud считает инвертор оффлайн — проверь WiFi у инвертора")
+                except Exception as e:
+                    problems.append(f"📉 LuxCloud недоступен: {str(e)[:80]}")
+        except Exception:
+            log.exception("brief_lux_health_failed")
+
+        # === Google (Sheets/Calendar/Drive) — по ошибкам в логе ===
+        google_errs = 0
+        for r in errs[-30:]:
+            msg = (r.message or "").lower()
+            if any(x in msg for x in ("google", "sheets", "calendar", "drive", "gspread", "oauth")):
+                google_errs += 1
+        if google_errs >= 3:
+            problems.append(f"📊 Google API падает ({google_errs}× за сутки) — возможно токен истёк или квота")
+
+        # === Tuya (уже добавлено выше) — если проблема, дублируем в problems ===
+        if any("КВОТА ИСЧЕРПАНА" in l for l in lines):
+            problems.append("🏠 Tuya: квота исчерпана — команды умного дома не пройдут. Продли триал или пополни.")
+        elif any("нет доступа" in l for l in lines if "Tuya" in l):
+            problems.append("🏠 Tuya: нет доступа к API — проверь подписки Smart Home Basic / IoT Core")
+
         fires_24h = sum(getattr(r, "fired_count", 0) or 0 for r in rules)  # cumulative — approx
         lines.append(f"🤖 Автоматизаций: {len(rules)} активных")
         if errs:
@@ -450,7 +504,11 @@ async def _section_systems(memory: Any) -> str:
                 lines.append(f"  · {ex}")
         else:
             lines.append("✅ Ошибок нет")
-        return "🛠 <b>Системы</b>\n" + "\n".join(lines)
+        # Собираем: сначала блок ПРОБЛЕМ (только если есть), потом статусы
+        prefix = ""
+        if problems:
+            prefix = "🚨 <b>Внимание — проблемы:</b>\n" + "\n".join(f"  • {p}" for p in problems) + "\n\n"
+        return "🛠 <b>Системы</b>\n" + prefix + "\n".join(lines)
     except Exception:
         log.exception("brief_systems_failed")
         return ""
