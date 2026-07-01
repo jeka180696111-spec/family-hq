@@ -371,17 +371,63 @@ async def _section_systems(memory: Any) -> str:
             from src.integrations.tuya import TuyaClient
             t = TuyaClient.from_settings(settings)
             if t:
+                # 1) Пробуем list_devices — это самый лёгкий вызов.
+                list_ok = False
+                list_err = ""
                 try:
                     await t.list_devices()
-                    lines.append("🏠 Tuya cloud: ок")
+                    list_ok = True
                 except Exception as e:
-                    err = str(e).lower()
-                    if "quota" in err or "exhaust" in err:
+                    list_err = str(e)
+
+                # 2) Дополнительно сканируем EventLog за 24ч на
+                # признаки Tuya-ошибок квоты/прав/оффлайна. Даже если
+                # list_devices прошёл, могло быть что command падает
+                # с quota exhausted — тогда Прораб пометит это ошибкой.
+                tuya_recent_errs = []
+                async with memory._engine.connect() as conn:
+                    since_iso = (now_kyiv() - timedelta(hours=24)).isoformat()
+                    log_rows = list(await conn.execute(
+                        select(EventLog).where(EventLog.created_at >= since_iso)
+                    ))
+                    for r in log_rows:
+                        msg = (r.message or "").lower()
+                        payload = (r.payload or "").lower() if hasattr(r, "payload") else ""
+                        text = f"{msg} {payload}"
+                        if any(sig in text for sig in (
+                            "quota is exhausted", "trial quota", "quota exhaust",
+                            "no permission", "permission denied",
+                            "1106", "28841004",  # Tuya specific error codes
+                        )):
+                            tuya_recent_errs.append(msg[:80])
+
+                if list_ok and not tuya_recent_errs:
+                    lines.append("🏠 Tuya cloud: ок")
+                elif tuya_recent_errs:
+                    # Есть свежие ошибки квоты — это точно означает
+                    # что команды не пройдут.
+                    quota_flag = any(
+                        "quota" in e or "exhaust" in e or "28841004" in e
+                        for e in tuya_recent_errs
+                    )
+                    perm_flag = any(
+                        "permission" in e or "1106" in e
+                        for e in tuya_recent_errs
+                    )
+                    if quota_flag:
                         lines.append("🏠 Tuya cloud: ❌ КВОТА ИСЧЕРПАНА (команды не пройдут до восстановления)")
-                    elif "permission" in err or "auth" in err:
+                    elif perm_flag:
                         lines.append("🏠 Tuya cloud: ❌ нет доступа (проверь подписки)")
                     else:
-                        lines.append(f"🏠 Tuya cloud: ❌ {type(e).__name__}: {str(e)[:80]}")
+                        lines.append(f"🏠 Tuya cloud: ❌ ошибки в журнале за сутки ({len(tuya_recent_errs)})")
+                else:
+                    err = list_err.lower()
+                    if "quota" in err or "exhaust" in err:
+                        lines.append("🏠 Tuya cloud: ❌ КВОТА ИСЧЕРПАНА")
+                    elif "permission" in err or "auth" in err:
+                        lines.append("🏠 Tuya cloud: ❌ нет доступа")
+                    else:
+                        lines.append(f"🏠 Tuya cloud: ❌ {list_err[:80]}")
         except Exception:
             log.exception("brief_tuya_health_failed")
 
