@@ -2137,6 +2137,12 @@ class DevOpsAgent(BaseAgent):
                 "scene_id": match["id"],
                 "success": result.get("success", False),
                 "raw": result.get("raw", ""),
+                "display_instruction": (
+                    "Отвечай юзеру ОДНОЙ строкой: «✅ Кондер: <название "
+                    "сцены как оно есть>». БЕЗ добавлений «Не за что», "
+                    "БЕЗ «на связи», БЕЗ выдумки типа «Кондер 26 мин» — "
+                    "имя сцены копируй ДОСЛОВНО из matched_scene."
+                ),
             }
 
         elif tool_name == "diagnose_tuya_scenes":

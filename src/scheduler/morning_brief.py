@@ -39,7 +39,12 @@ async def _section_news(news_agent: Any, memory: Any) -> str:
         )
         text = await news_agent._claude.complete(
             model=news_agent._get_model(),
-            system="Ты — Дозорный. Сухая фактура для утреннего брифинга.",
+            system=(
+                "Ты — Дозорный. Сухая фактура для утреннего брифинга. "
+                "ВСЕГДА пиши ТОЛЬКО НА РУССКОМ, даже если исходные "
+                "сообщения на украинском или английском. Не смешивай "
+                "языки."
+            ),
             messages=[{"role": "user", "content": prompt}],
             max_tokens=400,
         )
@@ -238,7 +243,10 @@ async def _section_sleep_coach(nanny_agent: Any) -> str:
         )
         text = await nanny_agent._claude.complete(
             model=nanny_agent._get_model(),
-            system="Ты — Няня. Сводка по сну Матвея, очень короткая.",
+            system=(
+                "Ты — Няня. Сводка по сну Матвея, очень короткая. "
+                "ВСЕГДА пиши ТОЛЬКО НА РУССКОМ."
+            ),
             messages=[{"role": "user", "content": prompt}],
             max_tokens=400,
         )
@@ -281,7 +289,10 @@ async def _section_baby(nanny_agent: Any, memory: Any) -> str:
         )
         summary = await nanny_agent._claude.complete(
             model=nanny_agent._get_model(),
-            system="Ты — Няня. Очень короткая фактура для утреннего брифинга.",
+            system=(
+                "Ты — Няня. Очень короткая фактура для утреннего брифинга. "
+                "ВСЕГДА пиши ТОЛЬКО НА РУССКОМ."
+            ),
             messages=[{"role": "user", "content": prompt}],
             max_tokens=350,
         )

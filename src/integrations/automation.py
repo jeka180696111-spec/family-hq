@@ -569,6 +569,35 @@ class AutomationEngine:
             return await self._outage_active()
         return False
 
+    async def _notify_tuya_quota_once(self) -> None:
+        """Один разовый пуш в день при обнаружении Tuya quota exhausted.
+        Хранит дату последнего пуша в EventLog как маркер."""
+        try:
+            from sqlalchemy import select, insert
+            from src.db.models import EventLog
+            from src.utils.time import now_kyiv, iso_now
+            today = now_kyiv().strftime("%Y-%m-%d")
+            marker = f"tuya_quota_alert_sent:{today}"
+            async with self._memory._engine.connect() as conn:
+                existing = (await conn.execute(
+                    select(EventLog).where(EventLog.message == marker).limit(1)
+                )).first()
+            if existing:
+                return
+            await self._notify_chat(
+                "🚨 <b>Tuya cloud: квота исчерпана</b>\n"
+                "Команды умного дома (кондер, бойлер, свет) не пройдут "
+                "до восстановления. Продли триал в панели Tuya или "
+                "используй Smart Life приложение напрямую."
+            )
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(insert(EventLog).values(
+                    created_at=iso_now(), level="INFO",
+                    component="tuya_health", message=marker,
+                ))
+        except Exception:
+            log.exception("tuya_quota_notify_failed")
+
     async def _notify_chat(self, text: str) -> None:
         if not (self._bots and self._chat_id):
             return
@@ -747,15 +776,18 @@ class AutomationEngine:
                 result = await client.control(device, act)
             except Exception as e:
                 err_text = str(e).lower()
-                # Подавляем шум от известных Tuya cloud сбоев
-                # (quota exhausted, permission, не в сети) — это не
-                # семейная новость, это инфраструктура.
                 quiet = any(s in err_text for s in (
                     "quota is exhausted", "trial quota",
                     "no permission", "permission denied",
                     "offline", "off line",
                 ))
                 log.exception("automation_device_failed", rule=rule_name)
+                # Проактивное оповещение ОДИН РАЗ В ДЕНЬ при первой
+                # ошибке квоты Tuya. Юзер должен узнать что квота
+                # исчерпана до того как захочет включить кондёр — а не
+                # после безуспешной попытки.
+                if "quota" in err_text or "exhaust" in err_text:
+                    await self._notify_tuya_quota_once()
                 if not quiet:
                     msg = (
                         f"⚠️ [{rule_name}] не получилось сделать {act} {device}: "
