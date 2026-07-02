@@ -105,35 +105,50 @@ async def runtime_report(
 
     suggestions: list[dict] = []
     if tuya_client and load_w > 5:
-        # Walk ALL devices, look at each that has a power-draw DP and is on.
-        # Universal — works for any plug (бойлер, тв, обогреватель и т.д.)
-        # without hardcoding names.
+        # Один вызов list_devices() (кэшируется) — потом читаем DPs
+        # прямо из этого же снапшота, без дополнительных API-запросов
+        # на каждое устройство. Экономит квоту в разы.
         try:
             devices = await tuya_client.list_devices()
         except Exception:
             devices = []
         for d in devices:
-            try:
-                info = await tuya_client.read_device_power_w(d.get("name", ""))
-            except Exception:
+            if not d.get("online"):
+                continue  # offline устройство точно не жрёт
+            status = d.get("status", []) or []
+            codes = {s.get("code", ""): s.get("value") for s in status}
+            # Мощность
+            power_w = None
+            for code, scale in (
+                ("cur_power", 0.1), ("power_w", 1.0),
+                ("va_power", 1.0), ("Power_consumption", 1.0),
+                ("power", 1.0),
+            ):
+                if code in codes and codes[code] is not None:
+                    try:
+                        power_w = float(codes[code]) * scale
+                        break
+                    except (TypeError, ValueError):
+                        continue
+            if not power_w or power_w < 30:
                 continue
-            if not isinstance(info, dict) or info.get("error"):
+            # Устройство включено?
+            switched_on = None
+            for s_code in ("switch", "switch_1", "switch_led"):
+                if s_code in codes:
+                    switched_on = bool(codes[s_code])
+                    break
+            if switched_on is False:
                 continue
-            if not info.get("on"):
-                continue
-            p = info.get("power_w")
-            if not p or p < 30:  # below 30 W не критично, не предлагаем
-                continue
-            new_load = max(5.0, load_w - p)
+            new_load = max(5.0, load_w - power_w)
             new_min = usable_wh / new_load * 60.0
             gain = new_min - (remaining_min or 0)
             if gain >= 5:
                 suggestions.append({
-                    "device": info["device"],
-                    "power_w": int(p),
+                    "device": d.get("name", ""),
+                    "power_w": int(power_w),
                     "gain_min": int(gain),
                 })
-        # Top 3 by gain
         suggestions.sort(key=lambda s: s["gain_min"], reverse=True)
         suggestions = suggestions[:3]
 

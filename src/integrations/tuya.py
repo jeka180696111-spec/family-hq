@@ -41,6 +41,17 @@ class TuyaClient:
         self._token: str | None = None
         self._token_exp = 0.0
         self._home_id: str | None = None
+        # Кэш list_devices — каждый вызов API стоит квоты, и все
+        # операции (control/read_sensor/read_power/find scene) начинаются
+        # с list_devices. Свежести 60 сек достаточно — устройства не
+        # прыгают в списке чаще.
+        self._devices_cache: list[dict] | None = None
+        self._devices_cache_ts: float = 0.0
+        self._DEVICES_CACHE_TTL = 60.0
+        # Кэш сцен — они меняются редко, TTL шире
+        self._scenes_cache: list[dict] | None = None
+        self._scenes_cache_ts: float = 0.0
+        self._SCENES_CACHE_TTL = 300.0  # 5 мин
         # Lazy-created shared aiohttp session so every command reuses
         # the same TCP/TLS connection instead of leaking sockets per call.
         self._session: aiohttp.ClientSession | None = None
@@ -122,24 +133,32 @@ class TuyaClient:
 
     # ─── Public API ──────────────────────────────────────────────────
 
-    async def list_devices(self) -> list[dict]:
-        """Get devices linked to the user's Smart Life account.
+    async def list_devices(self, force_refresh: bool = False) -> list[dict]:
+        """Get devices. Кэшируется на 60 сек чтобы не жечь квоту:
+        каждая команда/чтение датчика начиналась с list_devices —
+        это 20+ вызовов в минуту при активном использовании.
+        force_refresh=True для случаев когда нужен свежий статус
+        (после только что отправленной команды)."""
+        import asyncio, time as _time
+        now = _time.monotonic()
+        if (not force_refresh and self._devices_cache is not None
+                and (now - self._devices_cache_ts) < self._DEVICES_CACHE_TTL):
+            return self._devices_cache
 
-        Retries once on transient failure — Tuya Cloud sporadically returns
-        non-success responses (~2-5%), which used to leak as 'датчики не
-        отвечают' even though next call worked.
-        """
-        import asyncio
         data = await self._request("GET", f"/v1.0/users/{self.uid}/devices")
         if not data.get("success"):
             log.warning("tuya_list_devices_retry", first=str(data)[:200])
             await asyncio.sleep(1.0)
             data = await self._request("GET", f"/v1.0/users/{self.uid}/devices")
         if not data.get("success"):
+            # Если у нас есть кэш — вернём его вместо exception. Пусть
+            # операции продолжат работать хотя бы с прошлым снапшотом.
+            if self._devices_cache is not None:
+                log.warning("tuya_list_devices_cache_fallback")
+                return self._devices_cache
             raise RuntimeError(f"Tuya list_devices failed: {data}")
         devices = data.get("result", []) or []
-        # Pick the useful fields
-        return [
+        result = [
             {
                 "id": d["id"],
                 "name": d.get("name", ""),
@@ -150,6 +169,9 @@ class TuyaClient:
             }
             for d in devices
         ]
+        self._devices_cache = result
+        self._devices_cache_ts = now
+        return result
 
     # Strong markers for «this is an IR hub». Bare «ик» (2 chars) used to
     # be here but matches «Датчик», «Телик», «Алкоголик», … — replaced
@@ -579,10 +601,17 @@ class TuyaClient:
             log.exception("tuya_homes_lookup_failed")
         return None
 
-    async def list_scenes(self) -> list[dict]:
-        """Return Tap-to-Run scenes for the user's primary home.
-        Tries v2.0 first (currently the only one with stable access on
-        Smart Home Basic), falls back to v1.0 if v2 returns nothing."""
+    async def list_scenes(self, force_refresh: bool = False) -> list[dict]:
+        """Return Tap-to-Run scenes. Кэшируется на 5 мин (сцены сами
+        по себе не меняются).  force_refresh=True когда точно нужен
+        свежий список (например после ручного создания в приложении).
+        """
+        import time as _time
+        now = _time.monotonic()
+        if (not force_refresh and self._scenes_cache is not None
+                and (now - self._scenes_cache_ts) < self._SCENES_CACHE_TTL):
+            return self._scenes_cache
+
         home_id = await self._ensure_home_id()
         if not home_id:
             log.warning("tuya_list_scenes_no_home")
@@ -640,6 +669,8 @@ class TuyaClient:
                 "name": s.get("name", ""),
                 "status": s.get("status", ""),
             })
+        self._scenes_cache = out
+        self._scenes_cache_ts = now
         return out
 
     async def diagnose_scenes(self) -> dict:
