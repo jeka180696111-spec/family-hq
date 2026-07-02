@@ -21,9 +21,15 @@ class BotManager:
     reading is handled by the Telethon user-bot; these bots only send.
     """
 
+    # Dedup-window: если тот же текст в тот же чат от того же бота
+    # приходит в этот интервал секунд — второй посыл дропаем.
+    _DEDUP_WINDOW_SEC = 5.0
+
     def __init__(self) -> None:
         self._bots: dict[str, Bot] = {}  # agent_id -> Bot
         self._apps: dict[str, Any] = {}  # agent_id -> Application (for callback polling)
+        # Race-condition guard: (agent, chat, hash(text)) → ts
+        self._recent_sends: dict[tuple[str, int, int], float] = {}
 
     async def register(self, agent_id: str, token: str) -> None:
         """Register a bot for an agent. Skip silently if token is empty."""
@@ -104,6 +110,27 @@ class BotManager:
         if bot is None:
             log.error("bot_not_found", agent_id=agent_id)
             return None
+
+        # Dedup — если такое же сообщение уже уходило в последние 5 сек
+        # (race из-за double-trigger scheduler/handler), пропускаем.
+        import time as _time
+        now = _time.monotonic()
+        key = (agent_id, chat_id, hash(text))
+        last_ts = self._recent_sends.get(key)
+        if last_ts is not None and (now - last_ts) < self._DEDUP_WINDOW_SEC:
+            log.warning(
+                "duplicate_send_suppressed",
+                agent_id=agent_id, chat_id=chat_id,
+                text_preview=text[:80], age_sec=round(now - last_ts, 2),
+            )
+            return None
+        self._recent_sends[key] = now
+        # Периодически чистим устаревшие ключи чтобы не расти бесконечно.
+        if len(self._recent_sends) > 500:
+            cutoff = now - self._DEDUP_WINDOW_SEC * 4
+            self._recent_sends = {
+                k: v for k, v in self._recent_sends.items() if v >= cutoff
+            }
 
         kwargs: dict[str, Any] = {
             "chat_id": chat_id,

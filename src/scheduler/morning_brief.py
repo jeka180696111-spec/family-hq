@@ -488,7 +488,6 @@ async def _section_systems(memory: Any) -> str:
         fires_24h = sum(getattr(r, "fired_count", 0) or 0 for r in rules)  # cumulative — approx
         lines.append(f"🤖 Автоматизаций: {len(rules)} активных")
         if errs:
-            # Покажем последние 3 уникальные ошибки чтобы понять что упало
             seen = set()
             err_examples = []
             for e in errs[-15:]:
@@ -502,8 +501,12 @@ async def _section_systems(memory: Any) -> str:
             lines.append(f"⚠️ Ошибок за сутки: {len(errs)}")
             for ex in err_examples:
                 lines.append(f"  · {ex}")
-        else:
+        elif not problems:
+            # «Ошибок нет» пишем ТОЛЬКО если и в problems ничего,
+            # иначе противоречие: сверху «⚡ проблема», снизу «всё ок».
             lines.append("✅ Ошибок нет")
+        # Если ошибок в EventLog нет но problems есть — вообще молчим
+        # про этот статус, не пишем ни «нет» ни «есть».
         # Собираем: сначала блок ПРОБЛЕМ (только если есть), потом статусы
         prefix = ""
         if problems:
