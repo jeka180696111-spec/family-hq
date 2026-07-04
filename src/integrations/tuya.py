@@ -129,6 +129,21 @@ class TuyaClient:
             kwargs["data"] = body
         async with session.request(method, self.host + path, **kwargs) as resp:
             data = await resp.json()
+        # Всегда пропишем известные Tuya-ошибки в глобальный кэш —
+        # так base.py в silent-fallback смогает честно сказать «квота»
+        # даже если ошибка была не в _smart_control а в run_scene и т.д.
+        if not data.get("success"):
+            try:
+                msg = str(data.get("msg") or "")
+                code = data.get("code")
+                # 28841004 = quota exhausted; 1106 = permission denied
+                if code in (28841004, 1106) or any(k in msg.lower() for k in (
+                    "quota", "exhaust", "permission",
+                )):
+                    from src.integrations.automation import note_tuya_error
+                    note_tuya_error(f"code={code} msg={msg[:100]}")
+            except Exception:
+                pass
         return data
 
     # ─── Public API ──────────────────────────────────────────────────
