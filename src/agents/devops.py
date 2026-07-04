@@ -21,6 +21,122 @@ class DevOpsAgent(BaseAgent):
         self._railway = railway_client
         self._github = github_client
 
+    async def handle(self, message_text, sender_name, context, parsed_actions=None):
+        """FAST-PATH: типовые команды выполняются напрямую без LLM.
+        Если сообщение матчится с известным паттерном — сразу вызываем
+        нужный tool и отвечаем. Иначе — обычный LLM-путь.
+
+        Это защита от Gemini-тупняка когда Клод отвалился: даже без
+        рабочего ИИ базовые команды кондера/бойлера будут работать.
+        """
+        fast_result = await self._try_fast_path(message_text)
+        if fast_result is not None:
+            log.info("devops_fast_path", message=message_text[:50], result_preview=fast_result[:80])
+            try:
+                sent = await self.send(fast_result)
+                await context.save_message(
+                    tg_message_id=getattr(sent, "message_id", 0) or 0,
+                    user_id=None, agent_id=self.agent_id, text=fast_result,
+                )
+            except Exception:
+                self._log.exception("devops_fast_path_send_failed")
+            from src.agents.base import AgentResponse
+            return AgentResponse(text=fast_result, agent_id=self.agent_id, actions_taken=["fast_path"])
+        return await super().handle(message_text, sender_name, context, parsed_actions)
+
+    async def _try_fast_path(self, message_text: str) -> str | None:
+        """Return готовый ответный текст если сообщение подпадает под
+        известный паттерн, иначе None."""
+        import re
+        if not message_text:
+            return None
+        # Убрать «прораб,», «прораб!», «прораб?» из начала
+        t = message_text.strip()
+        t_clean = re.sub(r"^прораб[,!?.\s]+", "", t, flags=re.IGNORECASE).strip()
+        low = t_clean.lower()
+
+        # === Кондер ===
+        # «кондер на 26» / «кондер 26» / «на 26»
+        m = re.match(r"^(кондер|кондиц\w*|на)\s+(\d{2})°?\s*$", low)
+        if m:
+            temp = m.group(2)
+            return await self._fast_ac(f"кондер {temp}", label=f"Кондер {temp}°")
+        m = re.match(r"^(кондер|кондиц\w*)\s+на\s+(\d{2})°?\s*$", low)
+        if m:
+            temp = m.group(2)
+            return await self._fast_ac(f"кондер {temp}", label=f"Кондер {temp}°")
+        # «выключи/вимкни кондер» / «кондер выкл»
+        if re.search(r"\b(выключи|вимкни|віключи|выруб\w*)\b.*\bконд\w*|\bконд\w*\b.*\bвыкл\w*", low):
+            return await self._fast_ac("кондер выкл", label="Кондер выкл")
+        # «включи/увімкни кондер»
+        if re.search(r"\b(включи|увімкни|врубай)\b.*\bконд\w*", low):
+            return await self._fast_ac("кондер вкл", label="Кондер вкл")
+
+        # === Бойлер ===
+        if re.search(r"\b(выключи|вимкни|віключи)\b.*\bбойлер\b", low):
+            return await self._fast_switch("бойлер", "off")
+        if re.search(r"\b(включи|увімкни|врубай)\b.*\bбойлер\b", low):
+            return await self._fast_switch("бойлер", "on")
+
+        return None
+
+    async def _fast_ac(self, query: str, label: str) -> str:
+        try:
+            from src.config import get_settings
+            from src.integrations.tuya import TuyaClient
+            client = TuyaClient.from_settings(get_settings())
+            if not client:
+                return f"{self.emoji} Tuya не настроен"
+            match = await client.find_scene(query)
+            if not match:
+                scenes = await client.list_scenes()
+                names = ", ".join(s["name"] for s in scenes[:6])
+                return (
+                    f"{self.emoji} Не нашёл сцену «{label}». "
+                    f"Доступные: {names or '—'}. Создай сцену в Smart Life."
+                )
+            if match.get("ambiguous"):
+                cands = ", ".join(c["name"] for c in match.get("candidates", []))
+                return f"{self.emoji} Неоднозначно. Кандидаты: {cands}"
+            result = await client.run_scene(match["id"])
+            if result.get("success"):
+                try:
+                    from src.utils.family import track_user_action
+                    track_user_action(f"сцена: {match['name']}")
+                except Exception:
+                    pass
+                return f"{self.emoji} ✅ Запустил сцену «{match['name']}»"
+            err = str(result.get("raw", ""))[:100]
+            if "quota" in err.lower() or "exhaust" in err.lower():
+                return f"{self.emoji} ❌ Квота Tuya исчерпана. Продли триал."
+            return f"{self.emoji} ❌ Tuya вернул: {err or 'не сработало'}"
+        except Exception as e:
+            emsg = str(e)[:120]
+            if "quota" in emsg.lower():
+                return f"{self.emoji} ❌ Квота Tuya исчерпана"
+            return f"{self.emoji} ❌ {type(e).__name__}: {emsg}"
+
+    async def _fast_switch(self, device: str, action: str) -> str:
+        try:
+            from src.config import get_settings
+            from src.integrations.tuya import TuyaClient
+            client = TuyaClient.from_settings(get_settings())
+            if not client:
+                return f"{self.emoji} Tuya не настроен"
+            result = await client.control(device, action)
+            if result.get("success"):
+                verb = "Включил" if action == "on" else "Выключил"
+                return f"{self.emoji} ✅ {verb} «{device}»"
+            err = str(result.get("raw", ""))[:100]
+            if "quota" in err.lower():
+                return f"{self.emoji} ❌ Квота Tuya исчерпана"
+            return f"{self.emoji} ❌ Tuya: {err or 'не сработало'}"
+        except Exception as e:
+            emsg = str(e)[:120]
+            if "quota" in emsg.lower():
+                return f"{self.emoji} ❌ Квота Tuya исчерпана"
+            return f"{self.emoji} ❌ {type(e).__name__}: {emsg}"
+
     def get_system_prompt(self) -> str:
         from src.prompts.devops import get_devops_prompt
         return get_devops_prompt(active_agents=[])
