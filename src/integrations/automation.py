@@ -20,6 +20,16 @@ from src.utils.time import iso_now, now_kyiv
 
 log = structlog.get_logger()
 
+# In-memory shared cache — последняя Tuya-ошибка (для того чтобы агенты
+# могли честно ответить «квота исчерпана» вместо тихого игнора).
+_RECENT_TUYA_ERROR: dict[str, str] = {"last_msg": "", "last_ts": ""}
+
+
+def note_tuya_error(msg: str) -> None:
+    """Публичный хук для других модулей — сообщить о свежей Tuya ошибке."""
+    _RECENT_TUYA_ERROR["last_msg"] = str(msg)[:200]
+    _RECENT_TUYA_ERROR["last_ts"] = iso_now()
+
 
 # ─── Condition schema ────────────────────────────────────────────────
 # {"type": "time", "cron": "22:00"}                       — daily at HH:MM
@@ -782,10 +792,7 @@ class AutomationEngine:
                     "offline", "off line",
                 ))
                 log.exception("automation_device_failed", rule=rule_name)
-                # Проактивное оповещение ОДИН РАЗ В ДЕНЬ при первой
-                # ошибке квоты Tuya. Юзер должен узнать что квота
-                # исчерпана до того как захочет включить кондёр — а не
-                # после безуспешной попытки.
+                note_tuya_error(err_text)
                 if "quota" in err_text or "exhaust" in err_text:
                     await self._notify_tuya_quota_once()
                 if not quiet:

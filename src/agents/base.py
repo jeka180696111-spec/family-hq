@@ -213,10 +213,25 @@ class BaseAgent(abc.ABC):
 
             if not response_text:
                 if actions:
-                    response_text = f"{self.emoji} Готово."
+                    # Проверяем в last tool_use_result из history — не
+                    # было ли ошибок (quota/permission/exception).
+                    # Если да — честно скажем что не смог.
+                    err_hint = self._detect_last_tool_error(actions)
+                    if err_hint:
+                        response_text = (
+                            f"{self.emoji} Не смог выполнить: {err_hint}"
+                        )
+                    else:
+                        response_text = f"{self.emoji} Готово."
                 else:
-                    self._log.info("agent_silent", message=message_text[:50])
-                    return AgentResponse(text="", agent_id=self.agent_id, actions_taken=actions)
+                    # LLM ничего не сказал И не вызвал ни одного tool'а.
+                    # Раньше тут был silent return — что выглядело как
+                    # игнор. Теперь честно признаёмся.
+                    self._log.info("agent_silent_fallback", message=message_text[:50])
+                    response_text = (
+                        f"{self.emoji} Получил, но не понял что сделать. "
+                        "Уточни задачу коротко и явно."
+                    )
 
             # Append AI-provider signature so the user sees which model
             # actually answered (🟦 Sonnet, 🟩 Haiku, 🟨 Gemini).
@@ -338,6 +353,37 @@ class BaseAgent(abc.ABC):
         # Extract text from final response
         text_blocks = [b.text for b in current_message.content if hasattr(b, "text")]
         return "\n".join(text_blocks).strip(), actions_taken
+
+    def _detect_last_tool_error(self, actions: list[str]) -> str:
+        """Best-effort detection of Tuya/LuxCloud errors during this
+        turn. Читает последнюю запись в EventLog если её нет — вернёт
+        пустую строку (тогда caller решает как поступить)."""
+        # actions выглядят как ["run_tuya_scene(['query'])", ...]
+        # Мы не знаем raw результат tool'а на этом уровне — но можем
+        # догадаться по имени. Если последний вызов был tuya-related
+        # и в последнюю минуту в event_log есть ошибки квоты — верни
+        # человеческую подсказку.
+        if not actions:
+            return ""
+        last = actions[-1].lower()
+        tuya_related = any(k in last for k in (
+            "tuya", "scene", "smart_control", "smart_set", "control_device",
+        ))
+        if not tuya_related:
+            return ""
+        # Мгновенный кэш ошибок с автомизации: если недавно было quota —
+        # предупреждаем.
+        try:
+            from src.integrations.automation import _RECENT_TUYA_ERROR
+            recent = _RECENT_TUYA_ERROR.get("last_msg", "")
+            if recent:
+                if "quota" in recent.lower() or "exhaust" in recent.lower():
+                    return "у Tuya исчерпана квота API, команды пока не пройдут"
+                if "permission" in recent.lower():
+                    return "нет доступа к Tuya API (проверь подписки)"
+        except Exception:
+            pass
+        return "Tuya cloud не отвечает"
 
     async def _maybe_execute_leaked_tool_call(
         self, text: str,

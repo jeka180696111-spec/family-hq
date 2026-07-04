@@ -2836,6 +2836,11 @@ class DevOpsAgent(BaseAgent):
                     pass
             return await client.control(device, action)
         except Exception as e:
+            try:
+                from src.integrations.automation import note_tuya_error
+                note_tuya_error(str(e))
+            except Exception:
+                pass
             return {"error": str(e)}
 
     async def _smart_sensor(self, sensor: str) -> dict:
