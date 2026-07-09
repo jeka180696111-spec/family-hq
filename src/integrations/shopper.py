@@ -41,7 +41,48 @@ class ShopperClient:
         query = (query or "").strip()
         if not query:
             return []
-        # Параллельно опрашиваем все три магазина
+        results = await self._search_all(query, max_price, limit)
+        if results:
+            return results
+        # Fallback 1: короткий запрос (первые 2 слова)
+        short = " ".join(query.split()[:2]).strip()
+        if short and short != query:
+            log.info("shopper.retry_short", short=short)
+            results = await self._search_all(short, max_price, limit)
+            if results:
+                return results
+        # Fallback 2: вернуть прямые ссылки на поиск в магазинах
+        log.info("shopper.fallback_links", query=query[:60])
+        return [
+            {
+                "title": f"Rozetka — поиск «{query}»",
+                "price_uah": None,
+                "price_raw": "",
+                "url": f"https://rozetka.com.ua/ua/search/?text={quote_plus(query)}",
+                "store": "Rozetka",
+                "is_search_link": True,
+            },
+            {
+                "title": f"Comfy — поиск «{query}»",
+                "price_uah": None,
+                "price_raw": "",
+                "url": f"https://comfy.ua/ua/search/?q={quote_plus(query)}",
+                "store": "Comfy",
+                "is_search_link": True,
+            },
+            {
+                "title": f"Epicenter — поиск «{query}»",
+                "price_uah": None,
+                "price_raw": "",
+                "url": f"https://epicentrk.ua/ua/search/?searchtext={quote_plus(query)}",
+                "store": "Epicenter",
+                "is_search_link": True,
+            },
+        ]
+
+    async def _search_all(
+        self, query: str, max_price: int | None, limit: int
+    ) -> list[dict]:
         per_store = max(2, limit // 3 + 1)
         results = await asyncio.gather(
             self._search_rozetka(query, max_price, per_store),
@@ -53,14 +94,11 @@ class ShopperClient:
         for r in results:
             if isinstance(r, list):
                 merged.extend(r)
-        # Фильтр по цене (defensive — на случай если парсер не отсёк)
         if max_price:
             merged = [
                 m for m in merged
                 if not m.get("price_uah") or m["price_uah"] <= max_price
             ]
-        # Дедуп по title (первым словам) — чтобы не показывать один товар из
-        # разных магазинов если у обоих одинаковое имя
         seen: set[str] = set()
         unique: list[dict] = []
         for m in merged:
