@@ -32,6 +32,7 @@ from src.agents.calendar import CalendarAgent
 from src.agents.cook import CookAgent
 from src.agents.health import HealthAgent
 from src.agents.devops import DevOpsAgent
+from src.agents.butler import ButlerAgent
 from src.agents.navigator import NavigatorAgent
 from src.scheduler.backup import register_backup_job
 from src.scheduler.healthcheck import register_healthcheck_jobs
@@ -822,6 +823,28 @@ def _is_devops_topic(text: str) -> bool:
     return any(k in lower for k in devops_hits)
 
 
+def _is_butler_topic(text: str) -> bool:
+    """Дворецкий — умный дом, инвертор, шопер."""
+    lower = (text or "").lower()
+    hits = [
+        # Умный дом / устройства
+        "кондер", "кондиц", "бойлер", "телевизор", " тв ", "розетк",
+        "датчик", "температур", "влажност", "свет включ", "свет выкл",
+        "выключи свет", "включи свет", "сцен", "smart life", "tuya",
+        "пылесос", "робот пылесос",
+        # Инвертор / электричество
+        "инвертор", "батаре", "солнце", "солнечн", "автономност",
+        "света нет", "свет пропал", "отключен", "света дали", "свет дали",
+        "генерац", "заряд",
+        # Сценарии
+        "уехал из дома", "я дома", "еду домой", "приеду к", "возвращаюсь к",
+        # Шопер
+        "купи", "купить", "нужно купить", "найди в магазин", "где купить",
+        "какое лучше", "какую лучше", "какой лучше", "выбери",
+    ]
+    return any(k in lower for k in hits)
+
+
 def _is_news_topic(text: str) -> bool:
     lower = (text or "").lower()
     return any(k in lower for k in [
@@ -835,6 +858,17 @@ def _filter_tasks_by_topic(tasks: list, text: str) -> list:
     """Remove off-topic agents from the routing decision when topic is unambiguous."""
     if not tasks:
         return tasks
+    # Butler ловим ПЕРВЫМ — многие домашние команды ("кондер", "бойлер")
+    # раньше уходили к Прорабу и он захлебывался.
+    if _is_butler_topic(text):
+        butler_tasks = [t for t in tasks if t.agent_id == "butler"]
+        if butler_tasks:
+            return butler_tasks
+        # Если диспетчер не поставил butler в список — принудительно перебрасываем на butler
+        for t in tasks:
+            if t.agent_id == "devops":
+                t.agent_id = "butler"
+        return [t for t in tasks if t.agent_id == "butler"]
     if _is_devops_topic(text):
         return [t for t in tasks if t.agent_id == "devops"]
     if _is_news_topic(text):
@@ -849,6 +883,7 @@ _AGENT_NAME_PATTERNS = {
     "cook": ["гурман", "гурману", "гурмана"],
     "health": ["айболит", "айболиту"],
     "devops": ["прораб", "прорабу", "прораба"],
+    "butler": ["дворецкий", "дворецкому", "дворецкого"],
 }
 # Match by verb roots so different forms work (проверь/проверяй/проверим/проверишь и т.д.)
 _ACTION_HINTS = [
@@ -1050,6 +1085,8 @@ async def run(dry_run: bool = False) -> None:
         "devops": settings.devops_bot_token,
         # Navigator falls back to devops bot if no dedicated token is set
         "navigator": settings.navigator_bot_token or settings.devops_bot_token,
+        # Butler (Дворецкий) — умный дом + шопер. Falls back to devops.
+        "butler": settings.butler_bot_token or settings.devops_bot_token,
     }
     for agent_id, token in agent_tokens.items():
         if token:
@@ -1067,10 +1104,12 @@ async def run(dry_run: bool = False) -> None:
         "health": HealthAgent(**base_args, sheets_client=sheets),
         "devops": DevOpsAgent(**base_args, github_client=github, railway_client=railway),
         "navigator": NavigatorAgent(**base_args),
+        "butler": ButlerAgent(**base_args, github_client=github, railway_client=railway),
     }
     # Cross-reference so devops can trigger composite jobs (morning brief etc.)
     agents["devops"]._peer_agents = agents
     agents["navigator"]._peer_agents = agents
+    agents["butler"]._peer_agents = agents
 
     # Load registry from DB
     registry = await AgentRegistry.load_from_db(memory)

@@ -140,6 +140,10 @@ class Settings(BaseSettings):
     # Optional separate Telegram bot for Штурман; falls back to devops bot if empty
     navigator_bot_token: str = Field(default="")
 
+    # Дворецкий — умный дом (Tuya/сцены/инвертор) + Шопер (поиск товаров).
+    # Falls back to devops bot if empty (для миграции).
+    butler_bot_token: str = Field(default="")
+
     # UI mode (enhanced = inline keyboards, edit-in-place, charts; classic = rollback)
     ui_mode: str = Field(default="enhanced")
 
