@@ -728,6 +728,12 @@ async def handle_new_message(
         # Reply-to detection — если юзер ответил Reply на чьё-то
         # сообщение, форсим маршрутизацию только этому агенту.
         forced_agent = None
+        # Прямое обращение по имени в начале сообщения
+        # («Дворецкий, привет», «Няня, как малыш») — форсим маршрутизацию.
+        direct_addr = _find_addressed_agent(text, exclude=None)
+        if direct_addr:
+            forced_agent = direct_addr
+            log.info("direct_address_detected", agent=direct_addr, preview=text[:60])
         reply_to_id = getattr(message, "reply_to_msg_id", None)
         if reply_to_id:
             try:
