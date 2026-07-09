@@ -158,11 +158,34 @@ class BotManager:
             )
             return message
         except TelegramError as exc:
+            err_str = str(exc)
+            # Fallback: Telegram отверг из-за parse_mode (спецсимволы
+            # < > & * _ в тексте — «Кондер >28», «**жирный**»).
+            # Пробуем ещё раз в plain text — лучше некрасивое сообщение
+            # чем полная тишина.
+            if "can't parse entities" in err_str.lower() or "unsupported start tag" in err_str.lower():
+                log.warning(
+                    "send_retry_plain",
+                    agent_id=agent_id, chat_id=chat_id,
+                    error=err_str[:120],
+                )
+                retry_kwargs = dict(kwargs)
+                retry_kwargs.pop("parse_mode", None)
+                try:
+                    message = await bot.send_message(**retry_kwargs)
+                    return message
+                except TelegramError as exc2:
+                    log.error(
+                        "send_retry_plain_failed",
+                        agent_id=agent_id, chat_id=chat_id,
+                        error=str(exc2)[:200],
+                    )
+                    return None
             log.error(
                 "send_message_failed",
                 agent_id=agent_id,
                 chat_id=chat_id,
-                error=str(exc),
+                error=err_str,
             )
             return None
 
