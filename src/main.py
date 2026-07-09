@@ -749,6 +749,23 @@ async def handle_new_message(
             except Exception:
                 log.exception("reply_to_lookup_failed")
 
+        # Continuation: если предыдущий агент задал юзеру вопрос
+        # («уточни бюджет?», «какую сцену?»), а юзер прислал короткий
+        # ответ («до 10к», «26», «да»), маршрутизируем на того же агента.
+        if not forced_agent:
+            try:
+                recent = await context.get_recent(3)
+                if recent:
+                    last = recent[-1]
+                    last_agent = getattr(last, "agent_id", None)
+                    last_text = (getattr(last, "text", "") or "").strip()
+                    if last_agent and last_text.endswith(("?", "?!", "?")):
+                        if len(text.strip()) <= 40:
+                            forced_agent = last_agent
+                            log.info("continuation_detected", agent=last_agent, reply=text[:40])
+            except Exception:
+                pass
+
         # Dispatch loop with peer-to-peer chaining (max 3 hops)
         await _dispatch_chain(
             text=text,
