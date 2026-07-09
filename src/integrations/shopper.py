@@ -27,6 +27,55 @@ _HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9",
 }
 
+# «Мусор» — слова, которые не несут смысла для поиска в магазине
+_FILLERS = {
+    "нужно", "нужен", "нужна", "надо", "хочу", "купить", "купи",
+    "найди", "найти", "новое", "новый", "новая", "какое", "какой", "какая",
+    "лучше", "получше", "самое", "самый",
+}
+
+# Синонимы фраз/слов → канонические/альтернативные поисковые термины
+_SYNONYMS: list[tuple[str, list[str]]] = [
+    # (фраза которую заменяем, список альтернатив)
+    ("детское кресло в авто", ["автокресло детское", "автокресло", "детское автокресло"]),
+    ("детское кресло в машину", ["автокресло детское", "автокресло"]),
+    ("детское кресло в машине", ["автокресло детское", "автокресло"]),
+    ("кресло в авто", ["автокресло", "кресло автомобильное"]),
+    ("кресло в машину", ["автокресло", "кресло автомобильное"]),
+    ("детская коляска", ["коляска детская", "коляска"]),
+    ("прогулочная коляска", ["коляска прогулочная"]),
+    ("подгузники", ["памперсы", "подгузники детские"]),
+    ("пылесос для дома", ["пылесос"]),
+    ("робот пылесос", ["робот-пылесос", "робот пилосос"]),
+]
+
+
+def _expand_query(q: str) -> list[str]:
+    """Вернуть до 4 вариантов поискового запроса — оригинал + синонимы + чистые."""
+    q = q.strip()
+    low = q.lower()
+    variants: list[str] = [q]
+    # Синонимы: если запрос содержит одну из известных фраз — добавить альтернативы
+    for phrase, alts in _SYNONYMS:
+        if phrase in low:
+            for a in alts:
+                if a not in variants:
+                    variants.append(a)
+            break  # первый матч достаточен
+    # Очищенный от «мусорных» слов
+    cleaned = " ".join(
+        w for w in re.split(r"\s+", low)
+        if w and w not in _FILLERS and not w.startswith("до")
+    ).strip()
+    if cleaned and cleaned not in [v.lower() for v in variants]:
+        variants.append(cleaned)
+    # Укороченный (первые 2 слова)
+    short = " ".join(low.split()[:2]).strip()
+    if short and short not in [v.lower() for v in variants]:
+        variants.append(short)
+    # Ограничим числом вариантов
+    return variants[:4]
+
 
 class ShopperClient:
     """Поиск товаров в 3 украинских магазинах параллельно."""
@@ -41,17 +90,28 @@ class ShopperClient:
         query = (query or "").strip()
         if not query:
             return []
-        results = await self._search_all(query, max_price, limit)
-        if results:
-            return results
-        # Fallback 1: короткий запрос (первые 2 слова)
-        short = " ".join(query.split()[:2]).strip()
-        if short and short != query:
-            log.info("shopper.retry_short", short=short)
-            results = await self._search_all(short, max_price, limit)
-            if results:
-                return results
-        # Fallback 2: вернуть прямые ссылки на поиск в магазинах
+        # Пробуем несколько вариантов запроса параллельно и мёржим результаты
+        variants = _expand_query(query)
+        log.info("shopper.query_variants", original=query[:60], variants=variants[:5])
+        all_results: list[dict] = []
+        for variant in variants:
+            batch = await self._search_all(variant, max_price, limit)
+            if batch:
+                all_results.extend(batch)
+                if len(all_results) >= limit * 2:  # достаточно чтобы дедупнуть до limit
+                    break
+        # Дедуп по title
+        seen: set[str] = set()
+        unique: list[dict] = []
+        for m in all_results:
+            key = m.get("title", "").lower()[:40]
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(m)
+        if unique:
+            return unique[:limit]
+        # Fallback: вернуть прямые ссылки на поиск в магазинах
         log.info("shopper.fallback_links", query=query[:60])
         return [
             {
