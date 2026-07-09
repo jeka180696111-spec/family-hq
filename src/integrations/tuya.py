@@ -784,19 +784,29 @@ class TuyaClient:
 
         q_digits = set(re.findall(r"\d+", (query or "").lower()))
         if q_digits:
-            digit_matches = [
-                s for s in scenes
-                if set(re.findall(r"\d+", s["name"].lower())) & q_digits
+            # Приоритет: сцены где цифра — ПЕРВАЯ в имени
+            # («Кондер 26 мин» — 26 первая; «Кондер >28/<26» — 28 первая, 26 вторичная).
+            def _first_digit(name: str) -> str | None:
+                m = re.search(r"\d+", name)
+                return m.group(0) if m else None
+
+            primary_matches = [
+                s for s in scenes if _first_digit(s["name"].lower()) in q_digits
             ]
-            if not digit_matches:
-                # Цифра не совпадает ни с одной сценой → отказ.
-                return {
-                    "ambiguous": True,
-                    "candidates": scenes[:8],
-                    "reason": f"нет сцены с цифрой {next(iter(q_digits))}",
-                }
-            # Среди тех что совпали по цифре — выбираем по обычному скору
-            scenes = digit_matches
+            if primary_matches:
+                scenes = primary_matches
+            else:
+                any_digit_matches = [
+                    s for s in scenes
+                    if set(re.findall(r"\d+", s["name"].lower())) & q_digits
+                ]
+                if not any_digit_matches:
+                    return {
+                        "ambiguous": True,
+                        "candidates": scenes[:8],
+                        "reason": f"нет сцены с цифрой {next(iter(q_digits))}",
+                    }
+                scenes = any_digit_matches
 
         ranked = sorted(
             ((self._score_scene_match(query, s["name"]), s) for s in scenes),
