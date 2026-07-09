@@ -55,6 +55,38 @@ class DevOpsAgent(BaseAgent):
         t_clean = re.sub(r"^прораб[,!?.\s]+", "", t, flags=re.IGNORECASE).strip()
         low = t_clean.lower()
 
+        # === Точный/подстрочный матч имени сцены ===
+        # Если сообщение равно имени сцены или содержит его целиком —
+        # запускать сразу, без LLM и без переспроса. Ловит:
+        # «Кондер 26 мин», «Кондер выкл», «Кондер 17 Max» и т.д.
+        try:
+            from src.config import get_settings
+            from src.integrations.tuya import TuyaClient
+            client = TuyaClient.from_settings(get_settings())
+            if client:
+                scenes = await client.list_scenes()
+                exact_matches = []
+                for sc in scenes:
+                    sname_low = sc["name"].lower().strip()
+                    if not sname_low:
+                        continue
+                    if low == sname_low or sname_low in low:
+                        exact_matches.append(sc)
+                if len(exact_matches) == 1:
+                    sc = exact_matches[0]
+                    res = await client.run_scene(sc["id"])
+                    if res.get("success"):
+                        try:
+                            from src.utils.family import track_user_action
+                            track_user_action(f"сцена: {sc['name']}")
+                        except Exception:
+                            pass
+                        return f"{self.emoji} ✅ Запустил сцену «{sc['name']}»"
+                    err = str(res.get("raw", ""))[:100]
+                    return f"{self.emoji} ❌ Не сработало: {err or '—'}"
+        except Exception:
+            pass
+
         # === Кондер ===
         # «кондер на 26» / «кондер 26» / «на 26»
         m = re.match(r"^(кондер|кондиц\w*|на)\s+(\d{2})°?\s*$", low)
