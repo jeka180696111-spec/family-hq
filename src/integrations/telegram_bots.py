@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any, Callable, Coroutine
 
 from telegram import Bot
@@ -10,6 +11,41 @@ from telegram.error import TelegramError
 import structlog
 
 log = structlog.get_logger()
+
+# Разрешённые Telegram HTML-теги (см.
+# https://core.telegram.org/bots/api#html-style). Всё что не в этом
+# списке — экранируется, чтобы «Кондер >28», «5 < 10», «A & B» и т.п.
+# не роняли отправку с parse-error.
+_TG_ALLOWED_TAGS = {"b", "strong", "i", "em", "u", "ins", "s", "strike",
+                    "del", "code", "pre", "a", "tg-spoiler", "span",
+                    "blockquote"}
+_TAG_RE = re.compile(r"<(/?)([a-zA-Z][a-zA-Z0-9\-]*)(\s[^>]*)?>")
+
+
+def sanitize_html_for_telegram(text: str) -> str:
+    """Экранировать `<` `>` `&` кроме разрешённых Telegram HTML-тегов.
+
+    Работает так: сначала экранируем всё, потом восстанавливаем
+    белый список тегов. Дёшево и безопасно.
+    """
+    if not text:
+        return text
+    # Placeholder для валидных тегов чтобы escape их не тронул
+    placeholders: dict[str, str] = {}
+    def _stash(m: re.Match) -> str:
+        tag = m.group(2).lower()
+        if tag not in _TG_ALLOWED_TAGS:
+            return m.group(0)  # оставим как есть — будет escaped ниже
+        key = f"\x00TG{len(placeholders)}\x00"
+        placeholders[key] = m.group(0)
+        return key
+    stashed = _TAG_RE.sub(_stash, text)
+    # Экранируем всё оставшееся
+    escaped = stashed.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # Восстанавливаем валидные теги
+    for key, original in placeholders.items():
+        escaped = escaped.replace(key, original)
+    return escaped
 
 
 class BotManager:
@@ -132,9 +168,12 @@ class BotManager:
                 k: v for k, v in self._recent_sends.items() if v >= cutoff
             }
 
+        # Проактивно чистим текст от невалидных символов чтобы Telegram
+        # HTML-парсер не отверг сообщение из-за «Кондер >28», «5 < 10» и т.п.
+        safe_text = sanitize_html_for_telegram(text) if parse_mode == "HTML" else text
         kwargs: dict[str, Any] = {
             "chat_id": chat_id,
-            "text": text,
+            "text": safe_text,
             "parse_mode": parse_mode,
         }
         if reply_to_message_id:
@@ -230,7 +269,7 @@ class BotManager:
         kwargs: dict[str, Any] = {
             "chat_id": chat_id,
             "photo": io.BytesIO(photo_bytes),
-            "caption": caption[:1024],
+            "caption": sanitize_html_for_telegram(caption[:1024]),
             "parse_mode": "HTML",
         }
         if reply_markup:
