@@ -635,9 +635,9 @@ class TuyaClient:
         items: list[dict] = []
 
         # v2.0 endpoint — Smart Home Scene Linkage (preferred).
-        # Bare path — adding pagination params (size/page_size) breaks
-        # the request shape Tuya expects. Pull type=scene AND
-        # type=automation separately; tap-to-run can land in either bucket.
+        # Pull type=scene AND type=automation separately; tap-to-run can land
+        # in either bucket. Помечаем bucket в item чтобы find_scene мог
+        # отфильтровать автоматизации (у них имена типа «Кондер выкл <24°»).
         for scene_type in ("scene", "automation"):
             path = (
                 f"/v2.0/cloud/scene/rule"
@@ -658,6 +658,8 @@ class TuyaClient:
                 batch = res
             else:
                 batch = []
+            for b in batch:
+                b["_kind"] = scene_type  # 'scene' | 'automation'
             items.extend(batch)
 
         # v1.0 endpoint — fallback only if v2 was empty.
@@ -679,10 +681,15 @@ class TuyaClient:
             if not sid or sid in seen:
                 continue
             seen.add(sid)
+            name = s.get("name", "")
+            # Строго по типу из API: type=automation — это автоматизация,
+            # запускать вручную нельзя. Никаких эвристик по имени.
+            is_automation = s.get("_kind") == "automation"
             out.append({
                 "id": sid,
-                "name": s.get("name", ""),
+                "name": name,
                 "status": s.get("status", ""),
+                "is_automation": is_automation,
             })
         self._scenes_cache = out
         self._scenes_cache_ts = now
@@ -779,6 +786,12 @@ class TuyaClient:
         """
         import re
         scenes = await self.list_scenes()
+        if not scenes:
+            return None
+        # Автоматизации из Smart Life («Кондер выкл <24°») в fast-path
+        # запускать нельзя — они управляются условиями, не вручную.
+        # Отсекаем.
+        scenes = [s for s in scenes if not s.get("is_automation")]
         if not scenes:
             return None
 

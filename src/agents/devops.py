@@ -68,6 +68,8 @@ class DevOpsAgent(BaseAgent):
             client = TuyaClient.from_settings(get_settings())
             if client:
                 scenes = await client.list_scenes()
+                # Не путать сцены с автоматизациями (Кондер выкл <24° и т.п.)
+                scenes = [s for s in scenes if not s.get("is_automation")]
                 exact_matches = []
                 for sc in scenes:
                     sname_low = sc["name"].lower().strip()
