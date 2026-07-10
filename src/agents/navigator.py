@@ -351,6 +351,37 @@ class NavigatorAgent(BaseAgent):
             except Exception:
                 log.exception("trip_arm_failed")
 
+        # Google Maps ссылки: основной маршрут + кнопки на АЗС
+        from urllib.parse import quote_plus as _qp
+        origin_q = _qp(p["origin"])
+        dest_q = _qp(p["destination"])
+        # Топ-3 АЗС встраиваем как waypoints (Google Maps ограничивает 9),
+        # чтобы юзер сразу видел их на карте как остановки.
+        waypoints_urlpart = ""
+        if top_stations:
+            wp_encoded = "|".join(_qp(s["address"] or s["name"]) for s in top_stations[:3])
+            waypoints_urlpart = f"&waypoints={wp_encoded}"
+        route_url = (
+            f"https://www.google.com/maps/dir/?api=1"
+            f"&origin={origin_q}&destination={dest_q}"
+            f"&travelmode=driving{waypoints_urlpart}"
+        )
+        waze_url = (
+            f"https://www.waze.com/ul?ll={p['destination']}&navigate=yes&zoom=17"
+        )
+
+        # Ссылки на каждую АЗС на карте (юзер может кликнуть и увидеть
+        # магазин рядом, туалет, кофейню — Google Maps покажет POI вокруг)
+        stations_out: list[dict] = []
+        for s in top_stations:
+            addr = s.get("address") or s.get("name") or ""
+            s_url = f"https://www.google.com/maps/search/?api=1&query={_qp(addr)}"
+            stations_out.append({
+                "name": s["name"],
+                "address": s["address"],
+                "map_url": s_url,
+            })
+
         return {
             "trip_id": trip_id,
             "vehicle": vehicle.name,
@@ -366,15 +397,17 @@ class NavigatorAgent(BaseAgent):
             "alert_warnings": alert_warnings,
             "arrival_weather": arrival_weather,
             "checklist": checklist,
-            "stations_top": [
-                {"name": s["name"], "address": s["address"]} for s in top_stations
-            ],
+            "stations_top": stations_out,
+            "route_url": route_url,
+            "waze_url": waze_url,
             "arm_status": arm_status,
             "display_instruction": (
                 "Покажи юзеру компактно: маршрут, ETA, расход, оценку стоимости, "
-                "топ-5 АЗС с приоритетом Укрнафта→WOG→OKKO, активные тревоги/риски "
-                "по регионам маршрута если есть, чек-лист сборов. Сообщи что "
-                "trip-mode и напоминание за 30 мин уже взведены (arm_status)."
+                "топ-5 АЗС (с ссылкой map_url на каждую), активные тревоги/риски. "
+                "ОБЯЗАТЕЛЬНО дай кликабельную ссылку route_url — «🗺 Открыть маршрут в Google Maps» — "
+                "она уже содержит топ-3 АЗС как остановки, юзер увидит их на карте. "
+                "Также дай ссылку на Waze (waze_url) как альтернативу — пробки. "
+                "Чек-лист сборов и arm_status в конце."
             ),
         }
 
