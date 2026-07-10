@@ -12,6 +12,49 @@ from src.agents.base import BaseAgent
 from src.db.models import FuelLog, Trip, Vehicle
 from src.utils.time import iso_now, now_kyiv
 
+
+def _parse_flexible_datetime(raw: str) -> datetime | None:
+    """Принимает ISO, «завтра 9:00», «сегодня в 15:30», «через 2 часа»,
+    «11 июля 9:00». Возвращает naive datetime в Kyiv-времени (без tz)."""
+    import re
+    if not raw:
+        return None
+    s = raw.strip().lower()
+    # 1. Прямой ISO
+    try:
+        return datetime.fromisoformat(raw)
+    except Exception:
+        pass
+    now = now_kyiv().replace(tzinfo=None)
+    # 2. «через N часов» / «через N минут»
+    m = re.match(r"через\s+(\d+)\s*(час|мин)", s)
+    if m:
+        n, unit = int(m.group(1)), m.group(2)
+        from datetime import timedelta
+        if unit.startswith("час"):
+            return now + timedelta(hours=n)
+        return now + timedelta(minutes=n)
+    # 3. «завтра [в] HH:MM» / «сегодня [в] HH:MM» / «послезавтра ...»
+    day_offset = None
+    if "завтра" in s and "после" not in s:
+        day_offset = 1
+    elif "послезавтра" in s:
+        day_offset = 2
+    elif "сегодня" in s:
+        day_offset = 0
+    if day_offset is not None:
+        hm = re.search(r"(\d{1,2})[:.](\d{2})", s)
+        if hm:
+            h, mm = int(hm.group(1)), int(hm.group(2))
+        else:
+            h2 = re.search(r"в\s+(\d{1,2})", s)
+            h = int(h2.group(1)) if h2 else 9
+            mm = 0
+        from datetime import timedelta
+        target = (now + timedelta(days=day_offset)).replace(hour=h, minute=mm, second=0, microsecond=0)
+        return target
+    return None
+
 log = structlog.get_logger()
 
 
@@ -250,12 +293,11 @@ class NavigatorAgent(BaseAgent):
         if not gmaps:
             return {"error": "Не настроен GMAPS_API_KEY"}
 
-        try:
-            depart_dt = datetime.fromisoformat(p["depart_at"])
-            if depart_dt.tzinfo is None:
-                depart_dt = depart_dt.replace(tzinfo=KYIV_TZ)
-        except Exception:
-            return {"error": "depart_at не парсится. Пиши '2026-06-10 09:00'"}
+        depart_dt = _parse_flexible_datetime(p.get("depart_at", ""))
+        if depart_dt is None:
+            return {"error": f"depart_at '{p.get('depart_at')}' не распознан. Пробуй ISO '2026-07-11 09:00' или 'завтра 9:00'."}
+        if depart_dt.tzinfo is None:
+            depart_dt = depart_dt.replace(tzinfo=KYIV_TZ)
 
         try:
             route = await gmaps.directions(p["origin"], p["destination"], depart_dt)
