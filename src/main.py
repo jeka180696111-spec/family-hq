@@ -948,23 +948,40 @@ _ACTION_HINTS = [
 ]
 
 
-def _find_addressed_agent(text: str, exclude: str | None) -> str | None:
-    """Detect if `text` addresses another agent by name AND contains an action verb.
+_REDIRECT_PHRASES = [
+    "это к ", "это вопрос к ", "это вопрос для ", "это по части ",
+    "спроси ", "спросите ", "передаю ", "передай ", "перенаправляю к ",
+    "лучше спроси ", "обратись к ", "это к ", " знает лучше",
+]
 
-    Также: если сообщение начинается с имени агента и запятой
-    («Дворецкий, привет», «Няня, как малыш») — маршрутизируем на
-    этого агента даже без action-verb (это прямое обращение).
+
+def _find_addressed_agent(text: str, exclude: str | None) -> str | None:
+    """Detect if `text` addresses another agent by name.
+
+    Правила (в порядке приоритета):
+    1. Прямое обращение в начале: «Дворецкий, привет».
+    2. Redirect: «Это к Няне», «спроси Айболита» — явное перенаправление.
+    3. Действие + имя: «Проверь у Прораба».
     """
     if not text:
         return None
     lower = text.lower().strip()
-    # Прямое обращение в начале: «Имя, ...» / «Имя ...»
+    # 1. Прямое обращение в начале
     for agent_id, names in _AGENT_NAME_PATTERNS.items():
         if agent_id == exclude:
             continue
         for name in names:
             if lower.startswith(name + ",") or lower.startswith(name + " ") or lower == name:
                 return agent_id
+    # 2. Redirect-фраза + имя агента в тексте
+    has_redirect = any(p in lower for p in _REDIRECT_PHRASES)
+    if has_redirect:
+        for agent_id, names in _AGENT_NAME_PATTERNS.items():
+            if agent_id == exclude:
+                continue
+            if any(name in lower for name in names):
+                return agent_id
+    # 3. Действие + имя
     has_action = any(hint in lower for hint in _ACTION_HINTS)
     if not has_action:
         return None
@@ -974,6 +991,14 @@ def _find_addressed_agent(text: str, exclude: str | None) -> str | None:
         if any(name in lower for name in names):
             return agent_id
     return None
+
+
+def _is_redirect_reply(text: str) -> bool:
+    """Ответ агента — это перенаправление (не содержательный ответ)?"""
+    if not text:
+        return False
+    lower = text.lower().strip()
+    return any(p in lower for p in _REDIRECT_PHRASES)
 
 
 async def _dispatch_chain(
@@ -987,6 +1012,7 @@ async def _dispatch_chain(
     chain_depth: int,
     origin_agent: str | None,
     forced_agent: str | None = None,
+    original_user_query: str | None = None,
 ) -> None:
     """Dispatch a message to agents; if an agent's reply addresses another, recurse."""
     recent = await context.get_recent(8)
@@ -1041,9 +1067,19 @@ async def _dispatch_chain(
         reply_text = getattr(response, "text", "") or ""
         addressed = _find_addressed_agent(reply_text, exclude=task.agent_id)
         if addressed and addressed in agents:
-            log.info("peer_chain", from_agent=task.agent_id, to_agent=addressed, depth=chain_depth + 1)
+            # Если это перенаправление («Это к Няне»), передаём получателю
+            # ОРИГИНАЛЬНЫЙ вопрос юзера, а не текст перенаправления.
+            base_query = original_user_query or text
+            forward_text = base_query if _is_redirect_reply(reply_text) else reply_text
+            log.info(
+                "peer_chain",
+                from_agent=task.agent_id,
+                to_agent=addressed,
+                depth=chain_depth + 1,
+                is_redirect=_is_redirect_reply(reply_text),
+            )
             await _dispatch_chain(
-                text=reply_text,
+                text=forward_text,
                 sender_name=f"[{task.agent_id}]",
                 dispatcher=dispatcher,
                 parser=parser,
@@ -1052,6 +1088,8 @@ async def _dispatch_chain(
                 context=context,
                 chain_depth=chain_depth + 1,
                 origin_agent=task.agent_id,
+                forced_agent=addressed,
+                original_user_query=base_query,
             )
 
 
