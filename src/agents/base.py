@@ -182,7 +182,7 @@ class BaseAgent(abc.ABC):
                     system=self._full_system_prompt(),
                     messages=history,
                     tools=tools,
-                    max_tokens=2048,
+                    max_tokens=self._max_response_tokens(with_tools=True),
                 )
                 response_text, actions = await self._process_tool_calls(message, history)
             else:
@@ -190,7 +190,7 @@ class BaseAgent(abc.ABC):
                     model=self._get_model(),
                     system=self._full_system_prompt(),
                     messages=history,
-                    max_tokens=1024,
+                    max_tokens=self._max_response_tokens(with_tools=False),
                 )
                 actions = []
 
@@ -493,6 +493,11 @@ class BaseAgent(abc.ABC):
     def _get_model(self) -> str:
         from src.config import get_settings
         return get_settings().model_main
+
+    def _max_response_tokens(self, with_tools: bool) -> int:
+        """Максимум токенов на ответ. Агент может переопределить (Дворецкий
+        любит более развёрнутые списки с эмодзи)."""
+        return 2048 if with_tools else 1024
 
     async def send(self, text: str, reply_to: int | None = None) -> Any:
         """Send a message from this agent's bot to the HQ group. Returns the tg Message.

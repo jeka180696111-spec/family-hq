@@ -50,6 +50,11 @@ class ButlerAgent(DevOpsAgent):
         from src.prompts.butler import get_butler_prompt
         return get_butler_prompt(active_agents=[])
 
+    def _max_response_tokens(self, with_tools: bool) -> int:
+        # Больше воздуха: списки устройств, шопинг-варианты, длинные
+        # диагностики — всё влезет без обрубания.
+        return 4096 if with_tools else 2048
+
     def get_tools(self) -> list[dict[str, Any]]:
         # Берём тулы Прораба, фильтруем по белому списку, добавляем shopper.
         parent_tools = super().get_tools()
