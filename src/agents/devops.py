@@ -50,9 +50,12 @@ class DevOpsAgent(BaseAgent):
         import re
         if not message_text:
             return None
-        # Убрать «прораб,», «прораб!», «прораб?» из начала
+        # Убрать имя своего агента из начала («Прораб,», «Дворецкий,»)
+        # — работает и для наследников (Butler) без переопределения.
         t = message_text.strip()
-        t_clean = re.sub(r"^прораб[,!?.\s]+", "", t, flags=re.IGNORECASE).strip()
+        my_name = (self.name or "прораб").lower()
+        prefix_pattern = rf"^{re.escape(my_name)}[,!?.\s]+"
+        t_clean = re.sub(prefix_pattern, "", t, flags=re.IGNORECASE).strip()
         low = t_clean.lower()
 
         # === Точный/подстрочный матч имени сцены ===

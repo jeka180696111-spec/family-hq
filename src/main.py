@@ -1200,10 +1200,9 @@ async def run(dry_run: bool = False) -> None:
         "navigator": NavigatorAgent(**base_args),
         "butler": ButlerAgent(**base_args, github_client=github, railway_client=railway),
     }
-    # Cross-reference so devops can trigger composite jobs (morning brief etc.)
-    agents["devops"]._peer_agents = agents
-    agents["navigator"]._peer_agents = agents
-    agents["butler"]._peer_agents = agents
+    # Cross-reference so agents can trigger composite jobs / redirect chains.
+    for _a in agents.values():
+        _a._peer_agents = agents
 
     # Load registry from DB
     registry = await AgentRegistry.load_from_db(memory)
