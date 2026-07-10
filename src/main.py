@@ -1273,7 +1273,7 @@ async def run(dry_run: bool = False) -> None:
     # news / weather (clothing + walk window) / baby / plans / systems.
     from src.scheduler.morning_brief import register_morning_brief_job
     register_morning_brief_job(
-        scheduler, agents["devops"], agents["news"], agents["nanny"],
+        scheduler, agents["butler"], agents["news"], agents["nanny"],
         agents["calendar"], memory, at="07:00",
     )
 

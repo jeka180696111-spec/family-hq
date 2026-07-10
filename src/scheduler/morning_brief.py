@@ -233,22 +233,21 @@ async def _section_sleep_coach(nanny_agent: Any) -> str:
         if not data.get("observed"):
             return ""
         prompt = (
-            "Сформулируй сводку «Сон» для утреннего брифинга — 3-5 строк "
-            "максимум. Без эмоциональной воды. Сначала факт (bedtime, "
-            "длительность, разрывы), потом ОДИН-ДВА конкретных совета на "
-            "сегодня. Тёплый, человечный, но без сюсюканья. "
-            "ВАЖНО: коррекция занимает 1-3 недели — не обещай чудес, "
-            "обещай «попробуем».\n\n"
+            "Сводка «Сон Матвея» для утреннего брифинга. МАКСИМУМ 2 строки. "
+            "Формат:\n"
+            "  Ночь: <часы>ч, <кол-во>× пробуждений. Дни: <часы>ч.\n"
+            "  Совет: <одна короткая фраза что попробовать сегодня>.\n"
+            "Никаких вступлений, метафор, объяснений. Только факты и один совет.\n\n"
             f"ДАННЫЕ:\n{data['summary_for_agent']}"
         )
         text = await nanny_agent._claude.complete(
             model=nanny_agent._get_model(),
             system=(
-                "Ты — Няня. Сводка по сну Матвея, очень короткая. "
+                "Ты — Няня. МАКСИМУМ 2 строки, без воды. "
                 "ВСЕГДА пиши ТОЛЬКО НА РУССКОМ."
             ),
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=400,
+            max_tokens=180,
         )
         if not text:
             return ""
@@ -528,10 +527,89 @@ async def _section_systems(memory: Any) -> str:
         return ""
 
 
+# ─── Section: home status (devices, sensors, vacuum, inverter) ───────
+
+async def _section_home_status(memory: Any) -> str:
+    """Компактная сводка дома: устройства, датчики, инвертор, пылесос."""
+    try:
+        from src.config import get_settings
+        settings = get_settings()
+        lines: list[str] = []
+
+        # Tuya devices
+        try:
+            from src.integrations.tuya import TuyaClient
+            tuya = TuyaClient.from_settings(settings)
+            if tuya:
+                devices = await tuya.list_devices()
+                for d in devices:
+                    name = (d.get("name") or "").strip()
+                    online = d.get("online")
+                    low = name.lower()
+                    if "бойлер" in low:
+                        emoji = "🔥"
+                    elif "тв" in low or "телевизор" in low:
+                        emoji = "📺"
+                    elif "кондер" in low or "кондиц" in low:
+                        emoji = "❄️"
+                    elif "датчик" in low or "sensor" in low:
+                        emoji = "🌡"
+                    elif "свет" in low or "лампа" in low:
+                        emoji = "💡"
+                    else:
+                        emoji = "🔌"
+                    status = "онлайн" if online else "оффлайн"
+                    lines.append(f"{emoji} {name}: {status}")
+        except Exception:
+            log.exception("brief_home_tuya_failed")
+
+        # LuxCloud inverter
+        try:
+            from src.integrations.luxcloud import LuxCloudClient
+            lux = LuxCloudClient.from_settings(settings)
+            if lux:
+                rt = await lux.runtime()
+                if rt.get("online"):
+                    soc = rt.get("soc") or rt.get("battery_soc")
+                    load = rt.get("load_w") or rt.get("home_w")
+                    grid = "сеть" if rt.get("grid_active") else "нет сети"
+                    parts = []
+                    if soc is not None:
+                        parts.append(f"{soc}% заряда")
+                    if load is not None:
+                        parts.append(f"{int(load)}Вт дом")
+                    parts.append(grid)
+                    lines.append(f"☀️ Инвертор: {', '.join(parts)}")
+                else:
+                    lines.append("☀️ Инвертор: оффлайн")
+        except Exception:
+            log.exception("brief_home_lux_failed")
+
+        # Vacuum (SmartThings)
+        try:
+            from src.integrations.smartthings import SmartThingsClient
+            st = SmartThingsClient.from_settings(settings)
+            if st:
+                vac = await st.vacuum_status()
+                if vac and vac.get("found"):
+                    battery = vac.get("battery")
+                    state = vac.get("state", "неизвестно")
+                    lines.append(f"🤖 Гоша (пылесос): {state}, батарея {battery}%")
+        except Exception:
+            log.exception("brief_home_vacuum_failed")
+
+        if not lines:
+            return ""
+        return "🏠 <b>Умный дом</b>\n" + "\n".join(lines)
+    except Exception:
+        log.exception("brief_home_status_failed")
+        return ""
+
+
 # ─── Main: compose & send ────────────────────────────────────────────
 
 async def send_morning_brief(
-    devops_agent: Any,
+    sender_agent: Any,
     news_agent: Any,
     nanny_agent: Any,
     calendar_agent: Any,
@@ -540,9 +618,8 @@ async def send_morning_brief(
     try:
         from src.utils.time import now_kyiv
         date_str = now_kyiv().strftime("%d.%m, %A")
-        # Run sections in parallel where independent
         import asyncio
-        news_s, weather_s, baby_s, plans_s, systems_s, vacc_s, sleep_s = await asyncio.gather(
+        news_s, weather_s, baby_s, plans_s, systems_s, vacc_s, sleep_s, home_s = await asyncio.gather(
             _section_news(news_agent, memory),
             _section_weather(),
             _section_baby(nanny_agent, memory),
@@ -550,20 +627,21 @@ async def send_morning_brief(
             _section_systems(memory),
             _section_recent_vaccinations(memory),
             _section_sleep_coach(nanny_agent),
+            _section_home_status(memory),
             return_exceptions=False,
         )
-        sections = [s for s in (news_s, weather_s, baby_s, sleep_s, vacc_s, plans_s, systems_s) if s]
+        sections = [s for s in (news_s, weather_s, home_s, baby_s, sleep_s, vacc_s, plans_s, systems_s) if s]
         header = f"☀️ <b>Доброе утро!</b> Сводка на {date_str}"
         body = "\n\n".join([header] + sections)
-        await devops_agent.send(body)
-        log.info("morning_brief_sent", sections=len(sections))
+        await sender_agent.send(body)
+        log.info("morning_brief_sent", sections=len(sections), sender=getattr(sender_agent, "agent_id", "?"))
     except Exception:
         log.exception("morning_brief_failed")
 
 
 def register_morning_brief_job(
     scheduler,
-    devops_agent,
+    sender_agent,
     news_agent,
     nanny_agent,
     calendar_agent,
@@ -574,7 +652,7 @@ def register_morning_brief_job(
     scheduler.add_job(
         send_morning_brief,
         "cron", hour=h, minute=m, timezone="Europe/Kiev",
-        args=[devops_agent, news_agent, nanny_agent, calendar_agent, memory],
+        args=[sender_agent, news_agent, nanny_agent, calendar_agent, memory],
         id="morning_brief", replace_existing=True,
     )
     log.info("morning_brief_registered", at=at)
