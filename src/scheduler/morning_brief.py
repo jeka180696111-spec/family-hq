@@ -374,8 +374,8 @@ async def _section_systems(memory: Any) -> str:
             lines.append("⚡ <b>Свет</b>: нет (на батарее)")
         else:
             lines.append("⚡ <b>Свет</b>: есть")
-        if lux_battery is not None:
-            lines.append(f"🔋 Инвертор: {int(lux_battery)}% ({lux_state})")
+        # Инвертор ушёл в секцию «Умный дом» с полными показателями —
+        # тут не дублируем.
         if alert_row:
             lines.append(f"🚨 Тревога активна: {alert_row.region}")
         # Tuya health check — реальный тык в облако, не «всё ок по
@@ -529,14 +529,97 @@ async def _section_systems(memory: Any) -> str:
 
 # ─── Section: home status (devices, sensors, vacuum, inverter) ───────
 
+def _dps_to_dict(status: list) -> dict:
+    """[{code, value}, ...] → {code: value}."""
+    return {s.get("code", ""): s.get("value") for s in (status or []) if s.get("code")}
+
+
+def _format_device_line(name: str, online: bool, dps: dict) -> str:
+    """По имени и DPs формируем строку с реальными показателями."""
+    low = name.lower()
+
+    if not online:
+        return None  # оффлайн-устройства не показываем чтобы не шуметь
+
+    # === Датчик температуры/влажности ===
+    if "датчик" in low or "sensor" in low:
+        # Tuya DPs: va_temperature (0.1°C), va_humidity, battery_percentage
+        temp = dps.get("va_temperature") or dps.get("temp_current")
+        humid = dps.get("va_humidity") or dps.get("humidity_value")
+        battery = dps.get("battery_percentage") or dps.get("battery_state")
+        parts = []
+        if temp is not None:
+            parts.append(f"{float(temp) / 10:.1f}°C" if abs(temp) > 100 else f"{temp}°C")
+        if humid is not None:
+            parts.append(f"вл. {humid}%")
+        if battery is not None:
+            parts.append(f"🔋 {battery}%")
+        return f"🌡 {name}: {', '.join(parts) if parts else 'нет данных'}"
+
+    # === Бойлер (розетка с мониторингом) ===
+    if "бойлер" in low:
+        switch = dps.get("switch") or dps.get("switch_1")
+        power = dps.get("cur_power")  # 0.1W
+        if power is not None:
+            power_w = float(power) / 10 if power > 500 else power
+            state = "включён" if switch else "выключен"
+            return f"🔥 {name}: {state}, {int(power_w)}Вт"
+        return f"🔥 {name}: {'включён' if switch else 'выключен'}"
+
+    # === Кондер ===
+    if "кондер" in low or "кондиц" in low:
+        switch = dps.get("switch") or dps.get("power")
+        mode = dps.get("mode") or dps.get("work_mode") or ""
+        temp_set = dps.get("temp_set") or dps.get("temp_setting")
+        fan = dps.get("wind_speed") or dps.get("fan_speed") or ""
+        if switch:
+            parts = ["включён"]
+            if mode:
+                mode_ru = {"cold": "холод", "hot": "тепло", "wet": "осушение",
+                           "wind": "вентилятор", "auto": "авто"}.get(str(mode).lower(), str(mode))
+                parts.append(mode_ru)
+            if temp_set:
+                parts.append(f"{temp_set}°C")
+            if fan:
+                parts.append(f"вент. {fan}")
+            return f"❄️ {name}: {', '.join(parts)}"
+        return f"❄️ {name}: выключен"
+
+    # === ТВ ===
+    if "тв" in low or "телевизор" in low or "телик" in low:
+        switch = dps.get("switch") or dps.get("power")
+        return f"📺 {name}: {'включён' if switch else 'выключен'}"
+
+    # === Свет / лампа / розетка ===
+    if "свет" in low or "лампа" in low or "розетка" in low:
+        switch = dps.get("switch") or dps.get("switch_1")
+        power = dps.get("cur_power")
+        emoji = "💡" if "свет" in low or "лампа" in low else "🔌"
+        state = "включен" if switch else "выключен"
+        if power is not None and switch:
+            power_w = float(power) / 10 if power > 500 else power
+            return f"{emoji} {name}: {state}, {int(power_w)}Вт"
+        return f"{emoji} {name}: {state}"
+
+    # === ИК-пульт ===
+    if "ик" in low or "пульт" in low or "infrared" in low:
+        return f"📡 {name}: онлайн"
+
+    # === Fallback: общий switch ===
+    switch = dps.get("switch") or dps.get("switch_1") or dps.get("power")
+    if switch is not None:
+        return f"🔌 {name}: {'включён' if switch else 'выключен'}"
+    return f"🔌 {name}: онлайн"
+
+
 async def _section_home_status(memory: Any) -> str:
-    """Компактная сводка дома: устройства, датчики, инвертор, пылесос."""
+    """Компактная сводка дома с РЕАЛЬНЫМИ показателями по каждому устройству."""
     try:
         from src.config import get_settings
         settings = get_settings()
         lines: list[str] = []
 
-        # Tuya devices
+        # Tuya devices — с показателями из DPs
         try:
             from src.integrations.tuya import TuyaClient
             tuya = TuyaClient.from_settings(settings)
@@ -544,26 +627,16 @@ async def _section_home_status(memory: Any) -> str:
                 devices = await tuya.list_devices()
                 for d in devices:
                     name = (d.get("name") or "").strip()
-                    online = d.get("online")
-                    low = name.lower()
-                    if "бойлер" in low:
-                        emoji = "🔥"
-                    elif "тв" in low or "телевизор" in low:
-                        emoji = "📺"
-                    elif "кондер" in low or "кондиц" in low:
-                        emoji = "❄️"
-                    elif "датчик" in low or "sensor" in low:
-                        emoji = "🌡"
-                    elif "свет" in low or "лампа" in low:
-                        emoji = "💡"
-                    else:
-                        emoji = "🔌"
-                    status = "онлайн" if online else "оффлайн"
-                    lines.append(f"{emoji} {name}: {status}")
+                    if not name:
+                        continue
+                    dps = _dps_to_dict(d.get("status", []))
+                    line = _format_device_line(name, d.get("online", False), dps)
+                    if line:
+                        lines.append(line)
         except Exception:
             log.exception("brief_home_tuya_failed")
 
-        # LuxCloud inverter
+        # LuxCloud inverter — детальные показатели
         try:
             from src.integrations.luxcloud import LuxCloudClient
             lux = LuxCloudClient.from_settings(settings)
@@ -572,16 +645,19 @@ async def _section_home_status(memory: Any) -> str:
                 if rt.get("online"):
                     soc = rt.get("soc") or rt.get("battery_soc")
                     load = rt.get("load_w") or rt.get("home_w")
-                    grid = "сеть" if rt.get("grid_active") else "нет сети"
+                    solar = rt.get("solar_w") or rt.get("pv_w")
+                    grid_active = rt.get("grid_active")
                     parts = []
                     if soc is not None:
-                        parts.append(f"{soc}% заряда")
+                        parts.append(f"🔋 {soc}% заряда")
                     if load is not None:
-                        parts.append(f"{int(load)}Вт дом")
-                    parts.append(grid)
-                    lines.append(f"☀️ Инвертор: {', '.join(parts)}")
+                        parts.append(f"{int(load)}Вт нагрузка")
+                    if solar:
+                        parts.append(f"☀️ {int(solar)}Вт солнце")
+                    parts.append("сеть есть" if grid_active else "нет сети")
+                    lines.append(f"⚡ Инвертор: {', '.join(parts)}")
                 else:
-                    lines.append("☀️ Инвертор: оффлайн")
+                    lines.append("⚡ Инвертор: оффлайн")
         except Exception:
             log.exception("brief_home_lux_failed")
 
