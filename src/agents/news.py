@@ -92,6 +92,24 @@ class NewsAgent(BaseAgent):
                     "required": ["region", "category"],
                 },
             },
+            {
+                "name": "channels_activity",
+                "description": (
+                    "Проверить активность каналов за последние N часов. "
+                    "Показывает сколько постов пришло с каждого канала и "
+                    "какие каналы молчат (0 постов) — сразу видно кто "
+                    "заигнорен или отвалился. Триггеры: «какие каналы "
+                    "молчат», «какие каналы работают», «активность "
+                    "каналов», «сколько постов за сутки», «проверь "
+                    "каналы»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "hours": {"type": "integer", "description": "За сколько часов назад (по умолчанию 24)"},
+                    },
+                },
+            },
         ]
 
     async def _call_tool(self, tool_name: str, tool_input: dict[str, Any]) -> Any:
@@ -172,6 +190,54 @@ class NewsAgent(BaseAgent):
                     for r in rows
                 ]
                 return {"count": len(channels), "channels": channels}
+
+        elif tool_name == "channels_activity":
+            from datetime import timedelta
+            from src.utils.time import now_kyiv
+            from src.db.models import NewsPost, NewsChannel
+            from sqlalchemy import select, func
+            hours = int(tool_input.get("hours", 24))
+            since = (now_kyiv() - timedelta(hours=hours)).isoformat()
+            async with self._memory._engine.connect() as conn:
+                ch_rows = await conn.execute(select(NewsChannel))
+                channels = list(ch_rows)
+                # Кол-во постов по каналам за N часов
+                counts_rows = await conn.execute(
+                    select(NewsPost.channel_id, func.count(NewsPost.id))
+                    .where(NewsPost.date >= since)
+                    .group_by(NewsPost.channel_id)
+                )
+                counts: dict = {row[0]: row[1] for row in counts_rows}
+            report = []
+            silent = []
+            active = []
+            for c in channels:
+                cnt = counts.get(c.channel_id, 0)
+                entry = {
+                    "username": c.username,
+                    "title": c.title,
+                    "category": c.category,
+                    "region": c.region,
+                    "active": bool(c.active),
+                    "posts_last_h": cnt,
+                }
+                report.append(entry)
+                if not c.active:
+                    continue
+                if cnt == 0:
+                    silent.append(entry)
+                else:
+                    active.append(entry)
+            active.sort(key=lambda x: -x["posts_last_h"])
+            return {
+                "hours": hours,
+                "total_channels": len(channels),
+                "active_channels": len(active),
+                "silent_channels": len(silent),
+                "silent_list": [x["username"] or x["title"] for x in silent],
+                "top_active": active[:10],
+                "all": report,
+            }
 
         elif tool_name == "get_recent_alerts":
             from datetime import timedelta
