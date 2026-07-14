@@ -144,6 +144,19 @@ class Settings(BaseSettings):
     # Falls back to devops bot if empty (для миграции).
     butler_bot_token: str = Field(default="")
 
+    # Калибровка датчика температуры/влажности (дешёвые Tuya-датчики
+    # завышают/занижают на 1-2°C). Значения ПРИБАВЛЯЮТСЯ к показанию.
+    # Пример: если датчик пишет 25°C а реально 23°C → offset=-2.
+    sensor_temp_offset: float = Field(default=0.0)
+    sensor_humidity_offset: float = Field(default=0.0)
+
+    # Проактивный мониторинг детской: диапазоны нормы (WHO/AAP)
+    baby_room_temp_min: float = Field(default=18.0)
+    baby_room_temp_max: float = Field(default=24.0)
+    baby_room_humidity_min: float = Field(default=40.0)
+    baby_room_humidity_max: float = Field(default=60.0)
+    baby_room_sensor_name: str = Field(default="детская")  # подстрока в имени датчика
+
     # UI mode (enhanced = inline keyboards, edit-in-place, charts; classic = rollback)
     ui_mode: str = Field(default="enhanced")
 

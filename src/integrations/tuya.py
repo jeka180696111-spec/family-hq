@@ -907,16 +907,27 @@ class TuyaClient:
         HUMI_CODES = ("va_humidity", "humidity_value", "humidity", "humi_value")
         BATT_CODES = ("battery_percentage", "battery_state", "battery_value", "battery", "va_battery")
 
+        # Калибровка датчика (дешёвые Tuya врут ±1-2°C)
+        try:
+            from src.config import get_settings as _gs
+            _cfg = _gs()
+            _t_off = float(getattr(_cfg, "sensor_temp_offset", 0.0) or 0.0)
+            _h_off = float(getattr(_cfg, "sensor_humidity_offset", 0.0) or 0.0)
+        except Exception:
+            _t_off = _h_off = 0.0
+
         for s in target["status"]:
             code = s.get("code", "")
             val = s.get("value")
             if code in TEMP_CODES and isinstance(val, (int, float)):
                 temp_val = val / 10 if val > 100 else val
+                temp_val = round(float(temp_val) + _t_off, 1)
                 readings["temperature"] = f"{temp_val}°C"
                 temp_str = f"{temp_val}°C"
             elif code in HUMI_CODES and isinstance(val, (int, float)):
-                readings["humidity"] = f"{val}%"
-                humi_str = f"{val}%"
+                humi_val = round(float(val) + _h_off, 1)
+                readings["humidity"] = f"{humi_val}%"
+                humi_str = f"{humi_val}%"
             elif code in BATT_CODES and isinstance(val, (int, float)):
                 readings["battery"] = f"{val}%"
                 batt_str = f"{val}%"

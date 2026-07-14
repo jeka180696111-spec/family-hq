@@ -1276,6 +1276,10 @@ async def run(dry_run: bool = False) -> None:
         agents["calendar"], memory, at="07:00",
     )
 
+    # Проактивный мониторинг детской: температура/влажность каждые 15 мин
+    from src.scheduler.baby_room_monitor import register_baby_room_monitor
+    register_baby_room_monitor(scheduler, agents["butler"])
+
     # Automation engine — evaluates user IF-THEN rules every 5 min
     from src.integrations.automation import AutomationEngine, register_automation_job
     automation_engine = AutomationEngine(memory, bot_manager, chat_id, agents)
