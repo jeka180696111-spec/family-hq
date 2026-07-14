@@ -107,9 +107,11 @@ class SleepReactor:
             except Exception:
                 adv_history = ""
 
-            # Климат в детской — Няня учитывает при планировании
-            # и может попросить Дворецкого подстроить кондер/увлажнитель.
+            # Климат в детской + доступные сцены Tuya — Няня учитывает
+            # при планировании и может попросить Дворецкого запустить
+            # конкретную СУЩЕСТВУЮЩУЮ сцену (не выдумывать).
             climate_info = ""
+            available_scenes: list[str] = []
             try:
                 from src.config import get_settings
                 from src.integrations.tuya import TuyaClient
@@ -130,6 +132,15 @@ class SleepReactor:
                             f"{settings.baby_room_humidity_min}-"
                             f"{settings.baby_room_humidity_max}%."
                         )
+                    # Собираем СЦЕНЫ (не автоматизации) для промпта
+                    try:
+                        all_scenes = await tuya.list_scenes()
+                        available_scenes = [
+                            s["name"] for s in all_scenes
+                            if s.get("name") and not s.get("is_automation")
+                        ]
+                    except Exception:
+                        pass
             except Exception:
                 log.exception("sleep_reactor_climate_failed")
 
@@ -141,15 +152,32 @@ class SleepReactor:
             adv_text = (advice or {}).get("summary_for_agent", "")
             is_wake = ev["kind"] == "end"
             climate_block = f"\n\nКЛИМАТ В ДЕТСКОЙ (только что):\n{climate_info}\n" if climate_info else ""
-            climate_action_rule = (
-                "\n\nЕСЛИ КЛИМАТ ВНЕ НОРМЫ — в конце ответа добавь отдельной "
-                "строкой обращение к Дворецкому чтобы он подстроил. Примеры:\n"
-                "  «Дворецкий, в детской 26°C — включи кондер cold на 22.»\n"
-                "  «Дворецкий, влажность 32% — включи увлажнитель.»\n"
-                "  «Дворецкий, 17°C холодно — прогрей до 20.»\n"
-                "Он сам выполнит команду. Если климат в норме — ничего не пиши, "
-                "просто не упоминай Дворецкого."
-            ) if climate_info else ""
+            scenes_block = ""
+            if available_scenes:
+                scenes_block = (
+                    "\n\nДОСТУПНЫЕ СЦЕНЫ TUYA (используй ТОЛЬКО эти имена ДОСЛОВНО):\n"
+                    + "\n".join(f"  • {n}" for n in available_scenes)
+                )
+            climate_action_rule = ""
+            if climate_info:
+                if available_scenes:
+                    climate_action_rule = (
+                        "\n\nЕСЛИ КЛИМАТ ВНЕ НОРМЫ — в конце ответа добавь строку "
+                        "обращения к Дворецкому с ТОЧНЫМ именем сцены из списка выше. "
+                        "Формат: «Дворецкий, <причина> — запусти сцену «<точное имя>».»\n"
+                        "Примеры (подставь СВОЁ имя сцены из списка):\n"
+                        "  «Дворецкий, 26°C жарко — запусти сцену «Кондер 24 авто».»\n"
+                        "  «Дворецкий, 17°C холодно — запусти сцену «Кондер 25 авто».»\n"
+                        "НИКОГДА не выдумывай имена — если в списке нет подходящей сцены, "
+                        "просто напиши «Марине: в детской жарко/холодно, подстрой вручную». "
+                        "Если климат в норме — Дворецкого не упоминай вообще."
+                    )
+                else:
+                    climate_action_rule = (
+                        "\n\nЕСЛИ КЛИМАТ ВНЕ НОРМЫ — предупреди Марину "
+                        "в конце ответа отдельной строкой («в детской "
+                        "26°C — жарко, стоит проветрить или включить кондер»)."
+                    )
 
             if is_wake:
                 # При пробуждении — Няня даёт развёрнутый анализ как
@@ -161,7 +189,7 @@ class SleepReactor:
                     f"СЫРЫЕ ДАННЫЕ ДЛЯ АНАЛИЗА:\n{adv_text}\n\n"
                     f"ТВОИ ПРОШЛЫЕ СОВЕТЫ И КАК ОНИ СБЫЛИСЬ:\n"
                     f"{adv_history or '(пока нет истории)'}"
-                    f"{climate_block}\n"
+                    f"{climate_block}{scenes_block}\n"
                     "Напиши Марине развёрнутый ответ как опытный sleep coach.\n\n"
                     "СТРУКТУРА (свободная, но всегда содержит):\n"
                     "• Факт: что именно получилось — длительность, как "
@@ -182,7 +210,7 @@ class SleepReactor:
                     f"{ev['dt'].strftime('%H:%M')}.\n\n"
                     f"{base}\n\nКонтекст:\n{adv_text}\n\n"
                     f"Твои прошлые советы:\n{adv_history or '(нет)'}"
-                    f"{climate_block}\n"
+                    f"{climate_block}{scenes_block}\n"
                     "Напиши КОРОТКОЕ (1-2 строки) подтверждение. "
                     "Когда планируется пробуждение (HH:MM). "
                     "ВАЖНО: если ты ранее советовала уложить в одно "
