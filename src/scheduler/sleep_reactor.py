@@ -107,6 +107,32 @@ class SleepReactor:
             except Exception:
                 adv_history = ""
 
+            # Климат в детской — Няня учитывает при планировании
+            # и может попросить Дворецкого подстроить кондер/увлажнитель.
+            climate_info = ""
+            try:
+                from src.config import get_settings
+                from src.integrations.tuya import TuyaClient
+                settings = get_settings()
+                tuya = TuyaClient.from_settings(settings)
+                if tuya:
+                    sensor_name = settings.baby_room_sensor_name or "детская"
+                    sensor = await tuya.read_sensor(sensor_name)
+                    if isinstance(sensor, dict) and "readings" in sensor:
+                        r = sensor.get("readings") or {}
+                        climate_info = (
+                            f"Датчик в детской: "
+                            f"{r.get('temperature','?')}, "
+                            f"{r.get('humidity','?')}, "
+                            f"батарея {r.get('battery','?')}. "
+                            f"Норма для сна: {settings.baby_room_temp_min}-"
+                            f"{settings.baby_room_temp_max}°C, влажность "
+                            f"{settings.baby_room_humidity_min}-"
+                            f"{settings.baby_room_humidity_max}%."
+                        )
+            except Exception:
+                log.exception("sleep_reactor_climate_failed")
+
             if ev["kind"] == "start":
                 base = f"Записал: уснул в {ev['dt'].strftime('%H:%M')}."
             else:
@@ -114,6 +140,17 @@ class SleepReactor:
 
             adv_text = (advice or {}).get("summary_for_agent", "")
             is_wake = ev["kind"] == "end"
+            climate_block = f"\n\nКЛИМАТ В ДЕТСКОЙ (только что):\n{climate_info}\n" if climate_info else ""
+            climate_action_rule = (
+                "\n\nЕСЛИ КЛИМАТ ВНЕ НОРМЫ — в конце ответа добавь отдельной "
+                "строкой обращение к Дворецкому чтобы он подстроил. Примеры:\n"
+                "  «Дворецкий, в детской 26°C — включи кондер cold на 22.»\n"
+                "  «Дворецкий, влажность 32% — включи увлажнитель.»\n"
+                "  «Дворецкий, 17°C холодно — прогрей до 20.»\n"
+                "Он сам выполнит команду. Если климат в норме — ничего не пиши, "
+                "просто не упоминай Дворецкого."
+            ) if climate_info else ""
+
             if is_wake:
                 # При пробуждении — Няня даёт развёрнутый анализ как
                 # опытный sleep coach (как ChatGPT). Не «отлично выспался»
@@ -123,7 +160,8 @@ class SleepReactor:
                     f"{ev['dt'].strftime('%H:%M')}.\n\n"
                     f"СЫРЫЕ ДАННЫЕ ДЛЯ АНАЛИЗА:\n{adv_text}\n\n"
                     f"ТВОИ ПРОШЛЫЕ СОВЕТЫ И КАК ОНИ СБЫЛИСЬ:\n"
-                    f"{adv_history or '(пока нет истории)'}\n\n"
+                    f"{adv_history or '(пока нет истории)'}"
+                    f"{climate_block}\n"
                     "Напиши Марине развёрнутый ответ как опытный sleep coach.\n\n"
                     "СТРУКТУРА (свободная, но всегда содержит):\n"
                     "• Факт: что именно получилось — длительность, как "
@@ -136,19 +174,22 @@ class SleepReactor:
                     "ТОН: тёплый, опытный. Без сюсюканья, без 🤱 💕 🥰.\n"
                     "Длительности — в формате Хч YYм.\n"
                     "Длина: 4-8 строк."
+                    f"{climate_action_rule}"
                 )
             else:
                 prompt = (
                     f"Маринa только что внесла: «{ev['event']}» в "
                     f"{ev['dt'].strftime('%H:%M')}.\n\n"
                     f"{base}\n\nКонтекст:\n{adv_text}\n\n"
-                    f"Твои прошлые советы:\n{adv_history or '(нет)'}\n\n"
+                    f"Твои прошлые советы:\n{adv_history or '(нет)'}"
+                    f"{climate_block}\n"
                     "Напиши КОРОТКОЕ (1-2 строки) подтверждение. "
                     "Когда планируется пробуждение (HH:MM). "
                     "ВАЖНО: если ты ранее советовала уложить в одно "
                     "время, а уложили в другое — НЕ пиши «идёт по плану». "
                     "Честно: «сдвинули на N минут позже» / «как и собирались». "
                     "Длительности в формате Хч YYм."
+                    f"{climate_action_rule}"
                 )
             try:
                 text = await self._nanny._claude.complete(
