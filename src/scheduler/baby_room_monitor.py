@@ -69,6 +69,20 @@ async def check_baby_room(butler_agent: Any) -> None:
         body = "🏠 <b>Проверка детской</b>\n" + "\n".join(alerts)
         await butler_agent.send(body)
         log.info("baby_room_alert_sent", count=len(alerts))
+
+        # Если в алерте есть обращение к Няне / Прорабу и т.п. — выполнить
+        try:
+            from src.orchestrator.agent_directives import execute_directives
+            peers = getattr(butler_agent, "_peer_agents", None) or {}
+            memory = getattr(butler_agent, "_memory", None)
+            chat_id = getattr(butler_agent, "_chat_id", 0)
+            if peers and memory and chat_id:
+                await execute_directives(
+                    text=body, agents=peers, memory=memory,
+                    chat_id=chat_id, origin_agent="butler",
+                )
+        except Exception:
+            log.exception("baby_room_directives_failed")
     except Exception:
         log.exception("baby_room_monitor_failed")
 

@@ -711,6 +711,21 @@ async def send_morning_brief(
         body = "\n\n".join([header] + sections)
         await sender_agent.send(body)
         log.info("morning_brief_sent", sections=len(sections), sender=getattr(sender_agent, "agent_id", "?"))
+
+        # Если в брифе Дворецкий указал на проблемы и обратился к
+        # Прорабу/Няне/др. — выполнить директивы.
+        try:
+            from src.orchestrator.agent_directives import execute_directives
+            peers = getattr(sender_agent, "_peer_agents", None) or {}
+            memory_ref = getattr(sender_agent, "_memory", None)
+            chat_id = getattr(sender_agent, "_chat_id", 0)
+            if peers and memory_ref and chat_id:
+                await execute_directives(
+                    text=body, agents=peers, memory=memory_ref,
+                    chat_id=chat_id, origin_agent=getattr(sender_agent, "agent_id", None),
+                )
+        except Exception:
+            log.exception("morning_brief_directives_failed")
     except Exception:
         log.exception("morning_brief_failed")
 
