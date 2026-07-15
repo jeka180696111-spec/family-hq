@@ -248,7 +248,7 @@ class SleepReactor:
                 await self._bots.send_message(
                     agent_id="nanny", chat_id=self._chat_id, text=text,
                 )
-                log.info("sleep_reactor_commented", kind=ev["kind"], event=ev["event"][:40])
+                log.info("sleep_reactor_commented", kind=ev["kind"], ev_event=ev["event"][:40])
             except Exception:
                 log.exception("sleep_reactor_send_failed")
                 return

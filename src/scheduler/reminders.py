@@ -61,9 +61,9 @@ async def check_upcoming_reminders(
                     _SENT_REMINDERS.add(key)
                     try:
                         await bot_manager.send_message("calendar", chat_id, text)
-                        log.info("reminder_sent", event=event.title, kind=kind, delta_min=round(delta_min, 1))
+                        log.info("reminder_sent", event_title=event.title, kind=kind, delta_min=round(delta_min, 1))
                     except Exception:
-                        log.exception("reminder_send_failed", event=event.title, kind=kind)
+                        log.exception("reminder_send_failed", event_title=event.title, kind=kind)
 
         # Cleanup памяти — забываем напоминания о прошедших событиях
         # (старше суток после события). Иначе set растёт бесконечно.
