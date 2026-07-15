@@ -162,15 +162,19 @@ class SleepReactor:
             if climate_info:
                 if available_scenes:
                     climate_action_rule = (
-                        "\n\nЕСЛИ КЛИМАТ ВНЕ НОРМЫ — в конце ответа добавь строку "
-                        "обращения к Дворецкому с ТОЧНЫМ именем сцены из списка выше. "
+                        "\n\nЕСЛИ КЛИМАТ ВНЕ НОРМЫ — в самом конце ответа добавь "
+                        "ОТДЕЛЬНУЮ ПОСЛЕДНЮЮ СТРОКУ которая ОБЯЗАТЕЛЬНО начинается "
+                        "со слова «Дворецкий» (иначе он не поймёт что это ему).\n"
                         "Формат: «Дворецкий, <причина> — запусти сцену «<точное имя>».»\n"
                         "Примеры (подставь СВОЁ имя сцены из списка):\n"
                         "  «Дворецкий, 26°C жарко — запусти сцену «Кондер 24 авто».»\n"
                         "  «Дворецкий, 17°C холодно — запусти сцену «Кондер 25 авто».»\n"
+                        "Слово «Дворецкий» ОБЯЗАТЕЛЬНО в начале строки — без него "
+                        "он проигнорирует.\n"
                         "НИКОГДА не выдумывай имена — если в списке нет подходящей сцены, "
-                        "просто напиши «Марине: в детской жарко/холодно, подстрой вручную». "
-                        "Если климат в норме — Дворецкого не упоминай вообще."
+                        "просто напиши «Марине: в детской жарко/холодно, подстрой вручную» "
+                        "(без слова «Дворецкий»). Если климат в норме — эту строку "
+                        "не добавляй вообще."
                     )
                 else:
                     climate_action_rule = (
@@ -241,6 +245,15 @@ class SleepReactor:
                 log.exception("sleep_reactor_send_failed")
                 return
 
+            # Если Няня в ответе просит Дворецкого что-то сделать
+            # (строка начинается с «Дворецкий») — выполняем директиву
+            # прямо здесь: находим сцену в тексте, запускаем через Tuya,
+            # Дворецкий постит подтверждение.
+            try:
+                await self._maybe_execute_butler_directive(text)
+            except Exception:
+                log.exception("sleep_reactor_butler_directive_failed")
+
             # Если Матвей только что проснулся — следом шлём план
             # бодрствования (что делать в это окно). Только на «end»
             # событие, чтобы не дёргать после «уснул».
@@ -276,6 +289,53 @@ class SleepReactor:
                     log.exception("sleep_advice_hook_failed")
         except Exception:
             log.exception("sleep_reactor_tick_failed")
+
+    async def _maybe_execute_butler_directive(self, nanny_reply: str) -> None:
+        """Если в ответе Няни есть строка «Дворецкий, ... запусти сцену «X»»
+        — найти сцену в Tuya, запустить, отправить подтверждение как Дворецкий.
+        """
+        import re
+        if "дворецкий" not in nanny_reply.lower():
+            return
+        # Извлекаем строку с обращением к Дворецкому
+        butler_lines = [
+            ln for ln in nanny_reply.splitlines()
+            if ln.lower().lstrip().startswith("дворецкий")
+        ]
+        if not butler_lines:
+            return
+        for line in butler_lines:
+            # Ищем имя сцены в кавычках «...»
+            m = re.search(r"«([^»]+)»", line)
+            scene_query = m.group(1) if m else line
+            try:
+                from src.config import get_settings
+                from src.integrations.tuya import TuyaClient
+                tuya = TuyaClient.from_settings(get_settings())
+                if not tuya:
+                    continue
+                match = await tuya.find_scene(scene_query)
+                if not match or match.get("ambiguous"):
+                    await self._bots.send_message(
+                        agent_id="butler", chat_id=self._chat_id,
+                        text=f"🏠 Не нашёл сцену «{scene_query}» — не могу выполнить.",
+                    )
+                    continue
+                result = await tuya.run_scene(match["id"])
+                if result.get("success"):
+                    await self._bots.send_message(
+                        agent_id="butler", chat_id=self._chat_id,
+                        text=f"🏠 ✅ Запустил сцену «{match['name']}» по просьбе Няни",
+                    )
+                    log.info("butler_directive_executed", scene=match["name"])
+                else:
+                    err = str(result.get("raw", ""))[:100]
+                    await self._bots.send_message(
+                        agent_id="butler", chat_id=self._chat_id,
+                        text=f"🏠 ❌ Не смог запустить «{match['name']}»: {err}",
+                    )
+            except Exception:
+                log.exception("butler_directive_error", line=line[:100])
 
     async def _push_wake_plan(self) -> None:
         try:
