@@ -144,6 +144,10 @@ class Settings(BaseSettings):
     # Falls back to devops bot if empty (для миграции).
     butler_bot_token: str = Field(default="")
 
+    # Публичный URL приложения на Railway (без слеша в конце).
+    # Используется для генерации ссылок на дашборд.
+    public_url: str = Field(default="https://family-hq-production-34a6.up.railway.app")
+
     # Калибровка датчика температуры/влажности (дешёвые Tuya-датчики
     # завышают/занижают на 1-2°C). Значения ПРИБАВЛЯЮТСЯ к показанию.
     # Пример: если датчик пишет 25°C а реально 23°C → offset=-2.

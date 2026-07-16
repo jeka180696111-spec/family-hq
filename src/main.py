@@ -555,6 +555,14 @@ async def handle_new_message(
         text = _expand_slash_command(text)
         message_id = getattr(message, "id", 0)
 
+        # Специальный слэш /dashboard — постим кнопку с URL, минуя агентов
+        if text.strip().lower() in ("/dashboard", "/дашборд", "дашборд"):
+            try:
+                await _send_dashboard_button(bot_manager, chat_id, settings)
+            except Exception:
+                log.exception("dashboard_button_failed")
+            return
+
         # Authorization check
         if user_id and not access_control.is_owner(user_id):
             log.warning("unauthorized_message", user_id=user_id)
@@ -811,6 +819,30 @@ _SLASH_EXPAND = {
     "😴": "Няня, уснул сейчас",
     "🌅": "Няня, проснулся сейчас",
 }
+
+
+async def _send_dashboard_button(bot_manager, chat_id: int, settings) -> None:
+    """Постит сообщение с кнопкой-ссылкой на веб-дашборд."""
+    from urllib.parse import quote
+    token = getattr(settings, "dashboard_token", "")
+    base = getattr(settings, "public_url", "") or "https://family-hq-production-34a6.up.railway.app"
+    url = f"{base.rstrip('/')}/dashboard"
+    if token:
+        url += f"?token={quote(token)}"
+    # Telegram inline url-button через python-telegram-bot InlineKeyboardMarkup
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton(text="📊 Открыть дашборд", url=url)]])
+    # send_message в bot_manager принимает reply_markup как dict, но здесь
+    # проще напрямую через бота
+    bot = bot_manager._bots.get("butler") or bot_manager._bots.get("devops")
+    if bot is None:
+        return
+    await bot.send_message(
+        chat_id=chat_id,
+        text="🏠 <b>Дашборд Family HQ</b>\nВсе показания, датчики, сон, автоматизации — на одной странице.",
+        parse_mode="HTML",
+        reply_markup=kb,
+    )
 
 
 def _expand_slash_command(text: str) -> str:

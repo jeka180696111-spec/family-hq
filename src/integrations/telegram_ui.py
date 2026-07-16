@@ -132,6 +132,14 @@ BOT_MENU_COMMANDS = {
         {"command": "route", "description": "🗺 Построить маршрут"},
         {"command": "traffic", "description": "🚦 Пробки в Одессе"},
     ],
+    "butler": [
+        {"command": "dashboard", "description": "📊 Открыть веб-дашборд"},
+        {"command": "devices", "description": "🏠 Умный дом (статусы)"},
+        {"command": "scenes", "description": "🎬 Сцены Tuya"},
+        {"command": "sensor", "description": "🌡 Датчик в детской"},
+        {"command": "battery", "description": "🔋 Инвертор / автономность"},
+        {"command": "outage", "description": "⚡ Свет"},
+    ],
     "devops": [
         {"command": "status", "description": "📊 Статус системы"},
         {"command": "ai", "description": "🤖 Статус ИИ"},
