@@ -262,6 +262,7 @@ class SleepReactor:
                 await execute_directives(
                     text=text, agents=peers, memory=self._memory,
                     chat_id=self._chat_id, origin_agent="nanny",
+                    bot_manager=self._bots,
                 )
             except Exception:
                 log.exception("sleep_reactor_directives_failed")

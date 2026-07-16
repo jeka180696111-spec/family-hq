@@ -61,11 +61,13 @@ async def execute_directives(
     memory: Any,
     chat_id: int,
     origin_agent: str | None = None,
+    bot_manager: Any = None,
 ) -> None:
     """Парсит text, для каждой директивы вызывает handle() адресата.
 
-    Каждый агент отвечает в чат сам через свой bot; фактически то же
-    что при dispatch_chain, но без диспетчера — прямой вызов.
+    ОСОБЫЙ СЛУЧАЙ для Butler-запусков сцен: если директива содержит
+    «запусти сцену «X»» — постим подтверждение с показаниями датчика
+    и кнопками Да/Нет вместо мгновенного запуска.
     """
     directives = extract_directives(text)
     if not directives:
@@ -74,11 +76,20 @@ async def execute_directives(
     context = ConversationContext(memory, chat_id)
     for agent_id, line in directives:
         if agent_id == origin_agent:
-            continue  # не звать самого себя
+            continue
         agent = agents.get(agent_id)
         if agent is None:
             log.warning("directive_target_missing", agent_id=agent_id)
             continue
+
+        # Butler + запуск сцены → подтверждение вместо мгновенного действия
+        if agent_id == "butler" and bot_manager is not None:
+            handled = await _maybe_confirm_butler_scene(
+                line, origin_agent or "scheduler", bot_manager, chat_id,
+            )
+            if handled:
+                continue
+
         try:
             log.info(
                 "executing_agent_directive",
@@ -95,3 +106,86 @@ async def execute_directives(
                 "directive_execution_failed",
                 target=agent_id, line=line[:80],
             )
+
+
+async def _maybe_confirm_butler_scene(
+    line: str, origin_agent: str, bot_manager: Any, chat_id: int,
+) -> bool:
+    """Если строка содержит «запусти сцену «X»» — постим подтверждение
+    с датчиком и кнопками. Возвращает True если обработано.
+    """
+    import re
+    if "запусти сцен" not in line.lower():
+        return False
+    m = re.search(r"«([^»]+)»", line)
+    if not m:
+        return False
+    scene_query = m.group(1)
+
+    try:
+        from src.config import get_settings
+        from src.integrations.tuya import TuyaClient
+        settings = get_settings()
+        tuya = TuyaClient.from_settings(settings)
+        if not tuya:
+            return False
+
+        # Найти сцену
+        match = await tuya.find_scene(scene_query)
+        if not match or match.get("ambiguous"):
+            await bot_manager.send_message(
+                agent_id="butler", chat_id=chat_id,
+                text=f"🏠 «{scene_query}» — сцена не найдена, не выполняю.",
+            )
+            return True
+
+        # Показания датчика
+        sensor_name = settings.baby_room_sensor_name or "детская"
+        sensor_line = ""
+        try:
+            sensor = await tuya.read_sensor(sensor_name)
+            if isinstance(sensor, dict) and "readings" in sensor:
+                r = sensor["readings"]
+                parts = []
+                if r.get("temperature"):
+                    parts.append(f"🌡 {r['temperature']}")
+                if r.get("humidity"):
+                    parts.append(f"💧 {r['humidity']}")
+                if r.get("battery"):
+                    parts.append(f"🔋 {r['battery']}")
+                sensor_line = " | ".join(parts)
+        except Exception:
+            pass
+
+        # Регистрируем pending и постим кнопки
+        from src.orchestrator.butler_confirm import add_pending
+        sid = add_pending(match["id"], match["name"], origin_agent)
+
+        origin_label = {
+            "nanny": "Няня", "news": "Дозорный", "calendar": "Ежедневник",
+            "cook": "Гурман", "health": "Айболит",
+            "devops": "Прораб", "navigator": "Штурман",
+        }.get(origin_agent, origin_agent)
+
+        text_lines = []
+        if sensor_line:
+            text_lines.append(f"🏠 В детской сейчас: {sensor_line}")
+        text_lines.append(f"{origin_label} просит запустить сцену «{match['name']}».")
+        text_lines.append("Включить?")
+        text = "\n".join(text_lines)
+
+        reply_markup = {
+            "inline_keyboard": [[
+                {"text": "✅ Да", "callback_data": f"butler.scene|yes|{sid}"},
+                {"text": "❌ Нет", "callback_data": f"butler.scene|no|{sid}"},
+            ]]
+        }
+        await bot_manager.send_message(
+            agent_id="butler", chat_id=chat_id, text=text,
+            reply_markup=reply_markup,
+        )
+        log.info("butler_scene_confirm_posted", scene=match["name"], sid=sid)
+        return True
+    except Exception:
+        log.exception("butler_confirm_failed", line=line[:80])
+        return False

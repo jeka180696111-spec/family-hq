@@ -300,6 +300,48 @@ async def handle_callback(callback: Any, agents: dict, memory: Any, bot_manager:
             await callback.answer("Отметил")
             return
 
+        if action == "butler.scene":
+            # args = [yes|no, sid]
+            choice = args[0] if args else ""
+            sid = args[1] if len(args) > 1 else ""
+            from src.orchestrator.butler_confirm import pop_pending
+            pending = pop_pending(sid)
+            if not pending:
+                await callback.answer("Срок истёк или уже отработано", show_alert=False)
+                return
+            if choice == "no":
+                await bot_manager.send_message(
+                    agent_id="butler", chat_id=chat_id,
+                    text=f"🏠 Отклонено. Сцену «{pending['scene_name']}» не запускаю.",
+                )
+                await callback.answer("Отклонено")
+                return
+            # yes → запускаем
+            try:
+                from src.config import get_settings
+                from src.integrations.tuya import TuyaClient
+                tuya = TuyaClient.from_settings(get_settings())
+                if not tuya:
+                    await callback.answer("Tuya недоступен", show_alert=True)
+                    return
+                res = await tuya.run_scene(pending["scene_id"])
+                if res.get("success"):
+                    await bot_manager.send_message(
+                        agent_id="butler", chat_id=chat_id,
+                        text=f"🏠 ✅ Запустил сцену «{pending['scene_name']}»",
+                    )
+                    await callback.answer("Запущено")
+                else:
+                    err = str(res.get("raw", ""))[:80]
+                    await bot_manager.send_message(
+                        agent_id="butler", chat_id=chat_id,
+                        text=f"🏠 ❌ Не смог запустить: {err}",
+                    )
+                    await callback.answer("Ошибка", show_alert=True)
+            except Exception as e:
+                await callback.answer(f"❌ {type(e).__name__}", show_alert=True)
+            return
+
         if action == "rem.done":
             await callback.answer("✅ Сделано")
             return

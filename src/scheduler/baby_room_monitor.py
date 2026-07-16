@@ -76,10 +76,12 @@ async def check_baby_room(butler_agent: Any) -> None:
             peers = getattr(butler_agent, "_peer_agents", None) or {}
             memory = getattr(butler_agent, "_memory", None)
             chat_id = getattr(butler_agent, "_chat_id", 0)
+            bots = getattr(butler_agent, "_bots", None)
             if peers and memory and chat_id:
                 await execute_directives(
                     text=body, agents=peers, memory=memory,
                     chat_id=chat_id, origin_agent="butler",
+                    bot_manager=bots,
                 )
         except Exception:
             log.exception("baby_room_directives_failed")

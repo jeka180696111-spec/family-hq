@@ -719,10 +719,12 @@ async def send_morning_brief(
             peers = getattr(sender_agent, "_peer_agents", None) or {}
             memory_ref = getattr(sender_agent, "_memory", None)
             chat_id = getattr(sender_agent, "_chat_id", 0)
+            bots = getattr(sender_agent, "_bots", None)
             if peers and memory_ref and chat_id:
                 await execute_directives(
                     text=body, agents=peers, memory=memory_ref,
                     chat_id=chat_id, origin_agent=getattr(sender_agent, "agent_id", None),
+                    bot_manager=bots,
                 )
         except Exception:
             log.exception("morning_brief_directives_failed")
