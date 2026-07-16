@@ -82,7 +82,7 @@ async def _build_state(memory: Any, settings: Any) -> dict:
 
     state: dict = {"as_of": now_kyiv().isoformat()}
 
-    # Weather (current, for Одесса by default)
+    # Weather (current + 5-day forecast, for Одесса by default)
     try:
         from src.integrations.weather import WeatherClient
         w = WeatherClient.from_settings(settings)
@@ -96,6 +96,34 @@ async def _build_state(memory: Any, settings: Any) -> dict:
                 "wind_ms": cur.get("wind_ms"),
                 "humidity_pct": cur.get("humidity_pct"),
             }
+            # 5-day forecast: агрегируем hourly в дневные min/max
+            try:
+                hourly = await w.forecast(hours=120)
+                by_day: dict[str, dict] = {}
+                for h in hourly:
+                    t = (h.get("time") or "")[:10]
+                    if not t:
+                        continue
+                    d = by_day.setdefault(t, {"temps": [], "rain": 0.0, "desc": ""})
+                    if h.get("temp_c") is not None:
+                        d["temps"].append(h["temp_c"])
+                    d["rain"] += h.get("rain_mm") or 0
+                    if not d["desc"]:
+                        d["desc"] = h.get("description") or ""
+                forecast = []
+                for day, agg in sorted(by_day.items())[:5]:
+                    if not agg["temps"]:
+                        continue
+                    forecast.append({
+                        "date": day,
+                        "min": round(min(agg["temps"])),
+                        "max": round(max(agg["temps"])),
+                        "rain": round(agg["rain"], 1),
+                        "desc": agg["desc"],
+                    })
+                state["weather"]["forecast"] = forecast
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -524,40 +552,249 @@ def _render_html(state: dict) -> str:
     else:
         upcoming_html = "<p>Свободно</p>"
 
+    # Прогноз погоды на 5 дней в виде плиток
+    forecast_html = ""
+    forecast = (w.get("forecast") or []) if isinstance(w, dict) else []
+    if forecast:
+        weekday_ru = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"]
+        tiles = []
+        for f in forecast:
+            try:
+                d = datetime.fromisoformat(f["date"])
+                wd = weekday_ru[d.weekday()]
+                dd = d.strftime("%d.%m")
+            except Exception:
+                wd, dd = f["date"], ""
+            icon = "🌧" if f["rain"] > 0.5 else ("☁️" if "облач" in (f.get("desc") or "").lower() else "☀️")
+            tiles.append(
+                f'<div class="fc-day"><div class="fc-day-title">{wd}</div>'
+                f'<div class="fc-day-date">{dd}</div>'
+                f'<div class="fc-day-icon">{icon}</div>'
+                f'<div class="fc-day-temp"><span class="fc-max">{f["max"]:+.0f}°</span>'
+                f'<span class="fc-min">{f["min"]:+.0f}°</span></div>'
+                f'<div class="fc-day-rain">💧 {f["rain"]}мм</div></div>'
+            )
+        forecast_html = f'<div class="forecast">{"".join(tiles)}</div>'
+
+    # Круговой индикатор заряда инвертора
+    battery_gauge = ""
+    if inv.get("battery_pct") is not None:
+        pct = int(inv["battery_pct"])
+        color = "#22c55e" if pct >= 50 else ("#eab308" if pct >= 20 else "#ef4444")
+        battery_gauge = f'''
+        <div class="gauge">
+          <svg viewBox="0 0 120 120" width="120" height="120">
+            <circle cx="60" cy="60" r="52" fill="none" stroke="#1f2937" stroke-width="12"/>
+            <circle cx="60" cy="60" r="52" fill="none" stroke="{color}" stroke-width="12"
+                    stroke-dasharray="{pct * 3.27:.1f} 327" transform="rotate(-90 60 60)"
+                    stroke-linecap="round"/>
+            <text x="60" y="68" text-anchor="middle" fill="#e6edf3" font-size="26" font-weight="700">{pct}%</text>
+          </svg>
+        </div>
+        '''
+
+    # Clock / as_of
+    as_of = state.get("as_of", "")
+    now_display = ""
+    try:
+        d = datetime.fromisoformat(as_of)
+        now_display = d.strftime("%H:%M")
+    except Exception:
+        pass
+
     return f"""<!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8">
 <title>Family HQ · Дашборд</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
 <style>
-  body {{ font-family: -apple-system, system-ui, sans-serif; background:#0d1117;
-         color:#e6edf3; max-width:880px; margin:24px auto; padding:0 16px; }}
-  h1 {{ font-size:22px; }}
-  h2 {{ font-size:16px; margin:0 0 8px; color:#58a6ff; }}
-  .card {{ background:#161b22; border:1px solid #30363d; border-radius:8px;
-           padding:14px 16px; margin:12px 0; }}
-  .grid {{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }}
-  @media (max-width:600px) {{ .grid {{ grid-template-columns:1fr; }} }}
-  ul {{ margin:6px 0; padding-left:20px; }}
-  li {{ margin:3px 0; }}
-  .footer {{ color:#7d8590; font-size:12px; margin-top:24px; }}
+  * {{ box-sizing: border-box; }}
+  body {{
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+    background-attachment: fixed;
+    color: #e2e8f0;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px 16px;
+    min-height: 100vh;
+  }}
+  .header {{
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 24px; padding: 16px 20px;
+    background: rgba(30, 41, 59, 0.6);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(148, 163, 184, 0.15);
+    border-radius: 20px;
+  }}
+  .header h1 {{
+    margin: 0; font-size: 24px; font-weight: 700;
+    background: linear-gradient(90deg, #a78bfa, #60a5fa, #34d399);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }}
+  .header .clock {{
+    font-size: 28px; font-weight: 600; color: #f1f5f9;
+    font-variant-numeric: tabular-nums;
+  }}
+  .grid {{
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px; margin-bottom: 16px;
+  }}
+  .card {{
+    background: rgba(30, 41, 59, 0.55);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(148, 163, 184, 0.15);
+    border-radius: 18px;
+    padding: 20px;
+    transition: transform 0.2s, border 0.2s;
+  }}
+  .card:hover {{ transform: translateY(-2px); border-color: rgba(148, 163, 184, 0.3); }}
+  .card h2 {{
+    margin: 0 0 12px; font-size: 14px; font-weight: 600;
+    color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;
+  }}
+  .card p {{ margin: 4px 0; font-size: 15px; line-height: 1.6; }}
+  .card b {{ color: #f1f5f9; }}
+  .big {{ font-size: 32px; font-weight: 700; color: #f1f5f9; margin: 8px 0; }}
+  .accent {{ color: #a78bfa; }}
+  ul {{ margin: 6px 0; padding-left: 20px; list-style: none; }}
+  ul li {{ margin: 6px 0; padding-left: 8px; border-left: 2px solid rgba(148, 163, 184, 0.3); }}
+
+  .alert-banner {{
+    background: linear-gradient(90deg, #dc2626, #ea580c);
+    color: white; padding: 12px 20px; border-radius: 14px;
+    margin-bottom: 16px; font-weight: 600; text-align: center;
+    box-shadow: 0 4px 20px rgba(220, 38, 38, 0.4);
+  }}
+
+  .forecast {{ display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 12px; }}
+  @media (max-width: 500px) {{ .forecast {{ grid-template-columns: repeat(3, 1fr); }} }}
+  .fc-day {{
+    background: rgba(15, 23, 42, 0.5);
+    border: 1px solid rgba(148, 163, 184, 0.15);
+    border-radius: 12px; padding: 10px 4px; text-align: center;
+  }}
+  .fc-day-title {{ font-size: 12px; color: #94a3b8; font-weight: 600; }}
+  .fc-day-date {{ font-size: 10px; color: #64748b; }}
+  .fc-day-icon {{ font-size: 24px; margin: 6px 0; }}
+  .fc-day-temp {{ font-size: 13px; }}
+  .fc-max {{ color: #f1f5f9; font-weight: 700; }}
+  .fc-min {{ color: #64748b; margin-left: 4px; }}
+  .fc-day-rain {{ font-size: 10px; color: #60a5fa; margin-top: 4px; }}
+
+  .gauge {{ display: flex; justify-content: center; align-items: center; margin: 8px 0; }}
+
+  .device-list {{
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 8px; margin-top: 8px;
+  }}
+  .device-item {{
+    background: rgba(15, 23, 42, 0.5);
+    padding: 10px 12px; border-radius: 10px;
+    border: 1px solid rgba(148, 163, 184, 0.1);
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 14px;
+  }}
+  .device-item .dev-name {{ font-weight: 600; color: #f1f5f9; }}
+  .device-item .dev-status {{ font-size: 12px; color: #94a3b8; }}
+  .dev-on {{ color: #22c55e; }}
+  .dev-off {{ color: #64748b; }}
+
+  .status-dot {{ display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }}
+  .dot-green {{ background: #22c55e; box-shadow: 0 0 6px #22c55e; }}
+  .dot-red {{ background: #ef4444; box-shadow: 0 0 6px #ef4444; }}
+  .dot-gray {{ background: #64748b; }}
+
+  .footer {{
+    text-align: center; margin-top: 24px; padding: 16px;
+    color: #64748b; font-size: 12px;
+  }}
+  .footer a {{ color: #60a5fa; text-decoration: none; }}
+
+  @keyframes pulse {{
+    0%, 100% {{ opacity: 1; }}
+    50% {{ opacity: 0.6; }}
+  }}
+  .pulsing {{ animation: pulse 2s infinite; }}
 </style></head><body>
-<h1>Family HQ · Дашборд</h1>
-<div class="grid">
-  {card("🧠 AI", ai_html)}
-  {card("☀️ Инвертор", inv_html)}
-  {card("🚨 Тревога", alerts_html)}
-  {card("🌤 Погода", weather_html)}
-  {card("👶 Детская", nursery_html)}
-  {card("🤱 Матвей", baby_html)}
-  {card("🛣 Поездки", trips_html)}
-  {card("🤖 Автоматизации", auto_html)}
-  {card("📦 Посылки", parcels_html)}
+
+<div class="header">
+  <h1>🏠 Family HQ</h1>
+  <div class="clock">{now_display}</div>
 </div>
-{card("🏠 Умный дом", smart_home_html)}
-{card("📅 События (7 дней)", upcoming_html)}
-{card("👥 Агенты", agents_html)}
-{card("🧠 Family Wiki", wiki_html)}
-<div class="footer">Обновлено: {state.get('as_of', '')[:19]}. JSON: <a href="?json=1">/api/state</a></div>
+
+{outage_banner}
+
+<div class="grid">
+
+  <div class="card">
+    <h2>🌤 Погода</h2>
+    {weather_html}
+    {forecast_html}
+  </div>
+
+  <div class="card">
+    <h2>☀️ Инвертор</h2>
+    {battery_gauge}
+    <p>{grid_label}<br>🏠 Дом: <b>{inv.get('home_consumption_w', 0)}Вт</b></p>
+  </div>
+
+  <div class="card">
+    <h2>👶 Матвей</h2>
+    <p>{activity_html}</p>
+    <p>🍼 Кушал: <b>{feed_ago}</b><br>💧 Подгузник: <b>{diaper_ago}</b></p>
+  </div>
+
+  <div class="card">
+    <h2>🌡 Детская</h2>
+    {nursery_html}
+  </div>
+
+  <div class="card">
+    <h2>🚨 Тревога</h2>
+    {alerts_html}
+  </div>
+
+  <div class="card">
+    <h2>🧠 AI</h2>
+    {ai_html}
+  </div>
+
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <h2>🏠 Умный дом</h2>
+  {smart_home_html}
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>📅 Ближайшие события</h2>
+    {upcoming_html}
+  </div>
+  <div class="card">
+    <h2>🤖 Автоматизации</h2>
+    {auto_html}
+  </div>
+  <div class="card">
+    <h2>🛣 Поездки</h2>
+    {trips_html}
+  </div>
+  <div class="card">
+    <h2>📦 Посылки</h2>
+    {parcels_html}
+  </div>
+</div>
+
+<div class="card">
+  <h2>👥 Агенты</h2>
+  {agents_html}
+</div>
+
+<div class="footer">
+  Обновлено: {as_of[:19].replace('T', ' ')} · <a href="?json=1&token=">JSON</a>
+</div>
+
 </body></html>"""
 
 
