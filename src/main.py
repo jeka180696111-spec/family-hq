@@ -560,7 +560,9 @@ async def handle_new_message(
         _cmd = text.strip().lower().split("@", 1)[0]
         if _cmd in ("/dashboard", "/дашборд", "дашборд"):
             try:
-                await _send_dashboard_button(bot_manager, chat_id, settings, pin=False)
+                _bm = next((getattr(a, "_bots", None) for a in agents.values() if getattr(a, "_bots", None)), None)
+                if _bm:
+                    await _send_dashboard_button(_bm, chat_id, settings, pin=False)
             except Exception:
                 log.exception("dashboard_button_failed")
             return
@@ -568,7 +570,9 @@ async def handle_new_message(
         # /pin_dashboard — постим красивую плашку и пиним её
         if _cmd in ("/pin_dashboard", "/pin", "/закрепи_дашборд"):
             try:
-                await _send_dashboard_button(bot_manager, chat_id, settings, pin=True)
+                _bm = next((getattr(a, "_bots", None) for a in agents.values() if getattr(a, "_bots", None)), None)
+                if _bm:
+                    await _send_dashboard_button(_bm, chat_id, settings, pin=True)
             except Exception:
                 log.exception("dashboard_pin_failed")
             return
