@@ -558,9 +558,17 @@ async def handle_new_message(
         # Специальный слэш /dashboard — постим кнопку с URL, минуя агентов
         if text.strip().lower() in ("/dashboard", "/дашборд", "дашборд"):
             try:
-                await _send_dashboard_button(bot_manager, chat_id, settings)
+                await _send_dashboard_button(bot_manager, chat_id, settings, pin=False)
             except Exception:
                 log.exception("dashboard_button_failed")
+            return
+
+        # /pin_dashboard — постим красивую плашку и пиним её
+        if text.strip().lower() in ("/pin_dashboard", "/pin", "/закрепи_дашборд"):
+            try:
+                await _send_dashboard_button(bot_manager, chat_id, settings, pin=True)
+            except Exception:
+                log.exception("dashboard_pin_failed")
             return
 
         # Authorization check
@@ -821,28 +829,71 @@ _SLASH_EXPAND = {
 }
 
 
-async def _send_dashboard_button(bot_manager, chat_id: int, settings) -> None:
-    """Постит сообщение с кнопкой-ссылкой на веб-дашборд."""
+async def _send_dashboard_button(
+    bot_manager, chat_id: int, settings, pin: bool = False,
+) -> None:
+    """Постит сообщение с кнопкой-ссылкой на веб-дашборд.
+
+    Если pin=True — постит красивую плашку и пытается закрепить её
+    (нужны админ-права + разрешение «Pin messages» у Butler-бота).
+    """
     from urllib.parse import quote
     token = getattr(settings, "dashboard_token", "")
     base = getattr(settings, "public_url", "") or "https://family-hq-production-34a6.up.railway.app"
     url = f"{base.rstrip('/')}/dashboard"
     if token:
         url += f"?token={quote(token)}"
-    # Telegram inline url-button через python-telegram-bot InlineKeyboardMarkup
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     kb = InlineKeyboardMarkup([[InlineKeyboardButton(text="📊 Открыть дашборд", url=url)]])
-    # send_message в bot_manager принимает reply_markup как dict, но здесь
-    # проще напрямую через бота
     bot = bot_manager._bots.get("butler") or bot_manager._bots.get("devops")
     if bot is None:
         return
-    await bot.send_message(
+
+    if pin:
+        text_body = (
+            "🏠 <b>Family HQ · Быстрый доступ</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "📊 Дашборд — все датчики, инвертор, сон Матвея,\n"
+            "автоматизации, погода и события на одной странице.\n\n"
+            "👇 Нажми кнопку ниже — открывается прямо в Telegram."
+        )
+    else:
+        text_body = (
+            "🏠 <b>Дашборд Family HQ</b>\n"
+            "Все показания, датчики, сон, автоматизации — на одной странице."
+        )
+
+    msg = await bot.send_message(
         chat_id=chat_id,
-        text="🏠 <b>Дашборд Family HQ</b>\nВсе показания, датчики, сон, автоматизации — на одной странице.",
+        text=text_body,
         parse_mode="HTML",
         reply_markup=kb,
     )
+    if not pin:
+        return
+
+    # Пытаемся закрепить (bot должен быть админом с правом Pin)
+    try:
+        await bot.pin_chat_message(
+            chat_id=chat_id,
+            message_id=msg.message_id,
+            disable_notification=True,
+        )
+        log.info("dashboard_pinned", message_id=msg.message_id)
+    except Exception as e:
+        log.warning("dashboard_pin_failed", error=str(e)[:120])
+        try:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=(
+                    "⚠️ Не смог закрепить сообщение. Закрепи вручную:\n"
+                    "→ Долгий тап на плашке выше → «Закрепить».\n"
+                    "Или дай Дворецкому право «Pin messages» в правах бота-админа."
+                ),
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
 
 
 def _expand_slash_command(text: str) -> str:
