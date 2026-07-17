@@ -555,8 +555,10 @@ async def handle_new_message(
         text = _expand_slash_command(text)
         message_id = getattr(message, "id", 0)
 
-        # Специальный слэш /dashboard — постим кнопку с URL, минуя агентов
-        if text.strip().lower() in ("/dashboard", "/дашборд", "дашборд"):
+        # Специальный слэш /dashboard — постим кнопку с URL, минуя агентов.
+        # Telegram в группах автодобавляет @botname — обрежем перед проверкой.
+        _cmd = text.strip().lower().split("@", 1)[0]
+        if _cmd in ("/dashboard", "/дашборд", "дашборд"):
             try:
                 await _send_dashboard_button(bot_manager, chat_id, settings, pin=False)
             except Exception:
@@ -564,7 +566,7 @@ async def handle_new_message(
             return
 
         # /pin_dashboard — постим красивую плашку и пиним её
-        if text.strip().lower() in ("/pin_dashboard", "/pin", "/закрепи_дашборд"):
+        if _cmd in ("/pin_dashboard", "/pin", "/закрепи_дашборд"):
             try:
                 await _send_dashboard_button(bot_manager, chat_id, settings, pin=True)
             except Exception:
