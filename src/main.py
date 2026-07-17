@@ -961,9 +961,41 @@ _BUTLER_SHOP_HITS = [
 ]
 
 
+_SCENE_NAMES_CACHE: dict = {"names": [], "ts": 0.0}
+
+
+def _get_cached_scene_names() -> list[str]:
+    """Возвращает имена сцен Tuya (лоу-кейс) из локального кэша, 30 сек TTL."""
+    import time as _t
+    now = _t.monotonic()
+    if now - _SCENE_NAMES_CACHE["ts"] < 30 and _SCENE_NAMES_CACHE["names"]:
+        return _SCENE_NAMES_CACHE["names"]
+    try:
+        from src.integrations.tuya import TuyaClient
+        from src.config import get_settings
+        tuya = TuyaClient.from_settings(get_settings())
+        if not tuya:
+            return _SCENE_NAMES_CACHE["names"]
+        # Синхронный доступ к уже кэшированным сценам без сетевого запроса
+        cached = getattr(tuya, "_scenes_cache", None)
+        if cached:
+            names = [s["name"].lower().strip() for s in cached
+                     if s.get("name") and not s.get("is_automation")]
+            _SCENE_NAMES_CACHE["names"] = names
+            _SCENE_NAMES_CACHE["ts"] = now
+            return names
+    except Exception:
+        pass
+    return _SCENE_NAMES_CACHE["names"]
+
+
 def _is_butler_topic(text: str) -> bool:
     """Дворецкий — умный дом, инвертор, шопер."""
     lower = (text or "").lower()
+    # Быстрый матч на имя сцены Tuya — обходим LLM-диспетчер
+    for name in _get_cached_scene_names():
+        if name and name in lower:
+            return True
     # Прямые дом-триггеры
     if any(k in lower for k in _BUTLER_HOME_HITS):
         return True
