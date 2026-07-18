@@ -22,12 +22,28 @@ def _cleanup() -> None:
 
 
 def add_pending(scene_id: str, scene_name: str, origin_agent: str) -> str:
-    """Сохраняет ожидающее подтверждение, возвращает короткий id."""
+    """Сохраняет pending для сценарного действия (запуск сцены Tuya)."""
     _cleanup()
-    sid = secrets.token_hex(4)  # 8 символов
+    sid = secrets.token_hex(4)
     _PENDING[sid] = {
+        "kind": "scene",
         "scene_id": scene_id,
         "scene_name": scene_name,
+        "origin": origin_agent,
+        "ts": time.monotonic(),
+    }
+    return sid
+
+
+def add_pending_command(directive: str, origin_agent: str) -> str:
+    """Сохраняет pending для произвольной команды Butler (не сцена).
+    На подтверждение — butler.handle() выполнит директиву как обычно.
+    """
+    _cleanup()
+    sid = secrets.token_hex(4)
+    _PENDING[sid] = {
+        "kind": "command",
+        "directive": directive,
         "origin": origin_agent,
         "ts": time.monotonic(),
     }

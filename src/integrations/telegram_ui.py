@@ -308,6 +308,41 @@ async def handle_callback(callback: Any, agents: dict, memory: Any, bot_manager:
             await callback.answer("Отметил")
             return
 
+        if action == "butler.cmd":
+            # args = [yes|no, sid]
+            choice = args[0] if args else ""
+            sid = args[1] if len(args) > 1 else ""
+            from src.orchestrator.butler_confirm import pop_pending
+            pending = pop_pending(sid)
+            if not pending:
+                await callback.answer("Срок истёк или уже отработано")
+                return
+            directive = pending.get("directive", "")
+            if choice == "no":
+                await bot_manager.send_message(
+                    agent_id="butler", chat_id=chat_id,
+                    text=f"🏠 Отклонено. Команду не выполняю.",
+                )
+                await callback.answer("Отклонено")
+                return
+            # yes → выполняем через butler.handle()
+            try:
+                butler = agents.get("butler")
+                if not butler:
+                    await callback.answer("Butler недоступен", show_alert=True)
+                    return
+                from src.orchestrator.conversation import ConversationContext
+                ctx = ConversationContext(memory, chat_id)
+                await butler.handle(
+                    message_text=directive,
+                    sender_name=f"[{pending.get('origin', 'user')}, подтверждено]",
+                    context=ctx,
+                )
+                await callback.answer("Выполняю")
+            except Exception as e:
+                await callback.answer(f"❌ {type(e).__name__}", show_alert=True)
+            return
+
         if action == "butler.scene":
             # args = [yes|no, sid]
             choice = args[0] if args else ""

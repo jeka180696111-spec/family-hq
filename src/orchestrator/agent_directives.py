@@ -82,9 +82,9 @@ async def execute_directives(
             log.warning("directive_target_missing", agent_id=agent_id)
             continue
 
-        # Butler + запуск сцены → подтверждение вместо мгновенного действия
+        # Butler + любое действие от другого агента → подтверждение
         if agent_id == "butler" and bot_manager is not None:
-            handled = await _maybe_confirm_butler_scene(
+            handled = await _maybe_confirm_butler_action(
                 line, origin_agent or "scheduler", bot_manager, chat_id,
             )
             if handled:
@@ -108,41 +108,23 @@ async def execute_directives(
             )
 
 
-async def _maybe_confirm_butler_scene(
+async def _maybe_confirm_butler_action(
     line: str, origin_agent: str, bot_manager: Any, chat_id: int,
 ) -> bool:
-    """Если строка содержит «запусти сцену «X»» — постим подтверждение
-    с датчиком и кнопками. Возвращает True если обработано.
+    """ЛЮБАЯ директива Butler от другого агента → подтверждение.
+    Если в директиве есть «запусти сцену «X»» — детальное подтверждение
+    (показания датчика + имя сцены). Иначе — обобщённое.
     """
     import re
-    if "запусти сцен" not in line.lower():
-        return False
-    m = re.search(r"«([^»]+)»", line)
-    if not m:
-        return False
-    scene_query = m.group(1)
-
+    # Показания датчика (общий блок для обоих режимов)
+    sensor_line = ""
     try:
         from src.config import get_settings
         from src.integrations.tuya import TuyaClient
         settings = get_settings()
         tuya = TuyaClient.from_settings(settings)
-        if not tuya:
-            return False
-
-        # Найти сцену
-        match = await tuya.find_scene(scene_query)
-        if not match or match.get("ambiguous"):
-            await bot_manager.send_message(
-                agent_id="butler", chat_id=chat_id,
-                text=f"🏠 «{scene_query}» — сцена не найдена, не выполняю.",
-            )
-            return True
-
-        # Показания датчика
-        sensor_name = settings.baby_room_sensor_name or "детская"
-        sensor_line = ""
-        try:
+        if tuya:
+            sensor_name = settings.baby_room_sensor_name or "детская"
             sensor = await tuya.read_sensor(sensor_name)
             if isinstance(sensor, dict) and "readings" in sensor:
                 r = sensor["readings"]
@@ -154,18 +136,77 @@ async def _maybe_confirm_butler_scene(
                 if r.get("battery"):
                     parts.append(f"🔋 {r['battery']}")
                 sensor_line = " | ".join(parts)
-        except Exception:
-            pass
+    except Exception:
+        pass
 
-        # Регистрируем pending и постим кнопки
+    origin_label = {
+        "nanny": "Няня", "news": "Дозорный", "calendar": "Ежедневник",
+        "cook": "Гурман", "health": "Айболит",
+        "devops": "Прораб", "navigator": "Штурман",
+    }.get(origin_agent, origin_agent)
+
+    # === Режим 1: запуск конкретной сцены ===
+    if "запусти сцен" in line.lower():
+        m = re.search(r"«([^»]+)»", line)
+        if m:
+            scene_query = m.group(1)
+            return await _confirm_scene(
+                scene_query, origin_agent, origin_label,
+                sensor_line, bot_manager, chat_id,
+            )
+
+    # === Режим 2: произвольная команда (свет, кондер, увлажнитель...) ===
+    # Убираем префикс «Дворецкий, » чтобы показать чистую команду
+    clean = re.sub(r"^дворецкий[,!?.\s]+", "", line, flags=re.IGNORECASE).strip()
+    # Убираем финальную точку/восклицательный
+    clean = clean.rstrip(".!")
+
+    from src.orchestrator.butler_confirm import add_pending_command
+    sid = add_pending_command(line, origin_agent)
+
+    text_lines = []
+    if sensor_line:
+        text_lines.append(f"🏠 В детской сейчас: {sensor_line}")
+    text_lines.append(f"{origin_label} просит: <b>{clean}</b>")
+    text_lines.append("Выполнить?")
+    text = "\n".join(text_lines)
+
+    reply_markup = {
+        "inline_keyboard": [[
+            {"text": "✅ Да", "callback_data": f"butler.cmd|yes|{sid}"},
+            {"text": "❌ Нет", "callback_data": f"butler.cmd|no|{sid}"},
+        ]]
+    }
+    await bot_manager.send_message(
+        agent_id="butler", chat_id=chat_id, text=text,
+        parse_mode="HTML", reply_markup=reply_markup,
+    )
+    log.info("butler_command_confirm_posted", directive=clean[:80], sid=sid)
+    return True
+
+
+async def _confirm_scene(
+    scene_query: str, origin_agent: str, origin_label: str,
+    sensor_line: str, bot_manager: Any, chat_id: int,
+) -> bool:
+    """Подтверждение для конкретной сцены Tuya."""
+    try:
+        from src.config import get_settings
+        from src.integrations.tuya import TuyaClient
+        tuya = TuyaClient.from_settings(get_settings())
+        if not tuya:
+            return False
+
+        match = await tuya.find_scene(scene_query)
+        if not match or match.get("ambiguous"):
+            await bot_manager.send_message(
+                agent_id="butler", chat_id=chat_id,
+                text=f"🏠 «{scene_query}» — сцена не найдена, не выполняю.",
+            )
+            return True
+
         from src.orchestrator.butler_confirm import add_pending
         sid = add_pending(match["id"], match["name"], origin_agent)
-
-        origin_label = {
-            "nanny": "Няня", "news": "Дозорный", "calendar": "Ежедневник",
-            "cook": "Гурман", "health": "Айболит",
-            "devops": "Прораб", "navigator": "Штурман",
-        }.get(origin_agent, origin_agent)
 
         text_lines = []
         if sensor_line:
@@ -187,5 +228,5 @@ async def _maybe_confirm_butler_scene(
         log.info("butler_scene_confirm_posted", scene=match["name"], sid=sid)
         return True
     except Exception:
-        log.exception("butler_confirm_failed", line=line[:80])
+        log.exception("butler_confirm_failed", query=scene_query[:80])
         return False
