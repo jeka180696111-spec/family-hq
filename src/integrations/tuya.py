@@ -748,32 +748,35 @@ class TuyaClient:
         """Rough scoring: token overlap + digit (temperature) match weights
         heaviest. Higher = better match."""
         import re
-        q = query.lower()
-        s = scene_name.lower()
+        q = query.lower().strip()
+        s = scene_name.lower().strip()
+        # ТОЧНОЕ / substring совпадение имени сцены — приоритет №1
+        if q == s:
+            return 200
+        if s in q or q in s:
+            return 150
         q_digits = set(re.findall(r"\d+", q))
         s_digits = set(re.findall(r"\d+", s))
         score = 0
-        # Temperature match dominates — if юзер сказал 25 и сцена имеет 25, это почти гарантия
         if q_digits and s_digits and (q_digits & s_digits):
             score += 100
-        # Off/on intent
         off_words = ("выкл", "вируб", "off", "відключ", "віключ", "вырубай")
         on_words = ("вкл", "увімкн", "увімк", "on", "включи", "включай")
         if any(w in q for w in off_words) and any(w in s for w in off_words):
             score += 80
         if any(w in q for w in on_words) and any(w in s for w in on_words):
             score += 60
-        # Cold/heat intent
         if any(w in q for w in ("холод", "cold", "охлад", "прохлад")) and \
            any(w in s for w in ("холод", "cold")):
             score += 20
         if any(w in q for w in ("тепл", "heat", "обогрев", "грей")) and \
            any(w in s for w in ("тепл", "heat")):
             score += 20
-        # Generic token overlap (each shared 3+-letter token)
+        # Generic token overlap (each shared 3+-letter token) — вес выше
+        # чтобы сцены типа «Спальня ночь» набирали ≥20 без цифр/on/off
         for tok in re.findall(r"[а-яёa-z]{3,}", q):
             if tok in s:
-                score += 5
+                score += 15
         return score
 
     async def find_scene(self, query: str) -> dict | None:
