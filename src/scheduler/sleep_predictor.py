@@ -122,13 +122,19 @@ class SleepPredictor:
                 return
 
             from src.integrations.sleep_coach import _fmt_hm
+
+            # Найдём подходящую сцену «приглушить свет для подготовки ко сну»
+            butler_dim_line = await self._butler_dim_directive()
+
             if until_window > 0:
                 text = (
                     "🍼 <b>Матвейка скоро устанет</b>\n"
                     f"Бодрствует уже {_fmt_hm(awake_min)}. Его обычное окно — "
                     f"~{_fmt_hm(window_min)} ({window_src}), осталось ~{_fmt_hm(until_window)}. "
-                    "Замедляйся, приглуши свет, готовь к укладыванию."
+                    "Замедляйся, готовь к укладыванию."
                 )
+                if butler_dim_line:
+                    text += f"\n\n{butler_dim_line}"
             else:
                 text = (
                     "🍼 <b>Перегул</b>\n"
@@ -136,11 +142,27 @@ class SleepPredictor:
                     f"~{_fmt_hm(window_min)} ({window_src}). Чем дальше, тем "
                     "сложнее будет уложить. Пора."
                 )
+                if butler_dim_line:
+                    text += f"\n\n{butler_dim_line}"
 
             try:
                 await self._bots.send_message(
                     agent_id="nanny", chat_id=self._chat_id, text=text,
                 )
+                # Просим Дворецкого выполнить приглушение (через подтверждение)
+                if butler_dim_line:
+                    try:
+                        from src.orchestrator.agent_directives import execute_directives
+                        # Собираем peers через nanny_agent — там есть _peer_agents
+                        peers = getattr(self._nanny, "_peer_agents", None) or {}
+                        if peers:
+                            await execute_directives(
+                                text=text, agents=peers, memory=self._memory,
+                                chat_id=self._chat_id, origin_agent="nanny",
+                                bot_manager=self._bots,
+                            )
+                    except Exception:
+                        log.exception("predictor_directives_failed")
                 self._last_warning_for_awake_since = awake_since_iso
                 log.info(
                     "sleep_warning_pushed",
@@ -149,6 +171,31 @@ class SleepPredictor:
                 )
             except Exception:
                 log.exception("sleep_warning_push_failed")
+        except Exception:
+            log.exception("sleep_predictor_tick_failed")
+
+    async def _butler_dim_directive(self) -> str:
+        """Найти сцену для приглушения света (уют/ночь/мягкий).
+        Возвращает готовую строку «Дворецкий, запусти сцену «X».» или пусто.
+        """
+        try:
+            from src.config import get_settings
+            from src.integrations.tuya import TuyaClient
+            tuya = TuyaClient.from_settings(get_settings())
+            if not tuya:
+                return ""
+            scenes = await tuya.list_scenes()
+            names = [s["name"] for s in scenes
+                     if s.get("name") and not s.get("is_automation")]
+            # Приоритеты — «Спальня уют/ночь/мягкий» → «уют» вообще
+            for keyword in ("спальня уют", "спальня ночь", "спальня мягк",
+                            "уют", "мягкий свет"):
+                for n in names:
+                    if keyword in n.lower():
+                        return f"Дворецкий, запусти сцену «{n}»."
+            return ""
+        except Exception:
+            return ""
         except Exception:
             log.exception("sleep_predictor_tick_failed")
 

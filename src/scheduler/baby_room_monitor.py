@@ -53,20 +53,27 @@ async def check_baby_room(butler_agent: Any) -> None:
             humi = None
 
         alerts: list[str] = []
+        suggestions: list[str] = []
         if temp is not None:
             if temp > settings.baby_room_temp_max and _should_alert("temp_high"):
                 alerts.append(f"🥵 Жарко в детской: {temp}°C (норма {settings.baby_room_temp_min}-{settings.baby_room_temp_max})")
+                suggestions.append("→ Включи кондер на охлаждение")
             elif temp < settings.baby_room_temp_min and _should_alert("temp_low"):
                 alerts.append(f"🥶 Холодно в детской: {temp}°C (норма {settings.baby_room_temp_min}-{settings.baby_room_temp_max})")
+                suggestions.append("→ Включи обогрев или закрой окно")
         if humi is not None:
             if humi > settings.baby_room_humidity_max and _should_alert("humi_high"):
                 alerts.append(f"💦 Влажно в детской: {humi}% (норма {settings.baby_room_humidity_min}-{settings.baby_room_humidity_max})")
+                suggestions.append("→ Выключи увлажнитель. Или включи осушение на кондере (режим «wet»/«осушение»)")
             elif humi < settings.baby_room_humidity_min and _should_alert("humi_low"):
                 alerts.append(f"🏜 Сухо в детской: {humi}% (норма {settings.baby_room_humidity_min}-{settings.baby_room_humidity_max})")
+                suggestions.append("→ Включи увлажнитель. Если работает кондер на охлаждение — переключи на «авто» или снизь его")
 
         if not alerts:
             return
         body = "🏠 <b>Проверка детской</b>\n" + "\n".join(alerts)
+        if suggestions:
+            body += "\n\n" + "\n".join(suggestions)
         await butler_agent.send(body)
         log.info("baby_room_alert_sent", count=len(alerts))
 
