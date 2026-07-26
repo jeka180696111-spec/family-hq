@@ -2428,23 +2428,41 @@ document.querySelectorAll('.shop-item').forEach(item => {
 
   function updateInverter(inv) {
     if (!inv) return;
+    const cardTitle = document.querySelector('[data-t="battRuntime"]')?.closest('.card')?.querySelector('.card-title');
+    const gridActive = inv.grid_active !== false;  // считаем "есть свет" по умолчанию
+
+    // Заряд + сеть (всегда показываем)
     if (inv.soc != null) {
       const el = document.querySelector('.battery-vis .fill');
       if (el) el.style.width = inv.soc + '%';
       setText('battSoc', inv.soc + '%');
     }
-    setText('battGrid', inv.grid_active ? 'Есть' : 'Нет');
-    if (inv.load_w != null) {
-      setText('battLoad', 'при нагрузке ' + Math.round(inv.load_w) + ' Вт');
-      // Оценка автономности: SoC × ёмкость (~5кВт·ч) / load
-      if (inv.soc != null && inv.load_w > 0) {
+    setText('battGrid', gridActive ? 'Есть' : 'НЕТ');
+
+    if (gridActive) {
+      // === СВЕТ ЕСТЬ === показываем спокойный статус
+      if (cardTitle) cardTitle.textContent = 'Инвертор';
+      setHtml('battRuntime', '<span style="color: var(--sage); font-size: 32px">Свет есть</span>');
+      setText('battLoad', inv.load_w != null ? 'потребление ' + Math.round(inv.load_w) + ' Вт' : '—');
+      setText('battEta', '—');
+      // Прячем строку ETA если возможно
+      const etaBlock = document.querySelector('.battery-eta');
+      if (etaBlock) etaBlock.style.display = 'none';
+    } else {
+      // === СВЕТ ПРОПАЛ === полноценный runtime
+      if (cardTitle) cardTitle.textContent = 'Автономность';
+      const etaBlock = document.querySelector('.battery-eta');
+      if (etaBlock) etaBlock.style.display = '';
+      if (inv.load_w != null && inv.load_w > 0 && inv.soc != null) {
         const kwh = 5 * (inv.soc / 100) * 0.8;  // 20% резерв
         const hours = kwh * 1000 / inv.load_w;
         const totalMin = Math.round(hours * 60);
-        setHtml('battRuntime', fmtDuration(totalMin).replace('м', '<span class="unit">мин</span>').replace('ч', 'ч <span class="unit"></span>'));
-        // ETA
+        setHtml('battRuntime', fmtDuration(totalMin).replace(/([0-9]+)м/, '$1<span class="unit">мин</span>').replace('ч', 'ч <span class="unit"></span>'));
+        setText('battLoad', 'при нагрузке ' + Math.round(inv.load_w) + ' Вт');
         const eta = new Date(Date.now() + totalMin * 60000);
         setText('battEta', '≈ ' + String(eta.getHours()).padStart(2,'0') + ':' + String(eta.getMinutes()).padStart(2,'0'));
+      } else {
+        setHtml('battRuntime', '<span style="color: var(--coral)">данных нет</span>');
       }
     }
   }
@@ -2516,9 +2534,79 @@ document.querySelectorAll('.shop-item').forEach(item => {
     }).join('');
   }
 
+
+  function updateScenes(scenes) {
+    const cont = document.getElementById('scenesGroups');
+    if (!cont) return;
+    if (!scenes || !scenes.length) {
+      cont.innerHTML = '<div style="font-size:12px; color:var(--text-dim); padding:8px 4px; text-align:center">Сцены Tuya не загружены</div>';
+      return;
+    }
+    // Оставляем только сцены (не автоматизации)
+    const list = scenes.filter(s => !s.is_automation && s.name);
+    // Группируем по первому слову
+    const groups = {};
+    list.forEach(s => {
+      const first = s.name.split(/\s+/)[0];
+      if (!groups[first]) groups[first] = [];
+      groups[first].push(s);
+    });
+    // Приоритет отображения
+    const orderPriority = ['Спальня', 'Кухня', 'Гостиная', 'Детская', 'Туалет', 'Кондер', 'Кондиционер', 'Бойлер', 'ТВ'];
+    const orderKeys = [...orderPriority.filter(k => groups[k]), ...Object.keys(groups).filter(k => !orderPriority.includes(k))];
+
+    const iconFor = (name) => {
+      const n = name.toLowerCase();
+      if (n.includes('ночь') || n.includes('night')) return '🌙';
+      if (n.includes('уют') || n.includes('cozy')) return '🕯';
+      if (n.includes('ярко') || n.includes('max') || n.includes('bright')) return '☀️';
+      if (n.includes('выкл') || n.includes('off') || n.includes('вимк')) return '⭘';
+      if (n.includes('тепл') || n.includes('heat')) return '🔥';
+      if (n.includes('холод') || n.includes('cold') || n.includes('°')) return '❄️';
+      if (n.match(/\d/)) return '❄️';  // цифра = темп кондера
+      return '💡';
+    };
+    const shortName = (fullName, group) => {
+      // Убираем префикс группы из имени
+      let s = fullName.replace(new RegExp('^' + group + '\\s+', 'i'), '');
+      return s || fullName;
+    };
+    const parseSub = (name) => {
+      // Извлекаем подпись после числа: «Кондер 24 авто» -> «авто»
+      const m = name.match(/\d+\s*(?:°\s*)?(.+)$/);
+      if (m) return m[1].trim();
+      return '';
+    };
+
+    cont.innerHTML = orderKeys.map(gname => {
+      const items = groups[gname].slice(0, 4);  // максимум 4 в группе на главной
+      const isPlugsGroup = ['Бойлер', 'ТВ', 'Телевизор', 'Розетки'].includes(gname);
+      const cols = Math.min(items.length, isPlugsGroup ? 2 : 4);
+      const btnsHtml = items.map(sc => {
+        const nm = shortName(sc.name, gname);
+        const sub = parseSub(nm);
+        const cleanName = sub ? nm.replace(sub, '').trim() : nm;
+        const subHtml = sub ? `<div class="sc-sub">${sub}</div>` : '';
+        return `<button class="scene-btn" data-scene-name="${sc.name.replace(/"/g,'&quot;').replace(/</g,'&lt;')}" onclick="runSceneBtn(this)"><div class="sc-icon">${iconFor(sc.name)}</div><div class="sc-name">${cleanName}</div>${subHtml}</button>`;
+      }).join('');
+      return `<div class="scene-group"><div class="scene-group-title">${gname}${items.length >= 4 ? ' <button class="scene-more" onclick="openModal(\'scenes\')">Ещё</button>' : ''}</div><div class="scene-row" style="grid-template-columns:repeat(${cols},1fr)">${btnsHtml}</div></div>`;
+    }).join('');
+  }
+  window.runSceneBtn = async function(btn) {
+    const name = btn.dataset.sceneName;
+    // Одну активную в группе
+    const grp = btn.closest('.scene-row');
+    if (grp) grp.querySelectorAll('.scene-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    if (typeof TOKEN !== 'undefined' && TOKEN) {
+      await apiPost('/api/tablet/action/scene', {query: name});
+    }
+  };
+
   async function refreshState() {
     try {
       const s = await apiGet('/api/tablet/state');
+      updateScenes(s.scenes);
       updateWeather(s.weather);
       updateBaby(s.baby);
       updateNursery(s.nursery);
