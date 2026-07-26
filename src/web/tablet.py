@@ -165,17 +165,25 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
     except Exception:
         log.exception("tablet_lux_failed")
 
-    # Активная тревога
+    # Активная тревога — только если запись свежая (< 6ч) и без ended_at
     try:
+        from datetime import timedelta
         from sqlalchemy import select
         from src.db.models import ActiveAlert
+        from src.utils.time import now_kyiv
+        cutoff = (now_kyiv() - timedelta(hours=6)).isoformat()
         async with memory._engine.connect() as conn:
-            row = (await conn.execute(select(ActiveAlert).limit(1))).first()
-            state["alert"] = {
-                "active": bool(row),
-                "region": row.region if row else None,
-                "started_at": row.started_at if row else None,
-            }
+            rows = list(await conn.execute(
+                select(ActiveAlert).where(ActiveAlert.started_at >= cutoff)
+            ))
+        # Только незакрытые (нет ended_at) считаем активными
+        active = [r for r in rows if not getattr(r, "ended_at", None)]
+        if active:
+            r = active[0]
+            state["alert"] = {"active": True, "region": r.region,
+                              "started_at": r.started_at}
+        else:
+            state["alert"] = {"active": False}
     except Exception:
         state["alert"] = {"active": False}
 
