@@ -2121,21 +2121,24 @@ document.querySelectorAll('.shop-item').forEach(item => {
   };
   function setBabyState(state) {
     const s = babyStates[state]; if (!s) return;
-    document.getElementById('babyStatus').textContent = s.label;
-    document.getElementById('babyDuration').textContent = s.duration;
-    document.getElementById('babyRemain').textContent = s.remain;
+    // Текст ставит updateBaby из реального API — здесь только фото/кольцо
     const photo = document.getElementById('babyPhoto');
-    photo.setAttribute('data-state', state);
-    photo.innerHTML = `<img src="${babyPhotos[state]}" alt="Матвей">`;
+    if (photo) {
+      photo.setAttribute('data-state', state);
+      photo.innerHTML = `<img src="${babyPhotos[state]}" alt="Матвей">`;
+    }
     const ring = document.getElementById('babyRingFg');
-    const dash = 295;
-    ring.setAttribute('stroke-dashoffset', dash - dash * s.progress);
+    if (ring) {
+      const dash = 295;
+      ring.setAttribute('stroke-dashoffset', dash - dash * s.progress);
+    }
     document.querySelectorAll('.bstate').forEach(b =>
       b.classList.toggle('active', b.dataset.state === state));
   }
   document.querySelectorAll('.bstate').forEach(b => {
     b.addEventListener('click', () => setBabyState(b.dataset.state));
   });
+  // По умолчанию — картинка спящего, но текст будет из updateBaby
   setBabyState('sleeping');
 
   // Ставим текущее фото Матвея в photo-frame
@@ -2457,12 +2460,15 @@ document.querySelectorAll('.shop-item').forEach(item => {
       const n = (name || '').toLowerCase();
       if (n.includes('бойлер')) return '🔥';
       if (n.includes('кондер') || n.includes('кондиц')) return '❄️';
-      if (n.includes('телев') || n.includes('тв')) return '📺';
-      if (n.includes('свет') || n.includes('лампа')) return '💡';
-      if (n.includes('датчик')) return '🌡';
+      if (n.includes('телев') || n.startsWith('тв') || n === 'тв') return '📺';
+      if (n.includes('датчик') || n.includes('sensor')) return '🌡';
       if (n.includes('пылес') || n.includes('гоша')) return '🤖';
+      // Лампы часто названы по комнатам
+      if (n.includes('лампа') || n.includes('свет')) return '💡';
+      if (n === 'кухня' || n === 'спальня' || n === 'детская' ||
+          n === 'гостиная' || n === 'туалет' || n === 'коридор') return '💡';
+      if (n.includes('ик-') || n.includes('ик хаб') || n.includes('пульт') || n.includes('infrared') || n.includes('remote')) return '📡';
       if (n.includes('розетк')) return '🔌';
-      if (n.includes('ик') || n.includes('пульт') || n.includes('infrared')) return '📡';
       return '🔌';
     };
     list.innerHTML = devices.slice(0, 6).map(d => {

@@ -95,14 +95,29 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
     except Exception:
         log.exception("tablet_baby_failed")
 
-    # Датчик детской
+    # Датчик детской — сначала пробуем по настроенному имени,
+    # затем fallback на ЛЮБОЕ устройство содержащее датчик температуры
     try:
         from src.integrations.tuya import TuyaClient
         tuya = TuyaClient.from_settings(settings)
         if tuya:
             sensor_name = getattr(settings, "baby_room_sensor_name", "детская") or "детская"
             sensor = await tuya.read_sensor(sensor_name)
-            if isinstance(sensor, dict) and "readings" in sensor:
+            got = isinstance(sensor, dict) and "readings" in sensor and sensor.get("readings")
+            if not got:
+                # Fallback: ищем среди устройств первое с temperature/va_temperature
+                devices = await tuya.list_devices()
+                for d in devices:
+                    for s in (d.get("status") or []):
+                        code = s.get("code", "")
+                        if code in ("va_temperature", "temp_current", "temperature"):
+                            sensor = await tuya.read_sensor(d.get("name", ""))
+                            got = isinstance(sensor, dict) and "readings" in sensor and sensor.get("readings")
+                            if got:
+                                break
+                    if got:
+                        break
+            if got:
                 r = sensor.get("readings") or {}
                 state["nursery"] = {
                     "temperature": r.get("temperature"),
