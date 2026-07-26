@@ -577,6 +577,16 @@ async def handle_new_message(
                 log.exception("dashboard_pin_failed")
             return
 
+        # /tablet — ссылка на настенный PWA-хаб
+        if _cmd in ("/tablet", "/планшет", "/хаб", "планшет"):
+            try:
+                _bm = next((getattr(a, "_bots", None) for a in agents.values() if getattr(a, "_bots", None)), None)
+                if _bm:
+                    await _send_tablet_button(_bm, chat_id, settings)
+            except Exception:
+                log.exception("tablet_button_failed")
+            return
+
         # Authorization check
         if user_id and not access_control.is_owner(user_id):
             log.warning("unauthorized_message", user_id=user_id)
@@ -833,6 +843,34 @@ _SLASH_EXPAND = {
     "😴": "Няня, уснул сейчас",
     "🌅": "Няня, проснулся сейчас",
 }
+
+
+async def _send_tablet_button(bot_manager, chat_id: int, settings) -> None:
+    """Постит кнопку-ссылку на планшет-PWA (Family HQ Tablet)."""
+    from urllib.parse import quote
+    token = getattr(settings, "dashboard_token", "")
+    base = getattr(settings, "public_url", "") or "https://family-hq-production-34a6.up.railway.app"
+    url = f"{base.rstrip('/')}/tablet"
+    if token:
+        url += f"?token={quote(token)}"
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton(text="🏠 Открыть Family HQ Tablet", url=url)]])
+    bot = bot_manager._bots.get("butler") or bot_manager._bots.get("devops")
+    if bot is None:
+        return
+    text_body = (
+        "🏠 <b>Family HQ · Tablet</b>\n"
+        "Настенный PWA-хаб семьи. Открой на планшете — "
+        "«Добавить на главный экран» → полноценное приложение.\n\n"
+        "• Статус Матвея с фото\n"
+        "• Умный дом, сцены, автономность\n"
+        "• План дня + список покупок\n"
+        "• Голос, чат с агентами\n"
+        "• Настраиваемая раскладка"
+    )
+    await bot.send_message(
+        chat_id=chat_id, text=text_body, parse_mode="HTML", reply_markup=kb,
+    )
 
 
 async def _send_dashboard_button(
@@ -1350,13 +1388,13 @@ async def run(dry_run: bool = False) -> None:
     register_baby_budget_job(scheduler, agents["devops"], memory)
     register_time_capsule_job(scheduler, agents["news"], memory)
 
-    # Web dashboard — read-only state view at /dashboard?token=...
+    # Web dashboard + Tablet PWA — /dashboard?token=... и /tablet?token=...
     try:
         if getattr(settings, "dashboard_token", ""):
             import os as _os
             from src.web.dashboard import start_dashboard_server
             port = int(_os.environ.get("PORT", 8080))
-            await start_dashboard_server(memory, settings, port)
+            await start_dashboard_server(memory, settings, port, agents=agents)
     except Exception:
         log.exception("dashboard_start_failed")
 

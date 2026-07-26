@@ -821,8 +821,10 @@ def build_app(memory: Any, settings: Any) -> FastAPI:
     return app
 
 
-async def start_dashboard_server(memory: Any, settings: Any, port: int) -> None:
-    """Start uvicorn in the same event loop."""
+async def start_dashboard_server(memory: Any, settings: Any, port: int, agents: dict | None = None) -> None:
+    """Start uvicorn in the same event loop.
+    Также регистрирует /tablet и /api/tablet/* endpoints если agents передан.
+    """
     import structlog
     log = structlog.get_logger()
     try:
@@ -831,6 +833,13 @@ async def start_dashboard_server(memory: Any, settings: Any, port: int) -> None:
         log.warning("dashboard_uvicorn_missing")
         return
     app = build_app(memory, settings)
+    # Регистрируем tablet-роуты в том же приложении
+    if agents is not None:
+        try:
+            from src.web.tablet import register_tablet_routes
+            register_tablet_routes(app, memory, settings, agents)
+        except Exception:
+            log.exception("tablet_register_failed")
     config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="warning")
     server = uvicorn.Server(config)
     log.info("dashboard_starting", port=port)
