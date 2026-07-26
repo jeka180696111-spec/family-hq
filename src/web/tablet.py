@@ -165,6 +165,20 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
     except Exception:
         log.exception("tablet_lux_failed")
 
+
+    # Список покупок из Google Sheets (если Ежедневник настроен)
+    try:
+        cal = (agents or {}).get("calendar") if agents else None
+        sheets = getattr(cal, "_sheets", None) if cal else None
+        if sheets and hasattr(sheets, "get_shopping_list"):
+            items = await sheets.get_shopping_list()
+            state["shopping"] = [
+                {"name": it.get("name", ""), "done": bool(it.get("done", False))}
+                for it in (items or [])[:10]
+            ]
+    except Exception:
+        log.exception("tablet_shopping_failed")
+
     # Тревога — только если в последние 30 мин был alert-пост от Дозорного
     # (более надёжно чем ActiveAlert таблица которая может иметь stale записи)
     try:
@@ -172,7 +186,7 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
         from sqlalchemy import select, func
         from src.db.models import NewsPost
         from src.utils.time import now_kyiv
-        cutoff = (now_kyiv() - timedelta(minutes=30)).isoformat()
+        cutoff = (now_kyiv() - timedelta(minutes=15)).isoformat()
         async with memory._engine.connect() as conn:
             row = (await conn.execute(
                 select(NewsPost).where(NewsPost.is_alert == 1)
@@ -184,7 +198,7 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
         # в тексте нет "отбой"/"відбій" (это end-события)
         if row:
             text = (getattr(row, "text", "") or "").lower()
-            is_end = any(w in text for w in ("отбой", "відбій", "видбій", "все ясно", "все спокійно"))
+            is_end = any(w in text for w in ("отбой", "відбій", "видбій", "все ясно", "все спокійно", "закінч", "закончил", "стих", "миновал"))
             state["alert"] = {"active": not is_end, "region": row.alert_region, "started_at": row.date}
         else:
             state["alert"] = {"active": False}
