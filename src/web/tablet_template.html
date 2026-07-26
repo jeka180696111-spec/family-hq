@@ -1725,9 +1725,7 @@
   <div class="ribbon">
     <div>
       <div class="ribbon-title">Не забудь перед выходом</div>
-      <div class="ribbon-msg">
-        Возможен дождь <span class="accent">☂ возьми зонт</span> · Прохладно 16° · <span class="accent">шапку для Матвея</span>
-      </div>
+      <div class="ribbon-msg" data-t="reminder">—</div>
     </div>
     <button class="mic" aria-label="Голос">
       <svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>
@@ -2369,6 +2367,27 @@ document.querySelectorAll('.shop-item').forEach(item => {
     }
   }
 
+
+  function updateReminder(w) {
+    if (!w) return;
+    const parts = [];
+    const t = w.temp_c;
+    const rain = w.forecast && w.forecast[0] ? w.forecast[0].rain : 0;
+
+    if (rain > 0.5) parts.push('<span class="accent">☂ возьми зонт</span>');
+    if (t != null) {
+      if (t >= 28) parts.push('Жарко ' + Math.round(t) + '° · <span class="accent">☀ воду с собой</span> · <span class="accent">панамку Матвею</span>');
+      else if (t >= 24) parts.push('Тепло ' + Math.round(t) + '° · <span class="accent">панамку Матвею</span>');
+      else if (t >= 18) parts.push('Комфортно ' + Math.round(t) + '° · лёгкая одежда');
+      else if (t >= 10) parts.push('Прохладно ' + Math.round(t) + '° · <span class="accent">шапку для Матвея</span>');
+      else if (t >= 0) parts.push('Холодно ' + Math.round(t) + '° · <span class="accent">тёплый комбез</span>');
+      else parts.push('Мороз ' + Math.round(t) + '° · <span class="accent">утеплить максимально</span>');
+    }
+    if (w.wind_ms != null && w.wind_ms > 10) parts.push('<span class="accent">Ветер ' + Math.round(w.wind_ms) + 'м/с</span>');
+
+    setHtml('reminder', parts.length ? parts.join(' · ') : 'На улице комфортно');
+  }
+
   function updateWeather(w) {
     if (!w) return;
     // Убираем странные локации типа "У родителей", показываем нормальное имя
@@ -2608,6 +2627,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
       const s = await apiGet('/api/tablet/state');
       updateScenes(s.scenes);
       updateWeather(s.weather);
+      updateReminder(s.weather);
       updateBaby(s.baby);
       updateNursery(s.nursery);
       updateInverter(s.inverter);
