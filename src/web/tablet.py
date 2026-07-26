@@ -165,28 +165,27 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
     except Exception:
         log.exception("tablet_lux_failed")
 
-    # Активная тревога — жёсткий фильтр:
-    # started_at < 3ч назад И (ended_at IS NULL или пустой)
+    # Тревога — только если в последние 30 мин был alert-пост от Дозорного
+    # (более надёжно чем ActiveAlert таблица которая может иметь stale записи)
     try:
         from datetime import timedelta
-        from sqlalchemy import select
-        from src.db.models import ActiveAlert
+        from sqlalchemy import select, func
+        from src.db.models import NewsPost
         from src.utils.time import now_kyiv
-        cutoff = (now_kyiv() - timedelta(hours=3)).isoformat()
+        cutoff = (now_kyiv() - timedelta(minutes=30)).isoformat()
         async with memory._engine.connect() as conn:
-            rows = list(await conn.execute(
-                select(ActiveAlert).where(ActiveAlert.started_at >= cutoff)
-            ))
-        def _is_active(r):
-            e = getattr(r, "ended_at", None)
-            if e is None: return True
-            if isinstance(e, str) and e.strip() == "": return True
-            return False
-        active = [r for r in rows if _is_active(r)]
-        if active:
-            r = active[0]
-            state["alert"] = {"active": True, "region": r.region,
-                              "started_at": r.started_at}
+            row = (await conn.execute(
+                select(NewsPost).where(NewsPost.is_alert == 1)
+                .where(NewsPost.date >= cutoff)
+                .order_by(NewsPost.date.desc())
+                .limit(1)
+            )).first()
+        # Активной считаем ТОЛЬКО если alert-пост найден И
+        # в тексте нет "отбой"/"відбій" (это end-события)
+        if row:
+            text = (getattr(row, "text", "") or "").lower()
+            is_end = any(w in text for w in ("отбой", "відбій", "видбій", "все ясно", "все спокійно"))
+            state["alert"] = {"active": not is_end, "region": row.alert_region, "started_at": row.date}
         else:
             state["alert"] = {"active": False}
     except Exception:
