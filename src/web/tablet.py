@@ -164,6 +164,27 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
     except Exception:
         log.exception("tablet_tuya_failed")
 
+
+    # SmartThings — робот-пылесос Гоша
+    try:
+        from src.integrations.smartthings import SmartThingsClient
+        st = SmartThingsClient.from_settings(settings)
+        if st and hasattr(st, "vacuum_status"):
+            vac = await st.vacuum_status()
+            if vac and vac.get("found"):
+                if "devices" not in state:
+                    state["devices"] = []
+                state["devices"].append({
+                    "id": "gosha",
+                    "name": "Гоша (пылесос)",
+                    "online": True,
+                    "on": vac.get("state") == "cleaning",
+                    "cur_power": None,
+                    "extra": vac.get("state") + ", батарея " + str(vac.get("battery")) + "%" if vac.get("battery") is not None else vac.get("state"),
+                })
+    except Exception:
+        log.exception("tablet_vacuum_failed")
+
     # Инвертор + автономность
     try:
         from src.integrations.luxcloud import LuxCloudClient
@@ -226,9 +247,9 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
         from src.integrations.gcalendar import CalendarClient
         if settings.google_service_account_json and settings.calendar_id:
             cal = CalendarClient(settings.google_service_account_json, settings.calendar_id)
-            events = await cal.list_upcoming(days_ahead=1)
+            events = await cal.list_upcoming(days_ahead=7)
             today = []
-            for e in events[:5]:
+            for e in events[:20]:
                 today.append({
                     "title": getattr(e, "title", ""),
                     "when": getattr(e, "start", None).isoformat() if getattr(e, "start", None) else "",

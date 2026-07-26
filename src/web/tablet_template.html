@@ -2353,6 +2353,23 @@ document.querySelectorAll('.shop-item').forEach(item => {
     if (typeof setBabyState === 'function' && babyStates && babyStates[state]) {
       try { setBabyState(state); } catch(e){}
     }
+    // Динамическое кольцо: прогресс от 0 до 1
+    let progress = 0;
+    if (state === 'sleeping') {
+      // 90 мин дневной сон = полное кольцо
+      progress = Math.min(1, durMin / 90);
+    } else if (state === 'awake') {
+      // 140 мин окно = полное
+      progress = Math.min(1, durMin / 140);
+    } else if (state === 'walking') {
+      // 60 мин прогулка
+      progress = Math.min(1, durMin / 60);
+    }
+    const ring = document.getElementById('babyRingFg');
+    if (ring) {
+      const dash = 295;
+      ring.setAttribute('stroke-dashoffset', dash - dash * progress);
+    }
   }
 
   function updateNursery(nursery) {
@@ -2445,12 +2462,13 @@ document.querySelectorAll('.shop-item').forEach(item => {
     }
   }
 
-  function updateInverter(inv) {
+  function updateInverter(inv, devices) {
     if (!inv) return;
-    const cardTitle = document.querySelector('[data-t="battRuntime"]')?.closest('.card')?.querySelector('.card-title');
-    const gridActive = inv.grid_active !== false;  // считаем "есть свет" по умолчанию
+    const card = document.querySelector('[data-t="battRuntime"]')?.closest('.card');
+    const cardTitle = card?.querySelector('.card-title');
+    const gridActive = inv.grid_active !== false;
 
-    // Заряд + сеть (всегда показываем)
+    // Заряд + сеть (всегда обновляем внутренние поля, если карточка видна)
     if (inv.soc != null) {
       const el = document.querySelector('.battery-vis .fill');
       if (el) el.style.width = inv.soc + '%';
@@ -2459,31 +2477,60 @@ document.querySelectorAll('.shop-item').forEach(item => {
     setText('battGrid', gridActive ? 'Есть' : 'НЕТ');
 
     if (gridActive) {
-      // === СВЕТ ЕСТЬ === показываем спокойный статус
-      if (cardTitle) cardTitle.textContent = 'Инвертор';
-      setHtml('battRuntime', '<span style="color: var(--sage); font-size: 32px">Свет есть</span>');
-      setText('battLoad', inv.load_w != null ? 'потребление ' + Math.round(inv.load_w) + ' Вт' : '—');
-      setText('battEta', '—');
-      // Прячем строку ETA если возможно
-      const etaBlock = document.querySelector('.battery-eta');
-      if (etaBlock) etaBlock.style.display = 'none';
+      // === СВЕТ ЕСТЬ === прячем всю карточку
+      if (card) card.style.display = 'none';
+      return;
     } else {
+      // === СВЕТ ПРОПАЛ === показываем карточку
+      if (card) card.style.display = '';
       // === СВЕТ ПРОПАЛ === полноценный runtime
       if (cardTitle) cardTitle.textContent = 'Автономность';
       const etaBlock = document.querySelector('.battery-eta');
       if (etaBlock) etaBlock.style.display = '';
       if (inv.load_w != null && inv.load_w > 0 && inv.soc != null) {
-        const kwh = 5 * (inv.soc / 100) * 0.8;  // 20% резерв
+        const kwh = 5 * (inv.soc / 100) * 0.8;
         const hours = kwh * 1000 / inv.load_w;
         const totalMin = Math.round(hours * 60);
         setHtml('battRuntime', fmtDuration(totalMin).replace(/([0-9]+)м/, '$1<span class="unit">мин</span>').replace('ч', 'ч <span class="unit"></span>'));
         setText('battLoad', 'при нагрузке ' + Math.round(inv.load_w) + ' Вт');
         const eta = new Date(Date.now() + totalMin * 60000);
         setText('battEta', '≈ ' + String(eta.getHours()).padStart(2,'0') + ':' + String(eta.getMinutes()).padStart(2,'0'));
+        // Заменяем спарклайн на список «Как сэкономить» по реальным устройствам
+        renderSavingSuggestions(devices, totalMin);
       } else {
         setHtml('battRuntime', '<span style="color: var(--coral)">данных нет</span>');
       }
     }
+  }
+
+  function renderSavingSuggestions(devices, currentRuntime) {
+    const container = document.querySelector('.battery-forecast');
+    if (!container) return;
+    if (!devices || !devices.length) return;
+    const savings = [];
+    devices.forEach(d => {
+      if (d.on !== true || !d.cur_power || d.cur_power < 10) return;
+      const name = d.name || '?';
+      const power = Math.round(d.cur_power);
+      // +N мин к автономности если выключить
+      const savedMin = Math.round(currentRuntime * (power / (power + (currentRuntime > 0 ? 100 : 100))));
+      const n = name.toLowerCase();
+      let ic = '🔌';
+      if (n.includes('бойлер')) ic = '🔥';
+      else if (n.includes('кондер') || n.includes('кондиц')) ic = '❄️';
+      else if (n.includes('тв') || n.includes('телев')) ic = '📺';
+      else if (n.includes('свет') || n.includes('лампа')) ic = '💡';
+      savings.push({name, power, ic, savedMin});
+    });
+    savings.sort((a, b) => b.power - a.power);
+    const label = '<div class="bstat-label" style="text-align:center; margin-bottom:6px">Как сэкономить заряд</div>';
+    const items = savings.slice(0, 4).map(s =>
+      `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; background:var(--card-hi); border-radius:8px; margin-bottom:4px; font-size:12px;">
+         <span>${s.ic} ${s.name} <span style="color:var(--text-dim)">${s.power}Вт</span></span>
+         <span style="color:var(--sage); font-family:ui-serif,Georgia,serif">+${Math.round(s.savedMin/60)}ч ${s.savedMin%60}м</span>
+       </div>`
+    ).join('') || '<div style="text-align:center; font-size:11px; color:var(--text-dim)">Ничего мощного не включено</div>';
+    container.innerHTML = label + items;
   }
 
   function updateDevices(devices) {
@@ -2526,11 +2573,19 @@ document.querySelectorAll('.shop-item').forEach(item => {
   function updateEvents(events) {
     const list = document.getElementById('todayList');
     if (!list) return;
+    setText('weekCount', (events && events.length) ? (events.length + ' событий') : 'событий нет');
     if (!events || !events.length) {
       list.innerHTML = '<div style="font-size:12px; color:var(--text-dim); padding:8px 4px; text-align:center">Событий сегодня нет</div>';
       return;
     }
-    list.innerHTML = events.slice(0, 4).map(e => {
+    // Показываем только события на сегодня
+    const today = new Date().toISOString().slice(0, 10);
+    const todays = events.filter(e => (e.when || '').startsWith(today));
+    if (!todays.length) {
+      list.innerHTML = '<div style="font-size:12px; color:var(--text-dim); padding:8px 4px; text-align:center">Сегодня свободно</div>';
+      return;
+    }
+    list.innerHTML = todays.slice(0, 4).map(e => {
       const t = clockFmt(e.when);
       const loc = e.location ? `<span class="sub">${e.location}</span>` : '';
       return `<div class="today-item"><div class="today-time">${t}</div><div class="today-text">${e.title || ''}${loc}</div></div>`;
@@ -2630,7 +2685,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
       updateReminder(s.weather);
       updateBaby(s.baby);
       updateNursery(s.nursery);
-      updateInverter(s.inverter);
+      updateInverter(s.inverter, s.devices);
       updateDevices(s.devices);
       updateEvents(s.today_events);
       updateShopping(s.shopping);
