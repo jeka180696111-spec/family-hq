@@ -1478,21 +1478,21 @@
 
     <div class="weather-inline" onclick="openModal('weather')" title="Открыть недельный прогноз">
       <div>
-        <div class="city">Одесса</div>
+        <div class="city" data-t="city">Одесса</div>
         <div style="display:flex; align-items:baseline; gap:12px">
-          <span class="temp">+18°</span>
-          <span class="cloud-icon">☁️</span>
+          <span class="temp" data-t="temp">+18°</span>
+          <span class="cloud-icon" data-t="cloud">☁️</span>
         </div>
-        <div class="feels">Ощущается как +17°</div>
+        <div class="feels" data-t="feels">Ощущается как +17°</div>
       </div>
       <div class="weather-stats">
         <div class="wstat">
           <div class="wstat-label">Влажность</div>
-          <div class="wstat-val">62%</div>
+          <div class="wstat-val" data-t="humidity">62%</div>
         </div>
         <div class="wstat">
           <div class="wstat-label">Ветер</div>
-          <div class="wstat-val">СВ, 4 м/с</div>
+          <div class="wstat-val" data-t="wind">СВ, 4 м/с</div>
         </div>
       </div>
     </div>
@@ -1512,9 +1512,9 @@
       <div class="card-title clickable" onclick="openModal('baby')">Матвей · 8 месяцев<span class="expand-hint">↗</span></div>
       <div class="baby-head">
         <div class="baby-info">
-          <div class="baby-status" id="babyStatus">Спит</div>
-          <div class="baby-duration" id="babyDuration">1ч 12 мин</div>
-          <div class="baby-remain" id="babyRemain">осталось ~48 мин</div>
+          <div class="baby-status" id="babyStatus" data-t="babyStatus">—</div>
+          <div class="baby-duration" id="babyDuration" data-t="babyDuration">—</div>
+          <div class="baby-remain" id="babyRemain" data-t="babyRemain">—</div>
         </div>
         <div class="baby-photo-wrap">
           <svg class="baby-ring" viewBox="0 0 100 100">
@@ -1541,25 +1541,25 @@
           <div class="timer-icon-sm">🍼</div>
           <div class="timer-info">
             <div class="timer-label">Кормление</div>
-            <div class="timer-time">7:45</div>
+            <div class="timer-time" data-t="lastFeed">—</div>
           </div>
         </div>
         <div class="timer">
           <div class="timer-icon-sm">💧</div>
           <div class="timer-info">
             <div class="timer-label">Подгузник</div>
-            <div class="timer-time">8:20</div>
+            <div class="timer-time" data-t="lastDiaper">—</div>
           </div>
         </div>
       </div>
       <div class="nursery-row">
         <div class="nursery-metric">
           <div class="nursery-metric-label">В детской</div>
-          <div class="nursery-metric-val">22.4<span class="unit">°C</span></div>
+          <div class="nursery-metric-val" data-t="nurseryTemp">—<span class="unit">°C</span></div>
         </div>
         <div class="nursery-metric">
           <div class="nursery-metric-label">Влажность</div>
-          <div class="nursery-metric-val">56<span class="unit">%</span></div>
+          <div class="nursery-metric-val" data-t="nurseryHumi">—<span class="unit">%</span></div>
         </div>
       </div>
     </div>
@@ -1568,8 +1568,8 @@
     <div class="card">
       <div class="card-title">Автономность</div>
       <div class="battery-main">
-        <div class="battery-runtime">4ч 20<span class="unit">мин</span></div>
-        <div class="battery-desc">при нагрузке 412 Вт</div>
+        <div class="battery-runtime" data-t="battRuntime">—<span class="unit"></span></div>
+        <div class="battery-desc" data-t="battLoad">—</div>
       </div>
       <div>
         <div class="battery-vis">
@@ -1581,11 +1581,11 @@
       <div class="battery-stats">
         <div class="bstat">
           <div class="bstat-label">Заряд</div>
-          <div class="bstat-val">89%</div>
+          <div class="bstat-val" data-t="battSoc">—</div>
         </div>
         <div class="bstat">
           <div class="bstat-label">Сеть</div>
-          <div class="bstat-val" style="color:var(--sage)">Есть</div>
+          <div class="bstat-val" data-t="battGrid" style="color:var(--sage)">—</div>
         </div>
       </div>
       <div class="battery-forecast">
@@ -1608,14 +1608,14 @@
       </div>
       <div class="battery-eta">
         <span>До 20% резерва</span>
-        <span class="eta-time">≈ 14:52</span>
+        <span class="eta-time" data-t="battEta">—</span>
       </div>
     </div>
 
     <!-- DEVICES CARD -->
     <div class="card clickable" onclick="openModal('devices')">
       <div class="card-title">Умный дом<span class="expand-hint">↗</span></div>
-      <div class="device-list">
+      <div class="device-list" id="deviceList">
         <div class="device">
           <div class="dev-icon">🔥</div>
           <div class="dev-name">Бойлер</div>
@@ -1648,8 +1648,8 @@
         </div>
       </div>
       <div class="home-footer">
-        <div class="home-stat"><div class="hs-icon">⚡</div>Сейчас <b>412 Вт</b></div>
-        <div class="home-stat"><div class="hs-icon">🤖</div>Правил <b>7</b> активны</div>
+        <div class="home-stat"><div class="hs-icon">⚡</div>Сейчас <b data-t="homeConsumption">— Вт</b></div>
+        <div class="home-stat"><div class="hs-icon">🤖</div>Правил <b data-t="homeRules">—</b> активны</div>
       </div>
     </div>
 
@@ -1698,8 +1698,8 @@
     <div class="card clickable" onclick="openModal('dress')">
       <div class="card-title">Что надеть Матвею<span class="expand-hint">↗</span></div>
       <div style="text-align:center; padding-top:2px">
-        <div style="font-size:11px; color:var(--text-dim); letter-spacing:0.08em; text-transform:uppercase">На улице +18°</div>
-        <div style="font-family: ui-serif, Georgia, serif; font-size:18px; color:var(--amber); margin:6px 0">Тёплый комбез или боди + флисовый комбез</div>
+        <div style="font-size:11px; color:var(--text-dim); letter-spacing:0.08em; text-transform:uppercase" data-t="dressOutside">На улице —</div>
+        <div style="font-family: ui-serif, Georgia, serif; font-size:18px; color:var(--amber); margin:6px 0" data-t="dressName">—</div>
       </div>
       <div style="background:#fff; border-radius:12px; overflow:hidden; padding:6px">
         <img src="data:image/jpeg;base64,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" alt="Одежда +15-20°" style="width:100%; display:block; border-radius:8px">
@@ -1738,7 +1738,7 @@
         <!-- TODAY -->
     <div class="card">
       <div class="card-title">События семьи</div>
-      <div class="today-list">
+      <div class="today-list" id="todayList">
         <div class="today-item">
           <div class="today-time">11:30</div>
           <div class="today-text">Прививка (педиатр)<span class="sub">Медцентр «Здоровье»</span></div>
@@ -1761,7 +1761,7 @@
     <!-- SHOPPING -->
     <div class="card">
       <div class="card-title">Список покупок</div>
-      <div class="shop-list">
+      <div class="shop-list" id="shopList">
         <div class="shop-item"><div class="shop-check"></div>Молоко</div>
         <div class="shop-item done"><div class="shop-check"></div>Хлеб</div>
         <div class="shop-item"><div class="shop-check"></div>Подгузники 5-й</div>
@@ -2331,28 +2331,215 @@ document.querySelectorAll('.shop-item').forEach(item => {
   }
 
   // Poll state and update dynamic fields
+  // Утилиты
+  const setText = (id, val) => {
+    document.querySelectorAll('[data-t="' + id + '"]').forEach(el => {
+      if (val !== undefined && val !== null && val !== '') el.textContent = val;
+    });
+  };
+  const setHtml = (id, val) => {
+    document.querySelectorAll('[data-t="' + id + '"]').forEach(el => {
+      if (val !== undefined && val !== null && val !== '') el.innerHTML = val;
+    });
+  };
+  const fmtDuration = (mins) => {
+    if (mins == null) return '—';
+    mins = Math.max(0, Math.round(mins));
+    const h = Math.floor(mins / 60), m = mins % 60;
+    if (h && m) return h + 'ч ' + m + 'м';
+    if (h) return h + 'ч';
+    return m + 'м';
+  };
+  const timeAgo = (iso) => {
+    if (!iso) return '—';
+    try {
+      const dt = new Date(iso);
+      const mins = Math.floor((Date.now() - dt.getTime()) / 60000);
+      if (mins < 1) return 'только что';
+      if (mins < 60) return mins + ' мин назад';
+      const h = Math.floor(mins / 60), m = mins % 60;
+      return h + 'ч ' + (m ? m + 'м ' : '') + 'назад';
+    } catch { return '—'; }
+  };
+  const clockFmt = (iso) => {
+    if (!iso) return '—';
+    try { return iso.substring(11, 16); } catch { return '—'; }
+  };
+
+  function updateBaby(baby) {
+    if (!baby) return;
+    // Определяем состояние: sleeping / awake / walking + длительность
+    let stateLabel = 'Бодрствует', state = 'awake', durMin = 0, remainText = '';
+    if (baby.walking_since && !baby.walk_ended_at) {
+      stateLabel = 'На прогулке'; state = 'walking';
+      durMin = (Date.now() - new Date(baby.walking_since).getTime()) / 60000;
+    } else if (baby.sleeping_since) {
+      stateLabel = 'Спит'; state = 'sleeping';
+      durMin = (Date.now() - new Date(baby.sleeping_since).getTime()) / 60000;
+      remainText = 'проснётся ' + clockFmt(new Date(new Date(baby.sleeping_since).getTime() + 90*60000).toISOString());
+    } else if (baby.awake_since) {
+      stateLabel = 'Бодрствует'; state = 'awake';
+      durMin = (Date.now() - new Date(baby.awake_since).getTime()) / 60000;
+      remainText = 'до сна ~' + fmtDuration(Math.max(0, 140 - durMin));
+    }
+    setText('babyStatus', stateLabel);
+    setText('babyDuration', fmtDuration(durMin));
+    setText('babyRemain', remainText);
+    setText('lastFeed', baby.last_feed_at ? clockFmt(baby.last_feed_at) : '—');
+    setText('lastDiaper', baby.last_diaper_at ? clockFmt(baby.last_diaper_at) : '—');
+    // Обновим фото и кольцо
+    if (typeof setBabyState === 'function' && babyStates[state]) {
+      try { setBabyState(state); } catch(e){}
+    }
+  }
+
+  function updateNursery(nursery) {
+    if (!nursery) return;
+    if (nursery.temperature) {
+      const t = String(nursery.temperature).replace('°C','').trim();
+      setHtml('nurseryTemp', t + '<span class="unit">°C</span>');
+    }
+    if (nursery.humidity) {
+      const h = String(nursery.humidity).replace('%','').trim();
+      setHtml('nurseryHumi', h + '<span class="unit">%</span>');
+    }
+  }
+
+  function updateWeather(w) {
+    if (!w) return;
+    setText('city', w.city || 'Одесса');
+    if (w.temp_c != null) setText('temp', (w.temp_c > 0 ? '+' : '') + Math.round(w.temp_c) + '°');
+    if (w.feels_like_c != null) setText('feels', 'Ощущается как ' + (w.feels_like_c > 0 ? '+' : '') + Math.round(w.feels_like_c) + '°');
+    if (w.humidity_pct != null) setText('humidity', Math.round(w.humidity_pct) + '%');
+    if (w.wind_ms != null) setText('wind', Math.round(w.wind_ms) + ' м/с');
+    // Иконка по описанию
+    const d = (w.description || '').toLowerCase();
+    let ico = '☀️';
+    if (d.includes('дожд') || d.includes('rain')) ico = '🌧';
+    else if (d.includes('облач') || d.includes('cloud')) ico = '☁️';
+    else if (d.includes('снег') || d.includes('snow')) ico = '❄️';
+    else if (d.includes('гроз') || d.includes('storm')) ico = '⛈';
+    setText('cloud', ico);
+
+    // Прогноз 5 дней
+    if (w.forecast && w.forecast.length) {
+      const weekday = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+      const grid = document.getElementById('forecastGrid');
+      if (grid) {
+        grid.innerHTML = w.forecast.slice(0, 5).map(f => {
+          const dt = new Date(f.date);
+          const wd = weekday[dt.getDay()];
+          const day = dt.getDate();
+          const desc = (f.desc || '').toLowerCase();
+          let ic = '☀️';
+          if (f.rain > 0.5) ic = '🌧';
+          else if (desc.includes('облач')) ic = '☁️';
+          return `<div class="fc-tile"><div class="fc-day">${wd} ${day}</div><div class="fc-ico">${ic}</div><div class="fc-hi">${f.max > 0 ? '+' : ''}${f.max}°</div><div class="fc-lo">${f.min > 0 ? '+' : ''}${f.min}°</div></div>`;
+        }).join('');
+      }
+    }
+
+    // Что надеть — по текущей температуре
+    if (w.temp_c != null) {
+      setText('dressOutside', `На улице ${w.temp_c > 0 ? '+' : ''}${Math.round(w.temp_c)}°`);
+      let dressName = '—';
+      const t = w.temp_c;
+      if (t >= 25) dressName = 'Боди с коротким рукавом + панамка';
+      else if (t >= 20) dressName = 'Лёгкий комбез или боди + плед';
+      else if (t >= 15) dressName = 'Тёплый комбез или боди + флисовый комбез';
+      else if (t >= 10) dressName = 'Флисовый костюм + шапочка + плед';
+      else if (t >= 0)  dressName = 'Тёплый комбез + шапка + носочки';
+      else              dressName = 'Утеплённый комбез + шапка + рукавички + конверт';
+      setText('dressName', dressName);
+    }
+  }
+
+  function updateInverter(inv) {
+    if (!inv) return;
+    if (inv.soc != null) {
+      const el = document.querySelector('.battery-vis .fill');
+      if (el) el.style.width = inv.soc + '%';
+      setText('battSoc', inv.soc + '%');
+    }
+    setText('battGrid', inv.grid_active ? 'Есть' : 'Нет');
+    if (inv.load_w != null) {
+      setText('battLoad', 'при нагрузке ' + Math.round(inv.load_w) + ' Вт');
+      // Оценка автономности: SoC × ёмкость (~5кВт·ч) / load
+      if (inv.soc != null && inv.load_w > 0) {
+        const kwh = 5 * (inv.soc / 100) * 0.8;  // 20% резерв
+        const hours = kwh * 1000 / inv.load_w;
+        const totalMin = Math.round(hours * 60);
+        setHtml('battRuntime', fmtDuration(totalMin).replace('м', '<span class="unit">мин</span>').replace('ч', 'ч <span class="unit"></span>'));
+        // ETA
+        const eta = new Date(Date.now() + totalMin * 60000);
+        setText('battEta', '≈ ' + String(eta.getHours()).padStart(2,'0') + ':' + String(eta.getMinutes()).padStart(2,'0'));
+      }
+    }
+  }
+
+  function updateDevices(devices) {
+    if (!devices) return;
+    const list = document.getElementById('deviceList');
+    if (!list) return;
+    const iconFor = (name) => {
+      const n = (name || '').toLowerCase();
+      if (n.includes('бойлер')) return '🔥';
+      if (n.includes('кондер') || n.includes('кондиц')) return '❄️';
+      if (n.includes('телев') || n.includes('тв')) return '📺';
+      if (n.includes('свет') || n.includes('лампа')) return '💡';
+      if (n.includes('датчик')) return '🌡';
+      if (n.includes('пылес')) return '🤖';
+      return '🔌';
+    };
+    list.innerHTML = devices.slice(0, 6).map(d => {
+      const ic = iconFor(d.name);
+      let badge = '';
+      if (d.on === true) badge = '<span class="dev-badge on">Вкл</span>';
+      else if (d.on === false) badge = '<span class="dev-badge off">Выкл</span>';
+      else badge = '<span class="dev-badge off">—</span>';
+      let val = '—';
+      if (d.cur_power != null && d.cur_power > 0) val = Math.round(d.cur_power) + 'Вт';
+      else if (d.temp != null) val = d.temp + '°';
+      return `<div class="device"><div class="dev-icon">${ic}</div><div class="dev-name">${d.name || '?'}</div>${badge}<div class="dev-val">${val}</div></div>`;
+    }).join('');
+  }
+
+  function updateEvents(events) {
+    if (!events) return;
+    const list = document.getElementById('todayList');
+    if (!list) return;
+    if (!events.length) {
+      list.innerHTML = '<div style="font-size:12px; color:var(--text-dim); padding:8px 4px">Событий сегодня нет</div>';
+      return;
+    }
+    list.innerHTML = events.slice(0, 4).map(e => {
+      const t = clockFmt(e.when);
+      const loc = e.location ? `<span class="sub">${e.location}</span>` : '';
+      return `<div class="today-item"><div class="today-time">${t}</div><div class="today-text">${e.title || ''}${loc}</div></div>`;
+    }).join('');
+  }
+
   async function refreshState() {
     try {
       const s = await apiGet('/api/tablet/state');
-      // Обновляем часы (заголовок уже дёргает своё)
-      // Обновляем детскую
-      if (s.nursery) {
-        const t = s.nursery.temperature, h = s.nursery.humidity;
-        document.querySelectorAll('.nursery-metric-val').forEach((el, i) => {
-          if (i === 0 && t) el.innerHTML = t.toString().replace('°C','') + '<span class="unit">°C</span>';
-          if (i === 1 && h) el.innerHTML = h.toString().replace('%','') + '<span class="unit">%</span>';
-        });
+      updateWeather(s.weather);
+      updateBaby(s.baby);
+      updateNursery(s.nursery);
+      updateInverter(s.inverter);
+      updateDevices(s.devices);
+      updateEvents(s.today_events);
+      // Автоматизации count
+      if (s.automations) {
+        setText('homeRules', s.automations.filter(a => a.enabled).length);
       }
-      // Обновляем инвертор
-      if (s.inverter && s.inverter.soc != null) {
-        const el = document.querySelector('.battery-vis .fill');
-        if (el) el.style.width = s.inverter.soc + '%';
+      // Общее потребление (сумма cur_power)
+      if (s.devices) {
+        const total = s.devices.reduce((sum, d) => sum + (d.cur_power || 0), 0);
+        setText('homeConsumption', Math.round(total) + ' Вт');
       }
-      // Тревога
-      if (s.alert) {
-        document.body.classList.toggle('alerted', !!s.alert.active);
-      }
-      // TODO: обновление устройств, сцен, событий — динамическая перерисовка
+      // Тревога — единственный источник правды
+      const isAlert = !!(s.alert && s.alert.active === true);
+      document.body.classList.toggle('alerted', isAlert);
     } catch(e) { console.warn('state refresh failed', e); }
   }
   // Первый запрос сразу и потом каждые 15 сек
