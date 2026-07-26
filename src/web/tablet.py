@@ -165,19 +165,24 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
     except Exception:
         log.exception("tablet_lux_failed")
 
-    # Активная тревога — только если запись свежая (< 6ч) и без ended_at
+    # Активная тревога — жёсткий фильтр:
+    # started_at < 3ч назад И (ended_at IS NULL или пустой)
     try:
         from datetime import timedelta
         from sqlalchemy import select
         from src.db.models import ActiveAlert
         from src.utils.time import now_kyiv
-        cutoff = (now_kyiv() - timedelta(hours=6)).isoformat()
+        cutoff = (now_kyiv() - timedelta(hours=3)).isoformat()
         async with memory._engine.connect() as conn:
             rows = list(await conn.execute(
                 select(ActiveAlert).where(ActiveAlert.started_at >= cutoff)
             ))
-        # Только незакрытые (нет ended_at) считаем активными
-        active = [r for r in rows if not getattr(r, "ended_at", None)]
+        def _is_active(r):
+            e = getattr(r, "ended_at", None)
+            if e is None: return True
+            if isinstance(e, str) and e.strip() == "": return True
+            return False
+        active = [r for r in rows if _is_active(r)]
         if active:
             r = active[0]
             state["alert"] = {"active": True, "region": r.region,
@@ -185,6 +190,7 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
         else:
             state["alert"] = {"active": False}
     except Exception:
+        log.exception("tablet_alert_failed")
         state["alert"] = {"active": False}
 
     # События сегодня (Google Calendar)

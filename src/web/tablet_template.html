@@ -2407,7 +2407,15 @@ document.querySelectorAll('.shop-item').forEach(item => {
 
   function updateWeather(w) {
     if (!w) return;
-    setText('city', w.city || 'Одесса');
+    // Убираем странные локации типа "У родителей", показываем нормальное имя
+    const cleanCity = (raw) => {
+      if (!raw) return 'Одесса';
+      const s = String(raw).replace(/,.*$/, '').trim();
+      if (!/^[А-ЯЁA-Z]/.test(s)) return 'Одесса';
+      if (s.length < 3) return 'Одесса';
+      return s;
+    };
+    setText('city', cleanCity(w.city));
     if (w.temp_c != null) setText('temp', (w.temp_c > 0 ? '+' : '') + Math.round(w.temp_c) + '°');
     if (w.feels_like_c != null) setText('feels', 'Ощущается как ' + (w.feels_like_c > 0 ? '+' : '') + Math.round(w.feels_like_c) + '°');
     if (w.humidity_pct != null) setText('humidity', Math.round(w.humidity_pct) + '%');
@@ -2519,9 +2527,83 @@ document.querySelectorAll('.shop-item').forEach(item => {
     }).join('');
   }
 
+
+  function updateScenes(scenes) {
+    if (!scenes || !scenes.length) return;
+    // Отфильтруем автоматизации, оставим только сцены
+    const active = scenes.filter(s => !s.is_automation);
+    // Группируем по ключевым словам в названии
+    const groups = { spalnya: [], kuhnya: [], konder: [], rozetki: [], other: [] };
+    active.forEach(s => {
+      const n = s.name.toLowerCase();
+      if (n.includes('спальня') || n.includes('спальн')) groups.spalnya.push(s);
+      else if (n.includes('кухня') || n.includes('кухн')) groups.kuhnya.push(s);
+      else if (n.includes('кондер') || n.includes('кондиц')) groups.konder.push(s);
+      else if (n.includes('бойлер') || n.includes('тв') || n.includes('телевиз')) groups.rozetki.push(s);
+      else groups.other.push(s);
+    });
+    // Иконка по имени
+    const iconFor = (name) => {
+      const n = name.toLowerCase();
+      if (n.includes('ночь') || n.includes('night')) return '🌙';
+      if (n.includes('уют') || n.includes('cozy')) return '🕯';
+      if (n.includes('ярко') || n.includes('bright')) return '☀️';
+      if (n.includes('выкл') || n.includes('off')) return '⭘';
+      if (n.includes('тепл') || n.includes('heat')) return '🔥';
+      if (n.includes('холод') || n.includes('cold') || n.includes('°')) return '❄️';
+      return '💡';
+    };
+    const shortName = (name) => {
+      const n = name.trim();
+      // Убираем префикс "Спальня "/"Кухня "/etc чтобы кнопка компактная
+      return n.replace(/^(Спальня|Кухня|Кондер|Кондиционер|Бойлер|ТВ|Телевизор)\s+/i, '');
+    };
+    // Функция рендера группы кнопок
+    const renderGroup = (arr, cols=4) => {
+      if (!arr.length) return '';
+      return `<div class="scene-row" style="grid-template-columns:repeat(${Math.min(arr.length, cols)},1fr)">` +
+        arr.slice(0, cols).map(s => {
+          const nm = shortName(s.name);
+          return `<button class="scene-btn" data-scene-name="${s.name.replace(/"/g,'&quot;')}"><div class="sc-icon">${iconFor(s.name)}</div><div class="sc-name">${nm}</div></button>`;
+        }).join('') + '</div>';
+    };
+    // Находим блоки сцен в UI и перерисовываем
+    const container = document.querySelector('.masonry .card .scene-group')?.parentElement;
+    if (!container) return;
+    // Очищаем все scene-group и рендерим заново
+    const scenesCard = container.closest('.card');
+    if (!scenesCard) return;
+    // Удаляем старые scene-group
+    scenesCard.querySelectorAll('.scene-group').forEach(g => g.remove());
+    // Убираем scenes-footer тоже (перерисуем)
+    const footer = scenesCard.querySelector('.scenes-footer');
+    // Собираем HTML новых групп
+    let groupsHtml = '';
+    if (groups.spalnya.length) groupsHtml += `<div class="scene-group"><div class="scene-group-title">Спальня</div>${renderGroup(groups.spalnya)}</div>`;
+    if (groups.kuhnya.length) groupsHtml += `<div class="scene-group"><div class="scene-group-title">Кухня</div>${renderGroup(groups.kuhnya)}</div>`;
+    if (groups.konder.length) groupsHtml += `<div class="scene-group"><div class="scene-group-title">Кондер</div>${renderGroup(groups.konder)}</div>`;
+    if (groups.rozetki.length) groupsHtml += `<div class="scene-group"><div class="scene-group-title">Розетки</div>${renderGroup(groups.rozetki, 2)}</div>`;
+    if (groups.other.length) groupsHtml += `<div class="scene-group"><div class="scene-group-title">Прочее</div>${renderGroup(groups.other)}</div>`;
+    // Вставляем перед footer или в конец
+    const title = scenesCard.querySelector('.card-title');
+    if (title) title.insertAdjacentHTML('afterend', groupsHtml);
+    // Прикрепляем обработчики
+    scenesCard.querySelectorAll('.scene-btn[data-scene-name]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const name = btn.dataset.sceneName;
+        // Активная сцена внутри группы
+        const grp = btn.closest('.scene-row');
+        if (grp) grp.querySelectorAll('.scene-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        if (TOKEN) await apiPost('/api/tablet/action/scene', {query: name});
+      });
+    });
+  }
+
   async function refreshState() {
     try {
       const s = await apiGet('/api/tablet/state');
+      updateScenes(s.scenes);
       updateWeather(s.weather);
       updateBaby(s.baby);
       updateNursery(s.nursery);
