@@ -139,6 +139,26 @@
   /* Размеры карточек */
   .card.size-l { grid-column: span 2; }
   .card.size-xl { grid-column: span 3; }
+
+  /* Карточка «Сцены» при увеличении: группы становятся колонками
+     (каждая комната — колонка), кнопки сцен стекаются вертикально.
+     Это лучше масштабируется когда комнат много, а сцен в каждой
+     не больше ~5. */
+  .card.size-l #scenesGroups,
+  .card.size-xl #scenesGroups {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 14px 12px;
+    align-items: start;
+  }
+  .card.size-l #scenesGroups .scene-group,
+  .card.size-xl #scenesGroups .scene-group { margin-bottom: 0; }
+  .card.size-l #scenesGroups .scene-row,
+  .card.size-xl #scenesGroups .scene-row {
+    grid-template-columns: 1fr !important;   /* всегда одна колонка внутри группы */
+    grid-auto-flow: row;
+    gap: 6px;
+  }
   @media (max-width: 900px) {
     .card.size-l, .card.size-xl { grid-column: span 2; }
   }
