@@ -760,7 +760,7 @@ def register_tablet_routes(app: FastAPI, memory: Any, settings: Any, agents_ref:
             from src.utils.time import now_kyiv
             await sheets.append_baby_diary(
                 kind=kind, event=event, time=now_kyiv(),
-                author="tablet", note=note,
+                author="tablet", details=note,
             )
             return {"success": True}
         except Exception as e:
