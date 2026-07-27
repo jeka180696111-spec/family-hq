@@ -1106,8 +1106,13 @@
     max-height: 240px;
     overflow-y: auto;
   }
-  .plan-list::-webkit-scrollbar { width: 4px; }
-  .plan-list::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
+  .plan-list::-webkit-scrollbar,
+  .device-list::-webkit-scrollbar { width: 4px; }
+  .plan-list::-webkit-scrollbar-thumb,
+  .device-list::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
+  .plan-list::-webkit-scrollbar-track,
+  .device-list::-webkit-scrollbar-track { background: transparent; }
+  .plan-list, .device-list { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
   .plan-item {
     display: grid; grid-template-columns: auto 1fr auto; gap: 10px;
     align-items: center;
@@ -2723,6 +2728,59 @@ document.querySelectorAll('.shop-item').forEach(item => {
   }
 
 
+  function loadSceneGroupOrder() {
+    try { return JSON.parse(localStorage.getItem('sceneGroupOrder') || 'null'); } catch(e) { return null; }
+  }
+  function saveSceneGroupOrder(arr) {
+    if (!arr || !arr.length) localStorage.removeItem('sceneGroupOrder');
+    else localStorage.setItem('sceneGroupOrder', JSON.stringify(arr));
+  }
+  function loadSceneOrder() {
+    try { return JSON.parse(localStorage.getItem('sceneOrder') || 'null'); } catch(e) { return null; }
+  }
+  function saveSceneOrder(arr) {
+    if (!arr || !arr.length) localStorage.removeItem('sceneOrder');
+    else localStorage.setItem('sceneOrder', JSON.stringify(arr));
+  }
+  function moveInArray(arr, from, to) {
+    if (to < 0 || to >= arr.length) return arr;
+    const [it] = arr.splice(from, 1);
+    arr.splice(to, 0, it);
+    return arr;
+  }
+  function moveScene(name, delta) {
+    const scenes = (window.__allScenes || []).filter(s => !s.is_automation && s.name);
+    // Порядок ТОЛЬКО внутри своей группы (переупорядочивание общее, но
+    // визуально каждый первый-слово-группа сохраняет свои имена).
+    const order = loadSceneOrder() || scenes.map(s => s.name);
+    // Убедимся что все имена есть в списке
+    scenes.forEach(s => { if (!order.includes(s.name)) order.push(s.name); });
+    const idx = order.indexOf(name);
+    if (idx < 0) return;
+    // Ищем соседа В ТОЙ ЖЕ группе
+    const groupOf = (n) => (n || '').split(/\s+/)[0];
+    const g = groupOf(name);
+    let j = idx + delta;
+    while (j >= 0 && j < order.length && groupOf(order[j]) !== g) j += delta;
+    if (j < 0 || j >= order.length) return;
+    moveInArray(order, idx, j);
+    saveSceneOrder(order);
+    refreshState && refreshState();
+    refreshPinnedScenesEditor();
+  }
+  function moveGroup(gname, delta) {
+    const groups = new Set((window.__allScenes || []).filter(s => !s.is_automation).map(s => (s.name||'').split(/\s+/)[0]));
+    const order = loadSceneGroupOrder() || [...groups];
+    // Дозаполним недостающие
+    groups.forEach(g => { if (!order.includes(g)) order.push(g); });
+    const idx = order.indexOf(gname);
+    if (idx < 0) return;
+    moveInArray(order, idx, idx + delta);
+    saveSceneGroupOrder(order);
+    refreshState && refreshState();
+    refreshPinnedScenesEditor();
+  }
+
   function loadPinnedScenes() {
     try {
       const raw = localStorage.getItem('pinnedScenes');
@@ -2760,9 +2818,20 @@ document.querySelectorAll('.shop-item').forEach(item => {
       if (!groups[first]) groups[first] = [];
       groups[first].push(s);
     });
-    // Приоритет отображения
+    // Порядок групп: сначала пользовательский (drag/↑↓ в модалке),
+    // потом фолбэк-приоритет.
+    const customOrder = loadSceneGroupOrder();
     const orderPriority = ['Спальня', 'Кухня', 'Гостиная', 'Детская', 'Туалет', 'Кондер', 'Кондиционер', 'Бойлер', 'ТВ'];
-    const orderKeys = [...orderPriority.filter(k => groups[k]), ...Object.keys(groups).filter(k => !orderPriority.includes(k))];
+    let orderKeys = customOrder && customOrder.length
+      ? [...customOrder.filter(k => groups[k]), ...Object.keys(groups).filter(k => !customOrder.includes(k))]
+      : [...orderPriority.filter(k => groups[k]), ...Object.keys(groups).filter(k => !orderPriority.includes(k))];
+    // Порядок сцен ВНУТРИ группы — пользовательский если задан
+    const sceneOrder = loadSceneOrder();
+    if (sceneOrder && sceneOrder.length) {
+      const rank = new Map(sceneOrder.map((n, i) => [n, i]));
+      Object.keys(groups).forEach(g => groups[g].sort((a, b) => (rank.get(a.name) ?? 1e9) - (rank.get(b.name) ?? 1e9)));
+    }
+    const activeMap = loadActiveScenes();
 
     const iconFor = (name) => {
       const n = name.toLowerCase();
@@ -2796,7 +2865,8 @@ document.querySelectorAll('.shop-item').forEach(item => {
         const sub = parseSub(nm);
         const cleanName = sub ? nm.replace(sub, '').trim() : nm;
         const subHtml = sub ? `<div class="sc-sub">${sub}</div>` : '';
-        return `<button class="scene-btn" data-scene-name="${sc.name.replace(/"/g,'&quot;').replace(/</g,'&lt;')}" onclick="runSceneBtn(this)"><div class="sc-icon">${iconFor(sc.name)}</div><div class="sc-name">${cleanName}</div>${subHtml}</button>`;
+        const activeCls = (activeMap[gname] === sc.name) ? ' active' : '';
+        return `<button class="scene-btn${activeCls}" data-scene-name="${sc.name.replace(/"/g,'&quot;').replace(/</g,'&lt;')}" onclick="runSceneBtn(this)"><div class="sc-icon">${iconFor(sc.name)}</div><div class="sc-name">${cleanName}</div>${subHtml}</button>`;
       }).join('');
       return `<div class="scene-group"><div class="scene-group-title">${gname}${items.length >= 4 ? ' <button class="scene-more" onclick="openModal(\'scenes\')">Ещё</button>' : ''}</div><div class="scene-row" style="grid-template-columns:repeat(${cols},1fr)">${btnsHtml}</div></div>`;
     }).join('');
@@ -2841,12 +2911,24 @@ document.querySelectorAll('.shop-item').forEach(item => {
       catch(e) { console.warn('toggle failed', e); }
     }
   };
+  // Активные сцены сохраняем по группам — иначе refreshState (каждые 15с)
+  // перерисовывает карточку и «активная» сбрасывается.
+  function loadActiveScenes() {
+    try { return JSON.parse(localStorage.getItem('activeScenes') || '{}'); }
+    catch(e) { return {}; }
+  }
+  function saveActiveScene(group, sceneName) {
+    const map = loadActiveScenes();
+    map[group] = sceneName;
+    localStorage.setItem('activeScenes', JSON.stringify(map));
+  }
   window.runSceneBtn = async function(btn) {
     const name = btn.dataset.sceneName;
-    // Одну активную в группе
     const grp = btn.closest('.scene-row');
     if (grp) grp.querySelectorAll('.scene-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
+    const groupTitle = btn.closest('.scene-group')?.querySelector('.scene-group-title')?.firstChild?.textContent?.trim() || '';
+    if (groupTitle) saveActiveScene(groupTitle, name);
     if (typeof TOKEN !== 'undefined' && TOKEN) {
       await apiPost('/api/tablet/action/scene', {query: name});
     }
@@ -2984,21 +3066,37 @@ document.querySelectorAll('.shop-item').forEach(item => {
     if (!scenes.length) { cont.innerHTML = '<div style="color:var(--text-dim); padding:16px">Сцены ещё не загружены…</div>'; return; }
     const pinned = loadPinnedScenes();
     const isPinned = (n) => !pinned ? true : pinned.has(n);
-    // Группировка по первому слову
+    // Группировка по первому слову с учётом пользовательского порядка
     const groups = {};
     scenes.forEach(s => {
       const g = s.name.split(/\s+/)[0];
       (groups[g] = groups[g] || []).push(s);
     });
-    cont.innerHTML = Object.keys(groups).map(g => `
+    const customGroupOrder = loadSceneGroupOrder();
+    const orderPriority = ['Спальня','Кухня','Гостиная','Детская','Туалет','Кондер','Кондиционер','Бойлер','ТВ'];
+    const groupKeys = customGroupOrder && customGroupOrder.length
+      ? [...customGroupOrder.filter(k => groups[k]), ...Object.keys(groups).filter(k => !customGroupOrder.includes(k))]
+      : [...orderPriority.filter(k => groups[k]), ...Object.keys(groups).filter(k => !orderPriority.includes(k))];
+    const sceneOrder = loadSceneOrder();
+    if (sceneOrder && sceneOrder.length) {
+      const rank = new Map(sceneOrder.map((n,i) => [n,i]));
+      Object.keys(groups).forEach(g => groups[g].sort((a,b) => (rank.get(a.name) ?? 1e9) - (rank.get(b.name) ?? 1e9)));
+    }
+    cont.innerHTML = groupKeys.map((g, gi) => `
       <div style="margin-bottom:16px">
-        <div class="card-title" style="margin-bottom:8px">${g}</div>
+        <div class="card-title" style="margin-bottom:8px; display:flex; align-items:center; gap:8px">
+          <span style="flex:1">${g}</span>
+          <button class="settings-btn" title="Группу выше" onclick="moveGroup('${g.replace(/'/g,"\\'")}', -1)" ${gi===0?'disabled':''}>▲</button>
+          <button class="settings-btn" title="Группу ниже" onclick="moveGroup('${g.replace(/'/g,"\\'")}', 1)" ${gi===groupKeys.length-1?'disabled':''}>▼</button>
+        </div>
         <div class="all-scenes">
-          ${groups[g].map(sc => {
+          ${groups[g].map((sc, si) => {
             const pinIcon = isPinned(sc.name) ? '⭐' : '☆';
-            const safe = sc.name.replace(/"/g,'&quot;');
+            const safe = sc.name.replace(/"/g,'&quot;').replace(/'/g,"\\'");
             return `<div style="display:flex; align-items:center; gap:4px">
               <button class="all-scene-btn" style="flex:1" onclick="runSceneByName('${safe}')">${sc.name}</button>
+              <button class="settings-btn" style="min-width:32px; padding:6px 8px" title="Выше" onclick="moveScene('${safe}', -1)" ${si===0?'disabled':''}>▲</button>
+              <button class="settings-btn" style="min-width:32px; padding:6px 8px" title="Ниже" onclick="moveScene('${safe}', 1)" ${si===groups[g].length-1?'disabled':''}>▼</button>
               <button class="settings-btn" style="min-width:40px" title="Показывать на главном" onclick="togglePinnedScene('${safe}')">${pinIcon}</button>
             </div>`;
           }).join('')}
