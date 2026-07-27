@@ -72,9 +72,9 @@
   /* === HEADER === */
   .header {
     display: grid;
-    grid-template-columns: auto 1fr auto;
+    grid-template-columns: auto 1fr auto auto;
     align-items: center;
-    gap: 32px;
+    gap: 24px;
     padding: 4px 12px 18px;
     border-bottom: 1px solid var(--line-soft);
   }
@@ -138,34 +138,36 @@
   }
 
   /* ============ 2-page navigation (Обзор ↔ Детально) ============ */
+  /* Табы в столбик рядом с погодой, размером как кнопка «Порядок» */
   .page-tabs {
     display: flex;
+    flex-direction: column;
     gap: 6px;
-    padding: 5px;
-    margin: 0 0 14px;
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: 14px;
   }
   .page-tab {
-    flex: 1;
-    background: transparent;
-    border: 0;
+    background: var(--card);
+    border: 1px solid var(--line);
     color: var(--text-dim);
-    padding: 10px 14px;
+    padding: 6px 12px;
     border-radius: 10px;
     cursor: pointer;
     font-family: inherit;
-    font-size: 13px;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     display: flex;
     align-items: center;
-    gap: 8px;
-    justify-content: center;
-    transition: background 0.15s, color 0.15s;
+    gap: 6px;
+    justify-content: flex-start;
+    white-space: nowrap;
+    min-width: 118px;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
   }
+  .page-tab:hover { background: var(--card-hi); }
   .page-tab.active {
     background: var(--amber);
     color: #1a1200;
+    border-color: var(--amber);
     font-weight: 500;
   }
   .page-view { display: none; }
@@ -174,13 +176,49 @@
     from { opacity: 0; transform: translateY(4px); }
     to   { opacity: 1; transform: translateY(0); }
   }
-  .page-detail-empty {
-    padding: 60px 20px;
-    text-align: center;
-    color: var(--text-dim);
-    font-size: 13px;
+
+  /* На странице «Детально» — сетка компактных одинаковых карточек */
+  .detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
   }
-  .page-detail-empty .em { font-size: 42px; margin-bottom: 10px; }
+  .detail-tile {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 16px;
+    min-height: 180px;
+    display: flex;
+    flex-direction: column;
+    cursor: pointer;
+    transition: transform 0.15s, border-color 0.15s;
+  }
+  .detail-tile:hover { transform: translateY(-2px); border-color: var(--amber); }
+  .detail-tile .dt-title {
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .detail-tile .dt-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    font-size: 12px;
+    text-align: center;
+    line-height: 1.4;
+  }
+  .detail-tile .dt-em { font-size: 36px; margin-bottom: 8px; }
+  .detail-tile.add-tile {
+    border-style: dashed;
+    color: var(--text-mute);
+  }
+  .detail-tile.add-tile .dt-em { font-size: 24px; opacity: 0.5; }
 
   /* Размеры карточек */
   .card.size-l { grid-column: span 2; }
@@ -1689,17 +1727,16 @@
       </div>
     </div>
 
+    <nav class="page-tabs" id="pageTabs">
+      <button class="page-tab active" data-page="overview" onclick="switchPage('overview')">📊 Обзор</button>
+      <button class="page-tab" data-page="detail" onclick="switchPage('detail')">🔍 Детально</button>
+    </nav>
+
     <div class="header-icons"><button class="edit-layout-btn" id="editLayoutBtn" onclick="toggleLayoutEdit()">✎ Порядок</button>
       <button class="icon-btn" title="Настройки" onclick="openModal('settings')">⚙</button>
       <button class="icon-btn" title="Переключить тему" onclick="toggleTheme()">☀</button>
     </div>
   </header>
-
-  <!-- ============= PAGE TABS (Обзор ↔ Детально) ============= -->
-  <nav class="page-tabs" id="pageTabs">
-    <button class="page-tab active" data-page="overview" onclick="switchPage('overview')">📊 Обзор</button>
-    <button class="page-tab" data-page="detail" onclick="switchPage('detail')">🔍 Детально</button>
-  </nav>
 
   <div class="page-view page-overview active" id="pageOverview">
 
@@ -1896,26 +1933,33 @@
 
   <!-- ============= PAGE: ДЕТАЛЬНО ============= -->
   <div class="page-view page-detail" id="pageDetail">
-    <div class="masonry">
-      <div class="card">
-        <div class="card-title">План квартиры</div>
-        <div class="page-detail-empty">
-          <div class="em">🏠</div>
-          Скоро — интерактивный план с устройствами.
+    <div class="detail-grid">
+      <div class="detail-tile">
+        <div class="dt-title">План квартиры</div>
+        <div class="dt-body">
+          <div class="dt-em">🏠</div>
+          Интерактивный план с устройствами
         </div>
       </div>
-      <div class="card">
-        <div class="card-title">Матвей крупно</div>
-        <div class="page-detail-empty">
-          <div class="em">👶</div>
-          Скоро — крупная карточка малыша.
+      <div class="detail-tile">
+        <div class="dt-title">Матвей крупно</div>
+        <div class="dt-body">
+          <div class="dt-em">👶</div>
+          Полная карточка малыша
         </div>
       </div>
-      <div class="card">
-        <div class="card-title">Плеер</div>
-        <div class="page-detail-empty">
-          <div class="em">🎵</div>
-          Скоро — Apple Music + YouTube.
+      <div class="detail-tile">
+        <div class="dt-title">Плеер</div>
+        <div class="dt-body">
+          <div class="dt-em">🎵</div>
+          Apple Music + YouTube
+        </div>
+      </div>
+      <div class="detail-tile add-tile">
+        <div class="dt-title">Добавить</div>
+        <div class="dt-body">
+          <div class="dt-em">➕</div>
+          Место под новую карточку
         </div>
       </div>
     </div>
