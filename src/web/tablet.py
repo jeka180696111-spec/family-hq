@@ -185,18 +185,30 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
             vac = st.find_vacuum(devices_st, "гоша") or st.find_vacuum(devices_st)
             if vac:
                 summary = await st.vacuum_summary(vac)
-                st_state = (summary.get("state") or "").lower()
+                movement = (summary.get("movement") or "").lower()  # cleaning|homing|idle|charging
+                mode = (summary.get("mode") or "").lower()
                 battery = summary.get("battery")
-                extra_parts = []
-                if st_state: extra_parts.append(st_state)
-                if battery is not None: extra_parts.append(f"батарея {battery}%")
+                RU_STATE = {
+                    "cleaning": "убирает",
+                    "homing":   "на базу",
+                    "charging": "заряжается",
+                    "idle":     "готов",
+                    "paused":   "пауза",
+                }
+                state_ru = RU_STATE.get(movement, movement or mode or "готов")
+                extra_parts = [state_ru]
+                if battery is not None:
+                    extra_parts.append(f"батарея {battery}%")
                 state.setdefault("devices", []).append({
-                    "id": "gosha",
+                    "id": vac.get("id"),
                     "name": "Гоша (пылесос)",
                     "online": True,
-                    "on": st_state in ("cleaning", "running", "auto"),
+                    "on": movement in ("cleaning",),
                     "cur_power": None,
-                    "extra": ", ".join(extra_parts) or "готов",
+                    "extra": ", ".join(extra_parts),
+                    "kind": "vacuum",
+                    "movement": movement,
+                    "battery": battery,
                 })
     except Exception:
         log.exception("tablet_vacuum_failed")
@@ -385,6 +397,64 @@ def register_tablet_routes(app: FastAPI, memory: Any, settings: Any, agents_ref:
             log.exception("tablet_scene_run_failed")
             return {"success": False, "error": str(e)[:200]}
 
+    @app.post("/api/tablet/action/vacuum")
+    async def action_vacuum(payload: dict = Body(...), token: str = Query("")):
+        _check_token(token, expected_token)
+        cmd = (payload.get("cmd") or "").lower()   # start / stop / pause / home
+        if cmd not in ("start", "stop", "pause", "home"):
+            raise HTTPException(400, "cmd must be one of start/stop/pause/home")
+        try:
+            from src.integrations.smartthings import SmartThingsClient
+            st = SmartThingsClient.from_settings(settings)
+            if not st:
+                return {"success": False, "error": "smartthings not configured"}
+            devices_st = await st.list_devices()
+            vac = st.find_vacuum(devices_st, "гоша") or st.find_vacuum(devices_st)
+            if not vac:
+                return {"success": False, "error": "vacuum not found"}
+            vid = vac["id"]
+            if cmd == "start":
+                await st.vacuum_start(vid, mode="auto")
+            elif cmd == "pause":
+                await st.vacuum_pause(vid)
+            elif cmd in ("stop", "home"):
+                await st.vacuum_stop(vid)
+            return {"success": True}
+        except Exception as e:
+            log.exception("tablet_vacuum_action_failed")
+            return {"success": False, "error": str(e)[:200]}
+
+    # ─── Список покупок: добавить / отметить купленным / удалить ─────
+    @app.post("/api/tablet/action/shopping")
+    async def action_shopping(payload: dict = Body(...), token: str = Query("")):
+        _check_token(token, expected_token)
+        op = (payload.get("op") or "").lower()  # add | done | delete
+        item = (payload.get("item") or "").strip()
+        if op not in ("add", "done", "delete"):
+            raise HTTPException(400, "op must be add|done|delete")
+        if not item:
+            raise HTTPException(400, "item required")
+        try:
+            from sqlalchemy import insert, delete, update, select
+            from src.db.models import ShoppingItem
+            from src.utils.time import iso_now
+            async with memory._engine.begin() as conn:
+                if op == "add":
+                    await conn.execute(insert(ShoppingItem).values(
+                        item=item, added_at=iso_now(), added_by="tablet",
+                    ))
+                elif op == "done":
+                    await conn.execute(update(ShoppingItem)
+                        .where(ShoppingItem.item == item, ShoppingItem.done_at.is_(None))
+                        .values(done_at=iso_now()))
+                elif op == "delete":
+                    await conn.execute(delete(ShoppingItem)
+                        .where(ShoppingItem.item == item))
+            return {"success": True}
+        except Exception as e:
+            log.exception("tablet_shopping_action_failed")
+            return {"success": False, "error": str(e)[:200]}
+
     @app.post("/api/tablet/action/socket")
     async def action_socket(payload: dict = Body(...), token: str = Query("")):
         _check_token(token, expected_token)
@@ -435,19 +505,27 @@ def register_tablet_routes(app: FastAPI, memory: Any, settings: Any, agents_ref:
                 "walk": "Прогулка", "symptom": "Симптом", "note": "Заметка",
             }
 
+            # Разбираем и сегодня и вчера — ночной сон часто начинается
+            # 21-23 вчера, заканчивается в 6-8 сегодня. Без вчерашних
+            # записей мы теряем целый большой сон.
             timeline = []
             today_entries = []
+            all_entries = []  # для расчёта сна с учётом переходов через полночь
             for r in rows:
                 d = r.data
                 dt = _entry_dt(d)
-                if dt is None or dt.date() != today:
+                if dt is None:
                     continue
                 kraw = _kind_clean(d.get("kind", ""))
                 tag = KIND_TAG.get(kraw, "note")
                 ev = (d.get("event") or "").strip()
                 note = (d.get("note") or "").strip() if isinstance(d, dict) else ""
-                today_entries.append({"dt": dt, "kind": kraw, "tag": tag, "event": ev, "note": note})
+                item = {"dt": dt, "kind": kraw, "tag": tag, "event": ev, "note": note}
+                all_entries.append(item)
+                if dt.date() == today:
+                    today_entries.append(item)
 
+            all_entries.sort(key=lambda x: x["dt"])
             today_entries.sort(key=lambda x: x["dt"])
             for e in today_entries:
                 timeline.append({
@@ -458,20 +536,34 @@ def register_tablet_routes(app: FastAPI, memory: Any, settings: Any, agents_ref:
                     "tag_label": KIND_LABEL.get(e["tag"], e["tag"]),
                 })
 
-            # Статистика: считаем сны, кормления, подгузники, окна бодрствования
-            sleep_min = 0
-            wake_windows = 0
+            # ── Считаем сон по парам (start → end) на всём окне 2 дня,
+            #    но учитываем только пересечение с сегодня (00:00 → сейчас).
+            #    Это правильно ловит ночной сон 21:30→6:14 и промежуточные
+            #    ночные пробуждения.
+            from datetime import timedelta as _td
+            day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            sleep_pairs = []           # список (start_dt, end_dt) — end может быть None если ещё спит
             in_sleep_start = None
-            for e in today_entries:
+            for e in all_entries:
                 if e["tag"] != "sleep":
                     continue
                 if _match(e["event"], _SLEEP_START):
                     in_sleep_start = e["dt"]
                 elif _match(e["event"], _SLEEP_END):
                     if in_sleep_start:
-                        sleep_min += int((e["dt"] - in_sleep_start).total_seconds() / 60)
+                        sleep_pairs.append((in_sleep_start, e["dt"]))
                         in_sleep_start = None
-                    wake_windows += 1
+            # если ещё спит — открытый интервал до «сейчас»
+            if in_sleep_start:
+                sleep_pairs.append((in_sleep_start, now))
+
+            def _overlap_min(a, b, lo, hi):
+                s = max(a, lo); e = min(b, hi)
+                return max(0, int((e - s).total_seconds() / 60))
+
+            sleep_min = sum(_overlap_min(s, e, day_start, now) for s, e in sleep_pairs)
+            wake_windows = sum(1 for e in today_entries
+                               if e["tag"] == "sleep" and _match(e["event"], _SLEEP_END))
 
             feeds = [e for e in today_entries if e["tag"] == "food"]
             diapers = [e for e in today_entries if e["tag"] == "diaper"]
