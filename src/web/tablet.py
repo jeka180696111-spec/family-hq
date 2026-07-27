@@ -967,4 +967,157 @@ def register_tablet_routes(
             log.exception("tablet_chat_history_failed")
             return {"items": [], "error": str(e)[:200]}
 
+    # ─────────────────────────────────────────────────────────────────
+    # Прикорм: список пробованного (по категориям) + «на очереди» по возрасту
+    # ─────────────────────────────────────────────────────────────────
+    @app.get("/api/tablet/feeding/products")
+    async def tablet_feeding_products(token: str = Query("")):
+        _check_token(token, expected_token)
+        try:
+            from src.utils.food_catalog import (
+                CATEGORIES, guess_emoji, guess_category, to_try_now,
+            )
+            from src.utils.baby import MATVEY_BIRTH_DATE
+            from datetime import date
+
+            age_months = (date.today() - MATVEY_BIRTH_DATE).days / 30.4375
+
+            # Читаем «Прикорм» из Sheets — уже введённые продукты
+            nanny = agents_ref.get("nanny") if agents_ref else None
+            sheets = getattr(nanny, "_sheets", None) if nanny else None
+            rows = []
+            if sheets:
+                try:
+                    rows = await sheets.get_feeding(limit=1000)
+                except Exception as e:
+                    log.warning("feeding_sheets_read_failed", err=str(e)[:200])
+
+            # Агрегируем по (product_norm) — берём последнюю запись как «свежую реакцию»
+            from src.utils.food_catalog import _normalize
+            aggr: dict[str, dict] = {}
+            for r in rows:
+                p = (r.get("product") or "").strip()
+                if not p:
+                    continue
+                # Только «Прикорм» тип (не «Грудь», не «Смесь»)
+                type_ = (r.get("type") or "").lower()
+                if "прикорм" not in type_ and "▪ прикорм" not in type_ and type_ != "":
+                    if any(x in type_ for x in ("груд", "смес", "молок")):
+                        continue
+                key = _normalize(p)
+                if not key:
+                    continue
+                cur = aggr.get(key)
+                item = {
+                    "name": p,
+                    "norm": key,
+                    "emoji": guess_emoji(p),
+                    "category": guess_category(p),
+                    "last_reaction": r.get("reaction", ""),
+                    "last_date": r.get("date", ""),
+                    "count": (cur["count"] + 1) if cur else 1,
+                }
+                if cur:
+                    # Оставляем последнюю по номеру строки (Sheets append-only,
+                    # позже = свежее). Атрибут count суммируем.
+                    item["count"] = cur["count"] + 1
+                aggr[key] = item
+
+            # Раскладываем по категориям
+            tried_by_cat: dict[str, dict] = {}
+            for cat_slug, cat_em in CATEGORIES:
+                tried_by_cat[cat_slug] = {"emoji": cat_em, "items": []}
+            for item in aggr.values():
+                cat = item["category"]
+                if cat not in tried_by_cat:
+                    tried_by_cat[cat] = {"emoji": "🥄", "items": []}
+                tried_by_cat[cat]["items"].append(item)
+            # Сортируем внутри каждой категории по имени
+            for cat in tried_by_cat.values():
+                cat["items"].sort(key=lambda x: x["name"].lower())
+
+            # На очереди — рекомендованные по возрасту, чего ещё не ели
+            to_try = to_try_now(age_months, set(aggr.keys()))
+
+            return {
+                "age_months": round(age_months, 1),
+                "tried_by_category": tried_by_cat,
+                "to_try": to_try,
+            }
+        except Exception as e:
+            log.exception("tablet_feeding_products_failed")
+            return {"error": str(e)[:200], "tried_by_category": {}, "to_try": [], "age_months": 0}
+
+    @app.get("/api/tablet/feeding/emoji")
+    async def tablet_feeding_emoji(token: str = Query(""), name: str = Query("")):
+        _check_token(token, expected_token)
+        from src.utils.food_catalog import guess_emoji, guess_category
+        return {
+            "emoji": guess_emoji(name),
+            "category": guess_category(name),
+        }
+
+    @app.post("/api/tablet/feeding/log")
+    async def tablet_feeding_log(token: str = Query(""), body: dict = Body(...)):
+        _check_token(token, expected_token)
+        try:
+            product = (body.get("product") or "").strip()
+            if not product:
+                return {"success": False, "error": "empty product"}
+            portion = (body.get("portion") or "").strip()
+            reaction_phys = (body.get("reaction_physical") or "").strip()
+            reaction_ment = (body.get("reaction_mental") or "").strip()
+            notes = (body.get("notes") or "").strip()
+
+            # Соединяем физ и ментальную реакции — маппим на существующие
+            # префиксы Гурмана (✅/⚠/😐/🙅/…)
+            reaction_label = ""
+            phys_map = {
+                "ok": "хорошая", "все ок": "хорошая",
+                "sy": "плохая", "сыпь": "плохая",
+                "stul": "нейтральная", "срыгнул": "нейтральная",
+                "reddening": "плохая", "покраснения": "плохая",
+            }
+            ment_map = {
+                "liked": "отличная", "понравилось": "отличная",
+                "neutral": "нейтральная", "нейтрально": "нейтральная",
+                "grimace": "нейтральная", "кривлялся": "нейтральная",
+                "refused": "отказался", "отказался": "отказался",
+            }
+            # Приоритет: если есть плохая физ. реакция — она главнее
+            if reaction_phys and reaction_phys.lower() not in ("ok", "все ок", ""):
+                reaction_label = phys_map.get(reaction_phys.lower(), "нейтральная")
+            elif reaction_ment:
+                reaction_label = ment_map.get(reaction_ment.lower(), "нейтральная")
+            else:
+                reaction_label = "хорошая"
+
+            nanny = agents_ref.get("nanny") if agents_ref else None
+            sheets = getattr(nanny, "_sheets", None) if nanny else None
+            if not sheets:
+                return {"success": False, "error": "sheets not available"}
+            from src.utils.time import now_kyiv
+            details_parts = []
+            if reaction_phys and reaction_phys.lower() not in ("ok", "все ок", ""):
+                details_parts.append(f"физ: {reaction_phys}")
+            if reaction_ment:
+                details_parts.append(f"понр: {reaction_ment}")
+            if notes:
+                details_parts.append(notes)
+            details = " · ".join(details_parts)
+
+            result = await sheets.append_feeding(
+                type_="прикорм",
+                product=product,
+                time=now_kyiv(),
+                portion=portion,
+                reaction=reaction_label,
+                details=details,
+                author="Планшет",
+            )
+            return {"success": True, **result}
+        except Exception as e:
+            log.exception("tablet_feeding_log_failed")
+            return {"success": False, "error": str(e)[:200]}
+
     log.info("tablet_routes_registered")

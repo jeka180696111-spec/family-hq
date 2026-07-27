@@ -257,6 +257,259 @@
     border-radius: 10px;
   }
 
+  /* ============ Прикорм ============ */
+  .feeding-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+  .feeding-title {
+    font-family: ui-serif, Georgia, serif;
+    font-size: 24px;
+    color: var(--text);
+  }
+  .feeding-age {
+    font-size: 13px;
+    color: var(--text-dim);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-left: 8px;
+  }
+  .feeding-add-btn {
+    background: var(--amber);
+    color: #1a1200;
+    border: 0;
+    padding: 10px 18px;
+    border-radius: 12px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+  }
+  .feeding-add-btn:hover { filter: brightness(1.1); }
+  .feeding-section-title {
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin: 0 4px 12px;
+  }
+  .feeding-loading {
+    padding: 20px;
+    text-align: center;
+    color: var(--text-mute);
+    font-size: 12px;
+  }
+
+  /* Категории — сетка карточек как в масонри */
+  .feeding-cats {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 14px;
+  }
+  .feeding-cat {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 14px 14px 12px;
+    display: flex;
+    flex-direction: column;
+    min-height: 130px;
+  }
+  .feeding-cat-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .feeding-cat-em { font-size: 22px; }
+  .feeding-cat-name {
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .feeding-cat-count {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--text-mute);
+    font-family: ui-serif, Georgia, serif;
+  }
+  .feeding-cat-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .feeding-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 10px 6px 8px;
+    background: var(--card-hi);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    font-size: 12px;
+    color: var(--text);
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .feeding-item:hover { border-color: var(--amber); }
+  .feeding-item .fi-em { font-size: 15px; }
+  .feeding-item.reaction-ok { border-color: rgba(134, 172, 106, 0.35); }
+  .feeding-item.reaction-bad { border-color: rgba(224, 123, 95, 0.5); background: rgba(224, 123, 95, 0.08); }
+  .feeding-item.reaction-neutral { border-color: rgba(212, 160, 74, 0.35); }
+  .feeding-item .fi-badge {
+    font-size: 10px;
+    opacity: 0.9;
+  }
+  .feeding-cat-empty {
+    font-size: 11px;
+    color: var(--text-mute);
+    font-style: italic;
+    padding: 6px 4px;
+  }
+
+  /* На очереди — сетка продуктов */
+  .feeding-totry {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+  }
+  .feeding-totry-item {
+    aspect-ratio: 1.1;
+    background: var(--card);
+    border: 1px dashed var(--line);
+    border-radius: 14px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    cursor: pointer;
+    transition: transform 0.15s, border-color 0.15s;
+  }
+  .feeding-totry-item:hover {
+    transform: translateY(-2px);
+    border-color: var(--amber);
+    border-style: solid;
+  }
+  .feeding-totry-item .tt-em { font-size: 32px; line-height: 1; margin-bottom: 6px; }
+  .feeding-totry-item .tt-name {
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.02em;
+    line-height: 1.2;
+  }
+  .feeding-totry-item .tt-age {
+    font-size: 8px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-mute);
+    margin-top: 4px;
+  }
+
+  /* Модалка «записать реакцию» */
+  .feeding-modal { max-width: 560px; }
+  .feeding-modal-body { padding: 4px 4px 8px; }
+  .fm-q {
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin: 14px 0 8px;
+  }
+  .fm-q:first-child { margin-top: 4px; }
+  .fm-input {
+    width: 100%;
+    background: var(--card-hi);
+    border: 1px solid var(--line);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-family: inherit;
+    font-size: 13px;
+    box-sizing: border-box;
+  }
+  .fm-input:focus { outline: none; border-color: var(--amber); }
+  .fm-pills {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .fm-pill {
+    background: var(--card-hi);
+    border: 1px solid var(--line);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 20px;
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .fm-pill:hover { border-color: var(--amber); }
+  .fm-pill.picked {
+    background: rgba(212, 160, 74, 0.15);
+    border-color: var(--amber);
+    color: var(--amber);
+    font-weight: 500;
+  }
+  .fm-add-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .fm-emoji-preview {
+    width: 54px; height: 54px;
+    border-radius: 12px;
+    background: var(--card-hi);
+    border: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    flex-shrink: 0;
+  }
+  .fm-cat-hint {
+    font-size: 11px;
+    color: var(--text-mute);
+    margin-top: 8px;
+  }
+  .fm-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 20px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line-soft);
+  }
+  .fm-cancel, .fm-save {
+    padding: 10px 20px;
+    border-radius: 10px;
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    border: 1px solid var(--line);
+  }
+  .fm-cancel {
+    background: transparent;
+    color: var(--text-dim);
+  }
+  .fm-save {
+    background: var(--amber);
+    color: #1a1200;
+    border-color: var(--amber);
+    font-weight: 500;
+  }
+  .fm-save:disabled { opacity: 0.5; cursor: default; }
+
   /* Размеры карточек */
   .card.size-l { grid-column: span 2; }
   .card.size-xl { grid-column: span 3; }
@@ -1778,9 +2031,6 @@
           <div class="menu-item" data-page="detail" onclick="switchPage('detail')">
             <span class="m-em">🔍</span><span>Детально</span><span class="m-check">✓</span>
           </div>
-          <div class="menu-item" data-page="feeding" onclick="switchPage('feeding')">
-            <span class="m-em">🥄</span><span>Прикорм</span><span class="m-check">✓</span>
-          </div>
         </div>
       </div>
       <button class="edit-layout-btn" id="editLayoutBtn" onclick="toggleLayoutEdit()">✎ Порядок</button>
@@ -2028,44 +2278,83 @@
 
   <!-- ============= PAGE: ПРИКОРМ ============= -->
   <div class="page-view page-feeding" id="pageFeeding">
-    <div class="detail-grid">
-      <div class="detail-tile">
-        <div class="dt-title">Сегодня</div>
-        <div class="dt-body">
-          <div class="dt-em">🍽</div>
-          Лента кормлений за день
-        </div>
+    <div class="feeding-head">
+      <div class="feeding-title">Прикорм <span class="feeding-age" id="feedingAge">—</span></div>
+      <button class="feeding-add-btn" onclick="openFeedingAdd()">+ Добавить продукт</button>
+    </div>
+
+    <div class="feeding-section-title">Что уже пробовал</div>
+    <div class="feeding-cats" id="feedingCats">
+      <div class="feeding-loading">Загружаю…</div>
+    </div>
+
+    <div class="feeding-section-title" style="margin-top:20px">На очереди — по возрасту</div>
+    <div class="feeding-totry" id="feedingToTry">
+      <div class="feeding-loading">Загружаю…</div>
+    </div>
+  </div><!-- /page-feeding -->
+
+  <!-- Модалка: реакция на новый продукт (тап по «на очереди») -->
+  <div class="modal-backdrop" id="modal-feeding-log" onclick="if(event.target===this)closeFeedingLog()">
+    <div class="modal feeding-modal">
+      <div class="modal-head">
+        <div class="modal-title"><span id="feedingLogEm">🥄</span> <span id="feedingLogName">Продукт</span></div>
+        <button class="modal-close" onclick="closeFeedingLog()">✕</button>
       </div>
-      <div class="detail-tile">
-        <div class="dt-title">Пробовали</div>
-        <div class="dt-body">
-          <div class="dt-em">✅</div>
-          Магнит на холодильник —<br>что уже ел
+      <div class="feeding-modal-body">
+        <div class="fm-q">Порция</div>
+        <input type="text" class="fm-input" id="feedingLogPortion" placeholder="1 ч.л. / 30 г / …">
+
+        <div class="fm-q">Физическая реакция (сразу / через 24ч)</div>
+        <div class="fm-pills" id="feedingLogPhys">
+          <button class="fm-pill" data-val="ok">✅ всё ок</button>
+          <button class="fm-pill" data-val="сыпь">🩹 сыпь</button>
+          <button class="fm-pill" data-val="стул">💩 стул жидкий</button>
+          <button class="fm-pill" data-val="покраснения">😷 покраснения</button>
+          <button class="fm-pill" data-val="срыгнул">🤢 срыгнул</button>
         </div>
-      </div>
-      <div class="detail-tile">
-        <div class="dt-title">На очереди</div>
-        <div class="dt-body">
-          <div class="dt-em">🆕</div>
-          Что стоит попробовать<br>по возрасту
+
+        <div class="fm-q">Как отреагировал</div>
+        <div class="fm-pills" id="feedingLogMent">
+          <button class="fm-pill" data-val="понравилось">😋 понравилось</button>
+          <button class="fm-pill" data-val="нейтрально">😐 нейтрально</button>
+          <button class="fm-pill" data-val="кривлялся">😖 кривлялся</button>
+          <button class="fm-pill" data-val="отказался">🙅 отказался</button>
         </div>
-      </div>
-      <div class="detail-tile">
-        <div class="dt-title">Реакции</div>
-        <div class="dt-body">
-          <div class="dt-em">🌡</div>
-          Отслеживание аллергий
-        </div>
-      </div>
-      <div class="detail-tile add-tile">
-        <div class="dt-title">Добавить</div>
-        <div class="dt-body">
-          <div class="dt-em">➕</div>
-          + Записать кормление
+
+        <div class="fm-q">Заметка (необязательно)</div>
+        <input type="text" class="fm-input" id="feedingLogNotes" placeholder="что-нибудь важное…">
+
+        <div class="fm-actions">
+          <button class="fm-cancel" onclick="closeFeedingLog()">Отмена</button>
+          <button class="fm-save" onclick="submitFeedingLog()">Записать</button>
         </div>
       </div>
     </div>
-  </div><!-- /page-feeding -->
+  </div>
+
+  <!-- Модалка: добавить новый продукт (не из списка) -->
+  <div class="modal-backdrop" id="modal-feeding-add" onclick="if(event.target===this)closeFeedingAdd()">
+    <div class="modal feeding-modal">
+      <div class="modal-head">
+        <div class="modal-title">Добавить продукт</div>
+        <button class="modal-close" onclick="closeFeedingAdd()">✕</button>
+      </div>
+      <div class="feeding-modal-body">
+        <div class="fm-q">Что даём</div>
+        <div class="fm-add-row">
+          <div class="fm-emoji-preview" id="feedingAddEm">🥄</div>
+          <input type="text" class="fm-input" id="feedingAddName" placeholder="гречка, банан, курица…" oninput="onFeedingAddNameInput()">
+        </div>
+        <div class="fm-cat-hint" id="feedingAddCat">категория подберётся автоматически</div>
+
+        <div class="fm-actions">
+          <button class="fm-cancel" onclick="closeFeedingAdd()">Отмена</button>
+          <button class="fm-save" onclick="goFromAddToLog()">Дальше →</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- ============= RIBBON / FOOTER ============= -->
   <div class="ribbon">
@@ -2183,13 +2472,19 @@
   tick(); setInterval(tick, 30000);
 
   // ============ Меню экранов ============
+  // Верхнее меню — только основные экраны. Прикорм и др. sub-экраны
+  // открываются через плитки на «Детально».
   const PAGES = [
     { id: 'overview', em: '📊', label: 'Обзор',    viewId: 'pageOverview' },
     { id: 'detail',   em: '🔍', label: 'Детально', viewId: 'pageDetail'   },
+  ];
+  // Sub-экраны (не в меню, доступны только по клику из плиток)
+  const SUBPAGES = [
     { id: 'feeding',  em: '🥄', label: 'Прикорм',  viewId: 'pageFeeding'  },
   ];
+  const ALL_PAGES = [...PAGES, ...SUBPAGES];
   function switchPage(name) {
-    const page = PAGES.find(p => p.id === name) || PAGES[0];
+    const page = ALL_PAGES.find(p => p.id === name) || ALL_PAGES[0];
     document.querySelectorAll('.page-view').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
     document.getElementById(page.viewId)?.classList.add('active');
@@ -2201,6 +2496,8 @@
     document.getElementById('menuDropdown')?.classList.remove('open');
     try { localStorage.setItem('tabletPage', page.id); } catch(e) {}
     window.scrollTo({ top: 0, behavior: 'instant' });
+    // Лениво подгружаем данные экрана, если ему это нужно
+    if (page.id === 'feeding' && typeof loadFeeding === 'function') loadFeeding();
   }
   function toggleMenu(e) {
     e?.stopPropagation();
@@ -2238,6 +2535,8 @@
       if (Math.abs(dy) > Math.abs(dx) * 0.6) return;
       const currentEl = document.querySelector('.page-view.active');
       const idx = PAGES.findIndex(p => p.viewId === currentEl?.id);
+      // Свайп работает только между top-level страницами (Обзор/Детально).
+      // На sub-экранах (Прикорм и др.) свайп не листает.
       if (idx < 0) return;
       const nextIdx = dx < 0
         ? (idx + 1) % PAGES.length
@@ -2701,6 +3000,190 @@ document.querySelectorAll('.shop-item').forEach(item => {
       body: JSON.stringify(body),
     });
     return r.json();
+  }
+
+  // ============ ПРИКОРМ ============
+  let _feedingLoaded = false;
+  let _feedingPending = null; // {name, emoji} — что записываем сейчас
+
+  async function loadFeeding(force) {
+    if (_feedingLoaded && !force) return;
+    const catsEl = document.getElementById('feedingCats');
+    const totryEl = document.getElementById('feedingToTry');
+    const ageEl = document.getElementById('feedingAge');
+    if (!catsEl || !totryEl) return;
+    try {
+      const data = await apiGet('/api/tablet/feeding/products');
+      _feedingLoaded = true;
+      if (ageEl) ageEl.textContent = data.age_months ? '· ' + data.age_months + ' мес' : '';
+      renderFeedingCats(data.tried_by_category || {});
+      renderFeedingToTry(data.to_try || []);
+    } catch(e) {
+      catsEl.innerHTML = '<div class="feeding-loading">Не удалось загрузить: ' + (e.message||e) + '</div>';
+      totryEl.innerHTML = '';
+    }
+  }
+
+  function reactionClass(reaction) {
+    const r = (reaction || '').toLowerCase();
+    if (!r) return '';
+    if (r.includes('плох') || r.includes('срыг') || r.includes('сып') || r.includes('покрас')) return 'reaction-bad';
+    if (r.includes('нейтр') || r.includes('кривл')) return 'reaction-neutral';
+    if (r.includes('отказ')) return 'reaction-neutral';
+    return 'reaction-ok';
+  }
+  function reactionEmoji(reaction) {
+    const r = (reaction || '').toLowerCase();
+    if (!r) return '';
+    if (r.includes('отлич') || r.includes('понр')) return '💛';
+    if (r.includes('плох') || r.includes('сып') || r.includes('покрас')) return '⚠';
+    if (r.includes('срыг')) return '🤢';
+    if (r.includes('отказ')) return '🙅';
+    if (r.includes('нейтр') || r.includes('кривл')) return '😐';
+    if (r.includes('хорош')) return '✅';
+    return '';
+  }
+
+  function renderFeedingCats(byCat) {
+    const el = document.getElementById('feedingCats');
+    if (!el) return;
+    const order = ['крупы','овощи','фрукты','ягоды','мясо','рыба','молочка','другое'];
+    const cats = order.filter(k => byCat[k]);
+    for (const k of Object.keys(byCat)) if (!cats.includes(k)) cats.push(k);
+    const parts = [];
+    for (const slug of cats) {
+      const c = byCat[slug];
+      const items = c.items || [];
+      const rows = items.length
+        ? items.map(it => {
+            const cls = reactionClass(it.last_reaction);
+            const badge = reactionEmoji(it.last_reaction);
+            const cnt = it.count > 1 ? ' <span class="fi-badge">×' + it.count + '</span>' : '';
+            return '<span class="feeding-item ' + cls + '" title="' + (it.last_date||'') + ' · ' + (it.last_reaction||'') + '">'
+                 + '<span class="fi-em">' + it.emoji + '</span>'
+                 + escapeHtml(it.name)
+                 + (badge ? ' <span class="fi-badge">' + badge + '</span>' : '')
+                 + cnt
+                 + '</span>';
+          }).join('')
+        : '<div class="feeding-cat-empty">пока не пробовал</div>';
+      parts.push(
+        '<div class="feeding-cat">'
+        + '<div class="feeding-cat-head">'
+        +   '<span class="feeding-cat-em">' + (c.emoji||'🥄') + '</span>'
+        +   '<span class="feeding-cat-name">' + slug + '</span>'
+        +   '<span class="feeding-cat-count">' + (items.length ? items.length : '—') + '</span>'
+        + '</div>'
+        + '<div class="feeding-cat-items">' + rows + '</div>'
+        + '</div>'
+      );
+    }
+    el.innerHTML = parts.join('') || '<div class="feeding-loading">Пусто.</div>';
+  }
+
+  function renderFeedingToTry(list) {
+    const el = document.getElementById('feedingToTry');
+    if (!el) return;
+    if (!list.length) { el.innerHTML = '<div class="feeding-loading">По возрасту всё уже пробовали 🎉</div>'; return; }
+    el.innerHTML = list.map(it =>
+      '<div class="feeding-totry-item" onclick="openFeedingLog(\'' + escapeAttr(it.name) + '\',\'' + it.emoji + '\')">'
+      + '<div class="tt-em">' + it.emoji + '</div>'
+      + '<div class="tt-name">' + escapeHtml(it.name) + '</div>'
+      + '<div class="tt-age">от ' + it.min_age + ' мес</div>'
+      + '</div>'
+    ).join('');
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, ch => (
+      {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]
+    ));
+  }
+  function escapeAttr(s) {
+    return String(s).replace(/'/g, "\\'").replace(/</g, '&lt;');
+  }
+
+  // Пилл-пикер (выбор в группе)
+  document.addEventListener('click', (e) => {
+    const p = e.target.closest('.fm-pill');
+    if (!p) return;
+    const group = p.parentElement;
+    if (!group) return;
+    group.querySelectorAll('.fm-pill').forEach(x => x.classList.remove('picked'));
+    p.classList.add('picked');
+  });
+
+  function openFeedingLog(name, emoji) {
+    _feedingPending = { name, emoji };
+    document.getElementById('feedingLogEm').textContent = emoji || '🥄';
+    document.getElementById('feedingLogName').textContent = name;
+    document.getElementById('feedingLogPortion').value = '';
+    document.getElementById('feedingLogNotes').value = '';
+    document.querySelectorAll('#modal-feeding-log .fm-pill').forEach(p => p.classList.remove('picked'));
+    document.getElementById('modal-feeding-log').classList.add('open');
+  }
+  function closeFeedingLog() {
+    document.getElementById('modal-feeding-log').classList.remove('open');
+    _feedingPending = null;
+  }
+  async function submitFeedingLog() {
+    if (!_feedingPending) return;
+    const phys = document.querySelector('#feedingLogPhys .fm-pill.picked')?.dataset.val || '';
+    const ment = document.querySelector('#feedingLogMent .fm-pill.picked')?.dataset.val || '';
+    const portion = document.getElementById('feedingLogPortion').value.trim();
+    const notes = document.getElementById('feedingLogNotes').value.trim();
+    const btn = document.querySelector('#modal-feeding-log .fm-save');
+    if (btn) { btn.disabled = true; btn.textContent = 'Записываю…'; }
+    try {
+      const res = await apiPost('/api/tablet/feeding/log', {
+        product: _feedingPending.name,
+        portion, notes,
+        reaction_physical: phys,
+        reaction_mental: ment,
+      });
+      if (!res.success) throw new Error(res.error || 'ошибка');
+      closeFeedingLog();
+      await loadFeeding(true);
+    } catch(e) {
+      alert('Не удалось записать: ' + (e.message||e));
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Записать'; }
+    }
+  }
+
+  function openFeedingAdd() {
+    document.getElementById('feedingAddName').value = '';
+    document.getElementById('feedingAddEm').textContent = '🥄';
+    document.getElementById('feedingAddCat').textContent = 'категория подберётся автоматически';
+    document.getElementById('modal-feeding-add').classList.add('open');
+    setTimeout(() => document.getElementById('feedingAddName').focus(), 100);
+  }
+  function closeFeedingAdd() {
+    document.getElementById('modal-feeding-add').classList.remove('open');
+  }
+  let _feedingAddTimer = null;
+  function onFeedingAddNameInput() {
+    clearTimeout(_feedingAddTimer);
+    const name = document.getElementById('feedingAddName').value.trim();
+    if (!name) {
+      document.getElementById('feedingAddEm').textContent = '🥄';
+      document.getElementById('feedingAddCat').textContent = 'категория подберётся автоматически';
+      return;
+    }
+    _feedingAddTimer = setTimeout(async () => {
+      try {
+        const res = await apiGet('/api/tablet/feeding/emoji?name=' + encodeURIComponent(name));
+        document.getElementById('feedingAddEm').textContent = res.emoji || '🥄';
+        document.getElementById('feedingAddCat').textContent = 'категория: ' + (res.category || 'другое');
+      } catch(e) {}
+    }, 250);
+  }
+  function goFromAddToLog() {
+    const name = document.getElementById('feedingAddName').value.trim();
+    if (!name) return;
+    const em = document.getElementById('feedingAddEm').textContent || '🥄';
+    closeFeedingAdd();
+    openFeedingLog(name, em);
   }
 
   // Poll state and update dynamic fields
