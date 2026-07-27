@@ -3285,7 +3285,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
     // Сначала подтянем настройки, потом рефрешнем стейт
     pullSettings().finally(() => {
       refreshState();
-      setInterval(refreshState, 15000);
+      setInterval(refreshState, 8000);
       setInterval(pullSettings, 30000);   // забираем изменения с других устройств
     });
     // При возвращении на вкладку — принудительно тянем

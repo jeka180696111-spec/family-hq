@@ -117,7 +117,7 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
             got = isinstance(sensor, dict) and "readings" in sensor and sensor.get("readings")
             if not got:
                 # Fallback: ищем среди устройств первое с temperature/va_temperature
-                devices = await tuya.list_devices()
+                devices = await tuya.list_devices(force_refresh=True)
                 for d in devices:
                     for s in (d.get("status") or []):
                         code = s.get("code", "")
@@ -143,7 +143,7 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
         from src.integrations.tuya import TuyaClient
         tuya = TuyaClient.from_settings(settings)
         if tuya:
-            devices = await tuya.list_devices()
+            devices = await tuya.list_devices(force_refresh=True)
             dev_out = []
             for d in devices:
                 row = {
