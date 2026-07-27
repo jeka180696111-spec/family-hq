@@ -324,6 +324,42 @@ def register_tablet_routes(app: FastAPI, memory: Any, settings: Any, agents_ref:
         state = await _build_tablet_state(memory, settings, agents_ref)
         return JSONResponse(state)
 
+    # ─── Синхронизация настроек между устройствами (телефон/планшет) ──
+    # Хранится единым JSON-блобом в agent_settings под key='tablet_prefs'.
+    # Разделения между пользователями нет — токен один на семью, что и
+    # даёт «одинаковая настройка на всех экранах».
+    @app.get("/api/tablet/settings")
+    async def tablet_settings_get(token: str = Query("")):
+        _check_token(token, expected_token)
+        try:
+            raw = await memory.get_agent_setting("tablet", "prefs", "")
+            import json as _json
+            data = _json.loads(raw) if raw else {}
+            return JSONResponse({"prefs": data})
+        except Exception as e:
+            log.exception("tablet_settings_get_failed")
+            return JSONResponse({"prefs": {}, "error": str(e)[:200]})
+
+    @app.post("/api/tablet/settings")
+    async def tablet_settings_set(payload: dict = Body(...), token: str = Query("")):
+        _check_token(token, expected_token)
+        try:
+            import json as _json
+            prefs = payload.get("prefs")
+            if not isinstance(prefs, dict):
+                raise HTTPException(400, "prefs (object) required")
+            # Ограничиваем размер, чтоб случайно не хранить в базе мегабайты
+            body = _json.dumps(prefs, ensure_ascii=False)
+            if len(body) > 200_000:
+                raise HTTPException(413, "prefs too large")
+            await memory.set_agent_setting("tablet", "prefs", body)
+            return {"success": True, "bytes": len(body)}
+        except HTTPException:
+            raise
+        except Exception as e:
+            log.exception("tablet_settings_set_failed")
+            return {"success": False, "error": str(e)[:200]}
+
     @app.post("/api/tablet/action/scene")
     async def action_scene(payload: dict = Body(...), token: str = Query("")):
         _check_token(token, expected_token)

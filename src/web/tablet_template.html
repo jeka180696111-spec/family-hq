@@ -3030,10 +3030,100 @@ document.querySelectorAll('.shop-item').forEach(item => {
       refreshSettingsFramesInfo();
     } catch(e) { console.warn('state refresh failed', e); }
   }
+  // === СИНХРОНИЗАЦИЯ НАСТРОЕК МЕЖДУ УСТРОЙСТВАМИ ===
+  // Ключи localStorage которые мы бэкапим в базу через /api/tablet/settings.
+  // Всё что хранится под этими ключами (пины сцен, порядок, планы, скрытые
+  // карточки, автояркость, dismiss-рамок и т.п.) будет одинаковым на
+  // планшете и телефоне. Служебные ключи типа __lastAlertKey не сюда.
+  const SYNC_KEYS = [
+    'planTemplate', 'planDone:',           // 'planDone:YYYY-MM-DD' — по префиксу
+    'pinnedScenes', 'sceneOrder', 'sceneGroupOrder', 'activeScenes',
+    'cardStates', 'autoDim', 'theme',
+    'alertDismissedFor', 'tiredDismissedFor',
+  ];
+  function _keyIsSynced(k) {
+    return SYNC_KEYS.some(pref => k === pref || (pref.endsWith(':') && k.startsWith(pref)));
+  }
+  function _snapshotSyncedLocalStorage() {
+    const out = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (_keyIsSynced(k)) out[k] = localStorage.getItem(k);
+    }
+    return out;
+  }
+  let _syncSuspended = false;
+  let _pushTimer = null;
+  function _schedulePushSettings() {
+    if (_syncSuspended || !TOKEN) return;
+    clearTimeout(_pushTimer);
+    _pushTimer = setTimeout(pushSettings, 800);   // дебаунс
+  }
+  async function pushSettings() {
+    if (!TOKEN) return;
+    try {
+      await apiPost('/api/tablet/settings', { prefs: _snapshotSyncedLocalStorage() });
+    } catch(e) { console.warn('settings push failed', e); }
+  }
+  async function pullSettings() {
+    if (!TOKEN) return;
+    try {
+      const r = await apiGet('/api/tablet/settings');
+      const remote = (r && r.prefs) || {};
+      const local  = _snapshotSyncedLocalStorage();
+      // Простой merge: серверная версия побеждает если отличается.
+      // Другое устройство меняет пин → рефреш здесь подхватит через 30с.
+      let touched = false;
+      _syncSuspended = true;
+      try {
+        // Удалим локальные синхронизируемые ключи которых нет на сервере,
+        // чтобы «удалил на телефоне» распространилось на планшет.
+        Object.keys(local).forEach(k => {
+          if (!(k in remote)) { localStorage.removeItem(k); touched = true; }
+        });
+        Object.entries(remote).forEach(([k, v]) => {
+          if (local[k] !== v) { localStorage.setItem(k, v); touched = true; }
+        });
+      } finally { _syncSuspended = false; }
+      if (touched) _applyRemoteSettings();
+    } catch(e) { console.warn('settings pull failed', e); }
+  }
+  function _applyRemoteSettings() {
+    // Пересобрать UI под пришедшие настройки: план, карточки, сцены, тема, дим.
+    try { if (typeof renderPlan === 'function') renderPlan(); } catch(e){}
+    try { if (typeof restoreCardStates === 'function') restoreCardStates(); } catch(e){}
+    try { if (typeof refreshState === 'function') refreshState(); } catch(e){}
+    try { if (typeof updateBrightness === 'function') updateBrightness(); } catch(e){}
+    try { if (typeof applyTheme === 'function') applyTheme(); } catch(e){}
+    try { if (typeof refreshSettingsFramesInfo === 'function') refreshSettingsFramesInfo(); } catch(e){}
+    try { if (typeof refreshSettingsHiddenList === 'function') refreshSettingsHiddenList(); } catch(e){}
+  }
+  // Перехватываем изменения localStorage чтобы автоматически пушить на сервер
+  {
+    const _origSet = Storage.prototype.setItem;
+    const _origDel = Storage.prototype.removeItem;
+    Storage.prototype.setItem = function(k, v) {
+      _origSet.call(this, k, v);
+      if (this === localStorage && _keyIsSynced(k)) _schedulePushSettings();
+    };
+    Storage.prototype.removeItem = function(k) {
+      _origDel.call(this, k);
+      if (this === localStorage && _keyIsSynced(k)) _schedulePushSettings();
+    };
+  }
+
   // Первый запрос сразу и потом каждые 15 сек
   if (TOKEN) {
-    refreshState();
-    setInterval(refreshState, 15000);
+    // Сначала подтянем настройки, потом рефрешнем стейт
+    pullSettings().finally(() => {
+      refreshState();
+      setInterval(refreshState, 15000);
+      setInterval(pullSettings, 30000);   // забираем изменения с других устройств
+    });
+    // При возвращении на вкладку — принудительно тянем
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) { pullSettings(); refreshState(); }
+    });
   }
 
   // === ТРЕВОГА / «ПОРА УКЛАДЫВАТЬ» — управление через настройки ===
