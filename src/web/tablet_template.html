@@ -2467,15 +2467,15 @@ document.querySelectorAll('.shop-item').forEach(item => {
       else remainText = 'сон затянулся на ' + fmtDuration(-remainMin);
     } else if (baby.awake_since) {
       durMin = (Date.now() - new Date(baby.awake_since).getTime()) / 60000;
-      const remainMin = Math.round(140 - durMin);
-      // Разные фазы бодрствования:
-      //   awake_min < 120           → «Бодрствует» (свежий)
-      //   120 ≤ awake_min < окно    → «Устал» (пора укладывать скоро)
-      //   awake_min ≥ окно          → «Перегул» (уже пропустили окно)
-      if (durMin >= 140) {
+      // Возрастное окно бодрствования — от бэка (Няня по возрасту).
+      // Фолбэк 140 мин если бэк ещё не отдал (первый рендер).
+      const wakeWin = (window.__childInfo && window.__childInfo.wake_window_min) || 140;
+      const tiredAt = (window.__childInfo && window.__childInfo.tired_at_min) || Math.max(30, wakeWin - 15);
+      const remainMin = Math.round(wakeWin - durMin);
+      if (durMin >= wakeWin) {
         stateLabel = 'Перегул'; state = 'tired';
         remainText = 'перегул +' + fmtDuration(-remainMin);
-      } else if (durMin >= 120) {
+      } else if (durMin >= tiredAt) {
         stateLabel = 'Устал'; state = 'tired';
         remainText = 'до сна ~' + fmtDuration(remainMin);
       } else {
@@ -2519,7 +2519,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
       progress = Math.min(1, durMin / 90);
     } else if (state === 'awake') {
       // 140 мин окно = полное
-      progress = Math.min(1, durMin / 140);
+      progress = Math.min(1, durMin / ((window.__childInfo && window.__childInfo.wake_window_min) || 140));
     } else if (state === 'walking') {
       // 60 мин прогулка
       progress = Math.min(1, durMin / 60);
@@ -3269,8 +3269,10 @@ document.querySelectorAll('.shop-item').forEach(item => {
       updateScenes(s.scenes);
       updateWeather(s.weather);
       updateReminder(s.weather);
-      updateBaby(s.baby);
+      // updateChild ПЕРВЫМ — заполняет window.__childInfo (пороги
+      // wake_window_min / tired_at_min), которые нужны updateBaby.
       updateChild(s.child);
+      updateBaby(s.baby);
       if (s.home_state) updateHomeState(s.home_state);
       updateNursery(s.nursery);
       updateInverter(s.inverter, s.devices);
@@ -3769,6 +3771,9 @@ document.querySelectorAll('.shop-item').forEach(item => {
 
   function updateChild(child) {
     if (!child) return;
+    // Сохраняем всю child-инфу (в т.ч. wake_window_min, tired_at_min)
+    // чтобы updateBaby и updateTiredFrame могли брать пороги отсюда.
+    window.__childInfo = child;
     const nameEl = document.getElementById('babyTitleName');
     const ageEl = document.getElementById('babyTitleAge');
     if (nameEl && child.name) nameEl.textContent = child.name;
@@ -3784,8 +3789,9 @@ document.querySelectorAll('.shop-item').forEach(item => {
     }
     const awakeMs = Date.now() - new Date(baby.awake_since).getTime();
     const awakeMin = awakeMs / 60000;
-    // Окно бодрствования 8-мес: ~2ч 20м (140 мин). Показываем за 10 мин до.
-    const TIRED_AT = 130;
+    // Порог «устал» — из state.child.tired_at_min (Няня по возрасту).
+    // Фолбэк 130 мин если бэк ещё не отдал.
+    const TIRED_AT = (window.__childInfo && window.__childInfo.tired_at_min) || 130;
     const isTired = awakeMin >= TIRED_AT;
     const key = baby.awake_since;
     window.__lastTiredKey = key;

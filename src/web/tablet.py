@@ -43,10 +43,21 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
     # Матвей — базовые факты (имя + дата рождения) для точного возраста в UI
     try:
         from src.utils.baby import MATVEY_BIRTH_DATE, matvey_age_short
+        from src.scheduler.sleep_predictor import _expected_wake_window_min
+        from datetime import date
+        age_days = (date.today() - MATVEY_BIRTH_DATE).days
+        age_months = age_days / 30.4375
+        wake_min = _expected_wake_window_min(age_months)
         state["child"] = {
             "name": "Матвей",
             "birth_date": MATVEY_BIRTH_DATE.isoformat(),
             "age_label": matvey_age_short(),
+            "age_months": round(age_months, 1),
+            # Возрастное окно бодрствования (Weissbluth/AAP). Меняется
+            # по мере роста Матвея — UI использует чтобы не хардкодить.
+            "wake_window_min": wake_min,
+            # За 15 мин до окончания окна — уже «Устал»
+            "tired_at_min": max(30, wake_min - 15),
         }
     except Exception:
         log.exception("tablet_child_facts_failed")
