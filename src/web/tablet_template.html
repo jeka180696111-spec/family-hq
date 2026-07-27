@@ -2767,11 +2767,13 @@ document.querySelectorAll('.shop-item').forEach(item => {
       else if (d.on === false) badge = '<span class="dev-badge off">Выкл</span>';
       else if (d.online === true) badge = '<span class="dev-badge on">Онлайн</span>';
       else badge = '<span class="dev-badge off">Оффлайн</span>';
-      let val = '—';
-      if (d.cur_power != null && d.cur_power > 0) val = Math.round(d.cur_power) + 'Вт';
+      // Правая колонка: показываем только реальные данные (мощность,
+      // температура, статус). Если у устройства нечего показать —
+      // оставляем пустым, а не рисуем прочерк.
+      let val = '';
+      if (d.cur_power != null && d.cur_power > 0) val = Math.round(d.cur_power) + ' Вт';
       else if (d.temp != null) val = d.temp + '°';
-      else if (d.extra) val = String(d.extra);   // напр. «cleaning, батарея 78%»
-      else if (d.online === false) val = '';
+      else if (d.extra) val = String(d.extra);   // напр. «убирает, батарея 78%»
       return `<div class="device"><div class="dev-icon">${ic}</div><div class="dev-name">${d.name || '?'}</div>${badge}<div class="dev-val">${val}</div></div>`;
     }).join('');
     // Автоматически развернуть скролл если устройств много
