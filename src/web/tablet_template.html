@@ -136,6 +136,52 @@
   .masonry > .card {
     align-self: start;
   }
+
+  /* ============ 2-page navigation (Обзор ↔ Детально) ============ */
+  .page-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 5px;
+    margin: 0 0 14px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+  }
+  .page-tab {
+    flex: 1;
+    background: transparent;
+    border: 0;
+    color: var(--text-dim);
+    padding: 10px 14px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: center;
+    transition: background 0.15s, color 0.15s;
+  }
+  .page-tab.active {
+    background: var(--amber);
+    color: #1a1200;
+    font-weight: 500;
+  }
+  .page-view { display: none; }
+  .page-view.active { display: block; animation: page-fade 0.2s ease-out; }
+  @keyframes page-fade {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .page-detail-empty {
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+  .page-detail-empty .em { font-size: 42px; margin-bottom: 10px; }
+
   /* Размеры карточек */
   .card.size-l { grid-column: span 2; }
   .card.size-xl { grid-column: span 3; }
@@ -1649,6 +1695,14 @@
     </div>
   </header>
 
+  <!-- ============= PAGE TABS (Обзор ↔ Детально) ============= -->
+  <nav class="page-tabs" id="pageTabs">
+    <button class="page-tab active" data-page="overview" onclick="switchPage('overview')">📊 Обзор</button>
+    <button class="page-tab" data-page="detail" onclick="switchPage('detail')">🔍 Детально</button>
+  </nav>
+
+  <div class="page-view page-overview active" id="pageOverview">
+
   <!-- ============= MASONRY GRID ============= -->
   <div class="masonry" id="masonry">
 
@@ -1838,6 +1892,34 @@
 
     </div>
 
+  </div><!-- /page-overview -->
+
+  <!-- ============= PAGE: ДЕТАЛЬНО ============= -->
+  <div class="page-view page-detail" id="pageDetail">
+    <div class="masonry">
+      <div class="card">
+        <div class="card-title">План квартиры</div>
+        <div class="page-detail-empty">
+          <div class="em">🏠</div>
+          Скоро — интерактивный план с устройствами.
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Матвей крупно</div>
+        <div class="page-detail-empty">
+          <div class="em">👶</div>
+          Скоро — крупная карточка малыша.
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Плеер</div>
+        <div class="page-detail-empty">
+          <div class="em">🎵</div>
+          Скоро — Apple Music + YouTube.
+        </div>
+      </div>
+    </div>
+  </div><!-- /page-detail -->
 
   <!-- ============= RIBBON / FOOTER ============= -->
   <div class="ribbon">
@@ -1953,6 +2035,48 @@
     if (dl) dl.textContent = `${_weekdaysRu[d.getDay()]} · ${d.getDate()} ${_monthsRu[d.getMonth()]} ${d.getFullYear()}`;
   }
   tick(); setInterval(tick, 30000);
+
+  // ============ Переключение страниц Обзор ↔ Детально ============
+  function switchPage(name) {
+    document.querySelectorAll('.page-view').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.page-tab').forEach(el => el.classList.remove('active'));
+    const view = document.getElementById(name === 'detail' ? 'pageDetail' : 'pageOverview');
+    const tab  = document.querySelector('.page-tab[data-page="' + name + '"]');
+    if (view) view.classList.add('active');
+    if (tab)  tab.classList.add('active');
+    try { localStorage.setItem('tabletPage', name); } catch(e) {}
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }
+  // Восстановить последнюю выбранную страницу
+  try {
+    const last = localStorage.getItem('tabletPage');
+    if (last === 'detail') switchPage('detail');
+  } catch(e) {}
+
+  // Swipe влево/вправо между страницами (для планшета)
+  (function() {
+    let sx = 0, sy = 0, tracking = false;
+    document.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) { tracking = false; return; }
+      // не перехватываем свайп внутри скроллящихся элементов и модалок
+      if (e.target.closest('.modal, .shop-list, .plan-list, .events-list')) { tracking = false; return; }
+      sx = e.touches[0].clientX;
+      sy = e.touches[0].clientY;
+      tracking = true;
+    }, { passive: true });
+    document.addEventListener('touchend', (e) => {
+      if (!tracking) return;
+      tracking = false;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - sx;
+      const dy = t.clientY - sy;
+      if (Math.abs(dx) < 80) return;                 // слишком короткий
+      if (Math.abs(dy) > Math.abs(dx) * 0.6) return; // это вертикальный скролл
+      const current = document.querySelector('.page-view.active')?.id === 'pageDetail' ? 'detail' : 'overview';
+      if (dx < 0 && current === 'overview') switchPage('detail');
+      else if (dx > 0 && current === 'detail') switchPage('overview');
+    }, { passive: true });
+  })();
 
   function openModal(name) {
     document.getElementById('modal-' + name).classList.add('open');
