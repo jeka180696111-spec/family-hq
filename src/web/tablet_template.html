@@ -2774,6 +2774,9 @@ document.querySelectorAll('.shop-item').forEach(item => {
     window.__lastEvents = events || [];
     const list = document.getElementById('todayList');
     if (!list) return;
+    // Не перерисовываем список пока юзер печатает в inline-форме — иначе
+    // input исчезает быстрее чем он допишет.
+    if (list.querySelector('.event-item-new')) return;
     setText('weekCount', (events && events.length) ? (events.length + ' событий') : 'событий нет');
     if (!events || !events.length) {
       list.innerHTML = '<div style="font-size:12px; color:var(--text-dim); padding:8px 4px; text-align:center">Событий сегодня нет</div>';
@@ -2846,6 +2849,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
   function updateShopping(items) {
     window.__lastShopping = items || [];
     const list = document.getElementById('shopList');
+    if (list && list.querySelector('.shop-item-new')) return;
     if (!list) return;
     if (!items || !items.length) {
       list.innerHTML = '<div style="font-size:12px; color:var(--text-dim); padding:8px 4px; text-align:center">Список пуст</div>';
@@ -3527,6 +3531,9 @@ document.querySelectorAll('.shop-item').forEach(item => {
     // Автоматизации
     const autoList = document.getElementById('modalAutosList');
     setById('modalAutosCount', autos.length ? String(autos.length) : '');
+    // Не перерисовываем пока юзер пишет новую автоматизацию — иначе
+    // textarea пропадёт под ним.
+    if (autoList && autoList.querySelector('.auto-item-new')) return;
     if (autoList) {
       if (!autos.length) {
         autoList.innerHTML = '<div style="padding:12px; color:var(--text-dim)">Автоматизаций ещё нет</div>';
