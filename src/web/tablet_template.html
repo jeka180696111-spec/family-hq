@@ -530,11 +530,15 @@
     letter-spacing: 0.06em;
   }
   .plan-wrap {
-    background: var(--card);
-    border: 1px solid var(--line);
+    background: #1a1614;
+    border: 1px solid rgba(255,255,255,0.08);
     border-radius: 16px;
     padding: 14px;
+    color: #ede6dc;
   }
+  /* Форсируем тёмный фон для плана даже в светлой теме */
+  .plan-wrap .plan-legend { color: rgba(255,255,255,0.65); }
+  .plan-wrap .plan-status { color: rgba(255,255,255,0.5); border-top-color: rgba(255,255,255,0.08); }
   .floorplan {
     width: 100%;
     max-width: 900px;
@@ -576,13 +580,20 @@
     pointer-events: none;
   }
 
-  /* Устройства — формы из легенды (peach круг / синий бар / коричневый бар / …) */
+  /* Устройства — круги с эмодзи */
   .fp-dev { cursor: pointer; }
   .fp-dev.fp-dev-static { cursor: default; }
   .fp-dev-bg {
-    stroke: rgba(0,0,0,0.4);
-    stroke-width: 1;
-    transition: filter 0.2s, stroke 0.2s;
+    fill: rgba(255,255,255,0.10);
+    stroke: rgba(255,255,255,0.35);
+    stroke-width: 1.5;
+    transition: fill 0.2s, stroke 0.2s, filter 0.2s;
+  }
+  .fp-dev-em {
+    font-size: 18px;
+    dominant-baseline: middle;
+    pointer-events: none;
+    opacity: 0.85;
   }
   .fp-dev-lb {
     font-size: 11px;
@@ -590,48 +601,69 @@
     letter-spacing: 0.02em;
     pointer-events: none;
     dominant-baseline: middle;
+    font-weight: 500;
   }
-
-  /* Цвета фигур из легенды */
-  .shape-light  .fp-dev-bg { fill: #ecc7a8; }              /* peach */
-  .shape-ac     .fp-dev-bg { fill: #2f5f8b; }              /* синий */
-  .shape-inverter .fp-dev-bg { fill: #7a3a1e; }            /* коричневый */
-  .shape-tv     .fp-dev-bg { fill: #ffffff; }              /* белый */
-  .shape-sensor .fp-dev-bg { fill: #3fbf4a; }              /* зелёный */
-  .shape-vacuum .fp-dev-bg { fill: #dcd8d4; }              /* серовато-белый */
-  .shape-boiler .fp-dev-bg { fill: #f0e6da; }              /* белый треугольник */
-  .shape-tablet .fp-dev-bg { fill: #7a8590; }              /* серый */
-
   .fp-dev:hover .fp-dev-bg {
     stroke: var(--amber);
-    stroke-width: 2;
-    filter: brightness(1.15);
+    stroke-width: 2.5;
+    fill: rgba(212,160,74,0.15);
   }
 
-  /* Off (устройство есть но выключено) — притемнить */
-  .fp-dev.state-off .fp-dev-bg { filter: brightness(0.55) saturate(0.7); }
-  /* Not-found — совсем блёкло + пунктир */
+  /* Off (устройство есть но выключено) */
+  .fp-dev.state-off .fp-dev-bg { fill: rgba(255,255,255,0.06); }
+  .fp-dev.state-off .fp-dev-em { opacity: 0.55; filter: grayscale(0.5); }
+  /* Not-found */
   .fp-dev.state-missing .fp-dev-bg {
-    filter: brightness(0.4) saturate(0.3);
+    fill: rgba(255,255,255,0.04);
+    stroke: rgba(255,255,255,0.15);
     stroke-dasharray: 3 2;
   }
+  .fp-dev.state-missing .fp-dev-em { opacity: 0.3; filter: grayscale(1); }
+  .fp-dev.state-missing .fp-dev-lb { fill: rgba(255,255,255,0.35); }
 
   /* On состояния — свечение соответствующим цветом */
   .fp-dev.state-on .fp-dev-bg {
-    filter: brightness(1.25) drop-shadow(0 0 6px var(--amber));
+    fill: rgba(212,160,74,0.35);
     stroke: var(--amber);
+    stroke-width: 2;
+    filter: drop-shadow(0 0 8px var(--amber));
   }
+  .fp-dev.state-on .fp-dev-em { opacity: 1; }
+  .fp-dev.state-on .fp-dev-lb { fill: var(--amber); }
+
   .fp-dev.state-cool .fp-dev-bg {
-    filter: brightness(1.15) drop-shadow(0 0 6px var(--cyan));
+    fill: rgba(122,181,193,0.35);
     stroke: var(--cyan);
+    stroke-width: 2;
+    filter: drop-shadow(0 0 8px var(--cyan));
   }
+  .fp-dev.state-cool .fp-dev-em { opacity: 1; }
+  .fp-dev.state-cool .fp-dev-lb { fill: var(--cyan); }
+
   .fp-dev.state-warm .fp-dev-bg {
-    filter: brightness(1.15) drop-shadow(0 0 6px var(--coral));
+    fill: rgba(224,123,95,0.35);
     stroke: var(--coral);
+    stroke-width: 2;
+    filter: drop-shadow(0 0 8px var(--coral));
   }
+  .fp-dev.state-warm .fp-dev-em { opacity: 1; }
+  .fp-dev.state-warm .fp-dev-lb { fill: var(--coral); }
+
   .fp-dev.state-sensor .fp-dev-bg {
-    filter: brightness(1.1) drop-shadow(0 0 4px var(--sage));
+    fill: rgba(134,172,106,0.25);
+    stroke: var(--sage);
+    stroke-width: 1.5;
   }
+  .fp-dev.state-sensor .fp-dev-em { opacity: 1; }
+
+  /* Планшет — «ты здесь» — постоянная cyan подсветка */
+  .fp-dev.fp-dev-static .fp-dev-bg {
+    fill: rgba(122,181,193,0.25);
+    stroke: var(--cyan);
+    stroke-width: 1.5;
+  }
+  .fp-dev.fp-dev-static .fp-dev-em { opacity: 1; }
+  .fp-dev.fp-dev-static .fp-dev-lb { fill: var(--cyan); font-size: 10px; }
 
   /* Пульсация активных */
   .fp-dev.state-on,
@@ -641,7 +673,7 @@
   }
   @keyframes fp-glow {
     0%, 100% { opacity: 1; }
-    50%      { opacity: 0.75; }
+    50%      { opacity: 0.85; }
   }
 
   .plan-legend {
@@ -2529,12 +2561,12 @@
         <line x1="860" y1="600" x2="895" y2="565" stroke="rgba(0,0,0,0.6)" stroke-width="2"/>
 
         <!-- Проёмы дверей (обнуляют кусок стены) -->
-        <line x1="245" y1="540" x2="285" y2="540" stroke="var(--bg)" stroke-width="4"/>
-        <line x1="440" y1="540" x2="475" y2="540" stroke="var(--bg)" stroke-width="4"/>
-        <line x1="670" y1="540" x2="710" y2="540" stroke="var(--bg)" stroke-width="4"/>
-        <line x1="860" y1="460" x2="860" y2="500" stroke="var(--bg)" stroke-width="4"/>
-        <line x1="860" y1="595" x2="860" y2="635" stroke="var(--bg)" stroke-width="4"/>
-        <line x1="140" y1="150" x2="180" y2="150" stroke="var(--bg)" stroke-width="4"/>
+        <line x1="245" y1="540" x2="285" y2="540" stroke="#1a1614" stroke-width="4"/>
+        <line x1="440" y1="540" x2="475" y2="540" stroke="#1a1614" stroke-width="4"/>
+        <line x1="670" y1="540" x2="710" y2="540" stroke="#1a1614" stroke-width="4"/>
+        <line x1="860" y1="460" x2="860" y2="500" stroke="#1a1614" stroke-width="4"/>
+        <line x1="860" y1="595" x2="860" y2="635" stroke="#1a1614" stroke-width="4"/>
+        <line x1="140" y1="150" x2="180" y2="150" stroke="#1a1614" stroke-width="4"/>
 
         <!-- Выходная дверь коридора (диагональ вниз-влево, зелёная) -->
         <line x1="600" y1="765" x2="565" y2="785" stroke="var(--sage)" stroke-width="2.5" opacity="0.7"/>
@@ -2543,96 +2575,96 @@
         <!-- ═══════════ УСТРОЙСТВА (стилизованы как на легенде) ═══════════ -->
 
         <!-- ═════ СПАЛЬНЯ ═════ -->
-        <!-- Свет: пич-кружок на верхней стене (у балкона) -->
-        <g class="fp-dev shape-light" data-room="Спальня" data-kind="light"
+        <g class="fp-dev" data-room="Спальня" data-kind="light"
            data-match-any="спальня,спалня" data-match-all="свет,лампа,люстра,light"
-           transform="translate(215, 175)">
-          <circle class="fp-dev-bg" r="14"/>
-          <text class="fp-dev-lb" y="30" text-anchor="middle">свет</text>
+           transform="translate(215, 190)">
+          <circle class="fp-dev-bg" r="22"/>
+          <text class="fp-dev-em" y="7" text-anchor="middle">💡</text>
+          <text class="fp-dev-lb" y="40" text-anchor="middle">свет</text>
         </g>
-        <!-- Кондер: синий вертикальный бар у стены сверху (справа от свет-круга) -->
-        <g class="fp-dev shape-ac" data-room="Спальня" data-kind="ac"
+        <g class="fp-dev" data-room="Спальня" data-kind="ac"
            data-match-any="спальня,спалня" data-match-all="кондер,кондиц,ac"
-           transform="translate(258, 180)">
-          <rect class="fp-dev-bg" x="-6" y="-22" width="12" height="45" rx="2"/>
-          <text class="fp-dev-lb" x="18" y="4">кондер</text>
+           transform="translate(258, 190)">
+          <circle class="fp-dev-bg" r="22"/>
+          <text class="fp-dev-em" y="7" text-anchor="middle">❄️</text>
+          <text class="fp-dev-lb" y="40" text-anchor="middle">кондер</text>
         </g>
-        <!-- Инвертор: коричневый вертикальный бар на левой стене (изнутри к стене) -->
-        <g class="fp-dev shape-inverter" data-room="Спальня" data-kind="inverter"
+        <g class="fp-dev" data-room="Спальня" data-kind="inverter"
            data-match-any="инвертор,inverter" data-match-all=""
-           transform="translate(15, 310)">
-          <rect class="fp-dev-bg" x="-5" y="-25" width="10" height="50" rx="2"/>
-          <text class="fp-dev-lb" x="15" y="4">инвертор</text>
+           transform="translate(45, 310)">
+          <circle class="fp-dev-bg" r="22"/>
+          <text class="fp-dev-em" y="7" text-anchor="middle">🔌</text>
+          <text class="fp-dev-lb" y="40" text-anchor="middle">инвертор</text>
         </g>
-        <!-- Телик: белый узкий вертикальный бар на правой стене спальни -->
-        <g class="fp-dev shape-tv" data-room="Спальня" data-kind="tv"
+        <g class="fp-dev" data-room="Спальня" data-kind="tv"
            data-match-any="спальня,спалня" data-match-all="телик,тв,tv,телевиз"
-           transform="translate(272, 370)">
-          <rect class="fp-dev-bg" x="-3" y="-30" width="6" height="60" rx="1"/>
-          <text class="fp-dev-lb" x="-14" y="4" text-anchor="end">телик</text>
+           transform="translate(240, 380)">
+          <circle class="fp-dev-bg" r="20"/>
+          <text class="fp-dev-em" y="7" text-anchor="middle">📺</text>
+          <text class="fp-dev-lb" y="37" text-anchor="middle">телик</text>
         </g>
-        <!-- Датчик температуры: маленький зелёный квадратик на правой стене возле двери -->
-        <g class="fp-dev shape-sensor" data-room="Спальня" data-kind="sensor"
+        <g class="fp-dev" data-room="Спальня" data-kind="sensor"
            data-match-any="датчик,sensor,temp,humid" data-match-all=""
-           transform="translate(272, 505)">
-          <rect class="fp-dev-bg" x="-5" y="-9" width="10" height="18" rx="1"/>
-          <text class="fp-dev-lb" x="-14" y="4" text-anchor="end">🌡</text>
+           transform="translate(240, 505)">
+          <circle class="fp-dev-bg" r="18"/>
+          <text class="fp-dev-em" y="6" text-anchor="middle" style="font-size:16px">🌡</text>
+          <text class="fp-dev-lb" y="34" text-anchor="middle">датчик</text>
         </g>
 
         <!-- ═════ ДЕТСКАЯ ═════ -->
-        <!-- Кондер: синий вертикальный бар сверху, у окна -->
-        <g class="fp-dev shape-ac" data-room="Детская" data-kind="ac"
+        <g class="fp-dev" data-room="Детская" data-kind="ac"
            data-match-any="детская,детск" data-match-all="кондер,кондиц,ac"
-           transform="translate(300, 180)">
-          <rect class="fp-dev-bg" x="-6" y="-22" width="12" height="45" rx="2"/>
-          <text class="fp-dev-lb" x="0" y="35" text-anchor="middle">кондер</text>
+           transform="translate(320, 195)">
+          <circle class="fp-dev-bg" r="22"/>
+          <text class="fp-dev-em" y="7" text-anchor="middle">❄️</text>
+          <text class="fp-dev-lb" y="40" text-anchor="middle">кондер</text>
         </g>
-        <!-- Свет: пич-кружок сверху справа (между окнами) -->
-        <g class="fp-dev shape-light" data-room="Детская" data-kind="light"
+        <g class="fp-dev" data-room="Детская" data-kind="light"
            data-match-any="детская,детск" data-match-all="свет,лампа,люстра,light"
-           transform="translate(660, 180)">
-          <circle class="fp-dev-bg" r="14"/>
-          <text class="fp-dev-lb" y="30" text-anchor="middle">свет</text>
+           transform="translate(660, 195)">
+          <circle class="fp-dev-bg" r="22"/>
+          <text class="fp-dev-em" y="7" text-anchor="middle">💡</text>
+          <text class="fp-dev-lb" y="40" text-anchor="middle">свет</text>
         </g>
 
         <!-- ═════ КУХНЯ ═════ -->
-        <!-- Свет: пич-кружок по центру -->
-        <g class="fp-dev shape-light" data-room="Кухня" data-kind="light"
+        <g class="fp-dev" data-room="Кухня" data-kind="light"
            data-match-any="кухня,кухн" data-match-all="свет,лампа,люстра,light"
-           transform="translate(970, 275)">
-          <circle class="fp-dev-bg" r="14"/>
-          <text class="fp-dev-lb" y="30" text-anchor="middle">свет</text>
+           transform="translate(940, 275)">
+          <circle class="fp-dev-bg" r="24"/>
+          <text class="fp-dev-em" y="7" text-anchor="middle">💡</text>
+          <text class="fp-dev-lb" y="42" text-anchor="middle">свет</text>
         </g>
 
         <!-- ═════ ТУАЛЕТ ═════ -->
-        <!-- Бойлер: белый треугольник в правом верхнем углу -->
-        <g class="fp-dev shape-boiler" data-room="Туалет" data-kind="boiler"
+        <g class="fp-dev" data-room="Туалет" data-kind="boiler"
            data-match-any="бойлер,boiler,водонагр" data-match-all=""
-           transform="translate(1105, 435)">
-          <polygon class="fp-dev-bg" points="-14,-8 14,-8 0,14"/>
-          <text class="fp-dev-lb" x="-20" y="4" text-anchor="end" id="planBoilerLb">бойлер</text>
+           transform="translate(1095, 435)">
+          <circle class="fp-dev-bg" r="22"/>
+          <text class="fp-dev-em" y="7" text-anchor="middle">🔥</text>
+          <text class="fp-dev-lb" y="40" text-anchor="middle" id="planBoilerLb">бойлер</text>
         </g>
 
         <!-- ═════ КОРИДОР ═════ -->
-        <!-- Пылесос: белый шестиугольник по центру-снизу -->
-        <g class="fp-dev shape-vacuum" data-room="Коридор" data-kind="vacuum"
+        <g class="fp-dev" data-room="Коридор" data-kind="vacuum"
            data-match-any="пылесос,гоша,vacuum,robot" data-match-all=""
-           transform="translate(555, 705)">
-          <polygon class="fp-dev-bg" points="-12,-6 -6,-13 6,-13 12,-6 12,6 6,13 -6,13 -12,6"/>
-          <text class="fp-dev-lb" x="16" y="4" id="planVacuumLb">Гоша</text>
+           transform="translate(555, 660)">
+          <circle class="fp-dev-bg" r="22"/>
+          <text class="fp-dev-em" y="7" text-anchor="middle">🤖</text>
+          <text class="fp-dev-lb" y="40" text-anchor="middle" id="planVacuumLb">Гоша</text>
         </g>
-        <!-- Планшет: серая горизонтальная полоска (нижняя стена) -->
-        <g class="fp-dev fp-dev-static shape-tablet" data-room="Коридор" data-kind="tablet"
-           transform="translate(650, 762)">
-          <rect class="fp-dev-bg" x="-22" y="-6" width="44" height="12" rx="1.5"/>
-          <text class="fp-dev-lb" y="-11" text-anchor="middle">📱 ты здесь</text>
+        <g class="fp-dev fp-dev-static" data-room="Коридор" data-kind="tablet"
+           transform="translate(650, 660)">
+          <circle class="fp-dev-bg" r="22"/>
+          <text class="fp-dev-em" y="7" text-anchor="middle">📱</text>
+          <text class="fp-dev-lb" y="40" text-anchor="middle">ты здесь</text>
         </g>
-        <!-- Инвертор: коричневый вертикальный бар у правой стены (граница с Ванной) -->
-        <g class="fp-dev shape-inverter" data-room="Коридор" data-kind="inverter2"
+        <g class="fp-dev" data-room="Коридор" data-kind="inverter2"
            data-match-any="инвертор" data-match-all=""
-           transform="translate(852, 700)">
-          <rect class="fp-dev-bg" x="-5" y="-22" width="10" height="45" rx="2"/>
-          <text class="fp-dev-lb" x="-14" y="4" text-anchor="end">инв</text>
+           transform="translate(830, 700)">
+          <circle class="fp-dev-bg" r="20"/>
+          <text class="fp-dev-em" y="7" text-anchor="middle">🔌</text>
+          <text class="fp-dev-lb" y="38" text-anchor="middle">инвертор</text>
         </g>
       </svg>
 
