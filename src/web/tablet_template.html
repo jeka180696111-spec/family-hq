@@ -738,14 +738,22 @@
   .plan-wrap.editing .fp-selected .fp-room { stroke: var(--amber); stroke-width: 3; stroke-dasharray: none; }
   .plan-wrap.editing .fp-selected .fp-dev-bg { stroke: var(--amber); stroke-width: 3; }
 
-  .fp-handle {
+  .fp-handle-vertex {
     fill: var(--amber);
     stroke: #1a1200;
     stroke-width: 1;
-    cursor: nwse-resize;
+    cursor: move;
   }
-  .fp-handle-ne, .fp-handle-sw { cursor: nesw-resize; }
-  .fp-handle-nw, .fp-handle-se { cursor: nwse-resize; }
+  .fp-handle-mid {
+    fill: rgba(212,160,74,0.35);
+    stroke: var(--amber);
+    stroke-width: 1;
+    stroke-dasharray: 2 1;
+    cursor: pointer;
+  }
+  .fp-handle-mid:hover {
+    fill: var(--amber);
+  }
 
   .plan-palette {
     margin-top: 14px;
@@ -2584,7 +2592,7 @@
     </div>
 
     <div class="plan-wrap" id="planWrap">
-      <svg viewBox="0 0 1140 770" class="floorplan" id="floorplanSvg" xmlns="http://www.w3.org/2000/svg">
+      <svg viewBox="0 0 800 520" class="floorplan" id="floorplanSvg" xmlns="http://www.w3.org/2000/svg">
         <!-- Комнаты и устройства рендерятся из JavaScript (планировка в localStorage) -->
       </svg>
 
@@ -3527,19 +3535,34 @@ document.querySelectorAll('.shop-item').forEach(item => {
     'Ванна':    'rgba(140, 140, 145, 0.55)',
   };
 
+  // Комнаты — полигоны (массивы точек). Для прямоугольной комнаты — 4 точки.
+  // Для Г-образной (коридор) — 6 и т.д. Точки в порядке обхода.
+  function rectPoints(x, y, w, h) {
+    return [{x,y}, {x:x+w,y}, {x:x+w,y:y+h}, {x,y:y+h}];
+  }
   const DEFAULT_PLAN_LAYOUT = {
     rooms: [
-      { id: 'r1', name: 'Балкон',   x: 5,   y: 5,   w: 275, h: 145 },
-      { id: 'r2', name: 'Спальня',  x: 5,   y: 150, w: 275, h: 535 },
-      { id: 'r3', name: 'Шкаф',     x: 5,   y: 685, w: 275, h: 80  },
-      { id: 'r4', name: 'Детская',  x: 280, y: 150, w: 465, h: 390 },
-      { id: 'r5', name: 'Коридор',  x: 280, y: 540, w: 580, h: 225 },
-      { id: 'r6', name: 'Кухня',    x: 745, y: 150, w: 390, h: 255 },
-      { id: 'r7', name: 'Туалет',   x: 860, y: 405, w: 275, h: 135 },
-      { id: 'r8', name: 'Ванна',    x: 860, y: 540, w: 275, h: 225 },
+      { id: 'r1', name: 'Балкон',   points: rectPoints( 60,  10, 220,  50) },
+      { id: 'r2', name: 'Спальня',  points: rectPoints( 20,  60, 240, 300) },
+      { id: 'r3', name: 'Шкаф',     points: rectPoints( 20, 360, 240,  60) },
+      { id: 'r4', name: 'Детская',  points: rectPoints(260,  60, 240, 300) },
+      { id: 'r5', name: 'Коридор',  points: rectPoints(260, 360, 340,  60) },
+      { id: 'r6', name: 'Кухня',    points: rectPoints(500,  60, 200, 130) },
+      { id: 'r7', name: 'Туалет',   points: rectPoints(500, 190, 200,  80) },
+      { id: 'r8', name: 'Ванна',    points: rectPoints(500, 270, 200, 150) },
     ],
-    devices: [],  // пусто по умолчанию — пользователь ставит сам
+    devices: [],
   };
+
+  function polyCentroid(pts) {
+    const n = pts.length || 1;
+    const sx = pts.reduce((a, p) => a + p.x, 0) / n;
+    const sy = pts.reduce((a, p) => a + p.y, 0) / n;
+    return { x: sx, y: sy };
+  }
+  function pointsStr(pts) {
+    return pts.map(p => Math.round(p.x*10)/10 + ',' + Math.round(p.y*10)/10).join(' ');
+  }
 
   const DEVICE_META = {
     light:    { em: '💡', label: 'свет',     matchAll: 'свет,лампа,люстра,light' },
@@ -3557,7 +3580,16 @@ document.querySelectorAll('.shop-item').forEach(item => {
       const raw = localStorage.getItem('planLayout');
       if (raw) {
         const p = JSON.parse(raw);
-        if (p && Array.isArray(p.rooms) && Array.isArray(p.devices)) return p;
+        if (p && Array.isArray(p.rooms) && Array.isArray(p.devices)) {
+          // Миграция из старого формата (x,y,w,h → points)
+          p.rooms = p.rooms.map(r => {
+            if (!r.points && typeof r.x === 'number') {
+              return { id: r.id, name: r.name, points: rectPoints(r.x, r.y, r.w, r.h) };
+            }
+            return r;
+          });
+          return p;
+        }
       }
     } catch(e) {}
     return JSON.parse(JSON.stringify(DEFAULT_PLAN_LAYOUT));
@@ -3616,35 +3648,45 @@ document.querySelectorAll('.shop-item').forEach(item => {
     if (!svg) return;
     while (svg.firstChild) svg.removeChild(svg.firstChild);
 
-    // Комнаты
+    // Комнаты — полигоны
     for (const r of _planLayout.rooms) {
       const g = _el('g', { 'class': 'fp-room-g', 'data-id': r.id });
-      const rect = _el('rect', {
-        'class': 'fp-room', x: r.x, y: r.y, width: r.w, height: r.h,
-        rx: 4, fill: PLAN_ROOM_COLORS[r.name] || 'rgba(255,255,255,0.08)',
+      const poly = _el('polygon', {
+        'class': 'fp-room',
+        points: pointsStr(r.points),
+        fill: PLAN_ROOM_COLORS[r.name] || 'rgba(255,255,255,0.08)',
       });
-      g.appendChild(rect);
+      g.appendChild(poly);
+      const c = polyCentroid(r.points);
       const tx = _el('text', {
         'class': 'fp-room-lb',
-        x: r.x + r.w / 2, y: r.y + r.h / 2 + 6,
-        'text-anchor': 'middle',
+        x: c.x, y: c.y + 5, 'text-anchor': 'middle',
       });
       tx.textContent = r.name.toUpperCase();
       g.appendChild(tx);
-      // Handles для редактирования (появляются в edit-режиме через CSS)
+      // Handles на каждой вершине + серединки рёбер (для добавления вершины)
       if (_planEditing) {
-        // Углы для resize
-        for (const [cx, cy, cls] of [
-          [r.x, r.y, 'nw'], [r.x + r.w, r.y, 'ne'],
-          [r.x, r.y + r.h, 'sw'], [r.x + r.w, r.y + r.h, 'se'],
-        ]) {
+        // Вершины
+        r.points.forEach((p, i) => {
           const h = _el('rect', {
-            'class': 'fp-handle fp-handle-' + cls,
-            x: cx - 6, y: cy - 6, width: 12, height: 12,
-            'data-room-id': r.id, 'data-corner': cls,
+            'class': 'fp-handle fp-handle-vertex',
+            x: p.x - 6, y: p.y - 6, width: 12, height: 12,
+            'data-room-id': r.id, 'data-vertex': i,
           });
           g.appendChild(h);
-        }
+        });
+        // Серединки рёбер (полупрозрачные кружки, тап = добавить вершину)
+        r.points.forEach((p, i) => {
+          const next = r.points[(i + 1) % r.points.length];
+          const mx = (p.x + next.x) / 2;
+          const my = (p.y + next.y) / 2;
+          const mh = _el('circle', {
+            'class': 'fp-handle fp-handle-mid',
+            cx: mx, cy: my, r: 5,
+            'data-room-id': r.id, 'data-edge': i,
+          });
+          g.appendChild(mh);
+        });
       }
       svg.appendChild(g);
     }
@@ -3757,7 +3799,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
   function addPlanDevice(kind) {
     const id = 'd' + Date.now() + Math.floor(Math.random() * 999);
     _planLayout.devices.push({
-      id, kind, x: 570, y: 385,   // центр плана
+      id, kind, x: 400, y: 260,   // центр плана
       tuyaName: '', label: DEVICE_META[kind]?.label || kind,
     });
     _planSelectedId = id;
@@ -3813,15 +3855,18 @@ document.querySelectorAll('.shop-item').forEach(item => {
     return pt.matrixTransform(inv);
   }
 
-  function _startDrag(evt, type, id, corner) {
+  function _startDrag(evt, type, id, extra) {
     if (!_planEditing) return;
     const p = _svgPoint(evt);
     _drag.active = true;
-    _drag.type = type; _drag.id = id; _drag.corner = corner || null;
+    _drag.type = type; _drag.id = id; _drag.extra = extra || null;
     _drag.sx = p.x; _drag.sy = p.y;
     if (type === 'room') {
       const r = _planLayout.rooms.find(r => r.id === id);
-      if (r) { _drag.ox = r.x; _drag.oy = r.y; _drag.ow = r.w; _drag.oh = r.h; }
+      if (r) { _drag.origPoints = r.points.map(pt => ({...pt})); }
+    } else if (type === 'vertex') {
+      const r = _planLayout.rooms.find(r => r.id === id);
+      if (r && r.points[extra]) { _drag.ox = r.points[extra].x; _drag.oy = r.points[extra].y; }
     } else if (type === 'dev') {
       const d = _planLayout.devices.find(d => d.id === id);
       if (d) { _drag.ox = d.x; _drag.oy = d.y; }
@@ -3832,66 +3877,66 @@ document.querySelectorAll('.shop-item').forEach(item => {
     if (!_drag.active) return;
     const p = _svgPoint(evt);
     const dx = p.x - _drag.sx, dy = p.y - _drag.sy;
+    const SNAP = 5;
     if (_drag.type === 'room') {
       const r = _planLayout.rooms.find(r => r.id === _drag.id);
-      if (!r) return;
-      if (_drag.corner) {
-        // resize
-        const snap = 10;
-        let nx = _drag.ox, ny = _drag.oy, nw = _drag.ow, nh = _drag.oh;
-        if (_drag.corner.includes('e')) nw = Math.max(60, _drag.ow + dx);
-        if (_drag.corner.includes('s')) nh = Math.max(40, _drag.oh + dy);
-        if (_drag.corner.includes('w')) {
-          const shift = Math.min(dx, _drag.ow - 60);
-          nx = _drag.ox + shift; nw = _drag.ow - shift;
-        }
-        if (_drag.corner.includes('n')) {
-          const shift = Math.min(dy, _drag.oh - 40);
-          ny = _drag.oy + shift; nh = _drag.oh - shift;
-        }
-        r.x = Math.round(nx / snap) * snap;
-        r.y = Math.round(ny / snap) * snap;
-        r.w = Math.round(nw / snap) * snap;
-        r.h = Math.round(nh / snap) * snap;
-      } else {
-        r.x = Math.round((_drag.ox + dx) / 10) * 10;
-        r.y = Math.round((_drag.oy + dy) / 10) * 10;
-      }
+      if (!r || !_drag.origPoints) return;
+      r.points = _drag.origPoints.map(pt => ({
+        x: Math.round((pt.x + dx) / SNAP) * SNAP,
+        y: Math.round((pt.y + dy) / SNAP) * SNAP,
+      }));
+    } else if (_drag.type === 'vertex') {
+      const r = _planLayout.rooms.find(r => r.id === _drag.id);
+      if (!r || !r.points[_drag.extra]) return;
+      r.points[_drag.extra].x = Math.round((_drag.ox + dx) / SNAP) * SNAP;
+      r.points[_drag.extra].y = Math.round((_drag.oy + dy) / SNAP) * SNAP;
     } else if (_drag.type === 'dev') {
       const d = _planLayout.devices.find(d => d.id === _drag.id);
       if (!d) return;
-      d.x = Math.round((_drag.ox + dx) / 5) * 5;
-      d.y = Math.round((_drag.oy + dy) / 5) * 5;
+      d.x = Math.round((_drag.ox + dx) / SNAP) * SNAP;
+      d.y = Math.round((_drag.oy + dy) / SNAP) * SNAP;
     }
     renderPlanSvg();
     evt.preventDefault?.();
   }
-  function _endDrag() { _drag.active = false; _drag.id = null; _drag.corner = null; }
+  function _endDrag() { _drag.active = false; _drag.id = null; _drag.extra = null; _drag.origPoints = null; }
 
-  // Делегирование событий на SVG (mouse + touch)
+  // Клик по «серединке ребра» — добавить вершину
+  function _insertVertex(roomId, edgeIndex) {
+    const r = _planLayout.rooms.find(r => r.id === roomId);
+    if (!r) return;
+    const a = r.points[edgeIndex];
+    const b = r.points[(edgeIndex + 1) % r.points.length];
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    r.points.splice(edgeIndex + 1, 0, mid);
+    renderPlanSvg();
+  }
+  // Удаление вершины (по dblclick на вершине) — если больше 3 точек
+  function _removeVertex(roomId, vertexIndex) {
+    const r = _planLayout.rooms.find(r => r.id === roomId);
+    if (!r || r.points.length <= 3) return;
+    r.points.splice(vertexIndex, 1);
+    renderPlanSvg();
+  }
+
+  // Универсальный роутинг тапа на SVG-элементы
+  function _routeStart(evt, target) {
+    if (!_planEditing) return;
+    const vh = target.closest('.fp-handle-vertex');
+    if (vh) { _planSelectedId = vh.dataset.roomId; _startDrag(evt, 'vertex', vh.dataset.roomId, parseInt(vh.dataset.vertex, 10)); renderPlanSvg(); return; }
+    const mh = target.closest('.fp-handle-mid');
+    if (mh) { _insertVertex(mh.dataset.roomId, parseInt(mh.dataset.edge, 10)); return; }
+    const dev = target.closest('.fp-dev');
+    if (dev) { _planSelectedId = dev.dataset.id; _startDrag(evt, 'dev', dev.dataset.id); renderPlanSvg(); return; }
+    const room = target.closest('.fp-room-g');
+    if (room) { _planSelectedId = room.dataset.id; _startDrag(evt, 'room', room.dataset.id); renderPlanSvg(); return; }
+  }
+
   document.addEventListener('mousedown', (e) => {
     if (!_planEditing) return;
     const svg = document.getElementById('floorplanSvg');
     if (!svg || !svg.contains(e.target)) return;
-    const handle = e.target.closest('.fp-handle');
-    if (handle) {
-      _startDrag(e, 'room', handle.dataset.roomId, handle.dataset.corner);
-      return;
-    }
-    const dev = e.target.closest('.fp-dev');
-    if (dev) {
-      _planSelectedId = dev.dataset.id;
-      _startDrag(e, 'dev', dev.dataset.id);
-      renderPlanSvg();
-      return;
-    }
-    const room = e.target.closest('.fp-room-g');
-    if (room) {
-      _planSelectedId = room.dataset.id;
-      _startDrag(e, 'room', room.dataset.id);
-      renderPlanSvg();
-      return;
-    }
+    _routeStart(e, e.target);
   });
   document.addEventListener('mousemove', _onMove);
   document.addEventListener('mouseup', _endDrag);
@@ -3904,12 +3949,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
     if (!target) return;
     const svg = document.getElementById('floorplanSvg');
     if (!svg || !svg.contains(target)) return;
-    const handle = target.closest('.fp-handle');
-    if (handle) { _startDrag(t, 'room', handle.dataset.roomId, handle.dataset.corner); return; }
-    const dev = target.closest('.fp-dev');
-    if (dev) { _planSelectedId = dev.dataset.id; _startDrag(t, 'dev', dev.dataset.id); renderPlanSvg(); return; }
-    const room = target.closest('.fp-room-g');
-    if (room) { _planSelectedId = room.dataset.id; _startDrag(t, 'room', room.dataset.id); renderPlanSvg(); return; }
+    _routeStart(t, target);
   }, { passive: false });
   document.addEventListener('touchmove', (e) => {
     if (!_drag.active) return;
@@ -3917,9 +3957,14 @@ document.querySelectorAll('.shop-item').forEach(item => {
   }, { passive: false });
   document.addEventListener('touchend', _endDrag);
 
-  // Двойной тап на комнату → переименовать. Двойной тап на устройство → меню (привязка/удаление).
+  // dblclick: устройство → меню, вершина → удалить (если >3), комната → переименовать
   document.addEventListener('dblclick', (e) => {
     if (!_planEditing) return;
+    const vh = e.target.closest('.fp-handle-vertex');
+    if (vh && confirm('Удалить эту вершину?')) {
+      _removeVertex(vh.dataset.roomId, parseInt(vh.dataset.vertex, 10));
+      return;
+    }
     const dev = e.target.closest('.fp-dev');
     if (dev) {
       const id = dev.dataset.id;
