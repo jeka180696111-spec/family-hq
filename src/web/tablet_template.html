@@ -2670,16 +2670,26 @@ document.querySelectorAll('.shop-item').forEach(item => {
     }
     setText('battGrid', gridActive ? 'Есть' : 'НЕТ');
 
+    // Карточку больше не прячем автоматически при наличии сети —
+    // пользователь сам решает скрывать её или нет через ✕ в edit-mode.
+    // Меняется только содержимое: свет есть → короткий статус (SoC,
+    // «сеть в норме»), свет пропал → полноценный runtime + подсказки.
+    if (card) card.style.display = '';
+    const etaBlock = document.querySelector('.battery-eta');
     if (gridActive) {
-      // === СВЕТ ЕСТЬ === прячем всю карточку
-      if (card) card.style.display = 'none';
-      return;
+      if (cardTitle) cardTitle.textContent = 'Инвертор · заряд';
+      if (etaBlock) etaBlock.style.display = 'none';
+      if (inv.soc != null) {
+        setHtml('battRuntime', inv.soc + '<span class="unit">%</span>');
+      } else {
+        setHtml('battRuntime', '<span style="color: var(--text-dim)">—</span>');
+      }
+      setText('battLoad', 'сеть в норме, батарея на подхвате');
+      // Спарклайн/подсказки при светe не нужны — очистим блок
+      const container = document.querySelector('.battery-forecast');
+      if (container) container.innerHTML = '';
     } else {
-      // === СВЕТ ПРОПАЛ === показываем карточку
-      if (card) card.style.display = '';
-      // === СВЕТ ПРОПАЛ === полноценный runtime
       if (cardTitle) cardTitle.textContent = 'Автономность';
-      const etaBlock = document.querySelector('.battery-eta');
       if (etaBlock) etaBlock.style.display = '';
       if (inv.load_w != null && inv.load_w > 0 && inv.soc != null) {
         const kwh = 5 * (inv.soc / 100) * 0.8;
@@ -2689,7 +2699,6 @@ document.querySelectorAll('.shop-item').forEach(item => {
         setText('battLoad', 'при нагрузке ' + Math.round(inv.load_w) + ' Вт');
         const eta = new Date(Date.now() + totalMin * 60000);
         setText('battEta', '≈ ' + String(eta.getHours()).padStart(2,'0') + ':' + String(eta.getMinutes()).padStart(2,'0'));
-        // Заменяем спарклайн на список «Как сэкономить» по реальным устройствам
         renderSavingSuggestions(devices, totalMin);
       } else {
         setHtml('battRuntime', '<span style="color: var(--coral)">данных нет</span>');
