@@ -3628,8 +3628,22 @@ document.querySelectorAll('.shop-item').forEach(item => {
       status.textContent = 'Прораб думает…';
       try {
         const r = await apiPost('/api/tablet/action/automation', {op: 'add', text});
-        if (r && r.success) { refreshState(); row.remove(); }
-        else { status.textContent = 'Не получилось: ' + (r?.error || 'неизвестная ошибка'); }
+        if (r && r.success) {
+          const reply = (r.reply || '').replace(/</g,'&lt;').slice(0, 400);
+          if (r.created) {
+            status.innerHTML = `<span style="color:var(--sage)">✓ Создал!</span> ${reply ? '<br>' + reply : ''}<br><em style="color:var(--text-mute)">Проверь в списке ниже. Если не то — удали ✕ и переформулируй.</em>`;
+            // Форму убираем через 4 сек, чтоб успел прочитать ответ
+            setTimeout(() => { row.remove(); refreshState(); }, 4000);
+          } else {
+            // Прораб не создал правило — либо переспрашивает, либо
+            // задумал сцену/действие. Показываем его ответ и НЕ убираем
+            // форму — юзер может уточнить или отменить.
+            status.innerHTML = `<span style="color:var(--amber)">Прораб не создал правило.</span> ${reply ? 'Он ответил:<br>' + reply : 'Уточни формулировку.'}<br><em style="color:var(--text-mute)">Попробуй явно: «Каждый день в 20:00 включи Спальня уют» или «Если в детской >26° — запусти Кондер 24 авто».</em>`;
+          }
+          refreshState();
+        } else {
+          status.textContent = 'Не получилось: ' + (r?.error || 'неизвестная ошибка');
+        }
       } catch(e) { status.textContent = 'Ошибка: ' + e; }
     };
     row.querySelector('[data-a="cancel"]').addEventListener('click', cancel);
