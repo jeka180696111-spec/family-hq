@@ -510,6 +510,76 @@
   }
   .fm-save:disabled { opacity: 0.5; cursor: default; }
 
+  /* ============ Вес / Рост ============ */
+  .growth-card { cursor: pointer; }
+  .growth-metric {
+    text-align: center;
+    padding: 12px 0 14px;
+  }
+  .growth-ic {
+    font-size: 24px;
+    color: var(--amber);
+    line-height: 1;
+  }
+  .growth-val {
+    font-family: ui-serif, Georgia, serif;
+    font-size: 44px;
+    color: var(--text);
+    line-height: 1;
+    margin-top: 4px;
+  }
+  .growth-val .unit {
+    color: var(--text-dim);
+    font-size: 16px;
+    margin-left: 4px;
+  }
+  .growth-delta {
+    font-size: 12px;
+    color: var(--sage);
+    margin-top: 6px;
+  }
+  .growth-delta.empty { color: var(--text-mute); }
+  .growth-pct {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 3px 10px;
+    background: rgba(134, 172, 106, 0.15);
+    color: var(--sage);
+    border-radius: 12px;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+  }
+  .growth-pct.warn { background: rgba(224, 123, 95, 0.15); color: var(--coral); }
+  .growth-chart-wrap {
+    position: relative;
+    height: 110px;
+    background: var(--card-hi);
+    border-radius: 10px;
+    padding: 8px;
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  .growth-chart-wrap svg {
+    width: 100%; height: 100%; overflow: visible;
+  }
+  .who-band-outer { fill: rgba(212, 160, 74, 0.06); }
+  .who-band-inner { fill: rgba(212, 160, 74, 0.14); }
+  .who-line-median { stroke: rgba(212, 160, 74, 0.4); stroke-dasharray: 3 3; stroke-width: 1; fill: none; }
+  .matvey-line {
+    stroke: var(--amber); stroke-width: 2.2; fill: none;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  .matvey-dot { fill: var(--amber); }
+  .matvey-dot.current { fill: #fff; stroke: var(--amber); stroke-width: 2.5; }
+  .growth-legend {
+    display: flex; gap: 12px; margin-top: 8px;
+    font-size: 10px; color: var(--text-dim);
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .growth-legend .lg-baby { color: var(--amber); }
+  .growth-legend .lg-band { color: rgba(212,160,74,0.5); }
+
   /* ============ План квартиры ============ */
   .plan-head {
     display: flex;
@@ -2389,6 +2459,42 @@
       </div>
     </div>
 
+    <!-- ═════ ВЕС ═════ -->
+    <div class="card growth-card" onclick="openGrowthLog('weight')">
+      <div class="card-title">Вес<button class="btn-more" onclick="event.stopPropagation();openGrowthLog('weight')">+ взвесить</button></div>
+      <div class="growth-metric">
+        <div class="growth-ic">⚖</div>
+        <div class="growth-val" id="growthWeightVal">—<span class="unit">кг</span></div>
+        <div class="growth-delta" id="growthWeightDelta">—</div>
+        <div class="growth-pct" id="growthWeightPct">—</div>
+      </div>
+      <div class="growth-chart-wrap">
+        <svg viewBox="0 0 300 120" id="growthWeightChart" preserveAspectRatio="none"></svg>
+      </div>
+      <div class="growth-legend">
+        <span class="lg-baby">● Матвей</span>
+        <span class="lg-band">▬ коридор ВОЗ 15-85%</span>
+      </div>
+    </div>
+
+    <!-- ═════ РОСТ ═════ -->
+    <div class="card growth-card" onclick="openGrowthLog('height')">
+      <div class="card-title">Рост<button class="btn-more" onclick="event.stopPropagation();openGrowthLog('height')">+ измерить</button></div>
+      <div class="growth-metric">
+        <div class="growth-ic">📏</div>
+        <div class="growth-val" id="growthHeightVal">—<span class="unit">см</span></div>
+        <div class="growth-delta" id="growthHeightDelta">—</div>
+        <div class="growth-pct" id="growthHeightPct">—</div>
+      </div>
+      <div class="growth-chart-wrap">
+        <svg viewBox="0 0 300 120" id="growthHeightChart" preserveAspectRatio="none"></svg>
+      </div>
+      <div class="growth-legend">
+        <span class="lg-baby">● Матвей</span>
+        <span class="lg-band">▬ коридор ВОЗ 15-85%</span>
+      </div>
+    </div>
+
     <!-- BATTERY / АВТОНОМНОСТЬ CARD -->
     <div class="card">
       <div class="card-title">Автономность</div>
@@ -2682,6 +2788,28 @@
         <div class="fm-actions">
           <button class="fm-cancel" onclick="closeFeedingAdd()">Отмена</button>
           <button class="fm-save" onclick="goFromAddToLog()">Дальше →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модалка: записать вес/рост -->
+  <div class="modal-backdrop" id="modal-growth-log" onclick="if(event.target===this)closeGrowthLog()">
+    <div class="modal feeding-modal">
+      <div class="modal-head">
+        <div class="modal-title"><span id="growthLogEm">⚖</span> <span id="growthLogTitle">Записать вес</span></div>
+        <button class="modal-close" onclick="closeGrowthLog()">✕</button>
+      </div>
+      <div class="feeding-modal-body">
+        <div class="fm-q">Вес (кг)</div>
+        <input type="number" step="0.1" min="0" class="fm-input" id="growthLogW" placeholder="напр. 9.5">
+        <div class="fm-q">Рост (см)</div>
+        <input type="number" step="0.5" min="0" class="fm-input" id="growthLogH" placeholder="напр. 72">
+        <div class="fm-q">Заметка (необязательно)</div>
+        <input type="text" class="fm-input" id="growthLogNotes" placeholder="приём у врача, дома…">
+        <div class="fm-actions">
+          <button class="fm-cancel" onclick="closeGrowthLog()">Отмена</button>
+          <button class="fm-save" onclick="submitGrowthLog()">Записать</button>
         </div>
       </div>
     </div>
@@ -3517,6 +3645,189 @@ document.querySelectorAll('.shop-item').forEach(item => {
     const em = document.getElementById('feedingAddEm').textContent || '🥄';
     closeFeedingAdd();
     openFeedingLog(name, em);
+  }
+
+  // ============ ВЕС / РОСТ ============
+  const GROWTH_MAX_AGE = 12;   // ось X — 0..12 месяцев (потом можно расширить)
+
+  async function loadGrowth() {
+    try {
+      const data = await apiGet('/api/tablet/growth');
+      if (data.error) throw new Error(data.error);
+      renderGrowthCard('weight', data.weight, data.age_months);
+      renderGrowthCard('height', data.height, data.age_months);
+    } catch(e) {
+      // тихо, не портим главный экран
+      console.warn('growth load failed', e);
+    }
+  }
+
+  function renderGrowthCard(kind, data, ageNow) {
+    const unit = kind === 'weight' ? 'кг' : 'см';
+    const latestKey = kind === 'weight' ? 'latest_kg' : 'latest_cm';
+    const deltaKey = kind === 'weight' ? 'delta_kg_per_month' : 'delta_cm_per_month';
+    const dataKey = kind === 'weight' ? 'kg' : 'cm';
+    const valEl = document.getElementById('growth' + (kind==='weight'?'Weight':'Height') + 'Val');
+    const dEl   = document.getElementById('growth' + (kind==='weight'?'Weight':'Height') + 'Delta');
+    const pEl   = document.getElementById('growth' + (kind==='weight'?'Weight':'Height') + 'Pct');
+    if (!valEl) return;
+    if (data[latestKey]) {
+      valEl.innerHTML = Number(data[latestKey]).toFixed(kind==='weight'?1:0) + '<span class="unit">' + unit + '</span>';
+    } else {
+      valEl.innerHTML = '—<span class="unit">' + unit + '</span>';
+    }
+    if (data[deltaKey] !== null && data[deltaKey] !== undefined) {
+      const sign = data[deltaKey] >= 0 ? '+' : '';
+      dEl.textContent = sign + Number(data[deltaKey]).toFixed(kind==='weight'?2:1) + ' ' + unit + ' за месяц';
+      dEl.classList.remove('empty');
+    } else {
+      dEl.textContent = 'Нужно ≥2 измерения для дельты';
+      dEl.classList.add('empty');
+    }
+    if (data.percentile && data.percentile.bucket) {
+      pEl.textContent = data.percentile.bucket;
+      const isNorm = /перцентил|норма/i.test(data.percentile.bucket) && !/ниже 3|выше 97/i.test(data.percentile.bucket);
+      pEl.classList.toggle('warn', !isNorm);
+    } else {
+      pEl.textContent = '';
+    }
+
+    const svgId = 'growth' + (kind==='weight'?'Weight':'Height') + 'Chart';
+    drawGrowthChart(svgId, data.who_band || [], data.history || [], dataKey, ageNow);
+  }
+
+  function drawGrowthChart(svgId, band, history, dataKey, ageNow) {
+    const svg = document.getElementById(svgId);
+    if (!svg) return;
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    const W = 300, H = 120;
+    const PAD_L = 8, PAD_R = 8, PAD_T = 4, PAD_B = 14;
+    const chartW = W - PAD_L - PAD_R;
+    const chartH = H - PAD_T - PAD_B;
+
+    // X axis: 0..GROWTH_MAX_AGE months
+    // Y axis: авто из полосы (p3-p97) + фактических значений
+    const maxAge = GROWTH_MAX_AGE;
+    const bandInRange = band.filter(b => b.age_months <= maxAge);
+    if (!bandInRange.length) return;
+
+    const allValues = [];
+    for (const b of bandInRange) { allValues.push(b.p3, b.p97); }
+    for (const p of history) if (p[dataKey] !== undefined) allValues.push(p[dataKey]);
+    const yMin = Math.min(...allValues) * 0.95;
+    const yMax = Math.max(...allValues) * 1.05;
+
+    const xScale = (age) => PAD_L + (age / maxAge) * chartW;
+    const yScale = (val) => PAD_T + chartH - ((val - yMin) / (yMax - yMin)) * chartH;
+
+    const NS = 'http://www.w3.org/2000/svg';
+    const el = (name, attrs, cls) => {
+      const e = document.createElementNS(NS, name);
+      for (const k in attrs) e.setAttribute(k, attrs[k]);
+      if (cls) e.setAttribute('class', cls);
+      return e;
+    };
+
+    // Полоса 3-97% (внешняя)
+    let outerTop = '', outerBot = '';
+    for (const b of bandInRange) {
+      outerTop += ` ${xScale(b.age_months)},${yScale(b.p97)}`;
+      outerBot = ` ${xScale(b.age_months)},${yScale(b.p3)}` + outerBot;
+    }
+    const outer = el('polygon', { points: outerTop.trim() + outerBot }, 'who-band-outer');
+    svg.appendChild(outer);
+
+    // Полоса 15-85% (внутренняя)
+    let innerTop = '', innerBot = '';
+    for (const b of bandInRange) {
+      innerTop += ` ${xScale(b.age_months)},${yScale(b.p85)}`;
+      innerBot = ` ${xScale(b.age_months)},${yScale(b.p15)}` + innerBot;
+    }
+    const inner = el('polygon', { points: innerTop.trim() + innerBot }, 'who-band-inner');
+    svg.appendChild(inner);
+
+    // Медиана p50
+    const medianD = bandInRange.map((b, i) => `${i===0?'M':'L'} ${xScale(b.age_months)},${yScale(b.p50)}`).join(' ');
+    svg.appendChild(el('path', { d: medianD }, 'who-line-median'));
+
+    // Линия Матвея
+    if (history.length) {
+      const babyD = history
+        .filter(p => p.age_months <= maxAge && p[dataKey] !== undefined)
+        .map((p, i) => `${i===0?'M':'L'} ${xScale(p.age_months)},${yScale(p[dataKey])}`)
+        .join(' ');
+      if (babyD) svg.appendChild(el('path', { d: babyD }, 'matvey-line'));
+      history.forEach((p, i) => {
+        if (p.age_months > maxAge || p[dataKey] === undefined) return;
+        const isLast = (i === history.length - 1);
+        svg.appendChild(el('circle', {
+          cx: xScale(p.age_months), cy: yScale(p[dataKey]),
+          r: isLast ? 4 : 2.2,
+        }, 'matvey-dot' + (isLast ? ' current' : '')));
+      });
+    }
+
+    // Подписи месяцев на оси X
+    for (const m of [0, 2, 4, 6, 8, 10, 12]) {
+      const t = el('text', {
+        x: xScale(m), y: H - 2, 'text-anchor': 'middle',
+        'font-size': '7', fill: '#6d675e',
+      });
+      t.textContent = m + 'м';
+      svg.appendChild(t);
+    }
+    // Возраст Матвея — жёлтая метка на оси X
+    if (ageNow && ageNow <= maxAge) {
+      const t = el('text', {
+        x: xScale(ageNow), y: H - 2, 'text-anchor': 'middle',
+        'font-size': '7', fill: '#d4a04a', 'font-weight': '600',
+      });
+      t.textContent = '↑';
+      svg.appendChild(t);
+    }
+  }
+
+  function openGrowthLog(focus) {
+    document.getElementById('growthLogW').value = '';
+    document.getElementById('growthLogH').value = '';
+    document.getElementById('growthLogNotes').value = '';
+    document.getElementById('growthLogTitle').textContent = focus === 'height' ? 'Измерить рост' : 'Взвесить';
+    document.getElementById('growthLogEm').textContent = focus === 'height' ? '📏' : '⚖';
+    document.getElementById('modal-growth-log').classList.add('open');
+    setTimeout(() => {
+      const id = focus === 'height' ? 'growthLogH' : 'growthLogW';
+      document.getElementById(id).focus();
+    }, 100);
+  }
+  function closeGrowthLog() {
+    document.getElementById('modal-growth-log').classList.remove('open');
+  }
+  async function submitGrowthLog() {
+    const wStr = document.getElementById('growthLogW').value.trim();
+    const hStr = document.getElementById('growthLogH').value.trim();
+    const notes = document.getElementById('growthLogNotes').value.trim();
+    if (!wStr && !hStr) { alert('Введи вес или рост'); return; }
+    const body = { notes };
+    if (wStr) body.weight_g = Math.round(parseFloat(wStr.replace(',', '.')) * 1000);
+    if (hStr) body.height_cm = parseFloat(hStr.replace(',', '.'));
+    const btn = document.querySelector('#modal-growth-log .fm-save');
+    if (btn) { btn.disabled = true; btn.textContent = 'Записываю…'; }
+    try {
+      const r = await apiPost('/api/tablet/growth/log', body);
+      if (!r.success) throw new Error(r.error || 'ошибка');
+      closeGrowthLog();
+      await loadGrowth();
+    } catch(e) {
+      alert('Не удалось записать: ' + (e.message||e));
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Записать'; }
+    }
+  }
+
+  // Загружаем при старте (карточки на «Обзор» видны сразу)
+  if (TOKEN) {
+    loadGrowth();
+    setInterval(loadGrowth, 5 * 60 * 1000);  // раз в 5 мин
   }
 
   // ============ ПЛАН КВАРТИРЫ ============

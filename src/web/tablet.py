@@ -1120,4 +1120,136 @@ def register_tablet_routes(
             log.exception("tablet_feeding_log_failed")
             return {"success": False, "error": str(e)[:200]}
 
+    # ─────────────────────────────────────────────────────────────────
+    # Рост и вес Матвея — из «Рост» Google Sheets + WHO перцентили
+    # ─────────────────────────────────────────────────────────────────
+    @app.get("/api/tablet/growth")
+    async def tablet_growth(token: str = Query("")):
+        _check_token(token, expected_token)
+        try:
+            from src.utils.baby import MATVEY_BIRTH_DATE
+            from src.utils.who import (
+                _BOY_WEIGHT, _BOY_HEIGHT, weight_percentile, height_percentile,
+            )
+            from datetime import date, datetime
+
+            nanny = agents_ref.get("nanny") if agents_ref else None
+            sheets = getattr(nanny, "_sheets", None) if nanny else None
+            rows = []
+            if sheets:
+                try:
+                    rows = await sheets.get_growth(limit=200)
+                except Exception as e:
+                    log.warning("growth_sheets_read_failed", err=str(e)[:200])
+
+            def _parse_date(s: str):
+                for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%d/%m/%Y"):
+                    try: return datetime.strptime(s, fmt).date()
+                    except ValueError: pass
+                return None
+
+            # Точки для графика — только те где дата парсится + вес/рост есть
+            weight_pts = []   # {age_months, kg, date}
+            height_pts = []   # {age_months, cm, date}
+            for r in rows:
+                d = _parse_date(r.get("date", ""))
+                if not d: continue
+                age_days = (d - MATVEY_BIRTH_DATE).days
+                if age_days < 0: continue
+                age_m = age_days / 30.4375
+                w = r.get("weight_g")
+                h = r.get("height_cm")
+                if w and w > 0:
+                    weight_pts.append({"age_months": round(age_m, 2), "kg": w/1000, "date": d.isoformat()})
+                if h and h > 0:
+                    height_pts.append({"age_months": round(age_m, 2), "cm": h, "date": d.isoformat()})
+
+            weight_pts.sort(key=lambda p: p["age_months"])
+            height_pts.sort(key=lambda p: p["age_months"])
+
+            # Актуальные значения (последняя точка каждого ряда)
+            last_w = weight_pts[-1] if weight_pts else None
+            last_h = height_pts[-1] if height_pts else None
+            age_days_now = (date.today() - MATVEY_BIRTH_DATE).days
+            age_m_now = age_days_now / 30.4375
+
+            # Дельта за месяц (сколько прибавил за последние ~30 дней)
+            def _delta_per_month(pts, key):
+                if len(pts) < 2: return None
+                latest = pts[-1]
+                target_age = latest["age_months"] - 1.0
+                # ближайшая точка ~месяц назад
+                prev = min(pts[:-1], key=lambda p: abs(p["age_months"] - target_age), default=None)
+                if not prev: return None
+                dm = latest["age_months"] - prev["age_months"]
+                if dm <= 0: return None
+                return round((latest[key] - prev[key]) / dm, 2)
+
+            wt_percentile = None
+            ht_percentile = None
+            if last_w:
+                p = weight_percentile(last_w["kg"], int(round(age_m_now)))
+                wt_percentile = {"bucket": p["bucket"], "ref": p["reference_kg"]}
+            if last_h:
+                p = height_percentile(last_h["cm"], int(round(age_m_now)))
+                ht_percentile = {"bucket": p["bucket"], "ref": p["reference_cm"]}
+
+            # WHO reference band — точки для построения полосы 3-97% и медианы
+            def _who_band(table):
+                out = []
+                for age_key in sorted(table.keys()):
+                    p3,p15,p50,p85,p97 = table[age_key]
+                    out.append({"age_months": age_key, "p3":p3, "p15":p15, "p50":p50, "p85":p85, "p97":p97})
+                return out
+
+            return {
+                "age_months": round(age_m_now, 1),
+                "weight": {
+                    "latest_kg": last_w["kg"] if last_w else None,
+                    "latest_date": last_w["date"] if last_w else None,
+                    "delta_kg_per_month": _delta_per_month(weight_pts, "kg"),
+                    "percentile": wt_percentile,
+                    "history": weight_pts,
+                    "who_band": _who_band(_BOY_WEIGHT),
+                },
+                "height": {
+                    "latest_cm": last_h["cm"] if last_h else None,
+                    "latest_date": last_h["date"] if last_h else None,
+                    "delta_cm_per_month": _delta_per_month(height_pts, "cm"),
+                    "percentile": ht_percentile,
+                    "history": height_pts,
+                    "who_band": _who_band(_BOY_HEIGHT),
+                },
+            }
+        except Exception as e:
+            log.exception("tablet_growth_failed")
+            return {"error": str(e)[:200]}
+
+    @app.post("/api/tablet/growth/log")
+    async def tablet_growth_log(token: str = Query(""), body: dict = Body(...)):
+        _check_token(token, expected_token)
+        try:
+            from src.utils.time import now_kyiv
+            w = body.get("weight_g")
+            h = body.get("height_cm")
+            notes = (body.get("notes") or "").strip()
+            if w is None and h is None:
+                return {"success": False, "error": "need weight_g or height_cm"}
+            try:
+                w = int(w) if w is not None else None
+                h = float(h) if h is not None else None
+            except (TypeError, ValueError):
+                return {"success": False, "error": "bad number"}
+            nanny = agents_ref.get("nanny") if agents_ref else None
+            sheets = getattr(nanny, "_sheets", None) if nanny else None
+            if not sheets:
+                return {"success": False, "error": "sheets not available"}
+            res = await sheets.append_growth(
+                weight_g=w, height_cm=h, time=now_kyiv(), details=notes,
+            )
+            return {"success": True, **res}
+        except Exception as e:
+            log.exception("tablet_growth_log_failed")
+            return {"success": False, "error": str(e)[:200]}
+
     log.info("tablet_routes_registered")

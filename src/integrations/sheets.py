@@ -468,6 +468,35 @@ class SheetsClient:
         log.info("growth_appended", row=row_index, weight=weight_g, height=height_cm)
         return {"row": row_index, "sheet": _GROWTH_WORKSHEET}
 
+    async def get_growth(self, limit: int = 200) -> list[dict]:
+        """Read «Рост»: A=Дата, B=Возраст, C=Вес (г), D=Рост (см), E=Примечание.
+        Возвращает list[dict{date, age, weight_g, height_cm, notes}].
+        Строки с пустым весом И ростом отбрасываются."""
+        ws = await self._open_worksheet(self._baby_sheet_id, _GROWTH_WORKSHEET)
+        rows = await self._run_sync(ws.get_all_values)
+        out = []
+        for row in rows[1:]:  # skip header
+            padded = row + [""] * (5 - len(row))
+            date_s = padded[0].strip()
+            if not date_s:
+                continue
+            def _num(s):
+                s = (s or "").strip().replace(",", ".").replace(" ", "")
+                try: return float(s) if s else None
+                except ValueError: return None
+            w = _num(padded[2])
+            h = _num(padded[3])
+            if w is None and h is None:
+                continue
+            out.append({
+                "date": date_s,
+                "age": padded[1].strip(),
+                "weight_g": int(w) if w is not None else None,
+                "height_cm": h,
+                "notes": padded[4].strip(),
+            })
+        return out[-limit:]
+
     async def append_health(
         self,
         type_: str,
