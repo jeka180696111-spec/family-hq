@@ -2989,6 +2989,8 @@ document.querySelectorAll('.shop-item').forEach(item => {
   }
 
   function renderSocketsGroup(devices) {
+    const pinned = loadPinnedScenes();  // null = «показать всё»
+    const isPinned = (key) => !pinned ? true : pinned.has(key);
     const isSocket = (d) => {
       const n = (d.name || '').toLowerCase();
       return n.includes('бойлер') || n.includes('телев') || n === 'тв' ||
@@ -3002,11 +3004,12 @@ document.querySelectorAll('.shop-item').forEach(item => {
       if (n.includes('пылес') || n.includes('гоша') || d.kind === 'vacuum') return '🤖';
       return '🔌';
     };
-    const socks = (devices || []).filter(isSocket);
-    if (!socks.length) return '';
-    // Пылесос выносим ОТДЕЛЬНОЙ строкой с 3-мя действиями (Пуск/Пауза/Домой)
-    const plain = socks.filter(d => d.kind !== 'vacuum');
-    const vacuums = socks.filter(d => d.kind === 'vacuum');
+    const socksAll = (devices || []).filter(isSocket);
+    // Учитываем пины: обычные розетки — ключ = имя; пылесос — «vacuum:<имя>»
+    const socks   = socksAll.filter(d => d.kind !== 'vacuum' ? isPinned(d.name) : true);
+    const plain   = socks.filter(d => d.kind !== 'vacuum');
+    const vacuums = socksAll.filter(d => d.kind === 'vacuum' && isPinned(`vacuum:${d.name}`));
+    if (!plain.length && !vacuums.length) return '';
     let html = '';
     if (plain.length) {
       const cols = Math.min(plain.length, 2);
@@ -3319,7 +3322,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
       const rank = new Map(sceneOrder.map((n,i) => [n,i]));
       Object.keys(groups).forEach(g => groups[g].sort((a,b) => (rank.get(a.name) ?? 1e9) - (rank.get(b.name) ?? 1e9)));
     }
-    cont.innerHTML = groupKeys.map((g, gi) => {
+    let html = groupKeys.map((g, gi) => {
       const groupCtrls = edit
         ? `<button class="settings-btn" style="min-width:32px; padding:4px 8px" title="Группу выше" onclick="moveGroup('${g.replace(/'/g,"\\'")}', -1)" ${gi===0?'disabled':''}>▲</button>
            <button class="settings-btn" style="min-width:32px; padding:4px 8px" title="Группу ниже" onclick="moveGroup('${g.replace(/'/g,"\\'")}', 1)" ${gi===groupKeys.length-1?'disabled':''}>▼</button>`
@@ -3346,6 +3349,40 @@ document.querySelectorAll('.shop-item').forEach(item => {
         </div>
       </div>`;
     }).join('');
+
+    // ─── Розетки/тумблеры и пылесос — не Tuya-сцены, но их тоже надо
+    // уметь пинить на главный экран. Берём из списка устройств.
+    const socks = (window.__lastDevices || []).filter(d => {
+      const n = (d.name || '').toLowerCase();
+      return d.kind === 'vacuum' || n.includes('бойлер') || n.includes('телев')
+             || n === 'тв' || n.includes('розетк') || n.includes('пылес') || n.includes('гоша');
+    });
+    if (socks.length) {
+      const plainSocks = socks.filter(d => d.kind !== 'vacuum');
+      const vacuums    = socks.filter(d => d.kind === 'vacuum');
+      const socketPinKeys = [
+        ...plainSocks.map(d => d.name),
+        ...vacuums.map(d => `vacuum:${d.name}`),
+      ];
+      const isDevicePinned = (n) => !pinned ? true : pinned.has(n);
+      const row = (label, key) => {
+        const pinIcon = isDevicePinned(key) ? '⭐' : '☆';
+        const safe = key.replace(/"/g,'&quot;').replace(/'/g,"\\'");
+        return `<div style="display:flex; align-items:center; gap:4px">
+          <div class="all-scene-btn" style="flex:1; cursor:default">${label}</div>
+          <button class="settings-btn" style="min-width:36px; padding:4px 6px" title="Показывать на главном" onclick="togglePinnedScene('${safe}')">${pinIcon}</button>
+        </div>`;
+      };
+      html += `<div style="margin-bottom:16px">
+        <div class="card-title" style="margin-bottom:8px">Розетки и пылесос</div>
+        <div class="all-scenes">
+          ${plainSocks.map(d => row(d.name, d.name)).join('')}
+          ${vacuums.map(d => row('🤖 ' + d.name, `vacuum:${d.name}`)).join('')}
+        </div>
+      </div>`;
+    }
+
+    cont.innerHTML = html;
   }
 
   function updateChild(child) {
