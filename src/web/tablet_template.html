@@ -2708,8 +2708,12 @@ document.querySelectorAll('.shop-item').forEach(item => {
     const card = document.querySelector('[data-t="battRuntime"]')?.closest('.card');
     const cardTitle = card?.querySelector('.card-title');
     const gridActive = inv.grid_active !== false;
+    if (card) card.style.display = '';
+    const etaBlock = document.querySelector('.battery-eta');
+    if (etaBlock) etaBlock.style.display = 'none';
 
-    // Заряд + сеть (всегда обновляем внутренние поля, если карточка видна)
+    // Заголовок и нижние строки — общие для обоих режимов
+    if (cardTitle) cardTitle.textContent = gridActive ? 'Инвертор' : 'Инвертор · автономка';
     if (inv.soc != null) {
       const el = document.querySelector('.battery-vis .fill');
       if (el) el.style.width = inv.soc + '%';
@@ -2717,64 +2721,63 @@ document.querySelectorAll('.shop-item').forEach(item => {
     }
     setText('battGrid', gridActive ? 'Есть' : 'НЕТ');
 
-    // Карточку больше не прячем автоматически при наличии сети —
-    // пользователь сам решает скрывать её или нет через ✕ в edit-mode.
-    // Меняется только содержимое: свет есть → короткий статус (SoC,
-    // «сеть в норме»), свет пропал → полноценный runtime + подсказки.
-    if (card) card.style.display = '';
-    const etaBlock = document.querySelector('.battery-eta');
-    if (gridActive) {
-      if (cardTitle) cardTitle.textContent = 'Инвертор';
-      if (etaBlock) etaBlock.style.display = 'none';
-      // Крупная цифра — SoC% на цветном кружке.
-      if (inv.soc != null) {
-        setHtml('battRuntime', renderBattPct(inv.soc));
-      } else {
-        setHtml('battRuntime', '<span style="color: var(--text-dim)">—</span>');
+    // Крупная цифра — ВСЕГДА цветной кружок SoC%.
+    if (inv.soc != null) {
+      setHtml('battRuntime', renderBattPct(inv.soc));
+    } else {
+      setHtml('battRuntime', '<span style="color: var(--text-dim)">нет данных</span>');
+    }
+
+    // Подпись под кружком — что делает батарея / сколько осталось.
+    let flowLabel = 'сеть в норме';
+    if (!gridActive && inv.soc != null && inv.load_w != null && inv.load_w > 0) {
+      // Свет пропал — покажем расчётный runtime.
+      const kwh = 5 * (inv.soc / 100) * 0.8;   // 5кВт·ч ёмкость, 80% глубина
+      const hours = kwh * 1000 / inv.load_w;
+      const totalMin = Math.round(hours * 60);
+      flowLabel = 'до разряда ~' + fmtDuration(totalMin) + ' · ' + Math.round(inv.load_w) + ' Вт';
+    } else if (inv.battery_flow === 'charging' && inv.battery_charge_w > 20) {
+      flowLabel = 'заряжается ' + Math.round(inv.battery_charge_w) + ' Вт';
+    } else if (inv.battery_flow === 'discharging' && inv.battery_discharge_w > 20) {
+      flowLabel = 'отдаёт ' + Math.round(inv.battery_discharge_w) + ' Вт';
+    } else {
+      flowLabel = gridActive ? 'батарея на подхвате' : 'нагрузки нет';
+    }
+    setText('battLoad', flowLabel);
+
+    // Нижний блок: сетка потоков (солнце/дом/сеть/батарея).
+    const container = document.querySelector('.battery-forecast');
+    if (container) {
+      const rows = [];
+      if (inv.solar_w != null) {
+        const isNight = inv.solar_w < 20;
+        rows.push({ic: isNight ? '🌙' : '☀️', label: 'Солнце', val: Math.round(inv.solar_w) + ' Вт', dim: isNight});
       }
-      // Подпись — статус батареи.
-      let flowLabel = 'сеть в норме';
-      if (inv.battery_flow === 'charging' && inv.battery_charge_w > 20) {
-        flowLabel = 'заряжается ' + Math.round(inv.battery_charge_w) + ' Вт';
-      } else if (inv.battery_flow === 'discharging' && inv.battery_discharge_w > 20) {
-        flowLabel = 'отдаёт ' + Math.round(inv.battery_discharge_w) + ' Вт';
-      } else {
-        flowLabel = 'батарея на подхвате';
-      }
-      setText('battLoad', flowLabel);
-      // Информативный блок вместо спарклайна: солнце / дом / сеть.
-      const container = document.querySelector('.battery-forecast');
-      if (container) {
-        const rows = [];
-        if (inv.solar_w != null) {
-          const isNight = inv.solar_w < 20;
-          rows.push({ic: isNight ? '🌙' : '☀️', label: 'Солнце', val: Math.round(inv.solar_w) + ' Вт', dim: isNight});
-        }
-        if (inv.load_w != null) rows.push({ic: '🏠', label: 'Дом', val: Math.round(inv.load_w) + ' Вт'});
-        if (inv.grid_import_w != null && inv.grid_import_w > 20) rows.push({ic: '⚡', label: 'Из сети', val: Math.round(inv.grid_import_w) + ' Вт'});
-        else if (inv.grid_export_w != null && inv.grid_export_w > 20) rows.push({ic: '↗', label: 'В сеть', val: Math.round(inv.grid_export_w) + ' Вт'});
-        container.innerHTML = '<div style="display:grid; grid-template-columns:1fr 1fr; gap:6px 12px; margin-top:8px">' +
+      if (inv.load_w != null) rows.push({ic: '🏠', label: 'Дом', val: Math.round(inv.load_w) + ' Вт'});
+      if (inv.grid_import_w != null && inv.grid_import_w > 20)
+        rows.push({ic: '⚡', label: 'Из сети', val: Math.round(inv.grid_import_w) + ' Вт'});
+      else if (inv.grid_export_w != null && inv.grid_export_w > 20)
+        rows.push({ic: '↗', label: 'В сеть', val: Math.round(inv.grid_export_w) + ' Вт'});
+      else if (!gridActive)
+        rows.push({ic: '🚫', label: 'Сеть', val: 'нет', dim: true});
+      if (inv.battery_flow === 'charging' && inv.battery_charge_w > 20)
+        rows.push({ic: '🔋', label: 'В батарею', val: Math.round(inv.battery_charge_w) + ' Вт'});
+      else if (inv.battery_flow === 'discharging' && inv.battery_discharge_w > 20)
+        rows.push({ic: '🔋', label: 'Из батареи', val: Math.round(inv.battery_discharge_w) + ' Вт'});
+      container.innerHTML = rows.length
+        ? '<div style="display:grid; grid-template-columns:1fr 1fr; gap:6px 12px; margin-top:8px">' +
           rows.map(r => `<div style="display:flex; align-items:center; gap:6px; font-size:11px; ${r.dim?'opacity:0.55':''}">
             <span style="font-size:14px">${r.ic}</span>
             <span style="color:var(--text-dim); letter-spacing:0.06em">${r.label}</span>
             <span style="margin-left:auto; font-family:ui-serif,Georgia,serif; color:var(--text)">${r.val}</span>
-          </div>`).join('') + '</div>';
-      }
-    } else {
-      if (cardTitle) cardTitle.textContent = 'Автономность';
-      if (etaBlock) etaBlock.style.display = '';
-      if (inv.load_w != null && inv.load_w > 0 && inv.soc != null) {
-        const kwh = 5 * (inv.soc / 100) * 0.8;
-        const hours = kwh * 1000 / inv.load_w;
-        const totalMin = Math.round(hours * 60);
-        setHtml('battRuntime', fmtDuration(totalMin).replace(/([0-9]+)м/, '$1<span class="unit">мин</span>').replace('ч', 'ч <span class="unit"></span>'));
-        setText('battLoad', 'при нагрузке ' + Math.round(inv.load_w) + ' Вт');
-        const eta = new Date(Date.now() + totalMin * 60000);
-        setText('battEta', '≈ ' + String(eta.getHours()).padStart(2,'0') + ':' + String(eta.getMinutes()).padStart(2,'0'));
-        renderSavingSuggestions(devices, totalMin);
-      } else {
-        setHtml('battRuntime', '<span style="color: var(--coral)">данных нет</span>');
-      }
+          </div>`).join('') + '</div>'
+        : '';
+    }
+    // При автономке — под потоками добавим блок «Как сэкономить»
+    if (!gridActive && inv.soc != null && inv.load_w > 0) {
+      const kwh = 5 * (inv.soc / 100) * 0.8;
+      const totalMin = Math.round(kwh * 1000 / inv.load_w * 60);
+      renderSavingSuggestions(devices, totalMin);
     }
   }
 
@@ -2798,14 +2801,15 @@ document.querySelectorAll('.shop-item').forEach(item => {
       savings.push({name, power, ic, savedMin});
     });
     savings.sort((a, b) => b.power - a.power);
-    const label = '<div class="bstat-label" style="text-align:center; margin-bottom:6px">Как сэкономить заряд</div>';
+    const label = '<div class="bstat-label" style="text-align:center; margin: 10px 0 6px">Как сэкономить заряд</div>';
     const items = savings.slice(0, 4).map(s =>
       `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; background:var(--card-hi); border-radius:8px; margin-bottom:4px; font-size:12px;">
          <span>${s.ic} ${s.name} <span style="color:var(--text-dim)">${s.power}Вт</span></span>
          <span style="color:var(--sage); font-family:ui-serif,Georgia,serif">+${Math.round(s.savedMin/60)}ч ${s.savedMin%60}м</span>
        </div>`
     ).join('') || '<div style="text-align:center; font-size:11px; color:var(--text-dim)">Ничего мощного не включено</div>';
-    container.innerHTML = label + items;
+    // Аппендим, а не перезаписываем — над нами уже нарисован блок с потоками
+    container.insertAdjacentHTML('beforeend', label + items);
   }
 
   function updateDevices(devices) {
