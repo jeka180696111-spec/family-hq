@@ -565,7 +565,21 @@
   .dev-badge.on { background: rgba(134, 172, 106, 0.15); color: var(--sage); }
   .dev-badge.off { background: rgba(139, 129, 110, 0.1); color: var(--text-mute); }
   .dev-badge.charging { background: rgba(212, 160, 74, 0.15); color: var(--amber); }
-  .dev-val { font-family: ui-serif, Georgia, serif; font-size: 13px; color: var(--text); min-width: 42px; text-align: right; }
+  /* Правая колонка устройства: сериф для коротких значений (55°, 340Вт)
+     и обычный шрифт для длинных подписей типа «заряжается, батарея 100%» —
+     иначе сериф выпадает из общей ленты. */
+  .dev-val {
+    font-family: ui-serif, Georgia, serif; font-size: 13px;
+    color: var(--text); min-width: 42px; text-align: right;
+  }
+  .dev-val.long {
+    font-family: inherit;
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.02em;
+    line-height: 1.3;
+    text-align: right;
+  }
   .home-footer {
     display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
     padding-top: 10px;
@@ -2738,7 +2752,9 @@ document.querySelectorAll('.shop-item').forEach(item => {
       if (d.cur_power != null && d.cur_power > 0) val = Math.round(d.cur_power) + ' Вт';
       else if (d.temp != null) val = d.temp + '°';
       else if (d.extra) val = String(d.extra);   // напр. «убирает, батарея 78%»
-      return `<div class="device"><div class="dev-icon">${ic}</div><div class="dev-name">${d.name || '?'}</div>${badge}<div class="dev-val">${val}</div></div>`;
+      // «55°» короткое — сериф; «заряжается, батарея 100%» длинное — обычный шрифт
+      const valClass = (val && val.length > 6) ? 'dev-val long' : 'dev-val';
+      return `<div class="device"><div class="dev-icon">${ic}</div><div class="dev-name">${d.name || '?'}</div>${badge}<div class="${valClass}">${val}</div></div>`;
     }).join('');
     // Автоматически развернуть скролл если устройств много
     list.style.maxHeight = '340px';
