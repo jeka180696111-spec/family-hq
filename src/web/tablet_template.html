@@ -534,8 +534,10 @@
     gap: 10px;
     padding-top: 12px;
     border-top: 1px solid var(--line-soft);
+    justify-items: center;
+    align-items: center;
   }
-  .bstat { text-align: center; }
+  .bstat { text-align: center; width: 100%; }
   .bstat-label { font-size: 10px; color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase; }
   .bstat-val { font-family: ui-serif, Georgia, serif; font-size: 17px; color: var(--text); margin-top: 3px; }
   .battery-forecast {
@@ -2435,17 +2437,18 @@ document.querySelectorAll('.shop-item').forEach(item => {
       setText('lastDiaper', '—');
       return;
     }
+    // Главный статус ВСЕГДА про сон/бодрствование — прогулка это
+    // «где», а не «что делает». Прогулка добавляется отдельной строкой.
     let stateLabel = 'Нет данных', state = 'awake', durMin = 0, remainText = '';
-    // Приоритет: гуляет > спит > бодрствует
+    let walkLine = '';
     if (baby.walking_since && !baby.walk_ended_at) {
-      stateLabel = 'На прогулке'; state = 'walking';
-      durMin = (Date.now() - new Date(baby.walking_since).getTime()) / 60000;
-      remainText = 'на улице ' + fmtDuration(durMin);
-    } else if (baby.sleeping_since) {
+      const walkMin = (Date.now() - new Date(baby.walking_since).getTime()) / 60000;
+      walkLine = '🚶 на улице ' + fmtDuration(walkMin);
+    }
+    if (baby.sleeping_since) {
       stateLabel = 'Спит'; state = 'sleeping';
       const startedAt = new Date(baby.sleeping_since);
       durMin = (Date.now() - startedAt.getTime()) / 60000;
-      // Оценка окончания сна: средний дневной сон 1ч 30м
       const expectedEnd = new Date(startedAt.getTime() + 90*60000);
       const remainMin = Math.round((expectedEnd.getTime() - Date.now()) / 60000);
       if (remainMin > 0) remainText = 'осталось ~' + fmtDuration(remainMin);
@@ -2453,21 +2456,27 @@ document.querySelectorAll('.shop-item').forEach(item => {
     } else if (baby.awake_since) {
       stateLabel = 'Бодрствует'; state = 'awake';
       durMin = (Date.now() - new Date(baby.awake_since).getTime()) / 60000;
-      // окно возраста ~2ч 20м
       const remainMin = Math.round(140 - durMin);
       remainText = remainMin > 0 ? 'до сна ~' + fmtDuration(remainMin) : 'перегул +' + fmtDuration(-remainMin);
+    } else if (baby.walking_since && !baby.walk_ended_at) {
+      // Нет записи ни о сне ни о бодрствовании, но гуляет — тогда
+      // всё же используем «На прогулке» как основной статус.
+      stateLabel = 'На прогулке'; state = 'walking';
+      durMin = (Date.now() - new Date(baby.walking_since).getTime()) / 60000;
+      remainText = 'на улице ' + fmtDuration(durMin);
+      walkLine = ''; // уже в основном
     }
     setText('babyStatus', stateLabel);
-    // babyDuration теперь показывает и «когда» и «сколько»:
-    //   спит → «с 14:30 · 1ч 05м»
-    //   бодрствует → «с 12:15 · 1ч 40м»
-    //   гуляет → «с 15:00 · 45м»
     let durLine = durMin > 0 ? fmtDuration(durMin) : '—';
     let sinceLine = '';
     if (baby.sleeping_since) sinceLine = 'с ' + clockFmt(baby.sleeping_since);
-    else if (baby.walking_since) sinceLine = 'с ' + clockFmt(baby.walking_since);
     else if (baby.awake_since) sinceLine = 'с ' + clockFmt(baby.awake_since);
-    setText('babyDuration', sinceLine ? sinceLine + ' · ' + durLine : durLine);
+    else if (baby.walking_since) sinceLine = 'с ' + clockFmt(baby.walking_since);
+    // Собираем полную подпись: основная строка (сон/бодрствование)
+    // + вторая строка про прогулку если гуляет.
+    let mainText = sinceLine ? sinceLine + ' · ' + durLine : durLine;
+    if (walkLine) mainText += '<br>' + walkLine;
+    setHtml('babyDuration', mainText);
     setText('babyRemain', remainText);
     // Кормление / подгузник — время + «Nч назад»
     setText('lastFeed', baby.last_feed_at
