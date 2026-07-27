@@ -2663,7 +2663,9 @@ document.querySelectorAll('.shop-item').forEach(item => {
       if (n.includes('розетк')) return '🔌';
       return '🔌';
     };
-    list.innerHTML = devices.slice(0, 6).map(d => {
+    // Показываем ВСЕ устройства (в т.ч. Гошу, которого раньше не было
+    // в первых 6). Список скроллится.
+    list.innerHTML = devices.map(d => {
       const ic = iconFor(d.name);
       let badge = '';
       if (d.on === true) badge = '<span class="dev-badge on">Вкл</span>';
@@ -2673,9 +2675,13 @@ document.querySelectorAll('.shop-item').forEach(item => {
       let val = '—';
       if (d.cur_power != null && d.cur_power > 0) val = Math.round(d.cur_power) + 'Вт';
       else if (d.temp != null) val = d.temp + '°';
+      else if (d.extra) val = String(d.extra);   // напр. «cleaning, батарея 78%»
       else if (d.online === false) val = '';
       return `<div class="device"><div class="dev-icon">${ic}</div><div class="dev-name">${d.name || '?'}</div>${badge}<div class="dev-val">${val}</div></div>`;
     }).join('');
+    // Автоматически развернуть скролл если устройств много
+    list.style.maxHeight = '340px';
+    list.style.overflowY = 'auto';
   }
 
   function updateEvents(events) {
@@ -2781,7 +2787,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
       return '';
     };
 
-    cont.innerHTML = orderKeys.map(gname => {
+    let html = orderKeys.map(gname => {
       const items = groups[gname].slice(0, 4);  // максимум 4 в группе на главной
       const isPlugsGroup = ['Бойлер', 'ТВ', 'Телевизор', 'Розетки'].includes(gname);
       const cols = Math.min(items.length, isPlugsGroup ? 2 : 4);
@@ -2794,7 +2800,47 @@ document.querySelectorAll('.shop-item').forEach(item => {
       }).join('');
       return `<div class="scene-group"><div class="scene-group-title">${gname}${items.length >= 4 ? ' <button class="scene-more" onclick="openModal(\'scenes\')">Ещё</button>' : ''}</div><div class="scene-row" style="grid-template-columns:repeat(${cols},1fr)">${btnsHtml}</div></div>`;
     }).join('');
+    html += renderSocketsGroup(window.__lastDevices || []);
+    cont.innerHTML = html;
   }
+
+  function renderSocketsGroup(devices) {
+    // Секция «Розетки» — прямые тумблеры на бойлер / ТВ / умные розетки.
+    // Иначе они пропадают когда в Tuya нет отдельных scene-объектов на них.
+    const isSocket = (d) => {
+      const n = (d.name || '').toLowerCase();
+      return n.includes('бойлер') || n.includes('телев') || n === 'тв' ||
+             n.includes('розетк') || n.includes('пылес') || n.includes('гоша');
+    };
+    const iconFor = (d) => {
+      const n = (d.name || '').toLowerCase();
+      if (n.includes('бойлер')) return '🔥';
+      if (n.includes('телев') || n === 'тв') return '📺';
+      if (n.includes('пылес') || n.includes('гоша')) return '🤖';
+      return '🔌';
+    };
+    const socks = (devices || []).filter(isSocket);
+    if (!socks.length) return '';
+    const cols = Math.min(socks.length, 2);
+    const btns = socks.map(d => {
+      const label = d.on === true ? 'вкл' : d.on === false ? 'выкл' : (d.extra || '·');
+      const activeCls = d.on === true ? ' active' : '';
+      const safeId = (d.id || d.name || '').replace(/"/g,'&quot;');
+      return `<button class="scene-btn socket${activeCls}" data-dev-id="${safeId}" data-dev-name="${(d.name||'').replace(/"/g,'&quot;')}" onclick="toggleSocketDev(this)"><div class="sc-icon">${iconFor(d)}</div><div class="sc-name">${d.name || '?'}</div><div class="sc-sub">${label}</div></button>`;
+    }).join('');
+    return `<div class="scene-group"><div class="scene-group-title">Розетки</div><div class="scene-row" style="grid-template-columns:repeat(${cols},1fr)">${btns}</div></div>`;
+  }
+
+  window.toggleSocketDev = async function(btn) {
+    const isOn = btn.classList.toggle('active');
+    const sub = btn.querySelector('.sc-sub');
+    if (sub) sub.textContent = isOn ? 'вкл' : 'выкл';
+    const name = btn.dataset.devName || btn.dataset.devId;
+    if (TOKEN && name) {
+      try { await apiPost('/api/tablet/action/socket', {device: name, action: isOn ? 'on' : 'off'}); }
+      catch(e) { console.warn('toggle failed', e); }
+    }
+  };
   window.runSceneBtn = async function(btn) {
     const name = btn.dataset.sceneName;
     // Одну активную в группе
@@ -2816,7 +2862,11 @@ document.querySelectorAll('.shop-item').forEach(item => {
       updateChild(s.child);
       updateNursery(s.nursery);
       updateInverter(s.inverter, s.devices);
+      window.__lastDevices = s.devices || [];
       updateDevices(s.devices);
+      // Пересобрать сцены на главной чтобы там появилась актуальная
+      // группа «Розетки» (Бойлер/ТВ/Гоша).
+      updateScenes(s.scenes);
       updateEvents(s.today_events);
       updateShopping(s.shopping);
       // Автоматизации count
