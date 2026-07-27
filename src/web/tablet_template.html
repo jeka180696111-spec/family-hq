@@ -159,6 +159,13 @@
     grid-auto-flow: row;
     gap: 6px;
   }
+  /* Одинаковая высота у всех кнопок в L-режиме — чтобы Кондер (с sub
+     «Max»/«авто») не выпирал по высоте относительно Спальни (только name). */
+  .card.size-l #scenesGroups .scene-btn,
+  .card.size-xl #scenesGroups .scene-btn {
+    min-height: 64px;
+    justify-content: center;
+  }
   @media (max-width: 900px) {
     .card.size-l, .card.size-xl { grid-column: span 2; }
   }
