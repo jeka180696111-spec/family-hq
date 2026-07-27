@@ -1925,6 +1925,10 @@
       refreshSettingsHiddenList();
       const t = document.getElementById('autoDimToggle');
       if (t) t.checked = isAutoDimOn();
+      const wo = document.getElementById('walkOutSceneInput');
+      if (wo) wo.value = localStorage.getItem('walkOutScene') || '';
+      const wb = document.getElementById('walkBackSceneInput');
+      if (wb) wb.value = localStorage.getItem('walkBackScene') || '';
     }
     if (name === 'scenes') refreshPinnedScenesEditor();
   }
@@ -3087,6 +3091,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
     'pinnedScenes', 'sceneOrder', 'sceneGroupOrder', 'activeScenes',
     'cardStates', 'autoDim', 'theme',
     'alertDismissedFor', 'tiredDismissedFor',
+    'walkOutScene', 'walkBackScene',
   ];
   function _keyIsSynced(k) {
     return SYNC_KEYS.some(pref => k === pref || (pref.endsWith(':') && k.startsWith(pref)));
@@ -3378,11 +3383,32 @@ document.querySelectorAll('.shop-item').forEach(item => {
   });
 
   // Baby action buttons (Вышли гулять / Пришли с прогулки)
+  //   • «Вышли гулять» → запись в дневник + запуск сцены (по умолчанию
+  //     ищет «выкл везде свет»; имя можно поменять в настройках).
+  //   • «Пришли с прогулки» → запись в дневник + опциональная сцена
+  //     возврата (по умолчанию «Я дома»).
+  //   Прогулка отображается как таймер аналогично сну — updateBaby
+  //   считает время от baby.walking_since.
   document.querySelectorAll('.baby-action-btn').forEach(b => {
-    b.addEventListener('click', () => {
+    b.addEventListener('click', async () => {
       const t = b.textContent.trim();
-      if (t.includes('Вышли')) logBabyEvent('walk', 'Вышли гулять');
-      else if (t.includes('Пришли')) logBabyEvent('walk', 'Пришли с прогулки');
+      if (t.includes('Вышли')) {
+        logBabyEvent('walk', 'Вышли гулять');
+        const scene = localStorage.getItem('walkOutScene') || 'выкл везде свет';
+        if (scene && TOKEN) {
+          try { await apiPost('/api/tablet/action/scene', {query: scene}); }
+          catch(e) { console.warn('walk-out scene failed', e); }
+        }
+        setTimeout(refreshState, 800);
+      } else if (t.includes('Пришли')) {
+        logBabyEvent('walk', 'Пришли с прогулки');
+        const scene = localStorage.getItem('walkBackScene') || 'я дома';
+        if (scene && TOKEN) {
+          try { await apiPost('/api/tablet/action/scene', {query: scene}); }
+          catch(e) { console.warn('walk-back scene failed', e); }
+        }
+        setTimeout(refreshState, 800);
+      }
     });
   });
 
@@ -3557,6 +3583,24 @@ document.querySelectorAll('.shop-item').forEach(item => {
           <button class="settings-btn" onclick="dismissTired()">Скрыть</button>
           <button class="settings-btn" onclick="undismissTired()">Вернуть</button>
         </div>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-label">Прогулка Матвея</div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-name">Сцена «Вышли гулять»</div>
+          <div class="settings-desc">Что запустить в умном доме при выходе (напр. «выкл везде свет»)</div>
+        </div>
+        <input type="text" id="walkOutSceneInput" class="settings-input" placeholder="выкл везде свет" onchange="localStorage.setItem('walkOutScene', this.value)">
+      </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-name">Сцена «Пришли с прогулки»</div>
+          <div class="settings-desc">Что запустить при возвращении (напр. «я дома»)</div>
+        </div>
+        <input type="text" id="walkBackSceneInput" class="settings-input" placeholder="я дома" onchange="localStorage.setItem('walkBackScene', this.value)">
       </div>
     </div>
 

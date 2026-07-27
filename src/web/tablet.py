@@ -176,13 +176,18 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
         log.exception("tablet_tuya_failed")
 
 
-    # SmartThings — робот-пылесос Гоша
+    # SmartThings — робот-пылесос (Гоша / robot / любое имя)
     try:
         from src.integrations.smartthings import SmartThingsClient
         st = SmartThingsClient.from_settings(settings)
         if st:
             devices_st = await st.list_devices()
-            vac = st.find_vacuum(devices_st, "гоша") or st.find_vacuum(devices_st)
+            log.info("tablet_smartthings_devices",
+                     count=len(devices_st),
+                     names=[d.get("name") for d in devices_st][:20])
+            vac = (st.find_vacuum(devices_st, "гоша")
+                   or st.find_vacuum(devices_st, "robot")
+                   or st.find_vacuum(devices_st))
             if vac:
                 summary = await st.vacuum_summary(vac)
                 movement = (summary.get("movement") or "").lower()  # cleaning|homing|idle|charging

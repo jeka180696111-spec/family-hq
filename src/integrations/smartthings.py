@@ -88,22 +88,30 @@ class SmartThingsClient:
     # ─── Vacuum helpers ─────────────────────────────────────────────
 
     def find_vacuum(self, devices: list[dict], needle: str = "") -> dict | None:
-        """Pick the first device that looks like a robot vacuum."""
+        """Pick the first device that looks like a robot vacuum.
+
+        Приоритет матча:
+        1) capabilities с robotCleaner* — самый надёжный;
+        2) явные ключевые слова в имени (vacuum/powerbot/пылес/robot/гоша);
+        3) SmartThings type=ROBOT_CLEANER.
+        Тип "OCF" тут НЕ используем — под ним у SmartThings много не-пылесосов
+        (лампочки Zigbee-моста, ТВ и т.п.), матчить всё подряд опасно.
+        """
         n = (needle or "").strip().lower()
+        NAME_HINTS = ("vacuum", "powerbot", "пылес", "пилосос", "roboclean",
+                      "robot", "roomba", "гоша", "гоши", "gosha")
         for d in devices:
             caps = d.get("capabilities") or []
+            name = (d.get("name") or "").lower()
             is_vacuum = (
                 "robotCleanerMovement" in caps
                 or "robotCleanerCleaningMode" in caps
-                or d.get("type", "") in ("OCF", "ROBOT_CLEANER")
-                or "vacuum" in (d.get("name") or "").lower()
-                or "powerbot" in (d.get("name") or "").lower()
-                or "пылес" in (d.get("name") or "").lower()
-                or "пилосос" in (d.get("name") or "").lower()
+                or d.get("type", "") == "ROBOT_CLEANER"
+                or any(h in name for h in NAME_HINTS)
             )
             if not is_vacuum:
                 continue
-            if n and n not in (d.get("name") or "").lower():
+            if n and n not in name:
                 continue
             return d
         return None
