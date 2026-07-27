@@ -672,36 +672,21 @@
     transition: opacity 2s ease;
   }
 
+  /* Рамка тревоги — ТОЛЬКО жирный красный бордер, БЕЗ inset shadow,
+     чтобы не приглушать контент по краям. */
   .alert-frame {
     position: fixed;
     inset: 0;
     pointer-events: none;
     z-index: 200;
-    border: 8px solid transparent;
-    box-shadow: inset 0 0 60px rgba(217, 45, 45, 0.6), inset 0 0 0 2px #d92d2d;
+    border: 6px solid #d92d2d;
     display: none;
     animation: alert-pulse 1.4s ease-in-out infinite;
   }
-  body.alerted 
-  /* Программная яркость — полупрозрачный слой */
-  .brightness-overlay {
-    position: fixed;
-    inset: 0;
-    background: #000;
-    pointer-events: none;
-    z-index: 150;
-    opacity: 0;
-    transition: opacity 2s ease;
-  }
-
-  .alert-frame { display: block; }
+  body.alerted .alert-frame { display: block; }
   @keyframes alert-pulse {
-    0%, 100% {
-      box-shadow: inset 0 0 40px rgba(217, 45, 45, 0.35), inset 0 0 0 2px rgba(217, 45, 45, 0.6);
-    }
-    50% {
-      box-shadow: inset 0 0 90px rgba(217, 45, 45, 0.9), inset 0 0 0 4px #ff3838;
-    }
+    0%, 100% { border-color: rgba(217, 45, 45, 0.7); }
+    50%      { border-color: #ff3838; }
   }
   .alert-banner-top {
     position: fixed;
@@ -750,25 +735,20 @@
   }
   .banner-close:hover { background: rgba(255,255,255,0.32); }
 
-  /* Синяя рамка «пора укладывать» — работает так же как красная тревога */
+  /* Синяя рамка «пора укладывать» — только бордер, без inset shadow */
   .tired-frame {
     position: fixed;
     inset: 0;
     pointer-events: none;
     z-index: 199;
-    border: 8px solid transparent;
-    box-shadow: inset 0 0 60px rgba(66, 135, 245, 0.55), inset 0 0 0 2px #4287f5;
+    border: 6px solid #4287f5;
     display: none;
     animation: tired-pulse 2s ease-in-out infinite;
   }
   body.tired .tired-frame { display: block; }
   @keyframes tired-pulse {
-    0%, 100% {
-      box-shadow: inset 0 0 40px rgba(66, 135, 245, 0.3), inset 0 0 0 2px rgba(66, 135, 245, 0.5);
-    }
-    50% {
-      box-shadow: inset 0 0 90px rgba(66, 135, 245, 0.75), inset 0 0 0 4px #63a4ff;
-    }
+    0%, 100% { border-color: rgba(66, 135, 245, 0.55); }
+    50%      { border-color: #63a4ff; }
   }
   .tired-banner-top {
     position: fixed;
@@ -1524,14 +1504,12 @@
 <div class="alert-banner-top">
   <span class="dot"></span>
   <span id="alertBannerText">🚨 ВОЗДУШНАЯ ТРЕВОГА · Одесса</span>
-  <button class="banner-close" onclick="dismissAlert()" title="Скрыть до новой тревоги">✕</button>
 </div>
 
 <div class="tired-frame"></div>
 <div class="tired-banner-top">
   <span class="dot"></span>
   <span id="tiredBannerText">🍼 Матвейка устал — пора укладывать</span>
-  <button class="banner-close" onclick="dismissTired()" title="Скрыть до следующего сна">✕</button>
 </div>
 <div class="tablet">
 
@@ -1539,7 +1517,7 @@
   <header class="header">
     <div class="clock-block">
       <div class="clock">10:42</div>
-      <div class="date">ВТОРНИК · 21 МАЯ 2024</div>
+      <div class="date" id="dateLabel">—</div>
     </div>
 
     <div class="weather-inline" onclick="openModal('weather')" title="Открыть недельный прогноз">
@@ -1575,7 +1553,7 @@
 
     <!-- MATVEY CARD -->
     <div class="card">
-      <div class="card-title clickable" onclick="openModal('baby')">Матвей · 8 месяцев<span class="expand-hint">↗</span></div>
+      <div class="card-title clickable" onclick="openModal('baby')"><span id="babyTitleName">Матвей</span> · <span id="babyTitleAge">—</span><span class="expand-hint">↗</span></div>
       <div class="baby-head">
         <div class="baby-info">
           <div class="baby-status" id="babyStatus" data-t="babyStatus">—</div>
@@ -1690,39 +1668,8 @@
     <!-- SCENES CARD -->
     <div class="card">
       <div class="card-title">Сцены<button class="scene-more" onclick="openModal('scenes')">Все →</button></div>
-      <div class="scene-group">
-        <div class="scene-group-title">Спальня <button class="scene-more" onclick="event.stopPropagation();openModal('scenes')">Ещё</button></div>
-        <div class="scene-row">
-          <button class="scene-btn" onclick="setActiveScene(this)"><div class="sc-icon">🌙</div><div class="sc-name">Ночь</div></button>
-          <button class="scene-btn" onclick="setActiveScene(this)"><div class="sc-icon">🕯</div><div class="sc-name">Уют</div></button>
-          <button class="scene-btn" onclick="setActiveScene(this)"><div class="sc-icon">☀️</div><div class="sc-name">Ярко</div></button>
-          <button class="scene-btn active" onclick="setActiveScene(this)"><div class="sc-icon">⭘</div><div class="sc-name">Выкл</div></button>
-        </div>
-      </div>
-      <div class="scene-group">
-        <div class="scene-group-title">Кухня <button class="scene-more">Ещё</button></div>
-        <div class="scene-row">
-          <button class="scene-btn" onclick="setActiveScene(this)"><div class="sc-icon">🌙</div><div class="sc-name">Ночь</div></button>
-          <button class="scene-btn active" onclick="setActiveScene(this)"><div class="sc-icon">🕯</div><div class="sc-name">Уют</div></button>
-          <button class="scene-btn" onclick="setActiveScene(this)"><div class="sc-icon">☀️</div><div class="sc-name">Ярко</div></button>
-          <button class="scene-btn" onclick="setActiveScene(this)"><div class="sc-icon">⭘</div><div class="sc-name">Выкл</div></button>
-        </div>
-      </div>
-      <div class="scene-group">
-        <div class="scene-group-title">Кондер <button class="scene-more">Ещё</button></div>
-        <div class="scene-row">
-          <button class="scene-btn active" onclick="setActiveScene(this)"><div class="sc-icon">❄️</div><div class="sc-name">24°</div><div class="sc-sub">авто</div></button>
-          <button class="scene-btn" onclick="setActiveScene(this)"><div class="sc-icon">❄️</div><div class="sc-name">26°</div><div class="sc-sub">мин</div></button>
-          <button class="scene-btn" onclick="setActiveScene(this)"><div class="sc-icon">🔥</div><div class="sc-name">Тепло</div><div class="sc-sub">22°</div></button>
-          <button class="scene-btn" onclick="setActiveScene(this)"><div class="sc-icon">⭘</div><div class="sc-name">Выкл</div></button>
-        </div>
-      </div>
-      <div class="scene-group">
-        <div class="scene-group-title">Розетки</div>
-        <div class="scene-row two">
-          <button class="scene-btn socket active" onclick="toggleSocket(this)"><div class="sc-icon">🔥</div><div class="sc-name">Бойлер</div><div class="sc-sub">включён</div></button>
-          <button class="scene-btn socket" onclick="toggleSocket(this)"><div class="sc-icon">📺</div><div class="sc-name">ТВ</div><div class="sc-sub">выключен</div></button>
-        </div>
+      <div id="scenesGroups">
+        <div style="font-size:12px; color:var(--text-dim); padding:8px 4px; text-align:center">Загружаем сцены Tuya…</div>
       </div>
     </div>
 
@@ -1835,57 +1782,14 @@
 <div class="modal-backdrop" id="modal-scenes" onclick="if(event.target===this)closeModal('scenes')">
   <div class="modal">
     <div class="modal-head">
-      <div class="modal-title">Все сцены</div>
+      <div class="modal-title">Все сцены Tuya</div>
       <button class="modal-close" onclick="closeModal('scenes')">✕</button>
     </div>
-    <div style="margin-bottom:20px">
-      <div class="card-title" style="margin-bottom:10px">Свет</div>
-      <div class="all-scenes">
-        <button class="all-scene-btn"><span class="ic">🌙</span>Спальня ночь</button>
-        <button class="all-scene-btn"><span class="ic">🕯</span>Спальня уют</button>
-        <button class="all-scene-btn"><span class="ic">☀️</span>Спальня ярко</button>
-        <button class="all-scene-btn"><span class="ic">⭘</span>Спальня выкл</button>
-        <button class="all-scene-btn"><span class="ic">🌙</span>Кухня ночь</button>
-        <button class="all-scene-btn"><span class="ic">🕯</span>Кухня уют</button>
-        <button class="all-scene-btn"><span class="ic">☀️</span>Кухня ярко</button>
-        <button class="all-scene-btn"><span class="ic">⭘</span>Кухня выкл</button>
-        <button class="all-scene-btn"><span class="ic">🌙</span>Туалет ночь</button>
-        <button class="all-scene-btn"><span class="ic">☀️</span>Туалет ярко</button>
-        <button class="all-scene-btn"><span class="ic">🌙</span>Детская ночь</button>
-        <button class="all-scene-btn"><span class="ic">🕯</span>Детская уют</button>
-      </div>
+    <div style="font-size:12px; color:var(--text-dim); margin-bottom:10px">
+      Отметь ⭐ сцены которые должны быть на главном экране. Тап по названию — запуск сцены.
+      <button class="settings-btn" style="margin-left:8px" onclick="showAllScenesOnMain()">Показать все</button>
     </div>
-    <div style="margin-bottom:20px">
-      <div class="card-title" style="margin-bottom:10px">Кондиционер</div>
-      <div class="all-scenes">
-        <button class="all-scene-btn"><span class="ic">❄️</span>Кондер 24 авто</button>
-        <button class="all-scene-btn"><span class="ic">❄️</span>Кондер 25 авто</button>
-        <button class="all-scene-btn"><span class="ic">❄️</span>Кондер 26 мин</button>
-        <button class="all-scene-btn"><span class="ic">🥶</span>Кондер 17 Max</button>
-        <button class="all-scene-btn"><span class="ic">🔥</span>Кондер тепло 22</button>
-        <button class="all-scene-btn"><span class="ic">⭘</span>Кондер выкл</button>
-      </div>
-    </div>
-    <div style="margin-bottom:20px">
-      <div class="card-title" style="margin-bottom:10px">Розетки</div>
-      <div class="all-scenes">
-        <button class="all-scene-btn"><span class="ic">🔥</span>Бойлер вкл</button>
-        <button class="all-scene-btn"><span class="ic">🔥</span>Бойлер выкл</button>
-        <button class="all-scene-btn"><span class="ic">📺</span>ТВ вкл</button>
-        <button class="all-scene-btn"><span class="ic">📺</span>ТВ выкл</button>
-      </div>
-    </div>
-    <div>
-      <div class="card-title" style="margin-bottom:10px">Сценарии семьи</div>
-      <div class="all-scenes">
-        <button class="all-scene-btn"><span class="ic">🚗</span>Уехали из дома</button>
-        <button class="all-scene-btn"><span class="ic">🏠</span>Я дома</button>
-        <button class="all-scene-btn"><span class="ic">🚶</span>Вышли гулять</button>
-        <button class="all-scene-btn"><span class="ic">👣</span>Пришли с прогулки</button>
-        <button class="all-scene-btn"><span class="ic">🌙</span>Спокойной ночи</button>
-        <button class="all-scene-btn"><span class="ic">🌅</span>Доброе утро</button>
-      </div>
-    </div>
+    <div id="allScenesEditor"></div>
   </div>
 </div>
 
@@ -1995,15 +1899,21 @@
 
 <script>
   const clock = document.querySelector('.clock');
+  const _weekdaysRu = ['ВОСКРЕСЕНЬЕ','ПОНЕДЕЛЬНИК','ВТОРНИК','СРЕДА','ЧЕТВЕРГ','ПЯТНИЦА','СУББОТА'];
+  const _monthsRu   = ['ЯНВАРЯ','ФЕВРАЛЯ','МАРТА','АПРЕЛЯ','МАЯ','ИЮНЯ','ИЮЛЯ','АВГУСТА','СЕНТЯБРЯ','ОКТЯБРЯ','НОЯБРЯ','ДЕКАБРЯ'];
   function tick() {
     const d = new Date();
     clock.textContent = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    const dl = document.getElementById('dateLabel');
+    if (dl) dl.textContent = `${_weekdaysRu[d.getDay()]} · ${d.getDate()} ${_monthsRu[d.getMonth()]} ${d.getFullYear()}`;
   }
   tick(); setInterval(tick, 30000);
 
   function openModal(name) {
     document.getElementById('modal-' + name).classList.add('open');
     if (name === 'baby') refreshBabyDay();
+    if (name === 'settings') { refreshSettingsFramesInfo(); refreshSettingsHiddenList(); }
+    if (name === 'scenes') refreshPinnedScenesEditor();
   }
   function closeModal(name) { document.getElementById('modal-' + name).classList.remove('open'); }
 
@@ -2070,17 +1980,53 @@ document.querySelectorAll('.shop-item').forEach(item => {
     item.addEventListener('click', () => item.classList.toggle('done'));
   });
   // ============ PLAN DATA ============
-  let planItems = [
-    {time: "07:30", text: "Витамин D", sub: "3 капли", done: true},
-    {time: "08:30", text: "Прикорм № 1", sub: "каша гречневая", done: true},
-    {time: "09:30", text: "Прогулка № 1", sub: "парк, 45 мин", done: true},
-    {time: "10:15", text: "Активные игры", sub: "", done: true},
-    {time: "13:00", text: "Прикорм № 2", sub: "овощное пюре", done: false},
-    {time: "13:15", text: "Витамин группы В", sub: "", done: false},
-    {time: "16:30", text: "Прогулка № 2", sub: "двор, 30 мин", done: false},
-    {time: "19:00", text: "Купание", sub: "ритуал перед сном", done: false},
-    {time: "19:45", text: "Сироп для сна", sub: "", done: false},
+  const DEFAULT_PLAN = [
+    {time: "07:30", text: "Витамин D", sub: "3 капли"},
+    {time: "08:30", text: "Прикорм № 1", sub: "каша"},
+    {time: "09:30", text: "Прогулка № 1", sub: "парк, 45 мин"},
+    {time: "10:15", text: "Активные игры", sub: ""},
+    {time: "13:00", text: "Прикорм № 2", sub: "овощное пюре"},
+    {time: "13:15", text: "Витамин группы В", sub: ""},
+    {time: "16:30", text: "Прогулка № 2", sub: "двор, 30 мин"},
+    {time: "19:00", text: "Купание", sub: "ритуал перед сном"},
+    {time: "19:45", text: "Сироп для сна", sub: ""},
   ];
+  // Шаблон плана редактируется в edit-mode и хранится в 'planTemplate'.
+  // Отметки «выполнено» хранятся отдельно, поштучно на КАЖДЫЙ день
+  // ('planDone:YYYY-MM-DD' = ["07:30|Витамин D", ...]).
+  function loadPlanTemplate() {
+    try {
+      const raw = localStorage.getItem('planTemplate');
+      if (raw) return JSON.parse(raw);
+    } catch(e) {}
+    return DEFAULT_PLAN.map(x => ({...x}));
+  }
+  function savePlanTemplate() {
+    localStorage.setItem('planTemplate', JSON.stringify(planItems.map(({time,text,sub}) => ({time,text,sub}))));
+  }
+  function todayKey() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  function loadPlanDoneSet() {
+    try { return new Set(JSON.parse(localStorage.getItem('planDone:' + todayKey()) || '[]')); } catch(e) { return new Set(); }
+  }
+  function savePlanDoneSet(set) {
+    localStorage.setItem('planDone:' + todayKey(), JSON.stringify([...set]));
+  }
+  function itemKey(it) { return `${it.time}|${it.text}`; }
+  function resetPlan() {
+    localStorage.removeItem('planDone:' + todayKey());
+    planItems.forEach(it => it.done = false);
+    renderPlan();
+  }
+
+  let planItems = loadPlanTemplate();
+  // Восстановим отметки «выполнено» из планов сегодняшнего дня
+  {
+    const doneSet = loadPlanDoneSet();
+    planItems.forEach(it => it.done = doneSet.has(itemKey(it)));
+  }
   let planEditMode = false;
 
   function renderPlan() {
@@ -2107,18 +2053,23 @@ document.querySelectorAll('.shop-item').forEach(item => {
   function togglePlanDone(idx) {
     if (planEditMode) return;
     planItems[idx].done = !planItems[idx].done;
+    const doneSet = loadPlanDoneSet();
+    const key = itemKey(planItems[idx]);
+    if (planItems[idx].done) doneSet.add(key); else doneSet.delete(key);
+    savePlanDoneSet(doneSet);
     renderPlan();
   }
   function updatePlanText(idx, val) {
     const parts = val.split(' — ');
     planItems[idx].text = parts[0];
     planItems[idx].sub = parts[1] || '';
+    savePlanTemplate();
   }
-  function updatePlanTime(idx, val) { planItems[idx].time = val; }
-  function removePlanItem(idx) { planItems.splice(idx, 1); renderPlan(); }
+  function updatePlanTime(idx, val) { planItems[idx].time = val; savePlanTemplate(); }
+  function removePlanItem(idx) { planItems.splice(idx, 1); savePlanTemplate(); renderPlan(); }
   function addPlanItem() {
     planItems.push({time: "12:00", text: "Новое действие", sub: "", done: false});
-    renderPlan();
+    savePlanTemplate(); renderPlan();
   }
   function togglePlanEdit() {
     planEditMode = !planEditMode;
@@ -2751,15 +2702,36 @@ document.querySelectorAll('.shop-item').forEach(item => {
   }
 
 
+  function loadPinnedScenes() {
+    try {
+      const raw = localStorage.getItem('pinnedScenes');
+      if (raw) return new Set(JSON.parse(raw));
+    } catch(e) {}
+    return null;  // null = «показать всё» (пока пользователь не выбрал)
+  }
+  function savePinnedScenes(setOrNull) {
+    if (!setOrNull) localStorage.removeItem('pinnedScenes');
+    else localStorage.setItem('pinnedScenes', JSON.stringify([...setOrNull]));
+  }
+  window.__allScenes = [];
+
   function updateScenes(scenes) {
     const cont = document.getElementById('scenesGroups');
     if (!cont) return;
+    window.__allScenes = scenes || [];
     if (!scenes || !scenes.length) {
       cont.innerHTML = '<div style="font-size:12px; color:var(--text-dim); padding:8px 4px; text-align:center">Сцены Tuya не загружены</div>';
       return;
     }
-    // Оставляем только сцены (не автоматизации)
-    const list = scenes.filter(s => !s.is_automation && s.name);
+    // Оставляем только сцены (не автоматизации). Если пользователь
+    // задал пин-лист — фильтруем по нему.
+    const pinned = loadPinnedScenes();
+    let list = scenes.filter(s => !s.is_automation && s.name);
+    if (pinned && pinned.size) list = list.filter(s => pinned.has(s.name));
+    if (!list.length) {
+      cont.innerHTML = '<div style="font-size:12px; color:var(--text-dim); padding:8px 4px; text-align:center">Не выбрано ни одной сцены. Открой «Все →» и отметь ⭐.</div>';
+      return;
+    }
     // Группируем по первому слову
     const groups = {};
     list.forEach(s => {
@@ -2826,6 +2798,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
       updateWeather(s.weather);
       updateReminder(s.weather);
       updateBaby(s.baby);
+      updateChild(s.child);
       updateNursery(s.nursery);
       updateInverter(s.inverter, s.devices);
       updateDevices(s.devices);
@@ -2841,8 +2814,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
         setText('homeConsumption', Math.round(total) + ' Вт');
       }
       // Тревога — источник правды из ActiveAlert. Юзер может скрыть
-      // рамку — тогда до следующей ДРУГОЙ тревоги (по started_at) не
-      // показываем.
+      // рамку в Настройках → до следующей ДРУГОЙ тревоги не показываем.
       const isAlert = !!(s.alert && s.alert.active === true);
       const alertKey = isAlert ? (s.alert.started_at || 'active') : '';
       const dismissedAlert = localStorage.getItem('alertDismissedFor') || '';
@@ -2853,14 +2825,13 @@ document.querySelectorAll('.shop-item').forEach(item => {
         const t = document.getElementById('alertBannerText');
         if (t) t.textContent = `🚨 ВОЗДУШНАЯ ТРЕВОГА · ${region}`;
       }
-      // Если тревога закончилась — очищаем dismiss, чтоб следующая
-      // (уже с новым started_at) точно показалась.
       if (!isAlert && dismissedAlert) localStorage.removeItem('alertDismissedFor');
       window.__lastAlertKey = alertKey;
+      window.__lastAlertActive = isAlert;
 
-      // «Пора укладывать» — синяя рамка. Основано на awake_since ребёнка.
-      // Показываем когда бодрствует уже >= 130 минут (окно ~2ч 20м).
+      // «Пора укладывать» — синяя рамка.
       updateTiredFrame(s.baby);
+      refreshSettingsFramesInfo();
     } catch(e) { console.warn('state refresh failed', e); }
   }
   // Первый запрос сразу и потом каждые 15 сек
@@ -2869,16 +2840,113 @@ document.querySelectorAll('.shop-item').forEach(item => {
     setInterval(refreshState, 15000);
   }
 
-  // === ТРЕВОГА / «ПОРА УКЛАДЫВАТЬ» — скрытие рамки ===
+  // === ТРЕВОГА / «ПОРА УКЛАДЫВАТЬ» — управление через настройки ===
   function dismissAlert() {
     const key = window.__lastAlertKey || 'active';
     localStorage.setItem('alertDismissedFor', key);
     document.body.classList.remove('alerted');
+    refreshSettingsFramesInfo();
   }
   function dismissTired() {
     const key = window.__lastTiredKey || 'tired';
     localStorage.setItem('tiredDismissedFor', key);
     document.body.classList.remove('tired');
+    refreshSettingsFramesInfo();
+  }
+  function undismissAlert() {
+    localStorage.removeItem('alertDismissedFor');
+    refreshSettingsFramesInfo();
+    if (window.__lastAlertActive) document.body.classList.add('alerted');
+  }
+  function undismissTired() {
+    localStorage.removeItem('tiredDismissedFor');
+    refreshSettingsFramesInfo();
+    if (window.__lastTiredActive) document.body.classList.add('tired');
+  }
+  function refreshSettingsFramesInfo() {
+    // Обновляет статус в модалке настроек. Тихо no-op если модалка ещё не открыта.
+    const alertBox = document.getElementById('setAlertStatus');
+    const tiredBox = document.getElementById('setTiredStatus');
+    if (alertBox) {
+      const active = !!window.__lastAlertActive;
+      const dismissed = !!localStorage.getItem('alertDismissedFor');
+      alertBox.textContent = active
+        ? (dismissed ? 'Тревога есть, рамка скрыта' : 'Тревога активна — рамка на экране')
+        : 'Тревоги нет';
+    }
+    if (tiredBox) {
+      const active = !!window.__lastTiredActive;
+      const dismissed = !!localStorage.getItem('tiredDismissedFor');
+      tiredBox.textContent = active
+        ? (dismissed ? 'Устал, рамка скрыта' : 'Матвей устал — рамка на экране')
+        : 'Пока не устал';
+    }
+  }
+  function restoreAllHiddenCards() {
+    document.querySelectorAll('.card.hidden-card').forEach(c => c.classList.remove('hidden-card'));
+    if (typeof saveCardStates === 'function') saveCardStates();
+    if (typeof updateHiddenPanel === 'function') updateHiddenPanel();
+    refreshSettingsHiddenList();
+  }
+  function refreshSettingsHiddenList() {
+    const el = document.getElementById('setHiddenList');
+    if (!el) return;
+    const hidden = [...document.querySelectorAll('.card.hidden-card')];
+    if (!hidden.length) { el.textContent = 'Пока ничего не скрыто'; return; }
+    el.innerHTML = 'Сейчас скрыто: ' + hidden.map(c => {
+      const title = c.querySelector('.card-title');
+      const name = title ? title.firstChild.textContent.trim() : '?';
+      return `<button class="hidden-tag" style="margin:2px" onclick="showCard('${c.dataset.cardId}');refreshSettingsHiddenList()">${name} ↺</button>`;
+    }).join(' ');
+  }
+
+  function showAllScenesOnMain() {
+    savePinnedScenes(null);
+    if (typeof refreshState === 'function') refreshState();
+    refreshPinnedScenesEditor();
+  }
+  function togglePinnedScene(name) {
+    const cur = loadPinnedScenes() || new Set((window.__allScenes || []).filter(s=>!s.is_automation).map(s=>s.name));
+    if (cur.has(name)) cur.delete(name); else cur.add(name);
+    savePinnedScenes(cur);
+    if (typeof refreshState === 'function') refreshState();
+    refreshPinnedScenesEditor();
+  }
+  function refreshPinnedScenesEditor() {
+    const cont = document.getElementById('allScenesEditor');
+    if (!cont) return;
+    const scenes = (window.__allScenes || []).filter(s => !s.is_automation && s.name);
+    if (!scenes.length) { cont.innerHTML = '<div style="color:var(--text-dim); padding:16px">Сцены ещё не загружены…</div>'; return; }
+    const pinned = loadPinnedScenes();
+    const isPinned = (n) => !pinned ? true : pinned.has(n);
+    // Группировка по первому слову
+    const groups = {};
+    scenes.forEach(s => {
+      const g = s.name.split(/\s+/)[0];
+      (groups[g] = groups[g] || []).push(s);
+    });
+    cont.innerHTML = Object.keys(groups).map(g => `
+      <div style="margin-bottom:16px">
+        <div class="card-title" style="margin-bottom:8px">${g}</div>
+        <div class="all-scenes">
+          ${groups[g].map(sc => {
+            const pinIcon = isPinned(sc.name) ? '⭐' : '☆';
+            const safe = sc.name.replace(/"/g,'&quot;');
+            return `<div style="display:flex; align-items:center; gap:4px">
+              <button class="all-scene-btn" style="flex:1" onclick="runSceneByName('${safe}')">${sc.name}</button>
+              <button class="settings-btn" style="min-width:40px" title="Показывать на главном" onclick="togglePinnedScene('${safe}')">${pinIcon}</button>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`).join('');
+  }
+
+  function updateChild(child) {
+    if (!child) return;
+    const nameEl = document.getElementById('babyTitleName');
+    const ageEl = document.getElementById('babyTitleAge');
+    if (nameEl && child.name) nameEl.textContent = child.name;
+    if (ageEl && child.age_label) ageEl.textContent = child.age_label;
   }
   function updateTiredFrame(baby) {
     if (!baby || !baby.awake_since || baby.sleeping_since) {
@@ -2895,6 +2963,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
     const isTired = awakeMin >= TIRED_AT;
     const key = baby.awake_since;
     window.__lastTiredKey = key;
+    window.__lastTiredActive = isTired;
     const dismissed = localStorage.getItem('tiredDismissedFor') || '';
     const show = isTired && dismissed !== key;
     document.body.classList.toggle('tired', show);
@@ -3101,6 +3170,50 @@ document.querySelectorAll('.shop-item').forEach(item => {
     <div class="modal-head">
       <div class="modal-title">Настройки</div>
       <button class="modal-close" onclick="closeModal('settings')">✕</button>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-label">Уведомления и рамки</div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-name">🚨 Красная рамка тревоги</div>
+          <div class="settings-desc" id="setAlertStatus">Тревоги нет</div>
+        </div>
+        <div style="display:flex; gap:6px">
+          <button class="settings-btn" onclick="dismissAlert()">Скрыть</button>
+          <button class="settings-btn" onclick="undismissAlert()">Вернуть</button>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-name">🍼 Синяя рамка «пора укладывать»</div>
+          <div class="settings-desc" id="setTiredStatus">Пока не устал</div>
+        </div>
+        <div style="display:flex; gap:6px">
+          <button class="settings-btn" onclick="dismissTired()">Скрыть</button>
+          <button class="settings-btn" onclick="undismissTired()">Вернуть</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-label">Карточки на главном</div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-name">Скрытые карточки</div>
+          <div class="settings-desc" id="setHiddenList">—</div>
+        </div>
+        <div style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end">
+          <button class="settings-btn" onclick="restoreAllHiddenCards()">Вернуть все</button>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-name">План дня Матвея</div>
+          <div class="settings-desc">Отметки «выполнено» сохраняются локально. Сбросить?</div>
+        </div>
+        <button class="settings-btn" onclick="resetPlan()">Сбросить чекбоксы</button>
+      </div>
     </div>
 
     <div class="settings-group">

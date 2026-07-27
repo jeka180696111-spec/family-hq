@@ -40,6 +40,17 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
 
     state: dict = {"as_of": now_kyiv().isoformat()}
 
+    # Матвей — базовые факты (имя + дата рождения) для точного возраста в UI
+    try:
+        from src.utils.baby import MATVEY_BIRTH_DATE, matvey_age_short
+        state["child"] = {
+            "name": "Матвей",
+            "birth_date": MATVEY_BIRTH_DATE.isoformat(),
+            "age_label": matvey_age_short(),
+        }
+    except Exception:
+        log.exception("tablet_child_facts_failed")
+
     # Погода — текущая + прогноз 5 дней
     try:
         from src.integrations.weather import WeatherClient
@@ -169,18 +180,23 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
     try:
         from src.integrations.smartthings import SmartThingsClient
         st = SmartThingsClient.from_settings(settings)
-        if st and hasattr(st, "vacuum_status"):
-            vac = await st.vacuum_status()
-            if vac and vac.get("found"):
-                if "devices" not in state:
-                    state["devices"] = []
-                state["devices"].append({
+        if st:
+            devices_st = await st.list_devices()
+            vac = st.find_vacuum(devices_st, "гоша") or st.find_vacuum(devices_st)
+            if vac:
+                summary = await st.vacuum_summary(vac)
+                st_state = (summary.get("state") or "").lower()
+                battery = summary.get("battery")
+                extra_parts = []
+                if st_state: extra_parts.append(st_state)
+                if battery is not None: extra_parts.append(f"батарея {battery}%")
+                state.setdefault("devices", []).append({
                     "id": "gosha",
                     "name": "Гоша (пылесос)",
                     "online": True,
-                    "on": vac.get("state") == "cleaning",
+                    "on": st_state in ("cleaning", "running", "auto"),
                     "cur_power": None,
-                    "extra": vac.get("state") + ", батарея " + str(vac.get("battery")) + "%" if vac.get("battery") is not None else vac.get("state"),
+                    "extra": ", ".join(extra_parts) or "готов",
                 })
     except Exception:
         log.exception("tablet_vacuum_failed")
