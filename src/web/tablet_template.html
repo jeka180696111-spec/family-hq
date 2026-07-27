@@ -3538,12 +3538,25 @@ document.querySelectorAll('.shop-item').forEach(item => {
       if (!autos.length) {
         autoList.innerHTML = '<div style="padding:12px; color:var(--text-dim)">Автоматизаций ещё нет</div>';
       } else {
+        // Русский маппинг известных «системных» имён от Прораба
+        const RU_NAMES = {
+          'boiler_off_on_outage': 'Бойлер: выкл при отключении света',
+          'boiler_on_after_outage': 'Бойлер: вкл после возврата света',
+          'обогрев_детской': 'Обогрев детской',
+          'boiler_off_when_away': 'Бойлер: выкл когда никого дома',
+          'ac_off_when_away': 'Кондер: выкл когда никого дома',
+          'lights_off_when_away': 'Свет: выкл когда никого дома',
+        };
+        // Убираем служебные пометки типа [paused-by-trip], [auto], [family_hq:...]
+        const stripSystemTags = (s) => (s || '').replace(/\s*\[(?:paused-by-trip|auto|family_hq[^\]]*|system[^\]]*)\]\s*/gi, '').trim();
         autoList.innerHTML = autos.map(a => {
           const on = !!a.enabled;
-          const desc = (a.description || '').replace(/</g,'&lt;');
+          const desc = stripSystemTags(a.description || '').replace(/</g,'&lt;');
           const fired = a.fired_count ? `сработала ${a.fired_count}×` : 'не срабатывала';
-          // Красивое имя: kebab_case → «kebab case» с большой буквы
-          const prettyName = (a.name || '').replace(/[_-]/g, ' ').replace(/^./, c => c.toUpperCase());
+          // Имя: сначала пробуем перевод, потом kebab→title
+          const rawName = a.name || '';
+          const prettyName = RU_NAMES[rawName]
+            || rawName.replace(/[_-]/g, ' ').replace(/^./, c => c.toUpperCase());
           return `<div class="auto-item" data-id="${a.id}">
             <div class="auto-toggle ${on?'on':'off'}" role="button" tabindex="0"
                  onclick="toggleAutomation(${a.id}, this)"

@@ -555,16 +555,27 @@ def register_tablet_routes(app: FastAPI, memory: Any, settings: Any, agents_ref:
                 if not devops:
                     return {"success": False, "error": "Прораб не подключён в этом деплое"}
                 try:
-                    # DevOpsAgent.handle(message_text, sender_name, context, parsed_actions=None)
                     from src.orchestrator.conversation import ConversationContext
+                    from sqlalchemy import select as _sel, func as _func
                     ctx = ConversationContext(memory, settings.hq_chat_id)
-                    await devops.handle(
+                    # Считаем сколько правил было ДО
+                    async with memory._engine.connect() as conn:
+                        before = (await conn.execute(_sel(_func.count()).select_from(AutomationRule))).scalar_one()
+                    resp = await devops.handle(
                         message_text=f"Создай автоматизацию: {text}",
                         sender_name="Консоль",
                         context=ctx,
                         parsed_actions=None,
                     )
-                    return {"success": True}
+                    # ...ПОСЛЕ
+                    async with memory._engine.connect() as conn:
+                        after = (await conn.execute(_sel(_func.count()).select_from(AutomationRule))).scalar_one()
+                    reply_text = getattr(resp, "text", "") or ""
+                    return {
+                        "success": True,
+                        "created": bool(after > before),
+                        "reply": reply_text[:600],
+                    }
                 except Exception as e:
                     log.exception("tablet_automation_add_via_devops_failed")
                     return {"success": False, "error": str(e)[:200]}
