@@ -147,8 +147,10 @@
   .card.size-l #scenesGroups,
   .card.size-xl #scenesGroups {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 14px 12px;
+    /* Немного уже колонки — на широком экране комнат помещается больше,
+       кнопки не растягиваются. */
+    grid-template-columns: repeat(auto-fill, minmax(115px, 1fr));
+    gap: 12px 10px;
     align-items: start;
   }
   .card.size-l #scenesGroups .scene-group,
@@ -163,8 +165,13 @@
      «Max»/«авто») не выпирал по высоте относительно Спальни (только name). */
   .card.size-l #scenesGroups .scene-btn,
   .card.size-xl #scenesGroups .scene-btn {
-    min-height: 64px;
+    min-height: 56px;
+    padding: 6px 4px;
     justify-content: center;
+  }
+  .card.size-l #scenesGroups .scene-group-title,
+  .card.size-xl #scenesGroups .scene-group-title {
+    font-size: 10px;
   }
   @media (max-width: 900px) {
     .card.size-l, .card.size-xl { grid-column: span 2; }
@@ -3212,8 +3219,13 @@ document.querySelectorAll('.shop-item').forEach(item => {
       html += vacuums.map(v => {
         const status = v.extra || 'готов';
         const cleaning = (v.movement === 'cleaning');
+        // Заголовок в две строки — имя сверху, статус мелким шрифтом снизу,
+        // чтобы группа не становилась в разы шире соседних (Спальня/Кухня).
         return `<div class="scene-group">
-          <div class="scene-group-title">🤖 ${v.name || 'Пылесос'} <span style="color:var(--text-dim); font-weight:400; font-size:11px; margin-left:6px">${status}</span></div>
+          <div class="scene-group-title" style="display:flex; flex-direction:column; align-items:flex-start; gap:2px; text-transform:none">
+            <span>🤖 ${v.name || 'Пылесос'}</span>
+            <span style="color:var(--text-dim); font-weight:400; font-size:10px; text-transform:none; letter-spacing:0">${status}</span>
+          </div>
           <div class="scene-row" style="grid-template-columns:repeat(3,1fr)">
             <button class="scene-btn${cleaning?'':' active'}" onclick="vacuumCmd('start')"><div class="sc-icon">▶</div><div class="sc-name">Пуск</div></button>
             <button class="scene-btn" onclick="vacuumCmd('pause')"><div class="sc-icon">⏸</div><div class="sc-name">Пауза</div></button>
