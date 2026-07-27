@@ -281,6 +281,7 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
             today = []
             for e in events[:20]:
                 today.append({
+                    "id": getattr(e, "event_id", ""),
                     "title": getattr(e, "title", ""),
                     "when": getattr(e, "start", None).isoformat() if getattr(e, "start", None) else "",
                     "location": getattr(e, "location", ""),
@@ -427,6 +428,53 @@ def register_tablet_routes(app: FastAPI, memory: Any, settings: Any, agents_ref:
             return {"success": True}
         except Exception as e:
             log.exception("tablet_vacuum_action_failed")
+            return {"success": False, "error": str(e)[:200]}
+
+    # ─── События календаря семьи: добавить / удалить ─────────────────
+    @app.post("/api/tablet/action/event")
+    async def action_event(payload: dict = Body(...), token: str = Query("")):
+        _check_token(token, expected_token)
+        op = (payload.get("op") or "").lower()  # add | delete
+        if op not in ("add", "delete"):
+            raise HTTPException(400, "op must be add|delete")
+        if not (settings.google_service_account_json and settings.calendar_id):
+            return {"success": False, "error": "calendar not configured"}
+        try:
+            from src.integrations.gcalendar import CalendarClient
+            from src.utils.time import now_kyiv
+            from datetime import timedelta
+            cal = CalendarClient(settings.google_service_account_json, settings.calendar_id)
+            if op == "add":
+                title = (payload.get("title") or "").strip()
+                if not title:
+                    raise HTTPException(400, "title required")
+                time_str = (payload.get("time") or "").strip()  # 'HH:MM' or ''
+                now = now_kyiv()
+                if time_str and ":" in time_str:
+                    try:
+                        h, m = time_str.split(":")
+                        start = now.replace(hour=int(h), minute=int(m), second=0, microsecond=0)
+                        if start < now:                # если время в прошлом — на завтра
+                            start = start + timedelta(days=1)
+                    except ValueError:
+                        start = now.replace(hour=12, minute=0, second=0, microsecond=0)
+                else:
+                    # весь день — 09:00 по умолчанию
+                    start = now.replace(hour=9, minute=0, second=0, microsecond=0)
+                    if start < now:
+                        start = start + timedelta(days=1)
+                await cal.create_event(title=title, start=start)
+                return {"success": True}
+            else:  # delete
+                event_id = (payload.get("id") or "").strip()
+                if not event_id:
+                    raise HTTPException(400, "id required")
+                ok = await cal.delete_event(event_id)
+                return {"success": bool(ok)}
+        except HTTPException:
+            raise
+        except Exception as e:
+            log.exception("tablet_event_action_failed")
             return {"success": False, "error": str(e)[:200]}
 
     # ─── Список покупок: добавить / отметить купленным / удалить ─────

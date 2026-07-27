@@ -1752,17 +1752,20 @@
 
         <!-- TODAY -->
     <div class="card">
-      <div class="card-title">События семьи</div>
-      <div class="today-list" id="todayList"></div><div class="today-footer">
+      <div class="card-title">События семьи <button class="plan-edit" onclick="toggleEventsEdit()" id="eventsEditBtn">✎ Изменить</button></div>
+      <div class="today-list" id="todayList"></div>
+      <button class="plan-add" id="eventsAdd" onclick="addEvent()" style="display:none">+ Добавить событие</button>
+      <div class="today-footer">
         <span>На неделе</span>
-        <span class="week-count">12 событий</span>
+        <span class="week-count" data-t="weekCount">—</span>
       </div>
     </div>
 
     <!-- SHOPPING -->
     <div class="card">
-      <div class="card-title">Список покупок</div>
-      <div class="shop-list" id="shopList"></div><button class="shop-add" onclick="addShopping()">+ Добавить</button>
+      <div class="card-title">Список покупок <button class="plan-edit" onclick="toggleShopEdit()" id="shopEditBtn">✎ Изменить</button></div>
+      <div class="shop-list" id="shopList"></div>
+      <button class="plan-add" id="shopAdd" onclick="addShopping()">+ Добавить покупку</button>
     </div>
 
     </div>
@@ -2781,7 +2784,17 @@ document.querySelectorAll('.shop-item').forEach(item => {
     list.style.overflowY = 'auto';
   }
 
+  let _eventsEditMode = false;
+  window.__lastEvents = [];
+  function toggleEventsEdit() {
+    _eventsEditMode = !_eventsEditMode;
+    const btn = document.getElementById('eventsEditBtn');
+    if (btn) btn.textContent = _eventsEditMode ? '✓ Готово' : '✎ Изменить';
+    document.getElementById('eventsAdd').style.display = _eventsEditMode ? 'block' : 'none';
+    updateEvents(window.__lastEvents);
+  }
   function updateEvents(events) {
+    window.__lastEvents = events || [];
     const list = document.getElementById('todayList');
     if (!list) return;
     setText('weekCount', (events && events.length) ? (events.length + ' событий') : 'событий нет');
@@ -2789,43 +2802,72 @@ document.querySelectorAll('.shop-item').forEach(item => {
       list.innerHTML = '<div style="font-size:12px; color:var(--text-dim); padding:8px 4px; text-align:center">Событий сегодня нет</div>';
       return;
     }
-    // Показываем только события на сегодня
     const today = new Date().toISOString().slice(0, 10);
     const todays = events.filter(e => (e.when || '').startsWith(today));
     if (!todays.length) {
       list.innerHTML = '<div style="font-size:12px; color:var(--text-dim); padding:8px 4px; text-align:center">Сегодня свободно</div>';
       return;
     }
-    list.innerHTML = todays.slice(0, 4).map(e => {
+    const shown = _eventsEditMode ? todays : todays.slice(0, 4);
+    list.innerHTML = shown.map(e => {
       const t = clockFmt(e.when);
       const loc = e.location ? `<span class="sub">${e.location}</span>` : '';
-      return `<div class="today-item"><div class="today-time">${t}</div><div class="today-text">${e.title || ''}${loc}</div></div>`;
+      const idAttr = e.id ? ` data-eid="${String(e.id).replace(/"/g,'&quot;')}"` : '';
+      const delBtn = _eventsEditMode && e.id
+        ? `<button title="Удалить" style="background:none; border:0; color:var(--text-dim); cursor:pointer; font-size:14px; margin-left:auto" onclick="deleteEvent('${String(e.id).replace(/'/g,"\\'")}')">✕</button>` : '';
+      return `<div class="today-item"${idAttr} style="display:flex; align-items:center; gap:8px"><div class="today-time">${t}</div><div class="today-text" style="flex:1">${(e.title||'').replace(/</g,'&lt;')}${loc}</div>${delBtn}</div>`;
     }).join('');
   }
+  window.addEvent = async function() {
+    if (!TOKEN) return;
+    const title = (prompt('Название события?') || '').trim();
+    if (!title) return;
+    const timeStr = (prompt('Время начала (HH:MM), пусто — весь день:') || '').trim();
+    try {
+      await apiPost('/api/tablet/action/event', {op: 'add', title, time: timeStr});
+      refreshState();
+    } catch(e) { console.warn('add event failed', e); }
+  };
+  window.deleteEvent = async function(id) {
+    if (!TOKEN || !id) return;
+    if (!confirm('Удалить это событие из календаря?')) return;
+    try { await apiPost('/api/tablet/action/event', {op: 'delete', id}); refreshState(); }
+    catch(e) { console.warn('delete event failed', e); }
+  };
 
-
-
-
+  let _shopEditMode = false;
+  window.__lastShopping = [];
+  function toggleShopEdit() {
+    _shopEditMode = !_shopEditMode;
+    const btn = document.getElementById('shopEditBtn');
+    if (btn) btn.textContent = _shopEditMode ? '✓ Готово' : '✎ Изменить';
+    updateShopping(window.__lastShopping);
+  }
   function updateShopping(items) {
+    window.__lastShopping = items || [];
     const list = document.getElementById('shopList');
     if (!list) return;
     if (!items || !items.length) {
       list.innerHTML = '<div style="font-size:12px; color:var(--text-dim); padding:8px 4px; text-align:center">Список пуст</div>';
       return;
     }
-    list.innerHTML = items.slice(0, 12).map(it => {
+    const shown = _shopEditMode ? items : items.slice(0, 12);
+    list.innerHTML = shown.map(it => {
       const done = it.done ? ' done' : '';
       const safe = (it.name || '').replace(/</g,'&lt;').replace(/'/g,"\\'");
+      const delBtn = _shopEditMode
+        ? `<button title="Удалить" style="background:none; border:0; color:var(--text-dim); cursor:pointer; font-size:14px" onclick="deleteShopping('${safe}')">✕</button>`
+        : '';
       return `<div class="shop-item${done}" data-item="${(it.name||'').replace(/"/g,'&quot;')}">
         <div class="shop-check" onclick="markShoppingDone('${safe}', ${it.done ? 'true' : 'false'})"></div>
         <span style="flex:1">${(it.name || '').replace(/</g,'&lt;')}</span>
-        <button title="Убрать" style="background:none; border:0; color:var(--text-dim); cursor:pointer; font-size:14px" onclick="deleteShopping('${safe}')">✕</button>
+        ${delBtn}
       </div>`;
     }).join('');
   }
   window.markShoppingDone = async function(name, alreadyDone) {
     if (!TOKEN) return;
-    if (alreadyDone === true || alreadyDone === 'true') return; // уже куплено — clic на «✕» удаляет
+    if (alreadyDone === true || alreadyDone === 'true') return;
     try { await apiPost('/api/tablet/action/shopping', {op: 'done', item: name}); refreshState(); }
     catch(e) { console.warn(e); }
   };
