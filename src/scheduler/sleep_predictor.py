@@ -57,10 +57,12 @@ class SleepPredictor:
         self._nanny = nanny_agent
         self._bots = bot_manager
         self._chat_id = chat_id
-        self._last_warning_for_awake_since: str | None = None
         # «пора будить» — идемпотентность по sleeping_since, чтобы не
         # спамить каждые 5 мин пока ребёнок спит.
-        self._last_wake_alert_for_sleeping_since: str | None = None
+        # ВАЖНО: хранится в БД (agent_settings), а не в памяти —
+        # иначе каждый рестарт/деплой Railway = новый алерт на тот же сон.
+        self._wake_alert_key = "last_wake_alert_for_sleeping_since"
+        self._warning_key = "last_warning_for_awake_since"
 
     async def tick(self) -> None:
         # Не вклиниваться когда юзер активно пишет в чат.
@@ -89,7 +91,10 @@ class SleepPredictor:
             if not awake_since_iso:
                 return
 
-            if awake_since_iso == self._last_warning_for_awake_since:
+            last_warn = await self._memory.get_agent_setting(
+                "nanny", self._warning_key, "",
+            )
+            if awake_since_iso == last_warn:
                 return
 
             awake_since = datetime.fromisoformat(awake_since_iso)
@@ -163,7 +168,9 @@ class SleepPredictor:
                             )
                     except Exception:
                         log.exception("predictor_directives_failed")
-                self._last_warning_for_awake_since = awake_since_iso
+                await self._memory.set_agent_setting(
+                    "nanny", self._warning_key, awake_since_iso,
+                )
                 log.info(
                     "sleep_warning_pushed",
                     awake_min=int(awake_min), window_min=window_min,
@@ -204,7 +211,10 @@ class SleepPredictor:
         """If Matvey has been sleeping past the age-typical nap length
         (or any nap continuing past 17:00) — нужен пуш «пора будить»,
         чтобы не съесть ночной сон. Один пуш на цикл сна."""
-        if sleeping_since_iso == self._last_wake_alert_for_sleeping_since:
+        last_alert = await self._memory.get_agent_setting(
+            "nanny", self._wake_alert_key, "",
+        )
+        if sleeping_since_iso == last_alert:
             return
         from src.utils.time import now_kyiv
         from src.utils.family import CHILD
@@ -280,7 +290,9 @@ class SleepPredictor:
             await self._bots.send_message(
                 agent_id="nanny", chat_id=self._chat_id, text=text,
             )
-            self._last_wake_alert_for_sleeping_since = sleeping_since_iso
+            await self._memory.set_agent_setting(
+                "nanny", self._wake_alert_key, sleeping_since_iso,
+            )
             log.info(
                 "wake_alert_pushed",
                 slept_min=int(slept_min), target=target,
