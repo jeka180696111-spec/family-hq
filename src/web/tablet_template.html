@@ -2671,17 +2671,42 @@ document.querySelectorAll('.shop-item').forEach(item => {
     if (card) card.style.display = '';
     const etaBlock = document.querySelector('.battery-eta');
     if (gridActive) {
-      if (cardTitle) cardTitle.textContent = 'Инвертор · заряд';
+      if (cardTitle) cardTitle.textContent = 'Инвертор';
       if (etaBlock) etaBlock.style.display = 'none';
+      // Крупная цифра — SoC%. Есть — показываем, нет — прочерк.
       if (inv.soc != null) {
-        setHtml('battRuntime', inv.soc + '<span class="unit">%</span>');
+        setHtml('battRuntime', Math.round(inv.soc) + '<span class="unit">%</span>');
       } else {
         setHtml('battRuntime', '<span style="color: var(--text-dim)">—</span>');
       }
-      setText('battLoad', 'сеть в норме, батарея на подхвате');
-      // Спарклайн/подсказки при светe не нужны — очистим блок
+      // Подпись — статус батареи.
+      let flowLabel = 'сеть в норме';
+      if (inv.battery_flow === 'charging' && inv.battery_charge_w > 20) {
+        flowLabel = 'заряжается ' + Math.round(inv.battery_charge_w) + ' Вт';
+      } else if (inv.battery_flow === 'discharging' && inv.battery_discharge_w > 20) {
+        flowLabel = 'отдаёт ' + Math.round(inv.battery_discharge_w) + ' Вт';
+      } else {
+        flowLabel = 'батарея на подхвате';
+      }
+      setText('battLoad', flowLabel);
+      // Информативный блок вместо спарклайна: солнце / дом / сеть.
       const container = document.querySelector('.battery-forecast');
-      if (container) container.innerHTML = '';
+      if (container) {
+        const rows = [];
+        if (inv.solar_w != null) {
+          const isNight = inv.solar_w < 20;
+          rows.push({ic: isNight ? '🌙' : '☀️', label: 'Солнце', val: Math.round(inv.solar_w) + ' Вт', dim: isNight});
+        }
+        if (inv.load_w != null) rows.push({ic: '🏠', label: 'Дом', val: Math.round(inv.load_w) + ' Вт'});
+        if (inv.grid_import_w != null && inv.grid_import_w > 20) rows.push({ic: '⚡', label: 'Из сети', val: Math.round(inv.grid_import_w) + ' Вт'});
+        else if (inv.grid_export_w != null && inv.grid_export_w > 20) rows.push({ic: '↗', label: 'В сеть', val: Math.round(inv.grid_export_w) + ' Вт'});
+        container.innerHTML = '<div style="display:grid; grid-template-columns:1fr 1fr; gap:6px 12px; margin-top:8px">' +
+          rows.map(r => `<div style="display:flex; align-items:center; gap:6px; font-size:11px; ${r.dim?'opacity:0.55':''}">
+            <span style="font-size:14px">${r.ic}</span>
+            <span style="color:var(--text-dim); letter-spacing:0.06em">${r.label}</span>
+            <span style="margin-left:auto; font-family:ui-serif,Georgia,serif; color:var(--text)">${r.val}</span>
+          </div>`).join('') + '</div>';
+      }
     } else {
       if (cardTitle) cardTitle.textContent = 'Автономность';
       if (etaBlock) etaBlock.style.display = '';

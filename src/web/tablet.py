@@ -240,12 +240,31 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
         lux = LuxCloudClient.from_settings(settings)
         if lux:
             rt = await lux.runtime()
+            grid_import = rt.get("grid_import_w") or 0
+            grid_export = rt.get("grid_export_w") or 0
+            charge_w = rt.get("battery_charge_w") or 0
+            discharge_w = rt.get("battery_discharge_w") or 0
             state["inverter"] = {
                 "online": rt.get("online"),
-                "soc": rt.get("soc") or rt.get("battery_soc"),
-                "load_w": rt.get("load_w") or rt.get("home_w"),
-                "grid_active": rt.get("grid_active"),
-                "solar_w": rt.get("solar_w") or rt.get("pv_w"),
+                # SOC: LuxCloud возвращает battery_pct; старые названия
+                # оставляем для обратной совместимости
+                "soc": rt.get("battery_pct") if rt.get("battery_pct") is not None else (rt.get("soc") or rt.get("battery_soc")),
+                "load_w": rt.get("home_consumption_w") or rt.get("load_w") or rt.get("home_w"),
+                # Сеть считаем активной если через неё что-то течёт (import
+                # либо export), либо status инвертора не «off-grid».
+                "grid_active": (grid_import > 20 or grid_export > 20 or
+                                (rt.get("status") or "").lower() not in ("off-grid", "offgrid", "island")),
+                "solar_w": rt.get("pv_total_w") or rt.get("solar_w") or rt.get("pv_w"),
+                "grid_import_w": grid_import,
+                "grid_export_w": grid_export,
+                "battery_charge_w": charge_w,
+                "battery_discharge_w": discharge_w,
+                # производный статус для UI
+                "battery_flow": (
+                    "charging" if charge_w > discharge_w + 20
+                    else "discharging" if discharge_w > charge_w + 20
+                    else "idle"
+                ),
             }
     except Exception:
         log.exception("tablet_lux_failed")
