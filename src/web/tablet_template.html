@@ -243,6 +243,19 @@
     color: var(--text-mute);
   }
   .detail-tile.add-tile .dt-em { font-size: 24px; opacity: 0.5; }
+  .detail-tile.disabled { cursor: default; opacity: 0.6; }
+  .detail-tile.disabled:hover { transform: none; border-color: var(--line); }
+  .dt-soon {
+    display: inline-block;
+    margin-top: 10px;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-mute);
+    padding: 3px 8px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
 
   /* Размеры карточек */
   .card.size-l { grid-column: span 2; }
@@ -1969,28 +1982,38 @@
 
   </div><!-- /page-overview -->
 
-  <!-- ============= PAGE: ДЕТАЛЬНО ============= -->
+  <!-- ============= PAGE: ДЕТАЛЬНО (лаунчер экранов) ============= -->
   <div class="page-view page-detail" id="pageDetail">
     <div class="detail-grid">
-      <div class="detail-tile">
+      <div class="detail-tile disabled">
         <div class="dt-title">План квартиры</div>
         <div class="dt-body">
           <div class="dt-em">🏠</div>
           Интерактивный план с устройствами
+          <div class="dt-soon">скоро</div>
         </div>
       </div>
-      <div class="detail-tile">
+      <div class="detail-tile disabled">
         <div class="dt-title">Матвей крупно</div>
         <div class="dt-body">
           <div class="dt-em">👶</div>
           Полная карточка малыша
+          <div class="dt-soon">скоро</div>
         </div>
       </div>
-      <div class="detail-tile">
+      <div class="detail-tile" onclick="switchPage('feeding')">
+        <div class="dt-title">Прикорм</div>
+        <div class="dt-body">
+          <div class="dt-em">🥄</div>
+          Сегодня / пробовали / реакции
+        </div>
+      </div>
+      <div class="detail-tile disabled">
         <div class="dt-title">Плеер</div>
         <div class="dt-body">
           <div class="dt-em">🎵</div>
           Apple Music + YouTube
+          <div class="dt-soon">скоро</div>
         </div>
       </div>
       <div class="detail-tile add-tile">
