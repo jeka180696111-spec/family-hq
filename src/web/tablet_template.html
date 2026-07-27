@@ -845,11 +845,18 @@
   }
   .shop-add:hover { background: var(--amber); color: #1a1200; }
   .auto-item {
-    display: grid; grid-template-columns: auto 1fr; gap: 12px;
-    padding: 12px 0;
+    display: grid; grid-template-columns: auto 1fr auto; gap: 12px;
+    padding: 10px 0;
     border-bottom: 1px solid var(--line-soft);
-    align-items: start;
+    align-items: center;
   }
+  .auto-item .auto-del {
+    background: none; border: 0; color: var(--text-mute);
+    cursor: pointer; font-size: 13px; padding: 4px 6px;
+    border-radius: 6px; transition: color 0.15s, background 0.15s;
+  }
+  .auto-item .auto-del:hover { color: var(--coral); background: rgba(255,80,80,0.08); }
+  .auto-toggle:hover { filter: brightness(1.1); }
   .auto-item:last-of-type { border-bottom: none; }
   .auto-toggle {
     width: 34px; height: 20px;
@@ -2436,13 +2443,27 @@ document.querySelectorAll('.shop-item').forEach(item => {
   }
 
   function updateNursery(nursery) {
-    if (!nursery) return;
-    if (nursery.temperature) {
-      const t = String(nursery.temperature).replace('°C','').trim();
+    // Пытаемся получить температуру/влажность из state.nursery,
+    // а если бэк не смог (не настроен baby_room_sensor_name или
+    // read_sensor не разобрал DP-коды) — берём как fallback ЛЮБОЙ
+    // датчик из state.devices с полем temp.
+    let temp = nursery && nursery.temperature;
+    let humi = nursery && nursery.humidity;
+    if (!temp || !humi) {
+      const devices = window.__lastDevices || [];
+      const sensor = devices.find(d => (d.name || '').toLowerCase().includes('датчик')
+                                     && (d.temp != null || d.humi != null));
+      if (sensor) {
+        if (!temp && sensor.temp != null) temp = sensor.temp + '°C';
+        if (!humi && sensor.humi != null) humi = sensor.humi + '%';
+      }
+    }
+    if (temp) {
+      const t = String(temp).replace('°C','').trim();
       setHtml('nurseryTemp', t + '<span class="unit">°C</span>');
     }
-    if (nursery.humidity) {
-      const h = String(nursery.humidity).replace('%','').trim();
+    if (humi) {
+      const h = String(humi).replace('%','').trim();
       setHtml('nurseryHumi', h + '<span class="unit">%</span>');
     }
   }
@@ -2760,13 +2781,36 @@ document.querySelectorAll('.shop-item').forEach(item => {
   }
   window.addEvent = async function() {
     if (!TOKEN) return;
-    const title = (prompt('Название события?') || '').trim();
-    if (!title) return;
-    const timeStr = (prompt('Время начала (HH:MM), пусто — весь день:') || '').trim();
-    try {
-      await apiPost('/api/tablet/action/event', {op: 'add', title, time: timeStr});
-      refreshState();
-    } catch(e) { console.warn('add event failed', e); }
+    const list = document.getElementById('todayList');
+    if (!list) return;
+    if (list.querySelector('.event-item-new')) {
+      list.querySelector('.event-item-new input')?.focus();
+      return;
+    }
+    // Убираем плейсхолдер если стоял
+    if (list.textContent.includes('Сегодня свободно') || list.textContent.includes('Событий сегодня')) list.innerHTML = '';
+    const row = document.createElement('div');
+    row.className = 'today-item event-item-new';
+    row.style.cssText = 'display:flex; align-items:center; gap:8px; padding:6px 0';
+    row.innerHTML = `
+      <input class="plan-time-input" type="time" style="display:inline-block; width:70px" value="12:00">
+      <input class="plan-text-input" style="flex:1; display:inline-block" placeholder="Название события">
+      <button class="auto-del" title="Отмена">✕</button>`;
+    list.prepend(row);
+    const [timeI, titleI] = row.querySelectorAll('input');
+    const cancel = () => row.remove();
+    const submit = async () => {
+      const title = (titleI.value || '').trim();
+      if (!title) { cancel(); return; }
+      try {
+        await apiPost('/api/tablet/action/event', {op: 'add', title, time: timeI.value || ''});
+        refreshState();
+      } catch(e) { console.warn('add event failed', e); }
+    };
+    titleI.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') cancel(); });
+    titleI.addEventListener('blur', () => setTimeout(() => { if (document.body.contains(row)) submit(); }, 100));
+    row.querySelector('button').addEventListener('mousedown', e => { e.preventDefault(); cancel(); });
+    titleI.focus();
   };
   window.deleteEvent = async function(id) {
     if (!TOKEN || !id) return;
@@ -2817,10 +2861,37 @@ document.querySelectorAll('.shop-item').forEach(item => {
     catch(e) { console.warn(e); }
   };
   window.addShopping = async function() {
-    const name = (prompt('Что добавить в список?') || '').trim();
-    if (!name) return;
-    try { await apiPost('/api/tablet/action/shopping', {op: 'add', item: name}); refreshState(); }
-    catch(e) { console.warn(e); }
+    // Inline-форма как у плана: вставляем строку с input вверху списка
+    const list = document.getElementById('shopList');
+    if (!list) return;
+    // Убираем плейсхолдер «Список пуст» если он есть
+    if (list.textContent.includes('Список пуст')) list.innerHTML = '';
+    if (list.querySelector('.shop-item-new')) {
+      list.querySelector('.shop-item-new input')?.focus();
+      return;
+    }
+    const row = document.createElement('div');
+    row.className = 'shop-item shop-item-new';
+    row.style.cssText = 'padding:4px 0';
+    row.innerHTML = `<div class="shop-check" style="opacity:0.4"></div>
+      <input class="plan-text-input" placeholder="Что купить?" style="flex:1; display:inline-block">
+      <button class="auto-del" title="Отмена">✕</button>`;
+    list.prepend(row);
+    const input = row.querySelector('input');
+    const cancel = () => row.remove();
+    const submit = async () => {
+      const name = (input.value || '').trim();
+      if (!name) { cancel(); return; }
+      try { await apiPost('/api/tablet/action/shopping', {op: 'add', item: name}); refreshState(); }
+      catch(e) { console.warn(e); }
+    };
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') submit();
+      else if (e.key === 'Escape') cancel();
+    });
+    input.addEventListener('blur', () => setTimeout(() => { if (document.body.contains(row)) submit(); }, 100));
+    row.querySelector('button').addEventListener('mousedown', e => { e.preventDefault(); cancel(); });
+    input.focus();
   };
 
 
@@ -3272,8 +3343,23 @@ document.querySelectorAll('.shop-item').forEach(item => {
     if (typeof refreshState === 'function') refreshState();
     refreshPinnedScenesEditor();
   }
+  function _defaultPinnedSet() {
+    // Всё что по умолчанию должно быть на главном: все Tuya-сцены +
+    // розетки + пылесос (по ключу vacuum:<name>).
+    const set = new Set();
+    (window.__allScenes || []).filter(s => !s.is_automation && s.name).forEach(s => set.add(s.name));
+    (window.__lastDevices || []).forEach(d => {
+      const n = (d.name || '').toLowerCase();
+      if (d.kind === 'vacuum') set.add(`vacuum:${d.name}`);
+      else if (n.includes('бойлер') || n.includes('телев') || n === 'тв' ||
+               n.includes('розетк') || n.includes('пылес') || n.includes('гоша')) {
+        set.add(d.name);
+      }
+    });
+    return set;
+  }
   function togglePinnedScene(name) {
-    const cur = loadPinnedScenes() || new Set((window.__allScenes || []).filter(s=>!s.is_automation).map(s=>s.name));
+    const cur = loadPinnedScenes() || _defaultPinnedSet();
     if (cur.has(name)) cur.delete(name); else cur.add(name);
     savePinnedScenes(cur);
     if (typeof refreshState === 'function') refreshState();
@@ -3433,23 +3519,43 @@ document.querySelectorAll('.shop-item').forEach(item => {
           const on = !!a.enabled;
           const desc = (a.description || '').replace(/</g,'&lt;');
           const fired = a.fired_count ? `сработала ${a.fired_count}×` : 'не срабатывала';
-          return `<div class="auto-item">
-            <div class="auto-toggle ${on?'on':'off'}" onclick="toggleAutomation(${a.id})" style="cursor:pointer"></div>
-            <div class="auto-info" style="flex:1">
-              <div class="auto-name">${(a.name||'').replace(/</g,'&lt;')}</div>
+          // Красивое имя: kebab_case → «kebab case» с большой буквы
+          const prettyName = (a.name || '').replace(/[_-]/g, ' ').replace(/^./, c => c.toUpperCase());
+          return `<div class="auto-item" data-id="${a.id}">
+            <div class="auto-toggle ${on?'on':'off'}" role="button" tabindex="0"
+                 onclick="toggleAutomation(${a.id}, this)"
+                 onkeydown="if(event.key===' '||event.key==='Enter'){event.preventDefault();toggleAutomation(${a.id}, this)}"
+                 style="cursor:pointer" title="${on?'Выключить':'Включить'}"></div>
+            <div class="auto-info">
+              <div class="auto-name">${prettyName.replace(/</g,'&lt;')}</div>
               ${desc ? `<div class="auto-cond">${desc}</div>` : ''}
               <div class="auto-stat">${fired}${on?'':' · выключена'}</div>
             </div>
-            <button title="Удалить" style="background:none; border:0; color:var(--text-dim); cursor:pointer; font-size:14px" onclick="deleteAutomation(${a.id})">✕</button>
+            <button class="auto-del" title="Удалить" onclick="deleteAutomation(${a.id})">✕</button>
           </div>`;
         }).join('');
       }
     }
   }
-  window.toggleAutomation = async function(id) {
+  window.toggleAutomation = async function(id, el) {
     if (!TOKEN || !id) return;
-    try { await apiPost('/api/tablet/action/automation', {op: 'toggle', id}); refreshState(); }
-    catch(e) { console.warn('toggle auto failed', e); }
+    // Оптимистичное переключение — юзер сразу видит реакцию
+    if (el && el.classList) {
+      el.classList.toggle('on');
+      el.classList.toggle('off');
+    }
+    try {
+      const r = await apiPost('/api/tablet/action/automation', {op: 'toggle', id});
+      if (r && r.success === false) {
+        // Откатываем визуальный тумблер
+        if (el && el.classList) { el.classList.toggle('on'); el.classList.toggle('off'); }
+        alert('Не получилось: ' + (r.error || 'неизвестная ошибка'));
+      }
+      refreshState();
+    } catch(e) {
+      if (el && el.classList) { el.classList.toggle('on'); el.classList.toggle('off'); }
+      console.warn('toggle auto failed', e);
+    }
   };
   window.deleteAutomation = async function(id) {
     if (!TOKEN || !id) return;
@@ -3459,13 +3565,40 @@ document.querySelectorAll('.shop-item').forEach(item => {
   };
   window.addAutomation = async function() {
     if (!TOKEN) return;
-    const text = (prompt('Опиши автоматизацию человеческим языком.\nНапример: «Если в детской >25° и Матвей спит — запусти сцену Кондер 24 авто».\nПрораб её распарсит и создаст.') || '').trim();
-    if (!text) return;
-    try {
-      const r = await apiPost('/api/tablet/action/automation', {op: 'add', text});
-      if (r && r.success) refreshState();
-      else alert('Прораб не смог: ' + (r?.error || 'неизвестная ошибка'));
-    } catch(e) { console.warn(e); alert('Ошибка: ' + e); }
+    const list = document.getElementById('modalAutosList');
+    if (!list) return;
+    if (list.querySelector('.auto-item-new')) {
+      list.querySelector('.auto-item-new textarea')?.focus();
+      return;
+    }
+    const row = document.createElement('div');
+    row.className = 'auto-item auto-item-new';
+    row.style.cssText = 'display:block; padding:12px 0';
+    row.innerHTML = `
+      <div style="font-size:11px; color:var(--text-dim); margin-bottom:6px">Опиши автоматизацию человеческим языком — Прораб разберёт и создаст.</div>
+      <textarea class="plan-text-input" style="display:block; width:100%; min-height:60px; padding:8px; resize:vertical" placeholder="Например: если в детской >25° и Матвей спит — запусти сцену Кондер 24 авто"></textarea>
+      <div style="display:flex; gap:8px; margin-top:8px; justify-content:flex-end">
+        <button class="settings-btn" data-a="cancel">Отмена</button>
+        <button class="settings-btn" data-a="save" style="background:var(--amber); color:#1a1200">Создать</button>
+      </div>
+      <div class="auto-item-status" style="font-size:11px; color:var(--text-dim); margin-top:6px"></div>`;
+    list.prepend(row);
+    const ta = row.querySelector('textarea');
+    const status = row.querySelector('.auto-item-status');
+    const cancel = () => row.remove();
+    const submit = async () => {
+      const text = (ta.value || '').trim();
+      if (!text) { cancel(); return; }
+      status.textContent = 'Прораб думает…';
+      try {
+        const r = await apiPost('/api/tablet/action/automation', {op: 'add', text});
+        if (r && r.success) { refreshState(); row.remove(); }
+        else { status.textContent = 'Не получилось: ' + (r?.error || 'неизвестная ошибка'); }
+      } catch(e) { status.textContent = 'Ошибка: ' + e; }
+    };
+    row.querySelector('[data-a="cancel"]').addEventListener('click', cancel);
+    row.querySelector('[data-a="save"]').addEventListener('click', submit);
+    ta.focus();
   };
 
   function updateChild(child) {
