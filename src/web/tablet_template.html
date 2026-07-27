@@ -490,7 +490,12 @@
     background: rgba(0,0,0,0.15);
     transition: background 0.4s ease, box-shadow 0.4s ease, color 0.4s ease;
   }
-  .batt-pct-circle .unit { color: rgba(255,255,255,0.8); font-size: 18px; margin-left: 3px; align-self: flex-end; padding-bottom: 6px; }
+  .batt-pct-circle .unit {
+    color: rgba(255,255,255,0.8);
+    font-size: 20px;
+    margin-left: 2px;
+    align-self: center;   /* стоит рядом с числом, а не улетает вниз */
+  }
   .batt-pct-circle span:first-child { color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.4); }
   .batt-pct-circle.high  { color: #4ea658; background: rgba(78, 166, 88, 0.25); }
   .batt-pct-circle.mid   { color: #4287f5; background: rgba(66, 135, 245, 0.25); }
