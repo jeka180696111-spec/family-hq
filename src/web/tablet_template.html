@@ -478,11 +478,11 @@
      в зависимости от уровня заряда. */
   .batt-pct-circle {
     display: inline-flex;
-    align-items: baseline;
+    align-items: center;      /* было baseline — число прыгало в верх */
     justify-content: center;
-    min-width: 116px; min-height: 116px;
+    width: 116px; height: 116px;
     border-radius: 50%;
-    padding: 6px 14px;
+    padding: 0;
     font-family: ui-serif, Georgia, serif;
     font-size: 40px; font-weight: 500;
     line-height: 1;
@@ -490,7 +490,7 @@
     background: rgba(0,0,0,0.15);
     transition: background 0.4s ease, box-shadow 0.4s ease, color 0.4s ease;
   }
-  .batt-pct-circle .unit { color: rgba(255,255,255,0.8); font-size: 18px; margin-left: 3px; }
+  .batt-pct-circle .unit { color: rgba(255,255,255,0.8); font-size: 18px; margin-left: 3px; align-self: flex-end; padding-bottom: 6px; }
   .batt-pct-circle span:first-child { color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.4); }
   .batt-pct-circle.high  { color: #4ea658; background: rgba(78, 166, 88, 0.25); }
   .batt-pct-circle.mid   { color: #4287f5; background: rgba(66, 135, 245, 0.25); }
@@ -3811,17 +3811,12 @@ document.querySelectorAll('.shop-item').forEach(item => {
     });
   });
 
-  // Baby state buttons - записываем в дневник
-  document.querySelectorAll('.bstate').forEach(b => {
-    const state = b.dataset.state;
-    const eventMap = {sleeping:['sleep','Уснул'], awake:['sleep','Проснулся'],
-                     walking:['walk','Вышли гулять'], hungry:['food','Хочет есть'],
-                     tired:['note','Хочет спать']};
-    b.addEventListener('click', () => {
-      const [kind, event] = eventMap[state] || ['note', state];
-      if (TOKEN) logBabyEvent(kind, event);
-    }, { capture: false });
-  });
+  // Baby state buttons — только переключение визуального состояния
+  // (фото/эмодзи), БЕЗ записи в дневник. Раньше клик по «🥱 хочет
+  // спать» / «🌅 проснулся» автоматически писал в дневник — пользователь
+  // получал лишние ложные записи. Запись в дневник теперь идёт ТОЛЬКО
+  // через явные кнопки «Вышли гулять / Пришли с прогулки» и через бота
+  // в Телеграме. Здесь — просто визуальный swap.
 
   // Baby action buttons (Вышли гулять / Пришли с прогулки)
   //   • «Вышли гулять» → запись в дневник + запуск сцены (по умолчанию
