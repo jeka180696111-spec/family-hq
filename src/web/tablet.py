@@ -555,13 +555,16 @@ def register_tablet_routes(app: FastAPI, memory: Any, settings: Any, agents_ref:
                 if not devops:
                     return {"success": False, "error": "Прораб не подключён в этом деплое"}
                 try:
-                    # Просим Прораба обработать как обычное сообщение
-                    reply = await devops.handle_message(
-                        chat_id=settings.hq_chat_id,
-                        user_text=f"Создай автоматизацию: {text}",
-                        sender="tablet",
+                    # DevOpsAgent.handle(message_text, sender_name, context, parsed_actions=None)
+                    from src.orchestrator.conversation import ConversationContext
+                    ctx = ConversationContext(memory, settings.hq_chat_id)
+                    await devops.handle(
+                        message_text=f"Создай автоматизацию: {text}",
+                        sender_name="Консоль",
+                        context=ctx,
+                        parsed_actions=None,
                     )
-                    return {"success": True, "reply": (reply or "")[:400]}
+                    return {"success": True}
                 except Exception as e:
                     log.exception("tablet_automation_add_via_devops_failed")
                     return {"success": False, "error": str(e)[:200]}
@@ -588,7 +591,7 @@ def register_tablet_routes(app: FastAPI, memory: Any, settings: Any, agents_ref:
             async with memory._engine.begin() as conn:
                 if op == "add":
                     await conn.execute(insert(ShoppingItem).values(
-                        item=item, added_at=iso_now(), added_by="tablet",
+                        item=item, added_at=iso_now(), added_by="Консоль",
                     ))
                 elif op == "done":
                     await conn.execute(update(ShoppingItem)
@@ -760,7 +763,7 @@ def register_tablet_routes(app: FastAPI, memory: Any, settings: Any, agents_ref:
             from src.utils.time import now_kyiv
             await sheets.append_baby_diary(
                 kind=kind, event=event, time=now_kyiv(),
-                author="tablet", details=note,
+                author="Консоль", details=note,
             )
             return {"success": True}
         except Exception as e:
@@ -789,7 +792,7 @@ def register_tablet_routes(app: FastAPI, memory: Any, settings: Any, agents_ref:
             if butler:
                 resp = await butler.handle(
                     message_text=text,
-                    sender_name="tablet",
+                    sender_name="Консоль",
                     context=context,
                 )
                 if resp and getattr(resp, "text", None):
