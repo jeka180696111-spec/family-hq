@@ -164,6 +164,14 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
                         try:
                             v = float(val); row["temp"] = v/10 if abs(v) > 80 else v
                         except Exception: pass
+                    if "humi" in code or code == "va_humidity":
+                        try:
+                            v = float(val); row["humi"] = v/10 if v > 100 else v
+                        except Exception: pass
+                    if code == "battery_percentage" or code == "battery":
+                        try:
+                            row["battery"] = int(val)
+                        except Exception: pass
                 dev_out.append(row)
             state["devices"] = dev_out
 
@@ -492,11 +500,17 @@ def register_tablet_routes(app: FastAPI, memory: Any, settings: Any, agents_ref:
                 if not rid:
                     raise HTTPException(400, "id required")
                 async with memory._engine.begin() as conn:
-                    row = (await conn.execute(select(AutomationRule).where(AutomationRule.id == int(rid)))).first()
-                    if not row:
+                    # Читаем текущее enabled — простым скалярным запросом,
+                    # без ORM-загрузки, чтобы избежать неоднозначности
+                    # с обёртками Row в conn.execute (в SA2 select(Model)
+                    # через conn возвращает Row[Row[Model]] и .first()
+                    # даёт скалар — но в разных версиях по-разному).
+                    cur = (await conn.execute(
+                        select(AutomationRule.enabled).where(AutomationRule.id == int(rid))
+                    )).scalar_one_or_none()
+                    if cur is None:
                         return {"success": False, "error": "not found"}
-                    r = row[0] if hasattr(row, "_mapping") else row
-                    new_enabled = 0 if op == "disable" else (1 if op == "enable" else (0 if r.enabled else 1))
+                    new_enabled = 0 if op == "disable" else (1 if op == "enable" else (0 if cur else 1))
                     await conn.execute(sql_update(AutomationRule)
                         .where(AutomationRule.id == int(rid))
                         .values(enabled=new_enabled))
