@@ -542,99 +542,106 @@
     display: block;
     margin: 0 auto;
   }
+  /* Комнаты — цвета взяты с наброска пользователя, приглушены под тёмную тему */
   .fp-room {
-    fill: rgba(255,255,255,0.03);
-    stroke: rgba(255,255,255,0.1);
+    stroke: rgba(255,255,255,0.14);
     stroke-width: 1;
   }
-  .fp-room.fp-spalnya { fill: rgba(224,123,95,0.05); }
-  .fp-room.fp-detskaya { fill: rgba(122,181,193,0.06); }
-  .fp-room.fp-kuhnya { fill: rgba(134,172,106,0.06); }
-  .fp-room.fp-tualet { fill: rgba(212,160,74,0.04); }
-  .fp-room.fp-vanna { fill: rgba(255,255,255,0.04); }
-  .fp-room.fp-shkaf { fill: rgba(217,155,176,0.05); }
-  .fp-room.fp-korridor { fill: rgba(167,137,200,0.04); }
+  .fp-r-balkon   { fill: rgba(40, 90, 130, 0.55); }
+  .fp-r-spalnya  { fill: rgba(200, 90, 30, 0.55); }
+  .fp-r-shkaf    { fill: rgba(190, 90, 200, 0.45); }
+  .fp-r-detskaya { fill: rgba(40, 100, 145, 0.65); }
+  .fp-r-koridor  { fill: rgba(160, 210, 160, 0.55); }
+  .fp-r-kuhnya   { fill: rgba(45, 115, 55, 0.60); }
+  .fp-r-tualet   { fill: rgba(40, 100, 145, 0.65); }
+  .fp-r-vanna    { fill: rgba(140, 140, 145, 0.55); }
+
   .fp-room-lb {
-    font-size: 8px;
-    letter-spacing: 0.14em;
-    fill: var(--text-dim);
+    font-size: 20px;
+    letter-spacing: 0.08em;
+    fill: rgba(255,255,255,0.95);
     font-family: -apple-system, sans-serif;
+    font-weight: 500;
+    pointer-events: none;
   }
   .fp-room-temp {
     font-family: ui-serif, Georgia, serif;
-    font-size: 13px;
-    fill: var(--text);
+    font-size: 18px;
+    fill: rgba(255,255,255,0.92);
+    pointer-events: none;
   }
   .fp-room-humi {
-    font-size: 8px;
-    fill: var(--text-dim);
+    font-size: 12px;
+    fill: rgba(255,255,255,0.65);
+    pointer-events: none;
   }
 
-  /* Устройства */
+  /* Устройства — формы из легенды (peach круг / синий бар / коричневый бар / …) */
   .fp-dev { cursor: pointer; }
   .fp-dev.fp-dev-static { cursor: default; }
   .fp-dev-bg {
-    fill: rgba(255,255,255,0.05);
-    stroke: var(--line);
+    stroke: rgba(0,0,0,0.4);
     stroke-width: 1;
-    transition: fill 0.2s, stroke 0.2s;
-  }
-  .fp-dev-em {
-    font-size: 14px;
-    dominant-baseline: middle;
-    filter: grayscale(0.7);
-    opacity: 0.6;
+    transition: filter 0.2s, stroke 0.2s;
   }
   .fp-dev-lb {
-    font-size: 7px;
-    fill: var(--text-mute);
-    letter-spacing: 0.04em;
+    font-size: 11px;
+    fill: rgba(255,255,255,0.85);
+    letter-spacing: 0.02em;
+    pointer-events: none;
+    dominant-baseline: middle;
   }
+
+  /* Цвета фигур из легенды */
+  .shape-light  .fp-dev-bg { fill: #ecc7a8; }              /* peach */
+  .shape-ac     .fp-dev-bg { fill: #2f5f8b; }              /* синий */
+  .shape-inverter .fp-dev-bg { fill: #7a3a1e; }            /* коричневый */
+  .shape-tv     .fp-dev-bg { fill: #ffffff; }              /* белый */
+  .shape-sensor .fp-dev-bg { fill: #3fbf4a; }              /* зелёный */
+  .shape-vacuum .fp-dev-bg { fill: #dcd8d4; }              /* серовато-белый */
+  .shape-boiler .fp-dev-bg { fill: #f0e6da; }              /* белый треугольник */
+  .shape-tablet .fp-dev-bg { fill: #7a8590; }              /* серый */
+
   .fp-dev:hover .fp-dev-bg {
     stroke: var(--amber);
-    stroke-width: 1.5;
+    stroke-width: 2;
+    filter: brightness(1.15);
   }
 
-  /* Состояния устройств */
+  /* Off (устройство есть но выключено) — притемнить */
+  .fp-dev.state-off .fp-dev-bg { filter: brightness(0.55) saturate(0.7); }
+  /* Not-found — совсем блёкло + пунктир */
+  .fp-dev.state-missing .fp-dev-bg {
+    filter: brightness(0.4) saturate(0.3);
+    stroke-dasharray: 3 2;
+  }
+
+  /* On состояния — свечение соответствующим цветом */
   .fp-dev.state-on .fp-dev-bg {
-    fill: rgba(212,160,74,0.22);
+    filter: brightness(1.25) drop-shadow(0 0 6px var(--amber));
     stroke: var(--amber);
-    stroke-width: 1.5;
   }
-  .fp-dev.state-on .fp-dev-em { filter: none; opacity: 1; }
-  .fp-dev.state-on .fp-dev-lb { fill: var(--amber); }
-
   .fp-dev.state-cool .fp-dev-bg {
-    fill: rgba(122,181,193,0.22);
+    filter: brightness(1.15) drop-shadow(0 0 6px var(--cyan));
     stroke: var(--cyan);
-    stroke-width: 1.5;
   }
-  .fp-dev.state-cool .fp-dev-em { filter: none; opacity: 1; }
-  .fp-dev.state-cool .fp-dev-lb { fill: var(--cyan); }
-
   .fp-dev.state-warm .fp-dev-bg {
-    fill: rgba(224,123,95,0.22);
+    filter: brightness(1.15) drop-shadow(0 0 6px var(--coral));
     stroke: var(--coral);
-    stroke-width: 1.5;
   }
-  .fp-dev.state-warm .fp-dev-em { filter: none; opacity: 1; }
-  .fp-dev.state-warm .fp-dev-lb { fill: var(--coral); }
-
   .fp-dev.state-sensor .fp-dev-bg {
-    fill: rgba(134,172,106,0.18);
-    stroke: var(--sage);
+    filter: brightness(1.1) drop-shadow(0 0 4px var(--sage));
   }
-  .fp-dev.state-sensor .fp-dev-em { filter: none; opacity: 1; }
 
   /* Пульсация активных */
-  .fp-dev.state-on .fp-dev-bg,
-  .fp-dev.state-cool .fp-dev-bg,
-  .fp-dev.state-warm .fp-dev-bg {
+  .fp-dev.state-on,
+  .fp-dev.state-cool,
+  .fp-dev.state-warm {
     animation: fp-glow 2.4s ease-in-out infinite;
   }
   @keyframes fp-glow {
-    0%, 100% { filter: brightness(1); }
-    50%      { filter: brightness(1.3); }
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.75; }
   }
 
   .plan-legend {
@@ -2459,193 +2466,173 @@
     </div>
 
     <div class="plan-wrap">
-      <svg viewBox="0 0 520 400" class="floorplan" xmlns="http://www.w3.org/2000/svg">
-        <!-- ═══ РАЗМЕТКА С НАБРОСКА ПОЛЬЗОВАТЕЛЯ ═══
-             Балкон — сверху, над спальней+детской (не доходит до кухни)
-             Спальня — крупная слева (~40% ширины, ~70% высоты до шкафа)
-             Шкаф — узкая полоса СНИЗУ спальни (не всю ширину, только левая часть)
-             Детская — центр, той же высоты что и спальня
-             Кухня → Туалет → Ванна — стопкой справа
-             Коридор — низ, идёт от края спальни/шкафа до ванны, с выходом вниз
+      <svg viewBox="0 0 1140 770" class="floorplan" xmlns="http://www.w3.org/2000/svg">
+        <!-- ═══ РАЗМЕТКА 1:1 С НАБРОСКА ═══
+             viewBox 1140 x 770 (пропорции скана).
+             Балкон ── над Спальней (не заходит на Детскую).
+             Спальня — левая колонна, до Шкафа снизу.
+             Шкаф — узкий поддон под Спальней.
+             Детская — центр, той же высоты.
+             Правая колонна: Кухня → Туалет → Ванна.
+             Коридор — низ, от Шкафа до Ванны, шириной как Детская+доп.
         -->
 
-        <!-- ── Балкон (только над спальней) ── -->
-        <rect class="fp-room" x="70" y="10" width="220" height="42" rx="4"/>
-        <text class="fp-room-lb" x="180" y="35" text-anchor="middle">БАЛКОН</text>
-        <!-- окна балкона (белые полоски на верхней стене) -->
-        <rect x="95" y="8" width="40" height="3" fill="rgba(255,255,255,0.5)"/>
-        <rect x="150" y="8" width="40" height="3" fill="rgba(255,255,255,0.5)"/>
-        <rect x="205" y="8" width="40" height="3" fill="rgba(255,255,255,0.5)"/>
+        <!-- ═ Комнаты (заливки как в скане) ═ -->
+        <rect class="fp-room fp-r-balkon"   x="5"    y="5"   width="275" height="145" rx="4"/>
+        <rect class="fp-room fp-r-spalnya"  x="5"    y="150" width="275" height="535" rx="4"/>
+        <rect class="fp-room fp-r-shkaf"    x="5"    y="685" width="275" height="80"  rx="4"/>
+        <rect class="fp-room fp-r-detskaya" x="280"  y="150" width="465" height="390" rx="4"/>
+        <rect class="fp-room fp-r-koridor"  x="280"  y="540" width="580" height="225" rx="4"/>
+        <rect class="fp-room fp-r-kuhnya"   x="745"  y="150" width="390" height="255" rx="4"/>
+        <rect class="fp-room fp-r-tualet"   x="860"  y="405" width="275" height="135" rx="4"/>
+        <rect class="fp-room fp-r-vanna"    x="860"  y="540" width="275" height="225" rx="4"/>
 
-        <!-- ── Спальня (крупная слева) ── -->
-        <rect class="fp-room fp-spalnya" x="20" y="52" width="230" height="235" rx="6"/>
-        <text class="fp-room-lb" x="32" y="72">СПАЛЬНЯ</text>
-        <text class="fp-room-temp" id="planSpalnyaTemp" x="242" y="94" text-anchor="end">—</text>
+        <!-- ═ Подписи комнат ═ -->
+        <text class="fp-room-lb" x="142"  y="80"   text-anchor="middle">БАЛКОН</text>
+        <text class="fp-room-lb" x="142"  y="420"  text-anchor="middle">СПАЛЬНЯ</text>
+        <text class="fp-room-lb" x="142"  y="730"  text-anchor="middle">ШКАФ</text>
+        <text class="fp-room-lb" x="512"  y="350"  text-anchor="middle">ДЕТСКАЯ</text>
+        <text class="fp-room-lb" x="570"  y="655"  text-anchor="middle">КОРИДОР</text>
+        <text class="fp-room-lb" x="940"  y="285"  text-anchor="middle">КУХНЯ</text>
+        <text class="fp-room-lb" x="997"  y="480"  text-anchor="middle">ТУАЛЕТ</text>
+        <text class="fp-room-lb" x="997"  y="655"  text-anchor="middle">ВАННА</text>
 
-        <!-- ── Шкаф (снизу спальни, узкая полоса влево от коридора) ── -->
-        <rect class="fp-room fp-shkaf" x="20" y="287" width="150" height="50" rx="4"/>
-        <text class="fp-room-lb" x="95" y="317" text-anchor="middle">ШКАФ</text>
+        <!-- ═ Живые метрики (температура/влажность) ═ -->
+        <text class="fp-room-temp" id="planSpalnyaTemp"   x="265" y="180" text-anchor="end">—</text>
+        <text class="fp-room-temp" id="planDetskayaTemp"  x="732" y="180" text-anchor="end">—</text>
+        <text class="fp-room-humi" id="planDetskayaHumi"  x="732" y="200" text-anchor="end">—</text>
 
-        <!-- ── Детская (центр) ── -->
-        <rect class="fp-room fp-detskaya" x="250" y="52" width="160" height="235" rx="6"/>
-        <text class="fp-room-lb" x="262" y="72">ДЕТСКАЯ</text>
-        <text class="fp-room-temp" id="planDetskayaTemp" x="400" y="94" text-anchor="end">—</text>
-        <text class="fp-room-humi" id="planDetskayaHumi" x="400" y="110" text-anchor="end">—</text>
-        <!-- окна детской (2 окна сверху) -->
-        <rect x="270" y="50" width="55" height="3" fill="rgba(255,255,255,0.5)"/>
-        <rect x="340" y="50" width="55" height="3" fill="rgba(255,255,255,0.5)"/>
+        <!-- ═ Окна (белые полоски на внешних стенах) ═ -->
+        <!-- Балкон: 2 окна сверху -->
+        <rect x="30"   y="3"   width="90"  height="4" fill="rgba(255,255,255,0.6)"/>
+        <rect x="160"  y="3"   width="90"  height="4" fill="rgba(255,255,255,0.6)"/>
+        <!-- Балкон: 2 окна снизу (стеклянная стена в спальню) -->
+        <rect x="30"   y="148" width="90"  height="4" fill="rgba(255,255,255,0.35)"/>
+        <rect x="160"  y="148" width="90"  height="4" fill="rgba(255,255,255,0.35)"/>
+        <!-- Детская: 2 окна сверху -->
+        <rect x="315"  y="148" width="130" height="4" fill="rgba(255,255,255,0.6)"/>
+        <rect x="490"  y="148" width="130" height="4" fill="rgba(255,255,255,0.6)"/>
+        <!-- Кухня: окно сверху -->
+        <rect x="815"  y="148" width="200" height="4" fill="rgba(255,255,255,0.6)"/>
 
-        <!-- ── Кухня (сверху справа) ── -->
-        <rect class="fp-room fp-kuhnya" x="410" y="52" width="90" height="130" rx="6"/>
-        <text class="fp-room-lb" x="455" y="72" text-anchor="middle">КУХНЯ</text>
-        <!-- окно кухни -->
-        <rect x="430" y="50" width="50" height="3" fill="rgba(255,255,255,0.5)"/>
+        <!-- ═ Двери (диагональ = створка) ═ -->
+        <!-- Спальня → Балкон (верхний угол) -->
+        <line x1="140" y1="150" x2="115" y2="185" stroke="rgba(0,0,0,0.6)" stroke-width="2"/>
+        <!-- Спальня → Коридор (правый нижний угол спальни, дверь идёт в коридор) -->
+        <line x1="255" y1="540" x2="290" y2="575" stroke="rgba(0,0,0,0.6)" stroke-width="2"/>
+        <!-- Детская → Коридор (2 двери из нижней стены) -->
+        <line x1="450" y1="540" x2="485" y2="575" stroke="rgba(0,0,0,0.6)" stroke-width="2"/>
+        <line x1="680" y1="540" x2="720" y2="575" stroke="rgba(0,0,0,0.6)" stroke-width="2"/>
+        <!-- Туалет → Коридор -->
+        <line x1="860" y1="470" x2="890" y2="510" stroke="rgba(0,0,0,0.6)" stroke-width="2"/>
+        <!-- Ванна → Коридор -->
+        <line x1="860" y1="600" x2="895" y2="565" stroke="rgba(0,0,0,0.6)" stroke-width="2"/>
 
-        <!-- ── Туалет (справа средний) ── -->
-        <rect class="fp-room fp-tualet" x="410" y="182" width="90" height="65" rx="4"/>
-        <text class="fp-room-lb" x="455" y="202" text-anchor="middle">ТУАЛЕТ</text>
+        <!-- Проёмы дверей (обнуляют кусок стены) -->
+        <line x1="245" y1="540" x2="285" y2="540" stroke="var(--bg)" stroke-width="4"/>
+        <line x1="440" y1="540" x2="475" y2="540" stroke="var(--bg)" stroke-width="4"/>
+        <line x1="670" y1="540" x2="710" y2="540" stroke="var(--bg)" stroke-width="4"/>
+        <line x1="860" y1="460" x2="860" y2="500" stroke="var(--bg)" stroke-width="4"/>
+        <line x1="860" y1="595" x2="860" y2="635" stroke="var(--bg)" stroke-width="4"/>
+        <line x1="140" y1="150" x2="180" y2="150" stroke="var(--bg)" stroke-width="4"/>
 
-        <!-- ── Ванна (справа снизу) ── -->
-        <rect class="fp-room fp-vanna" x="410" y="247" width="90" height="90" rx="4"/>
-        <text class="fp-room-lb" x="455" y="267" text-anchor="middle">ВАННА</text>
+        <!-- Выходная дверь коридора (диагональ вниз-влево, зелёная) -->
+        <line x1="600" y1="765" x2="565" y2="785" stroke="var(--sage)" stroke-width="2.5" opacity="0.7"/>
+        <text x="614" y="778" fill="var(--sage)" font-size="9" opacity="0.7">выход</text>
 
-        <!-- ── Коридор (низ, от шкафа до ванны) ── -->
-        <rect class="fp-room fp-korridor" x="170" y="287" width="240" height="50" rx="4"/>
-        <text class="fp-room-lb" x="290" y="317" text-anchor="middle">КОРИДОР</text>
+        <!-- ═══════════ УСТРОЙСТВА (стилизованы как на легенде) ═══════════ -->
 
-        <!-- Выходная дверь коридора вниз -->
-        <line x1="285" y1="337" x2="285" y2="358" stroke="var(--sage)" stroke-width="2.5" opacity="0.7"/>
-        <path d="M 275 358 L 285 348 L 295 358" fill="none" stroke="var(--sage)" stroke-width="1.5" opacity="0.7"/>
-        <text x="298" y="358" fill="var(--sage)" font-size="8" opacity="0.7">выход</text>
-
-        <!-- ═══ ДВЕРИ (диагональные линии) ═══ -->
-        <!-- Спальня → коридор (правая нижняя часть спальни) -->
-        <line x1="220" y1="287" x2="240" y2="287" stroke="var(--bg)" stroke-width="4"/>
-        <line x1="220" y1="287" x2="240" y2="277" stroke="rgba(255,255,255,0.35)" stroke-width="1"/>
-
-        <!-- Детская → коридор (2 двери из детской вниз) -->
-        <line x1="275" y1="287" x2="295" y2="287" stroke="var(--bg)" stroke-width="4"/>
-        <line x1="275" y1="287" x2="295" y2="277" stroke="rgba(255,255,255,0.35)" stroke-width="1"/>
-        <line x1="345" y1="287" x2="365" y2="287" stroke="var(--bg)" stroke-width="4"/>
-        <line x1="345" y1="287" x2="365" y2="277" stroke="rgba(255,255,255,0.35)" stroke-width="1"/>
-
-        <!-- Коридор → туалет -->
-        <line x1="410" y1="215" x2="410" y2="235" stroke="var(--bg)" stroke-width="4"/>
-        <line x1="410" y1="215" x2="420" y2="235" stroke="rgba(255,255,255,0.35)" stroke-width="1"/>
-
-        <!-- Коридор → ванна -->
-        <line x1="410" y1="290" x2="410" y2="310" stroke="var(--bg)" stroke-width="4"/>
-        <line x1="410" y1="290" x2="420" y2="310" stroke="rgba(255,255,255,0.35)" stroke-width="1"/>
-
-        <!-- Детская ↔ кухня (проход) -->
-        <line x1="410" y1="100" x2="410" y2="120" stroke="var(--bg)" stroke-width="4"/>
-
-        <!-- Спальня → балкон (сверху) -->
-        <line x1="180" y1="52" x2="200" y2="52" stroke="var(--bg)" stroke-width="4"/>
-        <line x1="180" y1="52" x2="200" y2="62" stroke="rgba(255,255,255,0.35)" stroke-width="1"/>
-
-        <!-- Шкаф → коридор -->
-        <line x1="170" y1="305" x2="170" y2="325" stroke="var(--bg)" stroke-width="4"/>
-
-        <!-- ═══ УСТРОЙСТВА ═══ -->
-
-        <!-- ═ Спальня ═ -->
-        <!-- Кондер: сверху у окна балкона (правее двери) -->
-        <g class="fp-dev" data-room="Спальня" data-kind="ac"
+        <!-- ═════ СПАЛЬНЯ ═════ -->
+        <!-- Свет: пич-кружок на верхней стене (у балкона) -->
+        <g class="fp-dev shape-light" data-room="Спальня" data-kind="light"
+           data-match-any="спальня,спалня" data-match-all="свет,лампа,люстра,light"
+           transform="translate(215, 175)">
+          <circle class="fp-dev-bg" r="14"/>
+          <text class="fp-dev-lb" y="30" text-anchor="middle">свет</text>
+        </g>
+        <!-- Кондер: синий вертикальный бар у стены сверху (справа от свет-круга) -->
+        <g class="fp-dev shape-ac" data-room="Спальня" data-kind="ac"
            data-match-any="спальня,спалня" data-match-all="кондер,кондиц,ac"
-           transform="translate(225, 74)">
-          <circle class="fp-dev-bg" r="14"/>
-          <text class="fp-dev-em" y="5" text-anchor="middle">❄️</text>
-          <text class="fp-dev-lb" y="27" text-anchor="middle">кондер</text>
+           transform="translate(258, 180)">
+          <rect class="fp-dev-bg" x="-6" y="-22" width="12" height="45" rx="2"/>
+          <text class="fp-dev-lb" x="18" y="4">кондер</text>
         </g>
-        <!-- Инвертор: на левой стене (снаружи внутрь) -->
-        <rect x="17" y="140" width="6" height="30" fill="var(--coral)" opacity="0.6" rx="1"/>
-        <g class="fp-dev" data-room="Спальня" data-kind="inverter"
+        <!-- Инвертор: коричневый вертикальный бар на левой стене (изнутри к стене) -->
+        <g class="fp-dev shape-inverter" data-room="Спальня" data-kind="inverter"
            data-match-any="инвертор,inverter" data-match-all=""
-           transform="translate(45, 155)">
-          <circle class="fp-dev-bg" r="12"/>
-          <text class="fp-dev-em" y="4" text-anchor="middle">🔌</text>
-          <text class="fp-dev-lb" y="24" text-anchor="middle">инвертор</text>
+           transform="translate(15, 310)">
+          <rect class="fp-dev-bg" x="-5" y="-25" width="10" height="50" rx="2"/>
+          <text class="fp-dev-lb" x="15" y="4">инвертор</text>
         </g>
-        <!-- Датчик температуры: у правой стены возле двери в коридор -->
-        <rect x="247" y="250" width="6" height="26" fill="var(--sage)" opacity="0.6" rx="1"/>
-        <g class="fp-dev" data-room="Спальня" data-kind="sensor"
-           data-match-any="датчик,sensor,temp,humid" data-match-all=""
-           transform="translate(220, 262)">
-          <circle class="fp-dev-bg" r="10"/>
-          <text class="fp-dev-em" y="4" text-anchor="middle" style="font-size:11px">🌡</text>
-        </g>
-        <!-- Телик: у нижней стены центрируем -->
-        <g class="fp-dev" data-room="Спальня" data-kind="tv"
+        <!-- Телик: белый узкий вертикальный бар на правой стене спальни -->
+        <g class="fp-dev shape-tv" data-room="Спальня" data-kind="tv"
            data-match-any="спальня,спалня" data-match-all="телик,тв,tv,телевиз"
-           transform="translate(130, 265)">
-          <circle class="fp-dev-bg" r="12"/>
-          <text class="fp-dev-em" y="4" text-anchor="middle">📺</text>
-          <text class="fp-dev-lb" y="24" text-anchor="middle">ТВ</text>
+           transform="translate(272, 370)">
+          <rect class="fp-dev-bg" x="-3" y="-30" width="6" height="60" rx="1"/>
+          <text class="fp-dev-lb" x="-14" y="4" text-anchor="end">телик</text>
+        </g>
+        <!-- Датчик температуры: маленький зелёный квадратик на правой стене возле двери -->
+        <g class="fp-dev shape-sensor" data-room="Спальня" data-kind="sensor"
+           data-match-any="датчик,sensor,temp,humid" data-match-all=""
+           transform="translate(272, 505)">
+          <rect class="fp-dev-bg" x="-5" y="-9" width="10" height="18" rx="1"/>
+          <text class="fp-dev-lb" x="-14" y="4" text-anchor="end">🌡</text>
         </g>
 
-        <!-- ═ Детская ═ -->
-        <!-- Кондер: сверху у окна (левее второго окна) -->
-        <g class="fp-dev" data-room="Детская" data-kind="ac"
+        <!-- ═════ ДЕТСКАЯ ═════ -->
+        <!-- Кондер: синий вертикальный бар сверху, у окна -->
+        <g class="fp-dev shape-ac" data-room="Детская" data-kind="ac"
            data-match-any="детская,детск" data-match-all="кондер,кондиц,ac"
-           transform="translate(305, 78)">
-          <circle class="fp-dev-bg" r="14"/>
-          <text class="fp-dev-em" y="5" text-anchor="middle">❄️</text>
-          <text class="fp-dev-lb" y="27" text-anchor="middle">кондер</text>
+           transform="translate(300, 180)">
+          <rect class="fp-dev-bg" x="-6" y="-22" width="12" height="45" rx="2"/>
+          <text class="fp-dev-lb" x="0" y="35" text-anchor="middle">кондер</text>
         </g>
-        <!-- Телик: у нижней стены -->
-        <g class="fp-dev" data-room="Детская" data-kind="tv"
-           data-match-any="детская,детск" data-match-all="телик,тв,tv,телевиз"
-           transform="translate(320, 265)">
-          <circle class="fp-dev-bg" r="12"/>
-          <text class="fp-dev-em" y="4" text-anchor="middle">📺</text>
-          <text class="fp-dev-lb" y="24" text-anchor="middle">ТВ</text>
+        <!-- Свет: пич-кружок сверху справа (между окнами) -->
+        <g class="fp-dev shape-light" data-room="Детская" data-kind="light"
+           data-match-any="детская,детск" data-match-all="свет,лампа,люстра,light"
+           transform="translate(660, 180)">
+          <circle class="fp-dev-bg" r="14"/>
+          <text class="fp-dev-lb" y="30" text-anchor="middle">свет</text>
         </g>
 
-        <!-- ═ Кухня ═ -->
-        <!-- Свет: по центру -->
-        <g class="fp-dev" data-room="Кухня" data-kind="light"
+        <!-- ═════ КУХНЯ ═════ -->
+        <!-- Свет: пич-кружок по центру -->
+        <g class="fp-dev shape-light" data-room="Кухня" data-kind="light"
            data-match-any="кухня,кухн" data-match-all="свет,лампа,люстра,light"
-           transform="translate(455, 120)">
+           transform="translate(970, 275)">
           <circle class="fp-dev-bg" r="14"/>
-          <text class="fp-dev-em" y="5" text-anchor="middle">💡</text>
-          <text class="fp-dev-lb" y="27" text-anchor="middle">свет</text>
+          <text class="fp-dev-lb" y="30" text-anchor="middle">свет</text>
         </g>
 
-        <!-- ═ Туалет ═ -->
-        <!-- Бойлер: правый верхний угол (треугольник у стены) -->
-        <polygon points="493,190 500,190 496,200" fill="var(--coral)" opacity="0.6"/>
-        <g class="fp-dev" data-room="Туалет" data-kind="boiler"
+        <!-- ═════ ТУАЛЕТ ═════ -->
+        <!-- Бойлер: белый треугольник в правом верхнем углу -->
+        <g class="fp-dev shape-boiler" data-room="Туалет" data-kind="boiler"
            data-match-any="бойлер,boiler,водонагр" data-match-all=""
-           transform="translate(475, 218)">
-          <circle class="fp-dev-bg" r="11"/>
-          <text class="fp-dev-em" y="4" text-anchor="middle" style="font-size:11px">🔥</text>
-          <text class="fp-dev-lb" y="24" text-anchor="middle" id="planBoilerLb">бойлер</text>
+           transform="translate(1105, 435)">
+          <polygon class="fp-dev-bg" points="-14,-8 14,-8 0,14"/>
+          <text class="fp-dev-lb" x="-20" y="4" text-anchor="end" id="planBoilerLb">бойлер</text>
         </g>
 
-        <!-- ═ Коридор ═ -->
-        <!-- Пылесос Гоша: центр -->
-        <g class="fp-dev" data-room="Коридор" data-kind="vacuum"
+        <!-- ═════ КОРИДОР ═════ -->
+        <!-- Пылесос: белый шестиугольник по центру-снизу -->
+        <g class="fp-dev shape-vacuum" data-room="Коридор" data-kind="vacuum"
            data-match-any="пылесос,гоша,vacuum,robot" data-match-all=""
-           transform="translate(255, 310)">
-          <circle class="fp-dev-bg" r="11"/>
-          <text class="fp-dev-em" y="4" text-anchor="middle" style="font-size:11px">🤖</text>
-          <text class="fp-dev-lb" y="24" text-anchor="middle" id="planVacuumLb">Гоша</text>
+           transform="translate(555, 705)">
+          <polygon class="fp-dev-bg" points="-12,-6 -6,-13 6,-13 12,-6 12,6 6,13 -6,13 -12,6"/>
+          <text class="fp-dev-lb" x="16" y="4" id="planVacuumLb">Гоша</text>
         </g>
-        <!-- Планшет: серая полоска на нижней стене коридора -->
-        <g class="fp-dev fp-dev-static" data-room="Коридор" data-kind="tablet"
-           transform="translate(330, 336)">
-          <rect x="-16" y="-3" width="32" height="6" rx="1.5"
-                fill="rgba(122,181,193,0.4)" stroke="var(--cyan)" stroke-width="1"/>
-          <text class="fp-dev-lb" y="-8" text-anchor="middle" fill="var(--cyan)" style="font-size:8px">📱 ты здесь</text>
+        <!-- Планшет: серая горизонтальная полоска (нижняя стена) -->
+        <g class="fp-dev fp-dev-static shape-tablet" data-room="Коридор" data-kind="tablet"
+           transform="translate(650, 762)">
+          <rect class="fp-dev-bg" x="-22" y="-6" width="44" height="12" rx="1.5"/>
+          <text class="fp-dev-lb" y="-11" text-anchor="middle">📱 ты здесь</text>
         </g>
-        <!-- Инвертор: у правой стены коридора возле входа в ванну -->
-        <rect x="405" y="305" width="6" height="26" fill="var(--coral)" opacity="0.6" rx="1"/>
-        <g class="fp-dev" data-room="Коридор" data-kind="inverter2"
+        <!-- Инвертор: коричневый вертикальный бар у правой стены (граница с Ванной) -->
+        <g class="fp-dev shape-inverter" data-room="Коридор" data-kind="inverter2"
            data-match-any="инвертор" data-match-all=""
-           transform="translate(390, 318)">
-          <circle class="fp-dev-bg" r="10"/>
-          <text class="fp-dev-em" y="4" text-anchor="middle" style="font-size:11px">🔌</text>
+           transform="translate(852, 700)">
+          <rect class="fp-dev-bg" x="-5" y="-22" width="10" height="45" rx="2"/>
+          <text class="fp-dev-lb" x="-14" y="4" text-anchor="end">инв</text>
         </g>
       </svg>
 
@@ -3618,10 +3605,11 @@ document.querySelectorAll('.shop-item').forEach(item => {
       const all = g.dataset.matchAll || '';
       const kind = g.dataset.kind;
       const dev = findPlanDevice(devices, any, all);
-      // Убираем прежние состояния
-      g.classList.remove('state-on', 'state-cool', 'state-warm', 'state-sensor');
+      g.classList.remove('state-on', 'state-cool', 'state-warm', 'state-sensor', 'state-off', 'state-missing');
       const cls = classifyDeviceState(kind, dev, {nursery});
       if (cls) g.classList.add(cls);
+      else if (dev) g.classList.add('state-off');
+      else g.classList.add('state-missing');
       g.dataset.deviceName = dev ? dev.name : '';
       g.dataset.deviceId = dev ? dev.id : '';
       g.dataset.deviceOn = dev ? String(!!dev.on) : '';
