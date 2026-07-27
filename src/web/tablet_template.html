@@ -1961,14 +1961,30 @@
     if (e.key === 'Escape') document.querySelectorAll('.modal-backdrop.open').forEach(m => m.classList.remove('open'));
   });
 
-  // Плашка "Уехали / Я дома" — переключается
-  function toggleHomeState(btn) {
-    if (btn.classList.contains('away')) {
-      btn.classList.remove('away'); btn.classList.add('home');
-      btn.innerHTML = '<span class="mega-icon">🏠</span><span>Я дома</span>';
-    } else {
+  // Плашка "Уехали / Я дома" — переключается + пишет состояние на бэк,
+  // чтобы движок автоматизаций мог использовать family_away/family_home.
+  function _applyHomeStateUi(btn, state) {
+    if (state === 'away') {
       btn.classList.remove('home'); btn.classList.add('away');
       btn.innerHTML = '<span class="mega-icon">🚗</span><span>Уехали из дома</span>';
+    } else {
+      btn.classList.remove('away'); btn.classList.add('home');
+      btn.innerHTML = '<span class="mega-icon">🏠</span><span>Я дома</span>';
+    }
+  }
+  function updateHomeState(state) {
+    const btn = document.getElementById('megaBtn');
+    if (!btn) return;
+    // Не перерисовываем если уже в этом состоянии — иначе кнопка мигает
+    const cur = btn.classList.contains('away') ? 'away' : 'home';
+    if (cur !== (state || 'home')) _applyHomeStateUi(btn, state || 'home');
+  }
+  async function toggleHomeState(btn) {
+    const nextState = btn.classList.contains('away') ? 'home' : 'away';
+    _applyHomeStateUi(btn, nextState);   // мгновенный визуальный отклик
+    if (TOKEN) {
+      try { await apiPost('/api/tablet/action/home-state', {state: nextState}); }
+      catch(e) { console.warn('home-state save failed', e); }
     }
   }
 
@@ -3156,6 +3172,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
       updateReminder(s.weather);
       updateBaby(s.baby);
       updateChild(s.child);
+      if (s.home_state) updateHomeState(s.home_state);
       updateNursery(s.nursery);
       updateInverter(s.inverter, s.devices);
       window.__lastDevices = s.devices || [];

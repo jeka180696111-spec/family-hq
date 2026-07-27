@@ -43,6 +43,10 @@ def note_tuya_error(msg: str) -> None:
 # {"type": "power_outage", "state": "ended"}              — light just came back (fires once)
 # {"type": "power_outage", "state": "ended", "delay_min": 15}   — N min after restore
 # {"type": "baby_sleeping", "min_minutes": 10}                — Матвей спит ≥10 мин (окно тишины)
+# {"type": "family_away"}                                     — семья ушла (кнопка «Уехали из дома»)
+# {"type": "family_away", "min_minutes": 15}                  — семья ушла ≥N мин назад
+# {"type": "family_home"}                                     — все дома
+# {"type": "family_home", "within_min": 5}                    — только что вернулись (≤N мин)
 # {"type": "and", "rules": [...]}                         — logical AND
 # {"type": "or",  "rules": [...]}                         — logical OR
 #
@@ -242,7 +246,49 @@ class AutomationEngine:
             return await self._eval_baby_sleeping(cond)
         if kind == "weather":
             return await self._eval_weather(cond)
+        if kind in ("family_away", "family_home"):
+            return await self._eval_family_presence(kind, cond)
         return False
+
+    async def _eval_family_presence(self, kind: str, cond: dict) -> bool:
+        """Читает текущий home-state который семья выставила кнопкой
+        «Уехали из дома» / «Я дома» в PWA или через Butler.
+
+        cond = {type: "family_away"}                     — сейчас никого дома
+              {type: "family_away", min_minutes: 15}     — уже N минут никого
+              {type: "family_home"}                      — все вернулись
+              {type: "family_home", within_min: 5}       — только что вернулись (≤N мин)
+        """
+        from sqlalchemy import select
+        from src.db.models import AgentSetting
+        async with self._memory._engine.connect() as conn:
+            row = (await conn.execute(
+                select(AgentSetting.value, AgentSetting.updated_at)
+                .where(AgentSetting.agent_id == "tablet",
+                       AgentSetting.key == "home_state")
+            )).first()
+        if not row:
+            return False
+        value, updated_at = row[0], row[1]
+        current_away = (value == "away")
+        want_away = (kind == "family_away")
+        if current_away != want_away:
+            return False
+        # Time-based нюансы
+        from datetime import datetime, timezone
+        try:
+            since = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+        except Exception:
+            return True
+        now = datetime.now(timezone.utc)
+        delta_min = (now - since).total_seconds() / 60.0
+        min_minutes = int(cond.get("min_minutes") or 0)
+        within_min = int(cond.get("within_min") or 0)
+        if min_minutes and delta_min < min_minutes:
+            return False
+        if within_min and delta_min > within_min:
+            return False
+        return True
 
     async def _eval_weather(self, cond: dict) -> bool:
         """{type:weather, metric:'temp'|'rain'|'humidity', op:'>'|'<'|'>='|'<=', value, when:'now'|'24h'}"""

@@ -359,7 +359,11 @@ class DevOpsAgent(BaseAgent):
                                 "alert_active {region}; alert_ended {region}; "
                                 "power_outage {state:'active'|'ended', delay_min:N?, within_min:N?}; "
                                 "baby_sleeping {min_minutes:N?} — Матвей спит ≥N мин (окно тишины); "
-                                "and {rules:[...]}; or {rules:[...]}"
+                                "family_away {min_minutes:N?} — никого нет дома (кнопка «Уехали из дома»); "
+                                "family_home {within_min:N?} — все вернулись, only если ≤N мин с момента; "
+                                "and {rules:[...]}; or {rules:[...]}. "
+                                "ВАЖНО: «когда никого дома / все ушли / уехали» = family_away, "
+                                "а не baby_sleeping. Матвей может спать когда все дома — это НЕ одно и то же."
                             ),
                         },
                         "action": {
@@ -3028,6 +3032,7 @@ class DevOpsAgent(BaseAgent):
     _KNOWN_RULE_TYPES = frozenset({
         "datetime", "datetime_range", "time", "sensor",
         "alert_active", "alert_ended", "power_outage", "baby_sleeping",
+        "family_away", "family_home",
         "and", "or",
         "device", "message", "set_mode", "tool", "ac_command",
     })
@@ -3100,6 +3105,11 @@ class DevOpsAgent(BaseAgent):
             return {"type": "power_outage", **d}
         if "min_minutes" in d:
             return {"type": "baby_sleeping", **d}
+        # Wrapped forms {"family_away": {...}} / {"family_home": {...}}
+        if "family_away" in d and isinstance(d["family_away"], dict):
+            return {"type": "family_away", **d["family_away"]}
+        if "family_home" in d and isinstance(d["family_home"], dict):
+            return {"type": "family_home", **d["family_home"]}
         return d
 
     async def _automation_add(self, tool_input: dict) -> dict:

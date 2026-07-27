@@ -51,6 +51,14 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
     except Exception:
         log.exception("tablet_child_facts_failed")
 
+    # Home state — «Уехали из дома» / «Я дома». Используется движком
+    # автоматизаций (family_away / family_home) и кнопкой в шапке.
+    try:
+        raw = await memory.get_agent_setting("tablet", "home_state", "home")
+        state["home_state"] = raw or "home"
+    except Exception:
+        state["home_state"] = "home"
+
     # Погода — текущая + прогноз 5 дней
     try:
         from src.integrations.weather import WeatherClient
@@ -432,6 +440,22 @@ def register_tablet_routes(app: FastAPI, memory: Any, settings: Any, agents_ref:
             raise
         except Exception as e:
             log.exception("tablet_scene_run_failed")
+            return {"success": False, "error": str(e)[:200]}
+
+    @app.post("/api/tablet/action/home-state")
+    async def action_home_state(payload: dict = Body(...), token: str = Query("")):
+        """Переключение «Уехали из дома» ↔ «Я дома». Персистится в
+        agent_settings[tablet:home_state] и читается движком
+        автоматизаций (family_away / family_home)."""
+        _check_token(token, expected_token)
+        state_val = (payload.get("state") or "").lower()
+        if state_val not in ("home", "away"):
+            raise HTTPException(400, "state must be home|away")
+        try:
+            await memory.set_agent_setting("tablet", "home_state", state_val)
+            return {"success": True, "state": state_val}
+        except Exception as e:
+            log.exception("tablet_home_state_failed")
             return {"success": False, "error": str(e)[:200]}
 
     @app.post("/api/tablet/action/vacuum")
