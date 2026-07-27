@@ -344,11 +344,34 @@ def register_tablet_routes(app: FastAPI, memory: Any, settings: Any, agents_ref:
         )
         return HTMLResponse(html)
 
+    # Кеш последнего успешного snapshot'а — если сборка залипла и словили
+    # таймаут, отдадим предыдущий вместо 502.
+    _state_cache: dict = {"last": None, "at": 0.0}
+
     @app.get("/api/tablet/state")
     async def tablet_state(token: str = Query("")):
         _check_token(token, expected_token)
-        state = await _build_tablet_state(memory, settings, agents_ref)
-        return JSONResponse(state)
+        import asyncio, time
+        try:
+            state = await asyncio.wait_for(
+                _build_tablet_state(memory, settings, agents_ref),
+                timeout=20.0,
+            )
+            _state_cache["last"] = state
+            _state_cache["at"] = time.time()
+            return JSONResponse(state)
+        except asyncio.TimeoutError:
+            log.warning("tablet_state_timeout", cached_age=time.time() - _state_cache["at"])
+            if _state_cache["last"]:
+                cached = {**_state_cache["last"], "_stale": True}
+                return JSONResponse(cached)
+            return JSONResponse({"error": "timeout, no cache"}, status_code=503)
+        except Exception as e:
+            log.exception("tablet_state_failed")
+            if _state_cache["last"]:
+                cached = {**_state_cache["last"], "_stale": True, "_error": str(e)[:200]}
+                return JSONResponse(cached)
+            return JSONResponse({"error": str(e)[:200]}, status_code=500)
 
     # ─── Синхронизация настроек между устройствами (телефон/планшет) ──
     # Хранится единым JSON-блобом в agent_settings под key='tablet_prefs'.
