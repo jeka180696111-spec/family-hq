@@ -72,9 +72,9 @@
   /* === HEADER === */
   .header {
     display: grid;
-    grid-template-columns: auto 1fr auto auto;
+    grid-template-columns: auto 1fr auto;
     align-items: center;
-    gap: 24px;
+    gap: 32px;
     padding: 4px 12px 18px;
     border-bottom: 1px solid var(--line-soft);
   }
@@ -137,39 +137,63 @@
     align-self: start;
   }
 
-  /* ============ 2-page navigation (Обзор ↔ Детально) ============ */
-  /* Табы в столбик рядом с погодой, размером как кнопка «Порядок» */
-  .page-tabs {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .page-tab {
+  /* ============ Меню экранов ============ */
+  .menu-wrap { position: relative; }
+  .menu-btn {
     background: var(--card);
     border: 1px solid var(--line);
     color: var(--text-dim);
-    padding: 6px 12px;
-    border-radius: 10px;
+    padding: 8px 14px;
+    border-radius: 12px;
     cursor: pointer;
     font-family: inherit;
-    font-size: 11px;
+    font-size: 12px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     display: flex;
     align-items: center;
-    gap: 6px;
-    justify-content: flex-start;
+    gap: 8px;
     white-space: nowrap;
-    min-width: 118px;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    min-width: 148px;
+    transition: background 0.15s, border-color 0.15s;
   }
-  .page-tab:hover { background: var(--card-hi); }
-  .page-tab.active {
-    background: var(--amber);
-    color: #1a1200;
-    border-color: var(--amber);
-    font-weight: 500;
+  .menu-btn:hover { background: var(--card-hi); border-color: var(--amber); }
+  .menu-btn .m-arrow { margin-left: auto; opacity: 0.5; font-size: 10px; }
+  .menu-dropdown {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 220px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 6px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+    z-index: 120;
+    animation: menu-in 0.15s ease-out;
   }
+  .menu-dropdown.open { display: block; }
+  @keyframes menu-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .menu-item:hover { background: var(--card-hi); }
+  .menu-item.active { background: rgba(212, 160, 74, 0.12); color: var(--amber); }
+  .menu-item .m-check { margin-left: auto; color: var(--amber); opacity: 0; font-size: 12px; }
+  .menu-item.active .m-check { opacity: 1; }
+  .menu-item .m-em { font-size: 18px; flex-shrink: 0; }
   .page-view { display: none; }
   .page-view.active { display: block; animation: page-fade 0.2s ease-out; }
   @keyframes page-fade {
@@ -1727,12 +1751,26 @@
       </div>
     </div>
 
-    <nav class="page-tabs" id="pageTabs">
-      <button class="page-tab active" data-page="overview" onclick="switchPage('overview')">📊 Обзор</button>
-      <button class="page-tab" data-page="detail" onclick="switchPage('detail')">🔍 Детально</button>
-    </nav>
-
-    <div class="header-icons"><button class="edit-layout-btn" id="editLayoutBtn" onclick="toggleLayoutEdit()">✎ Порядок</button>
+    <div class="header-icons">
+      <div class="menu-wrap">
+        <button class="menu-btn" id="menuBtn" onclick="toggleMenu(event)">
+          <span id="menuBtnEm">📊</span>
+          <span id="menuBtnLabel">Обзор</span>
+          <span class="m-arrow">▾</span>
+        </button>
+        <div class="menu-dropdown" id="menuDropdown">
+          <div class="menu-item active" data-page="overview" onclick="switchPage('overview')">
+            <span class="m-em">📊</span><span>Обзор</span><span class="m-check">✓</span>
+          </div>
+          <div class="menu-item" data-page="detail" onclick="switchPage('detail')">
+            <span class="m-em">🔍</span><span>Детально</span><span class="m-check">✓</span>
+          </div>
+          <div class="menu-item" data-page="feeding" onclick="switchPage('feeding')">
+            <span class="m-em">🥄</span><span>Прикорм</span><span class="m-check">✓</span>
+          </div>
+        </div>
+      </div>
+      <button class="edit-layout-btn" id="editLayoutBtn" onclick="toggleLayoutEdit()">✎ Порядок</button>
       <button class="icon-btn" title="Настройки" onclick="openModal('settings')">⚙</button>
       <button class="icon-btn" title="Переключить тему" onclick="toggleTheme()">☀</button>
     </div>
@@ -1965,6 +2003,47 @@
     </div>
   </div><!-- /page-detail -->
 
+  <!-- ============= PAGE: ПРИКОРМ ============= -->
+  <div class="page-view page-feeding" id="pageFeeding">
+    <div class="detail-grid">
+      <div class="detail-tile">
+        <div class="dt-title">Сегодня</div>
+        <div class="dt-body">
+          <div class="dt-em">🍽</div>
+          Лента кормлений за день
+        </div>
+      </div>
+      <div class="detail-tile">
+        <div class="dt-title">Пробовали</div>
+        <div class="dt-body">
+          <div class="dt-em">✅</div>
+          Магнит на холодильник —<br>что уже ел
+        </div>
+      </div>
+      <div class="detail-tile">
+        <div class="dt-title">На очереди</div>
+        <div class="dt-body">
+          <div class="dt-em">🆕</div>
+          Что стоит попробовать<br>по возрасту
+        </div>
+      </div>
+      <div class="detail-tile">
+        <div class="dt-title">Реакции</div>
+        <div class="dt-body">
+          <div class="dt-em">🌡</div>
+          Отслеживание аллергий
+        </div>
+      </div>
+      <div class="detail-tile add-tile">
+        <div class="dt-title">Добавить</div>
+        <div class="dt-body">
+          <div class="dt-em">➕</div>
+          + Записать кормление
+        </div>
+      </div>
+    </div>
+  </div><!-- /page-feeding -->
+
   <!-- ============= RIBBON / FOOTER ============= -->
   <div class="ribbon">
     <div>
@@ -2080,30 +2159,48 @@
   }
   tick(); setInterval(tick, 30000);
 
-  // ============ Переключение страниц Обзор ↔ Детально ============
+  // ============ Меню экранов ============
+  const PAGES = [
+    { id: 'overview', em: '📊', label: 'Обзор',    viewId: 'pageOverview' },
+    { id: 'detail',   em: '🔍', label: 'Детально', viewId: 'pageDetail'   },
+    { id: 'feeding',  em: '🥄', label: 'Прикорм',  viewId: 'pageFeeding'  },
+  ];
   function switchPage(name) {
+    const page = PAGES.find(p => p.id === name) || PAGES[0];
     document.querySelectorAll('.page-view').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('.page-tab').forEach(el => el.classList.remove('active'));
-    const view = document.getElementById(name === 'detail' ? 'pageDetail' : 'pageOverview');
-    const tab  = document.querySelector('.page-tab[data-page="' + name + '"]');
-    if (view) view.classList.add('active');
-    if (tab)  tab.classList.add('active');
-    try { localStorage.setItem('tabletPage', name); } catch(e) {}
+    document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
+    document.getElementById(page.viewId)?.classList.add('active');
+    document.querySelector('.menu-item[data-page="' + page.id + '"]')?.classList.add('active');
+    const btnEm = document.getElementById('menuBtnEm');
+    const btnLb = document.getElementById('menuBtnLabel');
+    if (btnEm) btnEm.textContent = page.em;
+    if (btnLb) btnLb.textContent = page.label;
+    document.getElementById('menuDropdown')?.classList.remove('open');
+    try { localStorage.setItem('tabletPage', page.id); } catch(e) {}
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
-  // Восстановить последнюю выбранную страницу
+  function toggleMenu(e) {
+    e?.stopPropagation();
+    document.getElementById('menuDropdown')?.classList.toggle('open');
+  }
+  // Клик вне меню — закрыть
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.menu-wrap')) {
+      document.getElementById('menuDropdown')?.classList.remove('open');
+    }
+  });
+  // Восстановить последнюю выбранную страницу (по умолчанию — обзор)
   try {
     const last = localStorage.getItem('tabletPage');
-    if (last === 'detail') switchPage('detail');
+    if (last && PAGES.some(p => p.id === last)) switchPage(last);
   } catch(e) {}
 
-  // Swipe влево/вправо между страницами (для планшета)
+  // Swipe влево/вправо между экранами (по кругу)
   (function() {
     let sx = 0, sy = 0, tracking = false;
     document.addEventListener('touchstart', (e) => {
       if (e.touches.length !== 1) { tracking = false; return; }
-      // не перехватываем свайп внутри скроллящихся элементов и модалок
-      if (e.target.closest('.modal, .shop-list, .plan-list, .events-list')) { tracking = false; return; }
+      if (e.target.closest('.modal, .shop-list, .plan-list, .events-list, .menu-dropdown')) { tracking = false; return; }
       sx = e.touches[0].clientX;
       sy = e.touches[0].clientY;
       tracking = true;
@@ -2114,11 +2211,15 @@
       const t = e.changedTouches[0];
       const dx = t.clientX - sx;
       const dy = t.clientY - sy;
-      if (Math.abs(dx) < 80) return;                 // слишком короткий
-      if (Math.abs(dy) > Math.abs(dx) * 0.6) return; // это вертикальный скролл
-      const current = document.querySelector('.page-view.active')?.id === 'pageDetail' ? 'detail' : 'overview';
-      if (dx < 0 && current === 'overview') switchPage('detail');
-      else if (dx > 0 && current === 'detail') switchPage('overview');
+      if (Math.abs(dx) < 80) return;
+      if (Math.abs(dy) > Math.abs(dx) * 0.6) return;
+      const currentEl = document.querySelector('.page-view.active');
+      const idx = PAGES.findIndex(p => p.viewId === currentEl?.id);
+      if (idx < 0) return;
+      const nextIdx = dx < 0
+        ? (idx + 1) % PAGES.length
+        : (idx - 1 + PAGES.length) % PAGES.length;
+      switchPage(PAGES[nextIdx].id);
     }, { passive: true });
   })();
 
