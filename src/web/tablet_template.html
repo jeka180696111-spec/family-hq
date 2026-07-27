@@ -1912,7 +1912,12 @@
   function openModal(name) {
     document.getElementById('modal-' + name).classList.add('open');
     if (name === 'baby') refreshBabyDay();
-    if (name === 'settings') { refreshSettingsFramesInfo(); refreshSettingsHiddenList(); }
+    if (name === 'settings') {
+      refreshSettingsFramesInfo();
+      refreshSettingsHiddenList();
+      const t = document.getElementById('autoDimToggle');
+      if (t) t.checked = isAutoDimOn();
+    }
     if (name === 'scenes') refreshPinnedScenesEditor();
   }
   function closeModal(name) { document.getElementById('modal-' + name).classList.remove('open'); }
@@ -2107,14 +2112,24 @@ document.querySelectorAll('.shop-item').forEach(item => {
   requestWakeLock();
 
   // === АВТОЯРКОСТЬ по времени суток ===
-  // День 07-19 = 0% overlay (100% яркость), Вечер 19-22 = 35%, Ночь 22-07 = 65%
+  // По умолчанию ВЫКЛЮЧЕНА (юзер жаловался что ночью экран приглушён).
+  // Включается тумблером в настройках; тогда:
+  // День 07-19 = 0% overlay (100% яркость), Вечер 19-22 = 35%, Ночь 22-07 = 55%.
+  function isAutoDimOn() {
+    return localStorage.getItem('autoDim') === '1';
+  }
+  function setAutoDim(on) {
+    if (on) localStorage.setItem('autoDim', '1'); else localStorage.removeItem('autoDim');
+    updateBrightness();
+  }
   function updateBrightness() {
     const overlay = document.getElementById('brightnessOverlay');
     if (!overlay) return;
+    if (!isAutoDimOn()) { overlay.style.opacity = 0; return; }
     const h = new Date().getHours();
     let dim = 0;
-    if (h >= 22 || h < 7)      dim = 0.65;   // Ночь
-    else if (h >= 19 || h < 8) dim = 0.35;   // Вечер / раннее утро
+    if (h >= 22 || h < 7)      dim = 0.55;   // Ночь
+    else if (h >= 19 || h < 8) dim = 0.30;   // Вечер / раннее утро
     else                       dim = 0.0;    // День
     overlay.style.opacity = dim;
   }
@@ -3242,6 +3257,16 @@ document.querySelectorAll('.shop-item').forEach(item => {
         </div>
         <label class="toggle-switch">
           <input type="checkbox" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-name">Ночное затемнение экрана</div>
+          <div class="settings-desc">Автоматически приглушать экран вечером/ночью</div>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="autoDimToggle" onchange="setAutoDim(this.checked)">
           <span class="slider"></span>
         </label>
       </div>
