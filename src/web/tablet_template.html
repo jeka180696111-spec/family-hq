@@ -510,6 +510,30 @@
   }
   .fm-save:disabled { opacity: 0.5; cursor: default; }
 
+  /* ============ Матвей крупно (страница) ============ */
+  .matvey-page-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .matvey-page-title {
+    font-family: ui-serif, Georgia, serif;
+    font-size: 26px;
+    color: var(--amber);
+  }
+  .matvey-page-age {
+    font-size: 14px;
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+    margin-left: 8px;
+  }
+  .matvey-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px;
+  }
+
   /* ============ Вес / Рост ============ */
   .growth-card { cursor: pointer; }
   .growth-metric {
@@ -2459,42 +2483,6 @@
       </div>
     </div>
 
-    <!-- ═════ ВЕС ═════ -->
-    <div class="card growth-card" onclick="openGrowthLog('weight')">
-      <div class="card-title">Вес<button class="btn-more" onclick="event.stopPropagation();openGrowthLog('weight')">+ взвесить</button></div>
-      <div class="growth-metric">
-        <div class="growth-ic">⚖</div>
-        <div class="growth-val" id="growthWeightVal">—<span class="unit">кг</span></div>
-        <div class="growth-delta" id="growthWeightDelta">—</div>
-        <div class="growth-pct" id="growthWeightPct">—</div>
-      </div>
-      <div class="growth-chart-wrap">
-        <svg viewBox="0 0 300 120" id="growthWeightChart" preserveAspectRatio="none"></svg>
-      </div>
-      <div class="growth-legend">
-        <span class="lg-baby">● Матвей</span>
-        <span class="lg-band">▬ коридор ВОЗ 15-85%</span>
-      </div>
-    </div>
-
-    <!-- ═════ РОСТ ═════ -->
-    <div class="card growth-card" onclick="openGrowthLog('height')">
-      <div class="card-title">Рост<button class="btn-more" onclick="event.stopPropagation();openGrowthLog('height')">+ измерить</button></div>
-      <div class="growth-metric">
-        <div class="growth-ic">📏</div>
-        <div class="growth-val" id="growthHeightVal">—<span class="unit">см</span></div>
-        <div class="growth-delta" id="growthHeightDelta">—</div>
-        <div class="growth-pct" id="growthHeightPct">—</div>
-      </div>
-      <div class="growth-chart-wrap">
-        <svg viewBox="0 0 300 120" id="growthHeightChart" preserveAspectRatio="none"></svg>
-      </div>
-      <div class="growth-legend">
-        <span class="lg-baby">● Матвей</span>
-        <span class="lg-band">▬ коридор ВОЗ 15-85%</span>
-      </div>
-    </div>
-
     <!-- BATTERY / АВТОНОМНОСТЬ CARD -->
     <div class="card">
       <div class="card-title">Автономность</div>
@@ -2635,12 +2623,11 @@
           Интерактивный план с устройствами
         </div>
       </div>
-      <div class="detail-tile disabled">
+      <div class="detail-tile" onclick="switchPage('matvey')">
         <div class="dt-title">Матвей крупно</div>
         <div class="dt-body">
           <div class="dt-em">👶</div>
-          Полная карточка малыша
-          <div class="dt-soon">скоро</div>
+          Полная карточка малыша с весом и ростом
         </div>
       </div>
       <div class="detail-tile" onclick="switchPage('feeding')">
@@ -2730,6 +2717,50 @@
       <div class="plan-status" id="planStatus">Загружаю состояние…</div>
     </div>
   </div><!-- /page-plan -->
+
+  <!-- ============= PAGE: МАТВЕЙ КРУПНО ============= -->
+  <div class="page-view page-matvey" id="pageMatvey">
+    <div class="matvey-page-head">
+      <div class="matvey-page-title">Матвей <span id="matveyPageAge" class="matvey-page-age">—</span></div>
+    </div>
+    <div class="matvey-grid">
+      <!-- Вес -->
+      <div class="card growth-card" onclick="openGrowthLog('weight')">
+        <div class="card-title">Вес<button class="btn-more" onclick="event.stopPropagation();openGrowthLog('weight')">+ взвесить</button></div>
+        <div class="growth-metric">
+          <div class="growth-ic">⚖</div>
+          <div class="growth-val" id="growthWeightVal">—<span class="unit">кг</span></div>
+          <div class="growth-delta" id="growthWeightDelta">—</div>
+          <div class="growth-pct" id="growthWeightPct">—</div>
+        </div>
+        <div class="growth-chart-wrap">
+          <svg viewBox="0 0 300 120" id="growthWeightChart" preserveAspectRatio="none"></svg>
+        </div>
+        <div class="growth-legend">
+          <span class="lg-baby">● Матвей</span>
+          <span class="lg-band">▬ коридор ВОЗ 15-85%</span>
+        </div>
+      </div>
+
+      <!-- Рост -->
+      <div class="card growth-card" onclick="openGrowthLog('height')">
+        <div class="card-title">Рост<button class="btn-more" onclick="event.stopPropagation();openGrowthLog('height')">+ измерить</button></div>
+        <div class="growth-metric">
+          <div class="growth-ic">📏</div>
+          <div class="growth-val" id="growthHeightVal">—<span class="unit">см</span></div>
+          <div class="growth-delta" id="growthHeightDelta">—</div>
+          <div class="growth-pct" id="growthHeightPct">—</div>
+        </div>
+        <div class="growth-chart-wrap">
+          <svg viewBox="0 0 300 120" id="growthHeightChart" preserveAspectRatio="none"></svg>
+        </div>
+        <div class="growth-legend">
+          <span class="lg-baby">● Матвей</span>
+          <span class="lg-band">▬ коридор ВОЗ 15-85%</span>
+        </div>
+      </div>
+    </div>
+  </div><!-- /page-matvey -->
 
   <!-- Модалка: реакция на новый продукт (тап по «на очереди») -->
   <div class="modal-backdrop" id="modal-feeding-log" onclick="if(event.target===this)closeFeedingLog()">
@@ -2941,6 +2972,7 @@
   const SUBPAGES = [
     { id: 'feeding',  em: '🥄', label: 'Прикорм',        viewId: 'pageFeeding' },
     { id: 'plan',     em: '🏠', label: 'План квартиры',  viewId: 'pagePlan'    },
+    { id: 'matvey',   em: '👶', label: 'Матвей крупно',  viewId: 'pageMatvey'  },
   ];
   const ALL_PAGES = [...PAGES, ...SUBPAGES];
   function switchPage(name) {
@@ -2959,6 +2991,7 @@
     // Лениво подгружаем данные экрана, если ему это нужно
     if (page.id === 'feeding' && typeof loadFeeding === 'function') loadFeeding();
     if (page.id === 'plan' && typeof loadPlan === 'function') loadPlan();
+    if (page.id === 'matvey' && typeof loadGrowth === 'function') loadGrowth();
   }
   function toggleMenu(e) {
     e?.stopPropagation();
@@ -3656,8 +3689,9 @@ document.querySelectorAll('.shop-item').forEach(item => {
       if (data.error) throw new Error(data.error);
       renderGrowthCard('weight', data.weight, data.age_months);
       renderGrowthCard('height', data.height, data.age_months);
+      const ageEl = document.getElementById('matveyPageAge');
+      if (ageEl && data.age_months) ageEl.textContent = '· ' + data.age_months + ' мес';
     } catch(e) {
-      // тихо, не портим главный экран
       console.warn('growth load failed', e);
     }
   }
@@ -3824,11 +3858,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
     }
   }
 
-  // Загружаем при старте (карточки на «Обзор» видны сразу)
-  if (TOKEN) {
-    loadGrowth();
-    setInterval(loadGrowth, 5 * 60 * 1000);  // раз в 5 мин
-  }
+  // loadGrowth() вызывается при открытии страницы «Матвей крупно» (см. switchPage)
 
   // ============ ПЛАН КВАРТИРЫ ============
   // Планировка живёт в localStorage под ключом 'planLayout'.
