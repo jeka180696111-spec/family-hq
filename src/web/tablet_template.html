@@ -3658,7 +3658,8 @@ document.querySelectorAll('.shop-item').forEach(item => {
     return apiPost('/api/tablet/action/socket', {device, action});
   }
   async function logBabyEvent(kind, event) {
-    return apiPost('/api/tablet/action/baby-event', {kind, event});
+    const r = await apiPost('/api/tablet/action/baby-event', {kind, event});
+    return r;
   }
   async function sendChat(text) {
     return apiPost('/api/tablet/chat', {text});
@@ -3698,24 +3699,47 @@ document.querySelectorAll('.shop-item').forEach(item => {
   //   считает время от baby.walking_since.
   document.querySelectorAll('.baby-action-btn').forEach(b => {
     b.addEventListener('click', async () => {
+      if (!TOKEN) { alert('Токен не задан — кнопка работает только в веб-приложении.'); return; }
       const t = b.textContent.trim();
-      if (t.includes('Вышли')) {
-        logBabyEvent('walk', 'Вышли гулять');
-        const scene = localStorage.getItem('walkOutScene') || 'выкл везде свет';
-        if (scene && TOKEN) {
-          try { await apiPost('/api/tablet/action/scene', {query: scene}); }
-          catch(e) { console.warn('walk-out scene failed', e); }
-        }
-        setTimeout(refreshState, 800);
-      } else if (t.includes('Пришли')) {
-        logBabyEvent('walk', 'Пришли с прогулки');
-        const scene = localStorage.getItem('walkBackScene') || 'я дома';
-        if (scene && TOKEN) {
-          try { await apiPost('/api/tablet/action/scene', {query: scene}); }
-          catch(e) { console.warn('walk-back scene failed', e); }
-        }
-        setTimeout(refreshState, 800);
+      const isOut = t.includes('Вышли');
+      const isBack = t.includes('Пришли');
+      if (!isOut && !isBack) return;
+      const originalHTML = b.innerHTML;
+      b.disabled = true;
+      b.innerHTML = '<span class="ic">⏳</span>Записываю…';
+
+      // 1) запись в дневник Матвея (обязательный шаг)
+      let diaryOk = false;
+      try {
+        const r = await logBabyEvent('walk', isOut ? 'Вышли гулять' : 'Пришли с прогулки');
+        diaryOk = !!(r && r.success);
+        if (!diaryOk) console.warn('diary write failed:', r);
+      } catch(e) { console.warn('diary error', e); }
+
+      // 2) запуск сцены (опциональный шаг — не блокируем если сцены нет)
+      const scene = isOut
+        ? (localStorage.getItem('walkOutScene') || 'выкл везде свет')
+        : (localStorage.getItem('walkBackScene') || 'я дома');
+      let sceneOk = false, sceneErr = null;
+      if (scene) {
+        try {
+          const r2 = await apiPost('/api/tablet/action/scene', {query: scene});
+          sceneOk = !!(r2 && r2.success);
+          if (!sceneOk) sceneErr = r2?.error || 'сцена не найдена';
+        } catch(e) { sceneErr = String(e); }
       }
+
+      // Визуальный фидбек
+      if (diaryOk && sceneOk) {
+        b.innerHTML = '<span class="ic">✓</span>' + (isOut ? 'Пошли гулять!' : 'Дома!');
+      } else if (diaryOk) {
+        b.innerHTML = '<span class="ic">✓</span>Записал (сцена: ' + (sceneErr || '—') + ')';
+      } else {
+        b.innerHTML = '<span class="ic">✕</span>Не получилось';
+      }
+      setTimeout(() => { b.innerHTML = originalHTML; b.disabled = false; }, 2200);
+
+      refreshState();
     });
   });
 
