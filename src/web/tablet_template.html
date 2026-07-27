@@ -2466,10 +2466,22 @@ document.querySelectorAll('.shop-item').forEach(item => {
       if (remainMin > 0) remainText = 'осталось ~' + fmtDuration(remainMin);
       else remainText = 'сон затянулся на ' + fmtDuration(-remainMin);
     } else if (baby.awake_since) {
-      stateLabel = 'Бодрствует'; state = 'awake';
       durMin = (Date.now() - new Date(baby.awake_since).getTime()) / 60000;
       const remainMin = Math.round(140 - durMin);
-      remainText = remainMin > 0 ? 'до сна ~' + fmtDuration(remainMin) : 'перегул +' + fmtDuration(-remainMin);
+      // Разные фазы бодрствования:
+      //   awake_min < 120           → «Бодрствует» (свежий)
+      //   120 ≤ awake_min < окно    → «Устал» (пора укладывать скоро)
+      //   awake_min ≥ окно          → «Перегул» (уже пропустили окно)
+      if (durMin >= 140) {
+        stateLabel = 'Перегул'; state = 'tired';
+        remainText = 'перегул +' + fmtDuration(-remainMin);
+      } else if (durMin >= 120) {
+        stateLabel = 'Устал'; state = 'tired';
+        remainText = 'до сна ~' + fmtDuration(remainMin);
+      } else {
+        stateLabel = 'Бодрствует'; state = 'awake';
+        remainText = 'до сна ~' + fmtDuration(remainMin);
+      }
     } else if (baby.walking_since && !baby.walk_ended_at) {
       // Нет записи ни о сне ни о бодрствовании, но гуляет — тогда
       // всё же используем «На прогулке» как основной статус.
