@@ -362,7 +362,16 @@ def _load_template() -> str:
     return _TEMPLATE_PATH.read_text(encoding="utf-8")
 
 
-def register_tablet_routes(app: FastAPI, memory: Any, settings: Any, agents_ref: dict) -> None:
+def register_tablet_routes(
+    app: FastAPI,
+    memory: Any,
+    settings: Any,
+    agents_ref: dict,
+    dispatcher: Any = None,
+    parser: Any = None,
+    registry: Any = None,
+    bot_manager: Any = None,
+) -> None:
     """Регистрируем /tablet и /api/tablet/* в существующем FastAPI-приложении.
 
     agents_ref — ссылка на словарь agents из main.py (позволяет действиям
@@ -837,37 +846,125 @@ def register_tablet_routes(app: FastAPI, memory: Any, settings: Any, agents_ref:
 
     @app.post("/api/tablet/chat")
     async def tablet_chat(payload: dict = Body(...), token: str = Query("")):
+        """Отправить сообщение в общий семейный чат — тот же поток что
+        и в Телеграме. Сообщение сохраняется в общей БД messages (и
+        поэтому появится и на планшете, и в HQ-чате в Телеге), а затем
+        через Dispatcher идёт ВСЕМ подходящим агентам, а не только
+        Дворецкому. Их ответы тоже автосохранятся через
+        context.save_message и пойдут в оба места сразу."""
         _check_token(token, expected_token)
         text = (payload.get("text") or "").strip()
         if not text:
             raise HTTPException(400, "text required")
         try:
-            # Пропускаем через диспетчер как обычное сообщение
-            # Возвращаем ответы всех агентов которые обработали
-            from src.orchestrator.dispatcher import Dispatcher
             from src.orchestrator.conversation import ConversationContext
+            from src.utils.time import iso_now
+            from sqlalchemy import insert
+            from src.db.models import Message
             chat_id = settings.hq_chat_id
             context = ConversationContext(memory, chat_id)
 
-            # Простой прямой вызов: обычно диспетчер бы решил кому,
-            # но для tablet-chat используем LLM-судью через дворецкого
-            # как универсального агента если ничего не подходит.
+            # 1) Сохраняем сообщение пользователя в общий журнал.
+            #    tg_message_id=0 у tablet-сообщений, agent_id=null.
+            #    Если тут же продублировать в Telegram HQ-чат — Дозорный
+            #    ingestor подтянет реальный id; но мы не блокируемся.
+            async with memory._engine.begin() as conn:
+                await conn.execute(insert(Message).values(
+                    tg_message_id=0, chat_id=chat_id, user_id=None,
+                    agent_id=None, text=f"[Консоль] {text}",
+                    has_media=0, date=iso_now(),
+                ))
+
+            # 2) Дублируем в Telegram (чтоб видели там же).
+            if bot_manager is not None:
+                try:
+                    bot = bot_manager._bots.get("butler") or bot_manager._bots.get("devops") \
+                          or next(iter(bot_manager._bots.values()), None)
+                    if bot:
+                        await bot.send_message(chat_id, f"👤 [Консоль]: {text}")
+                except Exception:
+                    log.exception("tablet_chat_tg_mirror_failed")
+
+            # 3) Пропускаем через Dispatcher — как в Телеграме. Если
+            #    инфраструктура не пробрасывалась — фолбэк на butler.
             responses = []
-            butler = agents_ref.get("butler") if agents_ref else None
-            if butler:
-                resp = await butler.handle(
-                    message_text=text,
-                    sender_name="Консоль",
-                    context=context,
-                )
-                if resp and getattr(resp, "text", None):
-                    responses.append({
-                        "agent_id": "butler",
-                        "text": resp.text,
-                    })
+            if dispatcher is not None and parser is not None and registry is not None:
+                try:
+                    result = await dispatcher.dispatch(
+                        message_text=text,
+                        sender_name="Консоль",
+                        active_agent_ids=registry.active_ids(),
+                        recent_context=None,
+                    )
+                    parsed = await parser.parse(text)
+                    priority_order = {"critical": 0, "high": 1, "normal": 2, "low": 3}
+                    sorted_tasks = sorted(result.tasks, key=lambda t: priority_order.get(t.priority, 99))
+                    for task in sorted_tasks:
+                        agent = agents_ref.get(task.agent_id)
+                        if not agent:
+                            continue
+                        try:
+                            resp = await agent.handle(
+                                message_text=text,
+                                sender_name="Консоль",
+                                context=context,
+                                parsed_actions=[a.model_dump() for a in parsed.actions],
+                            )
+                            if resp and getattr(resp, "text", None):
+                                responses.append({
+                                    "agent_id": task.agent_id,
+                                    "text": resp.text,
+                                })
+                        except Exception:
+                            log.exception("tablet_chat_agent_failed", agent_id=task.agent_id)
+                except Exception:
+                    log.exception("tablet_chat_dispatch_failed")
+            # Фолбэк — Butler
+            if not responses:
+                butler = agents_ref.get("butler") if agents_ref else None
+                if butler:
+                    resp = await butler.handle(
+                        message_text=text, sender_name="Консоль", context=context,
+                    )
+                    if resp and getattr(resp, "text", None):
+                        responses.append({"agent_id": "butler", "text": resp.text})
             return {"success": True, "responses": responses}
         except Exception as e:
             log.exception("tablet_chat_failed")
             return {"success": False, "error": str(e)[:200]}
+
+    @app.get("/api/tablet/chat/history")
+    async def tablet_chat_history(token: str = Query(""), limit: int = Query(80)):
+        """Последние N сообщений HQ-чата — и от пользователя (Телега/Консоль),
+        и от агентов. Позволяет планшету показывать те же реплики что и
+        Телеграм-чат."""
+        _check_token(token, expected_token)
+        try:
+            from sqlalchemy import select, desc
+            from src.db.models import Message
+            chat_id = settings.hq_chat_id
+            limit = max(1, min(int(limit or 80), 300))
+            async with memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(Message.id, Message.tg_message_id, Message.user_id,
+                           Message.agent_id, Message.text, Message.date)
+                    .where(Message.chat_id == chat_id)
+                    .order_by(desc(Message.date)).limit(limit)
+                ))
+            # Возвращаем в хронологическом порядке (старые первыми)
+            items = []
+            for r in reversed(rows):
+                items.append({
+                    "id": r[0],
+                    "tg_id": r[1],
+                    "user_id": r[2],
+                    "agent_id": r[3],
+                    "text": r[4] or "",
+                    "date": r[5],
+                })
+            return {"items": items}
+        except Exception as e:
+            log.exception("tablet_chat_history_failed")
+            return {"items": [], "error": str(e)[:200]}
 
     log.info("tablet_routes_registered")

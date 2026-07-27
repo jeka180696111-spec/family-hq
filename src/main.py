@@ -1394,7 +1394,12 @@ async def run(dry_run: bool = False) -> None:
             import os as _os
             from src.web.dashboard import start_dashboard_server
             port = int(_os.environ.get("PORT", 8080))
-            await start_dashboard_server(memory, settings, port, agents=agents)
+            await start_dashboard_server(
+                memory, settings, port,
+                agents=agents,
+                dispatcher=dispatcher, parser=parser, registry=registry,
+                bot_manager=bot_manager,
+            )
     except Exception:
         log.exception("dashboard_start_failed")
 

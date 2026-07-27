@@ -821,7 +821,16 @@ def build_app(memory: Any, settings: Any) -> FastAPI:
     return app
 
 
-async def start_dashboard_server(memory: Any, settings: Any, port: int, agents: dict | None = None) -> None:
+async def start_dashboard_server(
+    memory: Any,
+    settings: Any,
+    port: int,
+    agents: dict | None = None,
+    dispatcher: Any = None,
+    parser: Any = None,
+    registry: Any = None,
+    bot_manager: Any = None,
+) -> None:
     """Start uvicorn in the same event loop.
     Также регистрирует /tablet и /api/tablet/* endpoints если agents передан.
     """
@@ -837,7 +846,9 @@ async def start_dashboard_server(memory: Any, settings: Any, port: int, agents: 
     if agents is not None:
         try:
             from src.web.tablet import register_tablet_routes
-            register_tablet_routes(app, memory, settings, agents)
+            register_tablet_routes(app, memory, settings, agents,
+                                   dispatcher=dispatcher, parser=parser,
+                                   registry=registry, bot_manager=bot_manager)
         except Exception:
             log.exception("tablet_register_failed")
     config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="warning")

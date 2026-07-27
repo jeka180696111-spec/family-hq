@@ -3917,33 +3917,87 @@ document.querySelectorAll('.shop-item').forEach(item => {
     });
   });
 
-  // Chat send
+  // ─── Общий чат с агентами ─────────────────────────────────────────
+  // Тот же журнал что и HQ-чат в Телеге. При отправке — идёт через
+  // Dispatcher, отвечают все подходящие агенты. История периодически
+  // подтягивается с бэка (5 сек) — сообщения из Телеги появляются на
+  // планшете и наоборот.
+  const AGENT_EMOJI = {butler:'🏠', nanny:'👶', news:'🛡', calendar:'📅', cook:'🍳',
+                       health:'🏥', devops:'🛠️', navigator:'🧭', shopper:'🛒'};
+  const AGENT_NAME = {butler:'Дворецкий', nanny:'Няня', news:'Дозорный',
+                      calendar:'Ежедневник', cook:'Гурман', health:'Айболит',
+                      devops:'Прораб', navigator:'Штурман', shopper:'Шопер'};
+  let _lastChatMsgId = 0;
+  let _chatPollTimer = null;
+
+  function _renderChatMessage(m) {
+    const log = document.getElementById('chatLog');
+    if (!log) return;
+    const safe = (m.text || '').replace(/</g,'&lt;').replace(/\n/g,'<br>');
+    if (m.agent_id) {
+      const emoji = AGENT_EMOJI[m.agent_id] || '🤖';
+      const name = AGENT_NAME[m.agent_id] || m.agent_id;
+      log.insertAdjacentHTML('beforeend',
+        `<div class="chat-msg agent" data-mid="${m.id}"><div class="cm-avatar" style="background:var(--amber);color:#1a1200">${emoji}</div>` +
+        `<div class="cm-bubble"><div class="cm-name">${name}</div>${safe}</div></div>`);
+    } else {
+      // Сообщение пользователя (из Телеги / Консоли)
+      log.insertAdjacentHTML('beforeend',
+        `<div class="chat-msg user" data-mid="${m.id}"><div class="cm-bubble">${safe}</div></div>`);
+    }
+    log.scrollTop = log.scrollHeight;
+  }
+  async function pullChatHistory() {
+    if (!TOKEN) return;
+    try {
+      const r = await apiGet('/api/tablet/chat/history?limit=80');
+      const items = (r && r.items) || [];
+      const log = document.getElementById('chatLog');
+      if (!log) return;
+      const isFirst = _lastChatMsgId === 0;
+      if (isFirst) log.innerHTML = '';       // первая загрузка — заменяем плейсхолдер
+      for (const m of items) {
+        if (m.id <= _lastChatMsgId) continue;  // уже показано
+        _renderChatMessage(m);
+        _lastChatMsgId = Math.max(_lastChatMsgId, m.id);
+      }
+    } catch(e) { console.warn('chat history pull failed', e); }
+  }
+  function startChatPolling() {
+    if (_chatPollTimer) return;
+    pullChatHistory();
+    _chatPollTimer = setInterval(pullChatHistory, 5000);
+  }
+  function stopChatPolling() {
+    if (_chatPollTimer) { clearInterval(_chatPollTimer); _chatPollTimer = null; }
+  }
+  // Открытие чат-модалки → запускаем поллинг
+  const _origOpenModal = window.openModal;
+  window.openModal = function(name) {
+    _origOpenModal(name);
+    if (name === 'chat') startChatPolling();
+  };
+  const _origCloseModal = window.closeModal;
+  window.closeModal = function(name) {
+    _origCloseModal(name);
+    if (name === 'chat') stopChatPolling();
+  };
+
   const chatInput = document.querySelector('.chat-input');
   const chatSend = document.querySelector('.chat-send');
   if (chatInput && chatSend) {
     async function doSend() {
       const text = chatInput.value.trim();
       if (!text) return;
-      const log = document.getElementById('chatLog');
-      log.insertAdjacentHTML('beforeend',
-        `<div class="chat-msg user"><div class="cm-bubble">${text.replace(/</g,'&lt;')}</div></div>`);
       chatInput.value = '';
-      log.scrollTop = log.scrollHeight;
-      const r = await sendChat(text);
-      if (r.success && r.responses) {
-        r.responses.forEach(resp => {
-          const emoji = {butler:'🏠', nanny:'👶', news:'🛡', calendar:'📅', cook:'🍳',
-                         health:'🏥', devops:'🛠️', navigator:'🧭'}[resp.agent_id] || '🤖';
-          const nameMap = {butler:'Дворецкий', nanny:'Няня', news:'Дозорный',
-                          calendar:'Ежедневник', cook:'Гурман', health:'Айболит',
-                          devops:'Прораб', navigator:'Штурман'};
-          const name = nameMap[resp.agent_id] || resp.agent_id;
-          log.insertAdjacentHTML('beforeend',
-            `<div class="chat-msg agent"><div class="cm-avatar" style="background:var(--amber);color:#1a1200">${emoji}</div>` +
-            `<div class="cm-bubble"><div class="cm-name">${name}</div>${resp.text.replace(/</g,'&lt;')}</div></div>`);
-          log.scrollTop = log.scrollHeight;
-        });
-      }
+      chatInput.disabled = true;
+      try {
+        await sendChat(text);
+      } finally { chatInput.disabled = false; chatInput.focus(); }
+      // Ответ появится через pullChatHistory (следующий тик до 5с)
+      // — сразу подтянем чтобы не ждать.
+      setTimeout(pullChatHistory, 500);
+      setTimeout(pullChatHistory, 2500);
     }
     chatSend.addEventListener('click', doSend);
     chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSend(); });
