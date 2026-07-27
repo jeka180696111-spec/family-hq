@@ -1855,82 +1855,21 @@
       <div class="modal-title">Умный дом — все устройства</div>
       <button class="modal-close" onclick="closeModal('devices')">✕</button>
     </div>
-    <div class="detail-stats">
-      <div class="stat-card"><div class="stat-label">Онлайн</div><div class="stat-value">12/14</div><div class="stat-sub">2 оффлайн</div></div>
-      <div class="stat-card"><div class="stat-label">Потребление</div><div class="stat-value">412<span style="font-size:16px">Вт</span></div><div class="stat-sub">Бойлер 340Вт</div></div>
-      <div class="stat-card"><div class="stat-label">Автоматизации</div><div class="stat-value">7</div><div class="stat-sub">активных правил</div></div>
-      <div class="stat-card"><div class="stat-label">Сцены</div><div class="stat-value">28</div><div class="stat-sub">Tap-to-Run</div></div>
+    <div class="detail-stats" id="modalDevicesStats">
+      <div class="stat-card"><div class="stat-label">Онлайн</div><div class="stat-value" id="ds-online">—</div><div class="stat-sub" id="ds-offline">—</div></div>
+      <div class="stat-card"><div class="stat-label">Потребление</div><div class="stat-value" id="ds-power">—<span style="font-size:16px">Вт</span></div><div class="stat-sub" id="ds-topload">—</div></div>
+      <div class="stat-card"><div class="stat-label">Автоматизации</div><div class="stat-value" id="ds-autos">—</div><div class="stat-sub">активных правил</div></div>
+      <div class="stat-card"><div class="stat-label">Сцены</div><div class="stat-value" id="ds-scenes">—</div><div class="stat-sub">Tap-to-Run</div></div>
     </div>
     <div class="timeline">
       <h3>Все устройства</h3>
-      <div class="timeline-row"><div class="tl-time">🔥</div><div class="tl-event">Бойлер · <span class="sub">Кухня</span></div><span class="tl-tag food">55° · 340Вт</span></div>
-      <div class="timeline-row"><div class="tl-time">❄️</div><div class="tl-event">Кондиционер · <span class="sub">Гостиная</span></div><span class="tl-tag sleep">24° cold</span></div>
-      <div class="timeline-row"><div class="tl-time">📺</div><div class="tl-event">Телевизор · <span class="sub">Гостиная</span></div><span class="tl-tag diaper">выкл</span></div>
-      <div class="timeline-row"><div class="tl-time">🌡</div><div class="tl-event">Датчик · <span class="sub">Детская</span></div><span class="tl-tag food">22.4° · 56%</span></div>
-      <div class="timeline-row"><div class="tl-time">💡</div><div class="tl-event">Лампа Moes · <span class="sub">Спальня</span></div><span class="tl-tag diaper">выкл</span></div>
-      <div class="timeline-row"><div class="tl-time">💡</div><div class="tl-event">Лампа Moes · <span class="sub">Кухня</span></div><span class="tl-tag food">100%</span></div>
-      <div class="timeline-row"><div class="tl-time">🤖</div><div class="tl-event">Гоша · <span class="sub">пылесос</span></div><span class="tl-tag sleep">на базе 82%</span></div>
+      <div id="modalDevicesList"></div>
     </div>
 
     <div class="timeline" style="margin-top:20px">
-      <h3>Активные автоматизации <span style="color:var(--amber); margin-left:8px">7</span></h3>
-      <div class="auto-item">
-        <div class="auto-toggle on"></div>
-        <div class="auto-info">
-          <div class="auto-name">Кондер при жаре</div>
-          <div class="auto-cond">Если в детской &gt;25° и Матвей спит → «Кондер 24 авто»</div>
-          <div class="auto-stat">сработала 3× за сутки · последний раз 12:14</div>
-        </div>
-      </div>
-      <div class="auto-item">
-        <div class="auto-toggle on"></div>
-        <div class="auto-info">
-          <div class="auto-name">Бойлер по ночному тарифу</div>
-          <div class="auto-cond">23:00 — включить · 06:00 — выключить</div>
-          <div class="auto-stat">работает ежедневно · последний раз сегодня 06:00</div>
-        </div>
-      </div>
-      <div class="auto-item">
-        <div class="auto-toggle on"></div>
-        <div class="auto-info">
-          <div class="auto-name">Свет спальни при засыпании</div>
-          <div class="auto-cond">Матвей уснул → «Спальня выкл»</div>
-          <div class="auto-stat">сработала 2× за сутки · последний раз 13:50</div>
-        </div>
-      </div>
-      <div class="auto-item">
-        <div class="auto-toggle on"></div>
-        <div class="auto-info">
-          <div class="auto-name">Гоша: уборка в отсутствие</div>
-          <div class="auto-cond">«Уехали из дома» и будни → запустить пылесос</div>
-          <div class="auto-stat">срабатывает при выезде · последний раз вчера</div>
-        </div>
-      </div>
-      <div class="auto-item">
-        <div class="auto-toggle on"></div>
-        <div class="auto-info">
-          <div class="auto-name">Тревога Одесса — выключить ТВ</div>
-          <div class="auto-cond">Дозорный сообщил о тревоге → ТВ выкл</div>
-          <div class="auto-stat">сработала 1× за сутки</div>
-        </div>
-      </div>
-      <div class="auto-item">
-        <div class="auto-toggle on"></div>
-        <div class="auto-info">
-          <div class="auto-name">Свет вернули — минимум</div>
-          <div class="auto-cond">Инвертор: «свет дали» ночью → все лампы на 15%</div>
-          <div class="auto-stat">не срабатывала за сутки</div>
-        </div>
-      </div>
-      <div class="auto-item">
-        <div class="auto-toggle off"></div>
-        <div class="auto-info">
-          <div class="auto-name">Проветривание в 07:00</div>
-          <div class="auto-cond">Каждое утро напомнить открыть окно</div>
-          <div class="auto-stat">выключена</div>
-        </div>
-      </div>
-      <button class="auto-add">+ Новая автоматизация</button>
+      <h3>Активные автоматизации <span style="color:var(--amber); margin-left:8px" id="modalAutosCount"></span></h3>
+      <div id="modalAutosList"></div>
+      <button class="auto-add" onclick="addAutomation()">+ Новая автоматизация</button>
     </div>
   </div>
 </div>
@@ -1961,6 +1900,7 @@
       if (wb) wb.value = localStorage.getItem('walkBackScene') || '';
     }
     if (name === 'scenes') refreshPinnedScenesEditor();
+    if (name === 'devices') refreshDevicesModal();
   }
   function closeModal(name) { document.getElementById('modal-' + name).classList.remove('open'); }
 
@@ -3135,8 +3075,14 @@ document.querySelectorAll('.shop-item').forEach(item => {
       updateEvents(s.today_events);
       updateShopping(s.shopping);
       // Автоматизации count
+      window.__lastAutomations = s.automations || [];
+      window.__lastScenes = s.scenes || [];
       if (s.automations) {
         setText('homeRules', s.automations.filter(a => a.enabled).length);
+      }
+      // Если модалка «Умный дом» открыта — обновим её содержимое
+      if (document.getElementById('modal-devices')?.classList.contains('open')) {
+        refreshDevicesModal();
       }
       // Общее потребление (сумма cur_power)
       if (s.devices) {
@@ -3426,6 +3372,101 @@ document.querySelectorAll('.shop-item').forEach(item => {
 
     cont.innerHTML = html;
   }
+
+  function refreshDevicesModal() {
+    const devices = window.__lastDevices || [];
+    const autos = window.__lastAutomations || [];
+    const scenes = window.__lastScenes || [];
+    // Статистика сверху
+    const online = devices.filter(d => d.online !== false).length;
+    const total = devices.length;
+    const totalPower = devices.reduce((s, d) => s + (d.cur_power || 0), 0);
+    const topLoad = [...devices].filter(d => (d.cur_power||0) > 0).sort((a,b)=>(b.cur_power||0)-(a.cur_power||0))[0];
+    const setById = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    setById('ds-online', total ? `${online}/${total}` : '—');
+    setById('ds-offline', total ? `${total - online} оффлайн` : 'нет данных');
+    setById('ds-power', Math.round(totalPower));
+    setById('ds-topload', topLoad ? `${topLoad.name} ${Math.round(topLoad.cur_power)}Вт` : 'без нагрузки');
+    setById('ds-autos', String(autos.length));
+    setById('ds-scenes', String(scenes.filter(s => !s.is_automation).length));
+
+    // Список устройств
+    const devList = document.getElementById('modalDevicesList');
+    if (devList) {
+      const iconFor = (d) => {
+        const n = (d.name || '').toLowerCase();
+        if (n.includes('бойлер')) return '🔥';
+        if (n.includes('кондер') || n.includes('кондиц')) return '❄️';
+        if (n.includes('телев') || n === 'тв') return '📺';
+        if (d.kind === 'vacuum' || n.includes('пылес') || n.includes('гоша') || n.includes('robot')) return '🤖';
+        if (n.includes('датчик') || n.includes('sensor')) return '🌡';
+        if (n.includes('лампа') || n.includes('свет')) return '💡';
+        if (['кухня','спальня','детская','гостиная','туалет','коридор'].includes(n)) return '💡';
+        if (n.includes('пульт') || n.includes('ик-') || n.includes('ик хаб')) return '📡';
+        return '🔌';
+      };
+      devList.innerHTML = devices.map(d => {
+        const badge = d.on === true ? '<span class="tl-tag food">Вкл</span>'
+          : d.on === false ? '<span class="tl-tag diaper">Выкл</span>'
+          : d.online === false ? '<span class="tl-tag diaper">Оффлайн</span>'
+          : '<span class="tl-tag sleep">Онлайн</span>';
+        const meta = d.cur_power ? `${Math.round(d.cur_power)}Вт`
+                    : d.temp != null ? `${d.temp}°`
+                    : d.extra || '';
+        const room = d.room_name ? ` · <span class="sub">${d.room_name}</span>` : '';
+        return `<div class="timeline-row">
+          <div class="tl-time">${iconFor(d)}</div>
+          <div class="tl-event">${d.name || '?'}${room}${meta ? ' <span class="sub">' + meta + '</span>' : ''}</div>
+          ${badge}
+        </div>`;
+      }).join('') || '<div style="padding:12px; color:var(--text-dim)">Устройства не загружены</div>';
+    }
+
+    // Автоматизации
+    const autoList = document.getElementById('modalAutosList');
+    setById('modalAutosCount', autos.length ? String(autos.length) : '');
+    if (autoList) {
+      if (!autos.length) {
+        autoList.innerHTML = '<div style="padding:12px; color:var(--text-dim)">Автоматизаций ещё нет</div>';
+      } else {
+        autoList.innerHTML = autos.map(a => {
+          const on = !!a.enabled;
+          const desc = (a.description || '').replace(/</g,'&lt;');
+          const fired = a.fired_count ? `сработала ${a.fired_count}×` : 'не срабатывала';
+          return `<div class="auto-item">
+            <div class="auto-toggle ${on?'on':'off'}" onclick="toggleAutomation(${a.id})" style="cursor:pointer"></div>
+            <div class="auto-info" style="flex:1">
+              <div class="auto-name">${(a.name||'').replace(/</g,'&lt;')}</div>
+              ${desc ? `<div class="auto-cond">${desc}</div>` : ''}
+              <div class="auto-stat">${fired}${on?'':' · выключена'}</div>
+            </div>
+            <button title="Удалить" style="background:none; border:0; color:var(--text-dim); cursor:pointer; font-size:14px" onclick="deleteAutomation(${a.id})">✕</button>
+          </div>`;
+        }).join('');
+      }
+    }
+  }
+  window.toggleAutomation = async function(id) {
+    if (!TOKEN || !id) return;
+    try { await apiPost('/api/tablet/action/automation', {op: 'toggle', id}); refreshState(); }
+    catch(e) { console.warn('toggle auto failed', e); }
+  };
+  window.deleteAutomation = async function(id) {
+    if (!TOKEN || !id) return;
+    if (!confirm('Удалить автоматизацию?')) return;
+    try { await apiPost('/api/tablet/action/automation', {op: 'delete', id}); refreshState(); }
+    catch(e) { console.warn('delete auto failed', e); }
+  };
+  window.addAutomation = async function() {
+    if (!TOKEN) return;
+    const text = (prompt('Опиши автоматизацию человеческим языком.\nНапример: «Если в детской >25° и Матвей спит — запусти сцену Кондер 24 авто».\nПрораб её распарсит и создаст.') || '').trim();
+    if (!text) return;
+    try {
+      const r = await apiPost('/api/tablet/action/automation', {op: 'add', text});
+      if (r && r.success) refreshState();
+      else alert('Прораб не смог: ' + (r?.error || 'неизвестная ошибка'));
+    } catch(e) { console.warn(e); alert('Ошибка: ' + e); }
+  };
 
   function updateChild(child) {
     if (!child) return;

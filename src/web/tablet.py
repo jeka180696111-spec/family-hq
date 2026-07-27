@@ -477,6 +477,63 @@ def register_tablet_routes(app: FastAPI, memory: Any, settings: Any, agents_ref:
             log.exception("tablet_event_action_failed")
             return {"success": False, "error": str(e)[:200]}
 
+    # ─── Автоматизации: toggle / delete / add (через LLM Прораба) ─────
+    @app.post("/api/tablet/action/automation")
+    async def action_automation(payload: dict = Body(...), token: str = Query("")):
+        _check_token(token, expected_token)
+        op = (payload.get("op") or "").lower()
+        if op not in ("toggle", "delete", "add", "enable", "disable"):
+            raise HTTPException(400, "op must be toggle|delete|add")
+        try:
+            from sqlalchemy import select, update as sql_update, delete as sql_delete
+            from src.db.models import AutomationRule
+            if op in ("toggle", "enable", "disable"):
+                rid = payload.get("id")
+                if not rid:
+                    raise HTTPException(400, "id required")
+                async with memory._engine.begin() as conn:
+                    row = (await conn.execute(select(AutomationRule).where(AutomationRule.id == int(rid)))).first()
+                    if not row:
+                        return {"success": False, "error": "not found"}
+                    r = row[0] if hasattr(row, "_mapping") else row
+                    new_enabled = 0 if op == "disable" else (1 if op == "enable" else (0 if r.enabled else 1))
+                    await conn.execute(sql_update(AutomationRule)
+                        .where(AutomationRule.id == int(rid))
+                        .values(enabled=new_enabled))
+                return {"success": True, "enabled": bool(new_enabled)}
+            if op == "delete":
+                rid = payload.get("id")
+                if not rid:
+                    raise HTTPException(400, "id required")
+                async with memory._engine.begin() as conn:
+                    await conn.execute(sql_delete(AutomationRule).where(AutomationRule.id == int(rid)))
+                return {"success": True}
+            if op == "add":
+                # Пересылаем текст Прорабу через диспетчер: он распарсит
+                # и сам вызовет свой инструмент _automation_add с JSON.
+                text = (payload.get("text") or "").strip()
+                if not text:
+                    raise HTTPException(400, "text required")
+                devops = (agents_ref or {}).get("devops") if agents_ref else None
+                if not devops:
+                    return {"success": False, "error": "Прораб не подключён в этом деплое"}
+                try:
+                    # Просим Прораба обработать как обычное сообщение
+                    reply = await devops.handle_message(
+                        chat_id=settings.hq_chat_id,
+                        user_text=f"Создай автоматизацию: {text}",
+                        sender="tablet",
+                    )
+                    return {"success": True, "reply": (reply or "")[:400]}
+                except Exception as e:
+                    log.exception("tablet_automation_add_via_devops_failed")
+                    return {"success": False, "error": str(e)[:200]}
+        except HTTPException:
+            raise
+        except Exception as e:
+            log.exception("tablet_automation_action_failed")
+            return {"success": False, "error": str(e)[:200]}
+
     # ─── Список покупок: добавить / отметить купленным / удалить ─────
     @app.post("/api/tablet/action/shopping")
     async def action_shopping(payload: dict = Body(...), token: str = Query("")):
