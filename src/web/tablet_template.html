@@ -725,7 +725,8 @@
     from { transform: translate(-50%, -100%); opacity: 0; }
     to { transform: translate(-50%, 0); opacity: 1; }
   }
-  .alert-banner-top .dot {
+  .alert-banner-top .dot,
+  .tired-banner-top .dot {
     display: inline-block; width: 8px; height: 8px; border-radius: 50%;
     background: #fff; margin-right: 8px; vertical-align: middle;
     animation: alert-pulse-dot 0.8s ease-in-out infinite;
@@ -734,6 +735,60 @@
     0%, 100% { opacity: 1; }
     50% { opacity: 0.3; }
   }
+  .banner-close {
+    background: rgba(255,255,255,0.18);
+    border: 0;
+    color: #fff;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    margin-left: 12px;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+    vertical-align: middle;
+    transition: background 0.15s ease;
+  }
+  .banner-close:hover { background: rgba(255,255,255,0.32); }
+
+  /* Синяя рамка «пора укладывать» — работает так же как красная тревога */
+  .tired-frame {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 199;
+    border: 8px solid transparent;
+    box-shadow: inset 0 0 60px rgba(66, 135, 245, 0.55), inset 0 0 0 2px #4287f5;
+    display: none;
+    animation: tired-pulse 2s ease-in-out infinite;
+  }
+  body.tired .tired-frame { display: block; }
+  @keyframes tired-pulse {
+    0%, 100% {
+      box-shadow: inset 0 0 40px rgba(66, 135, 245, 0.3), inset 0 0 0 2px rgba(66, 135, 245, 0.5);
+    }
+    50% {
+      box-shadow: inset 0 0 90px rgba(66, 135, 245, 0.75), inset 0 0 0 4px #63a4ff;
+    }
+  }
+  .tired-banner-top {
+    position: fixed;
+    top: 24px; left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(180deg, #4287f5, #1f5abf);
+    color: #fff;
+    padding: 10px 22px;
+    border-radius: 14px;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    z-index: 209;
+    display: none;
+    box-shadow: 0 6px 30px rgba(66, 135, 245, 0.5);
+    animation: alert-slide 0.4s ease;
+  }
+  body.tired .tired-banner-top { display: block; }
+  /* Если одновременно и тревога и «пора укладывать» — тревога главнее */
+  body.alerted .tired-banner-top { top: 74px; }
   /* Кнопка теста в шапке — временная */
   .test-alert-btn {
     background: rgba(217, 45, 45, 0.15);
@@ -1466,7 +1521,18 @@
 
 <div class="brightness-overlay" id="brightnessOverlay"></div>
 <div class="alert-frame"></div>
-<div class="alert-banner-top"><span class="dot"></span>🚨 ВОЗДУШНАЯ ТРЕВОГА · Одесса</div>
+<div class="alert-banner-top">
+  <span class="dot"></span>
+  <span id="alertBannerText">🚨 ВОЗДУШНАЯ ТРЕВОГА · Одесса</span>
+  <button class="banner-close" onclick="dismissAlert()" title="Скрыть до новой тревоги">✕</button>
+</div>
+
+<div class="tired-frame"></div>
+<div class="tired-banner-top">
+  <span class="dot"></span>
+  <span id="tiredBannerText">🍼 Матвейка устал — пора укладывать</span>
+  <button class="banner-close" onclick="dismissTired()" title="Скрыть до следующего сна">✕</button>
+</div>
 <div class="tablet">
 
   <!-- ============= HEADER ============= -->
@@ -1935,8 +2001,44 @@
   }
   tick(); setInterval(tick, 30000);
 
-  function openModal(name) { document.getElementById('modal-' + name).classList.add('open'); }
+  function openModal(name) {
+    document.getElementById('modal-' + name).classList.add('open');
+    if (name === 'baby') refreshBabyDay();
+  }
   function closeModal(name) { document.getElementById('modal-' + name).classList.remove('open'); }
+
+  async function refreshBabyDay() {
+    try {
+      const d = await apiGet('/api/tablet/baby-day');
+      if (!d) return;
+      const title = document.querySelector('#modal-baby .modal-title');
+      if (title && d.date) title.textContent = `Матвей · день ${d.date}`;
+      const st = d.stats || {};
+      const stats = document.querySelectorAll('#modal-baby .detail-stats .stat-card');
+      if (stats.length >= 4) {
+        stats[0].querySelector('.stat-value').textContent = st.sleep_total || '—';
+        stats[0].querySelector('.stat-sub').textContent = 'дневной + ночной';
+        stats[1].querySelector('.stat-value').textContent = st.awake_total || '—';
+        stats[1].querySelector('.stat-sub').textContent = (st.wake_windows || 0) + ' окна';
+        stats[2].querySelector('.stat-value').textContent = st.feeds_total ?? 0;
+        stats[2].querySelector('.stat-sub').textContent = `${st.feeds_breast||0} груди + ${st.feeds_prikorm||0} прикорма`;
+        stats[3].querySelector('.stat-value').textContent = st.diapers_total ?? 0;
+        stats[3].querySelector('.stat-sub').textContent = (st.diapers_poo || 0) + ' покаки';
+      }
+      const timeline = document.querySelector('#modal-baby .timeline');
+      if (timeline) {
+        const h3 = timeline.querySelector('h3');
+        const items = (d.timeline || []).map(row => `
+          <div class="timeline-row">
+            <div class="tl-time">${row.time}</div>
+            <div class="tl-event">${row.event}${row.sub ? '<span class="sub">'+row.sub+'</span>' : ''}</div>
+            <span class="tl-tag ${row.tag}">${row.tag_label}</span>
+          </div>`).join('');
+        timeline.innerHTML = (h3 ? h3.outerHTML : '<h3>Хронология дня</h3>') +
+          (items || '<div style="padding:20px; color:var(--text-dim); text-align:center">За сегодня пока записей нет.</div>');
+      }
+    } catch(e) { console.warn('baby day refresh failed', e); }
+  }
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') document.querySelectorAll('.modal-backdrop.open').forEach(m => m.classList.remove('open'));
   });
@@ -2345,11 +2447,24 @@ document.querySelectorAll('.shop-item').forEach(item => {
       remainText = remainMin > 0 ? 'до сна ~' + fmtDuration(remainMin) : 'перегул +' + fmtDuration(-remainMin);
     }
     setText('babyStatus', stateLabel);
-    setText('babyDuration', durMin > 0 ? fmtDuration(durMin) : '—');
+    // babyDuration теперь показывает и «когда» и «сколько»:
+    //   спит → «с 14:30 · 1ч 05м»
+    //   бодрствует → «с 12:15 · 1ч 40м»
+    //   гуляет → «с 15:00 · 45м»
+    let durLine = durMin > 0 ? fmtDuration(durMin) : '—';
+    let sinceLine = '';
+    if (baby.sleeping_since) sinceLine = 'с ' + clockFmt(baby.sleeping_since);
+    else if (baby.walking_since) sinceLine = 'с ' + clockFmt(baby.walking_since);
+    else if (baby.awake_since) sinceLine = 'с ' + clockFmt(baby.awake_since);
+    setText('babyDuration', sinceLine ? sinceLine + ' · ' + durLine : durLine);
     setText('babyRemain', remainText);
-    // Кормление / подгузник — только время (без секунд)
-    setText('lastFeed', baby.last_feed_at ? clockFmt(baby.last_feed_at) : '—');
-    setText('lastDiaper', baby.last_diaper_at ? clockFmt(baby.last_diaper_at) : '—');
+    // Кормление / подгузник — время + «Nч назад»
+    setText('lastFeed', baby.last_feed_at
+      ? clockFmt(baby.last_feed_at) + ' · ' + fmtDuration((Date.now() - new Date(baby.last_feed_at).getTime())/60000) + ' назад'
+      : '—');
+    setText('lastDiaper', baby.last_diaper_at
+      ? clockFmt(baby.last_diaper_at) + ' · ' + fmtDuration((Date.now() - new Date(baby.last_diaper_at).getTime())/60000) + ' назад'
+      : '—');
     if (typeof setBabyState === 'function' && babyStates && babyStates[state]) {
       try { setBabyState(state); } catch(e){}
     }
@@ -2405,12 +2520,47 @@ document.querySelectorAll('.shop-item').forEach(item => {
     setHtml('reminder', parts.length ? parts.join(' · ') : 'На улице комфортно');
   }
 
+  function isNightNow(sunrise, sunset) {
+    // Определяем «ночь» по локальному времени пользователя (22:00-06:00),
+    // либо по sunrise/sunset если сервер их отдал.
+    const now = new Date();
+    if (sunrise && sunset) {
+      try {
+        const sr = new Date(sunrise).getTime();
+        const ss = new Date(sunset).getTime();
+        const nowT = now.getTime();
+        return nowT < sr || nowT > ss;
+      } catch(e) {}
+    }
+    const h = now.getHours();
+    return h >= 22 || h < 6;
+  }
+  function pickWeatherIcon(description, sunrise, sunset, allowNightHeuristic=true) {
+    const d = (description || '').toLowerCase();
+    const night = allowNightHeuristic ? isNightNow(sunrise, sunset) : false;
+    // Приоритеты: прямые слова о погоде > дефолт (ясно) с учётом день/ночь.
+    if (d.includes('гроз') || d.includes('storm') || d.includes('thunder')) return '⛈';
+    if (d.includes('ливен') || d.includes('downpour')) return night ? '🌧' : '🌧';
+    if (d.includes('дожд') || d.includes('rain') || d.includes('drizzle') || d.includes('морос')) return night ? '🌧' : '🌦';
+    if (d.includes('снег') || d.includes('snow')) return '🌨';
+    if (d.includes('туман') || d.includes('fog') || d.includes('mist') || d.includes('дымк')) return '🌫';
+    if (d.includes('облач') || d.includes('overcast') || d.includes('пасмур') || d.includes('cloud')) return '☁️';
+    if (d.includes('перемен') || d.includes('partly') || d.includes('малообл')) return night ? '☁️' : '⛅️';
+    if (d.includes('ветр') || d.includes('wind')) return night ? '🌬' : '🌬';
+    // По умолчанию — ясно
+    return night ? '🌙' : '☀️';
+  }
+
   function updateWeather(w) {
     if (!w) return;
-    // Убираем странные локации типа "У родителей", показываем нормальное имя
+    // Убираем странные локации типа "У родителей" — они приходят из
+    // family_wiki (перезаписи местоположения), но городом не являются.
     const cleanCity = (raw) => {
       if (!raw) return 'Одесса';
       const s = String(raw).replace(/,.*$/, '').trim();
+      const low = s.toLowerCase();
+      const blacklist = ['родител', 'у родит', 'дома', 'у бабуш', 'у деду', 'дача', 'работа', 'офис'];
+      if (blacklist.some(b => low.includes(b))) return 'Одесса';
       if (!/^[А-ЯЁA-Z]/.test(s)) return 'Одесса';
       if (s.length < 3) return 'Одесса';
       return s;
@@ -2420,14 +2570,9 @@ document.querySelectorAll('.shop-item').forEach(item => {
     if (w.feels_like_c != null) setText('feels', 'Ощущается как ' + (w.feels_like_c > 0 ? '+' : '') + Math.round(w.feels_like_c) + '°');
     if (w.humidity_pct != null) setText('humidity', Math.round(w.humidity_pct) + '%');
     if (w.wind_ms != null) setText('wind', Math.round(w.wind_ms) + ' м/с');
-    // Иконка по описанию
-    const d = (w.description || '').toLowerCase();
-    let ico = '☀️';
-    if (d.includes('дожд') || d.includes('rain')) ico = '🌧';
-    else if (d.includes('облач') || d.includes('cloud')) ico = '☁️';
-    else if (d.includes('снег') || d.includes('snow')) ico = '❄️';
-    else if (d.includes('гроз') || d.includes('storm')) ico = '⛈';
-    setText('cloud', ico);
+    // Иконка по описанию — учитываем день/ночь. Ночью ясно → луна,
+    // не солнце. Тучи/дождь/снег визуально одинаковые днём и ночью.
+    setText('cloud', pickWeatherIcon(w.description, w.sunrise, w.sunset));
 
     // Прогноз 5 дней
     if (w.forecast && w.forecast.length) {
@@ -2438,10 +2583,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
           const dt = new Date(f.date);
           const wd = weekday[dt.getDay()];
           const day = dt.getDate();
-          const desc = (f.desc || '').toLowerCase();
-          let ic = '☀️';
-          if (f.rain > 0.5) ic = '🌧';
-          else if (desc.includes('облач')) ic = '☁️';
+          const ic = pickWeatherIcon(f.desc, null, null, false);
           return ``;
         }).join('');
       }
@@ -2698,15 +2840,68 @@ document.querySelectorAll('.shop-item').forEach(item => {
         const total = s.devices.reduce((sum, d) => sum + (d.cur_power || 0), 0);
         setText('homeConsumption', Math.round(total) + ' Вт');
       }
-      // Тревога — единственный источник правды
+      // Тревога — источник правды из ActiveAlert. Юзер может скрыть
+      // рамку — тогда до следующей ДРУГОЙ тревоги (по started_at) не
+      // показываем.
       const isAlert = !!(s.alert && s.alert.active === true);
-      document.body.classList.toggle('alerted', isAlert);
+      const alertKey = isAlert ? (s.alert.started_at || 'active') : '';
+      const dismissedAlert = localStorage.getItem('alertDismissedFor') || '';
+      const showAlert = isAlert && dismissedAlert !== alertKey;
+      document.body.classList.toggle('alerted', showAlert);
+      if (showAlert) {
+        const region = s.alert.region || 'Одесса';
+        const t = document.getElementById('alertBannerText');
+        if (t) t.textContent = `🚨 ВОЗДУШНАЯ ТРЕВОГА · ${region}`;
+      }
+      // Если тревога закончилась — очищаем dismiss, чтоб следующая
+      // (уже с новым started_at) точно показалась.
+      if (!isAlert && dismissedAlert) localStorage.removeItem('alertDismissedFor');
+      window.__lastAlertKey = alertKey;
+
+      // «Пора укладывать» — синяя рамка. Основано на awake_since ребёнка.
+      // Показываем когда бодрствует уже >= 130 минут (окно ~2ч 20м).
+      updateTiredFrame(s.baby);
     } catch(e) { console.warn('state refresh failed', e); }
   }
   // Первый запрос сразу и потом каждые 15 сек
   if (TOKEN) {
     refreshState();
     setInterval(refreshState, 15000);
+  }
+
+  // === ТРЕВОГА / «ПОРА УКЛАДЫВАТЬ» — скрытие рамки ===
+  function dismissAlert() {
+    const key = window.__lastAlertKey || 'active';
+    localStorage.setItem('alertDismissedFor', key);
+    document.body.classList.remove('alerted');
+  }
+  function dismissTired() {
+    const key = window.__lastTiredKey || 'tired';
+    localStorage.setItem('tiredDismissedFor', key);
+    document.body.classList.remove('tired');
+  }
+  function updateTiredFrame(baby) {
+    if (!baby || !baby.awake_since || baby.sleeping_since) {
+      document.body.classList.remove('tired');
+      // Как только уложили — забываем dismiss, чтоб следующий эпизод
+      // усталости точно показался.
+      localStorage.removeItem('tiredDismissedFor');
+      return;
+    }
+    const awakeMs = Date.now() - new Date(baby.awake_since).getTime();
+    const awakeMin = awakeMs / 60000;
+    // Окно бодрствования 8-мес: ~2ч 20м (140 мин). Показываем за 10 мин до.
+    const TIRED_AT = 130;
+    const isTired = awakeMin >= TIRED_AT;
+    const key = baby.awake_since;
+    window.__lastTiredKey = key;
+    const dismissed = localStorage.getItem('tiredDismissedFor') || '';
+    const show = isTired && dismissed !== key;
+    document.body.classList.toggle('tired', show);
+    if (show) {
+      const t = document.getElementById('tiredBannerText');
+      if (t) t.textContent = `🍼 Матвейка устал (${Math.round(awakeMin)}м без сна) — пора укладывать`;
+    }
   }
 
   // Actions

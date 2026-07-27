@@ -215,27 +215,24 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
     except Exception:
         log.exception("tablet_shopping_failed")
 
-    # Тревога — только если в последние 30 мин был alert-пост от Дозорного
-    # (более надёжно чем ActiveAlert таблица которая может иметь stale записи)
+    # Тревога — источник правды ActiveAlert.
+    # news_ingest создаёт запись при alert_start, удаляет при alert_clear,
+    # а sweeper авто-закрывает после 60 мин тишины. То есть если запись
+    # ЕСТЬ — тревога активна прямо сейчас.
     try:
-        from datetime import timedelta
-        from sqlalchemy import select, func
-        from src.db.models import NewsPost
-        from src.utils.time import now_kyiv
-        cutoff = (now_kyiv() - timedelta(minutes=15)).isoformat()
+        from sqlalchemy import select
+        from src.db.models import ActiveAlert
         async with memory._engine.connect() as conn:
             row = (await conn.execute(
-                select(NewsPost).where(NewsPost.is_alert == 1)
-                .where(NewsPost.date >= cutoff)
-                .order_by(NewsPost.date.desc())
-                .limit(1)
+                select(ActiveAlert).order_by(ActiveAlert.started_at.desc()).limit(1)
             )).first()
-        # Активной считаем ТОЛЬКО если alert-пост найден И
-        # в тексте нет "отбой"/"відбій" (это end-события)
         if row:
-            text = (getattr(row, "text", "") or "").lower()
-            is_end = any(w in text for w in ("отбой", "відбій", "видбій", "все ясно", "все спокійно", "закінч", "закончил", "стих", "миновал"))
-            state["alert"] = {"active": not is_end, "region": row.alert_region, "started_at": row.date}
+            aa = row[0] if hasattr(row, "_mapping") else row
+            state["alert"] = {
+                "active": True,
+                "region": getattr(aa, "region", None),
+                "started_at": getattr(aa, "started_at", None),
+            }
         else:
             state["alert"] = {"active": False}
     except Exception:
@@ -355,6 +352,106 @@ def register_tablet_routes(app: FastAPI, memory: Any, settings: Any, agents_ref:
         except Exception as e:
             log.exception("tablet_socket_failed")
             return {"success": False, "error": str(e)[:200]}
+
+    @app.get("/api/tablet/baby-day")
+    async def baby_day(token: str = Query("")):
+        """Реальная хронология дня Матвея из Дневника (Google Sheets).
+        Возвращает {date, stats, timeline[]} для модалки «Матвей · день»."""
+        _check_token(token, expected_token)
+        try:
+            nanny = agents_ref.get("nanny") if agents_ref else None
+            sheets = getattr(nanny, "_sheets", None) if nanny else None
+            if not sheets:
+                return {"timeline": [], "stats": {}, "date": ""}
+            from src.integrations.baby_state_compute import _entry_dt, _kind_clean, _match, _SLEEP_START, _SLEEP_END, _WALK_START, _WALK_END
+            from src.utils.time import now_kyiv
+            now = now_kyiv()
+            today = now.date()
+            rows = await sheets.get_baby_diary(days=2)
+
+            KIND_TAG = {
+                "сон": "sleep", "sleep": "sleep",
+                "еда": "food", "food": "food", "прикорм": "food",
+                "лекарство": "food", "medicine": "food",
+                "подгузник": "diaper", "diaper": "diaper",
+                "прогулка": "walk", "walk": "walk",
+                "поездка": "walk", "trip": "walk",
+                "симптом": "symptom", "веха": "note", "заметка": "note",
+            }
+            KIND_LABEL = {
+                "sleep": "Сон", "food": "Еда", "diaper": "Подгузник",
+                "walk": "Прогулка", "symptom": "Симптом", "note": "Заметка",
+            }
+
+            timeline = []
+            today_entries = []
+            for r in rows:
+                d = r.data
+                dt = _entry_dt(d)
+                if dt is None or dt.date() != today:
+                    continue
+                kraw = _kind_clean(d.get("kind", ""))
+                tag = KIND_TAG.get(kraw, "note")
+                ev = (d.get("event") or "").strip()
+                note = (d.get("note") or "").strip() if isinstance(d, dict) else ""
+                today_entries.append({"dt": dt, "kind": kraw, "tag": tag, "event": ev, "note": note})
+
+            today_entries.sort(key=lambda x: x["dt"])
+            for e in today_entries:
+                timeline.append({
+                    "time": e["dt"].strftime("%H:%M"),
+                    "event": e["event"] or KIND_LABEL.get(e["tag"], "—"),
+                    "sub": e["note"],
+                    "tag": e["tag"],
+                    "tag_label": KIND_LABEL.get(e["tag"], e["tag"]),
+                })
+
+            # Статистика: считаем сны, кормления, подгузники, окна бодрствования
+            sleep_min = 0
+            wake_windows = 0
+            in_sleep_start = None
+            for e in today_entries:
+                if e["tag"] != "sleep":
+                    continue
+                if _match(e["event"], _SLEEP_START):
+                    in_sleep_start = e["dt"]
+                elif _match(e["event"], _SLEEP_END):
+                    if in_sleep_start:
+                        sleep_min += int((e["dt"] - in_sleep_start).total_seconds() / 60)
+                        in_sleep_start = None
+                    wake_windows += 1
+
+            feeds = [e for e in today_entries if e["tag"] == "food"]
+            diapers = [e for e in today_entries if e["tag"] == "diaper"]
+
+            breast = sum(1 for f in feeds if "груд" in (f["event"].lower() + f["kind"]))
+            prikorm = sum(1 for f in feeds if "прикорм" in (f["event"].lower() + f["kind"]))
+            poo = sum(1 for d in diapers if any(w in d["event"].lower() for w in ("как", "стул", "poo")))
+
+            # Всего бодрствовал сегодня (грубо: 24ч минус сон)
+            awake_min = max(0, int((now - now.replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds()/60) - sleep_min)
+
+            def fmt(m):
+                h, mm = divmod(int(m), 60)
+                return f"{h}ч {mm:02d}м" if h else f"{mm}м"
+
+            stats = {
+                "sleep_total": fmt(sleep_min) if sleep_min else "—",
+                "awake_total": fmt(awake_min) if awake_min else "—",
+                "wake_windows": wake_windows,
+                "feeds_total": len(feeds),
+                "feeds_breast": breast,
+                "feeds_prikorm": prikorm,
+                "diapers_total": len(diapers),
+                "diapers_poo": poo,
+            }
+
+            months_ru = ["янв","фев","мар","апр","мая","июн","июл","авг","сен","окт","ноя","дек"]
+            date_label = f"{today.day} {months_ru[today.month-1]}"
+            return {"date": date_label, "stats": stats, "timeline": timeline}
+        except Exception as e:
+            log.exception("tablet_baby_day_failed")
+            return {"timeline": [], "stats": {}, "date": "", "error": str(e)[:200]}
 
     @app.post("/api/tablet/action/baby-event")
     async def action_baby_event(payload: dict = Body(...), token: str = Query("")):
