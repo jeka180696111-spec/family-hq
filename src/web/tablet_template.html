@@ -834,22 +834,69 @@
     font-family: inherit;
   }
 
-  .mp-yt-frame {
-    margin-top: 16px;
-    aspect-ratio: 16 / 9;
-    background: var(--card-hi);
-    border-radius: 12px;
-    overflow: hidden;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .mp-yt-frame iframe { width: 100%; height: 100%; border: 0; }
-  .mp-yt-empty {
-    color: var(--text-mute);
-    font-size: 13px;
-    padding: 20px;
+  /* Плеер (аудио с обложкой, как в Spotify) */
+  .yt-player {
+    background: linear-gradient(160deg, rgba(217,155,176,0.18), var(--card));
+    border: 1px solid rgba(217,155,176,0.25);
+    border-radius: 16px;
+    padding: 24px;
     text-align: center;
+    margin: 16px 0;
+  }
+  .yt-cover {
+    width: 200px; height: 200px;
+    border-radius: 14px;
+    object-fit: cover;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.4);
+    margin-bottom: 16px;
+    background: linear-gradient(135deg, #d99bb0, #a789c8);
+  }
+  .yt-title {
+    font-family: ui-serif, Georgia, serif;
+    font-size: 18px;
+    color: var(--text);
+    line-height: 1.3;
+    padding: 0 10px;
+    max-height: 3em;
+    overflow: hidden;
+  }
+  .yt-sub {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 6px;
+  }
+  .yt-progress {
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    margin: 18px 6px 6px;
+    overflow: hidden;
+    cursor: pointer;
+  }
+  .yt-progress-fill {
+    height: 100%; width: 0%;
+    background: var(--pink);
+    transition: width 0.2s;
+  }
+  .yt-times {
+    display: flex;
+    justify-content: space-between;
+    padding: 0 6px;
+    font-family: ui-serif, Georgia, serif;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .yt-controls {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .mp-quick-hint {
+    margin-top: 12px;
+    font-size: 11px;
+    color: var(--text-mute);
+    font-style: italic;
   }
   .mp-yt-controls {
     margin-top: 12px;
@@ -3189,35 +3236,50 @@
       </div>
     </div>
 
-    <!-- YouTube панель -->
+    <!-- YouTube панель — плеер вида как Spotify (аудио, обложка, кнопки) -->
     <div class="music-panel" id="musicYoutubePanel" style="display:none">
+      <!-- Голос -->
       <div class="mp-yt-voice">
-        <button class="mp-voice-btn" id="voiceBtn" onclick="startVoice()" title="Скажи «включи белый шум» / «поставь колыбельные»">
+        <button class="mp-voice-btn" id="voiceBtn" onclick="startVoice()">
           <span id="voiceIcon">🎤</span>
           <span id="voiceLabel">Скажи что включить</span>
         </button>
         <div class="mp-voice-status" id="voiceStatus"></div>
       </div>
 
+      <!-- Ввод ссылки -->
       <div class="mp-yt-input">
         <input type="text" id="ytUrlInput" class="mp-search-input"
-               placeholder="Или вставь ссылку YouTube (youtu.be/… или ?v=…)…"
+               placeholder="Вставь ссылку YouTube (video или playlist)…"
                onkeydown="if(event.key==='Enter') playYoutubeInput()">
         <button class="mp-search-btn" onclick="playYoutubeInput()">▶</button>
       </div>
 
-      <div class="mp-quick">
-        <div class="mp-quick-title">Для малыша</div>
-        <div class="mp-quick-items" id="ytQuickBaby"></div>
-        <div class="mp-quick-title" style="margin-top:14px">Для родителей</div>
-        <div class="mp-quick-items" id="ytQuickParents"></div>
+      <!-- Сам плеер: обложка, название, кнопки -->
+      <div class="yt-player" id="ytPlayer" style="display:none">
+        <img class="yt-cover" id="ytCover" src="" alt="">
+        <div class="yt-title" id="ytTitle">—</div>
+        <div class="yt-sub" id="ytSub">YouTube</div>
+        <div class="yt-progress"><div class="yt-progress-fill" id="ytFill"></div></div>
+        <div class="yt-times"><span id="ytCur">0:00</span><span id="ytDur">0:00</span></div>
+        <div class="yt-controls">
+          <button class="mp-btn" onclick="ytPrev()">⏮</button>
+          <button class="mp-btn mp-play" id="ytPlayPauseBtn" onclick="ytToggle()">⏸</button>
+          <button class="mp-btn" onclick="ytNext()">⏭</button>
+          <button class="mp-btn" onclick="ytStopFull()" title="Остановить">⏹</button>
+        </div>
       </div>
 
-      <div class="mp-yt-frame" id="ytFrameWrap">
-        <div class="mp-yt-empty">Тапни быстрый плейлист, скажи голосом или вставь ссылку YouTube ↑</div>
+      <!-- Быстрые треки/плейлисты (не для малыша!) -->
+      <div class="mp-quick">
+        <div class="mp-quick-title">Популярное</div>
+        <div class="mp-quick-items" id="ytQuick"></div>
+        <div class="mp-quick-hint">Хочешь другие плейлисты? Скинь мне ссылки — добавлю сюда кнопки.</div>
       </div>
-      <div class="mp-yt-controls" style="display:none" id="ytControls">
-        <button class="mp-btn" onclick="stopYt()">⏹ Остановить</button>
+
+      <!-- Скрытый iframe (только звук — сам плеер невидим, играет фоном) -->
+      <div id="ytHidden" style="position:absolute; left:-9999px; top:-9999px; width:200px; height:200px; pointer-events:none;">
+        <div id="ytPlayerMount"></div>
       </div>
     </div>
   </div><!-- /page-music -->
@@ -4566,29 +4628,23 @@ document.querySelectorAll('.shop-item').forEach(item => {
     }
   }
 
-  // ── YouTube: быстрые треки с голосовыми ключевыми словами ──
-  const YT_QUICK_BABY = [
-    { icon: '🌊', label: 'Белый шум 10ч',      id: 'nMfPqeZjc2c', type: 'video', keys: ['белый шум', 'шум', 'бельый шум'] },
-    { icon: '🌙', label: 'Колыбельные',        id: 'aXHITypCXFA', type: 'video', keys: ['колыбельн', 'убаюкать', 'спать', 'засыпать'] },
-    { icon: '🎼', label: 'Классика малышу',    id: 'aObkbeejK-8', type: 'video', keys: ['классик', 'моцарт', 'бетховен'] },
-    { icon: '🌧', label: 'Дождь 10ч',          id: 'mPZkdNFkNps', type: 'video', keys: ['дождь', 'ливень'] },
-    { icon: '🍼', label: 'Шум матки',          id: 'gFAdRRXVSaU', type: 'video', keys: ['шум матки', 'утроб'] },
-    { icon: '🎵', label: 'Синий трактор',      id: 'sVCRP1H0iEo', type: 'video', keys: ['трактор', 'синий трактор', 'мультик'] },
-    { icon: '🐴', label: 'Ой у лузі калина',   id: 'IuUOgD73nGk', type: 'video', keys: ['калина', 'украинск'] },
-  ];
-  const YT_QUICK_PARENTS = [
+  // ── YouTube плеер (звук + обложка, как в Spotify) ──
+  // Популярные треки/плейлисты — можно расширять
+  const YT_QUICK = [
+    { icon: '🇺🇦', label: 'Хіти українською',  id: 'PLcXynX3PbSN7RwafnLZBUFDgSBIe6Bekb', type: 'list', keys: ['українськ', 'ukrain', 'украинск'] },
+    { icon: '🎸', label: 'Океан Ельзи',        id: 'PLXTeRw4o_1G74zBAUYYKPzk1XY8LDQITZ', type: 'list', keys: ['океан', 'ельзи', 'элзи', 'вакарчук'] },
+    { icon: '🎵', label: 'Русский рок',        id: 'PL3oW2tjiIxvSVigTUcPn2GKrmr4gY0mZC', type: 'list', keys: ['рок', 'русский рок', 'кино', 'дди'] },
+    { icon: '🎤', label: 'Поп 2020-х',         id: 'PL15B1E77BB5708555', type: 'list', keys: ['поп', 'хиты', 'популяр'] },
     { icon: '☕', label: 'Lofi hip hop',       id: 'jfKfPfyJRdk', type: 'video', keys: ['лофи', 'lofi', 'фон'] },
     { icon: '🎧', label: 'Chillout',           id: 'DWZWXWuHo6Q', type: 'video', keys: ['чил', 'chill', 'релакс'] },
-    { icon: '📚', label: 'Chill Study',        id: 'lTRiuFIWV54', type: 'video', keys: ['учеба', 'работа', 'концентрац'] },
-    { icon: '🎸', label: 'Русский рок',        id: 'S1TvT7WlZDQ', type: 'video', keys: ['рок', 'русский рок', 'кино'] },
+    { icon: '💪', label: 'Тренировка',         id: 'PLKlNYnvOo9RCiTt74HcnLdCFPtzz4uCCM', type: 'list', keys: ['тренировка', 'спорт', 'кач', 'workout'] },
+    { icon: '🚗', label: 'В дорогу',           id: 'PLwg22VSCR0W5j-1n2NCPnPqzc-CJRDgUv', type: 'list', keys: ['дорога', 'машина', 'road', 'drive'] },
   ];
 
   function _renderYtQuick() {
     const mkBtn = (t) => `<button class="mp-quick-btn" onclick="playYt('${t.id}','${t.type}')">${t.icon} ${t.label}</button>`;
-    const baby = document.getElementById('ytQuickBaby');
-    const par = document.getElementById('ytQuickParents');
-    if (baby) baby.innerHTML = YT_QUICK_BABY.map(mkBtn).join('');
-    if (par)  par.innerHTML  = YT_QUICK_PARENTS.map(mkBtn).join('');
+    const el = document.getElementById('ytQuick');
+    if (el) el.innerHTML = YT_QUICK.map(mkBtn).join('');
   }
   _renderYtQuick();
 
@@ -4599,22 +4655,101 @@ document.querySelectorAll('.shop-item').forEach(item => {
     if (vidM) return { id: vidM[1], type: 'video' };
     return null;
   }
-  function playYt(id, type) {
-    const wrap = document.getElementById('ytFrameWrap');
-    if (!wrap) return;
-    const src = type === 'list'
-      ? `https://www.youtube-nocookie.com/embed/videoseries?list=${id}&autoplay=1`
-      : `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&playsinline=1&rel=0`;
-    wrap.innerHTML = `<iframe src="${src}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`;
-    const ctrl = document.getElementById('ytControls');
-    if (ctrl) ctrl.style.display = '';
+
+  // YouTube IFrame API — для управления плеером
+  let _ytPlayer = null;
+  let _ytApiReady = false;
+  let _ytProgTimer = null;
+
+  function _loadYtApi() {
+    if (_ytApiReady || window.YT) return Promise.resolve();
+    return new Promise((resolve) => {
+      window.onYouTubeIframeAPIReady = () => { _ytApiReady = true; resolve(); };
+      const s = document.createElement('script');
+      s.src = 'https://www.youtube.com/iframe_api';
+      s.async = true;
+      document.head.appendChild(s);
+    });
   }
-  function stopYt() {
-    const wrap = document.getElementById('ytFrameWrap');
-    if (wrap) wrap.innerHTML = '<div class="mp-yt-empty">Остановлено. Тапни любую кнопку.</div>';
-    const ctrl = document.getElementById('ytControls');
-    if (ctrl) ctrl.style.display = 'none';
+
+  async function playYt(id, type) {
+    await _loadYtApi();
+    document.getElementById('ytPlayer').style.display = '';
+
+    const videoId = type === 'video' ? id : undefined;
+    const listId  = type === 'list'  ? id : undefined;
+
+    if (_ytPlayer) {
+      // Переиспользуем существующий плеер
+      if (type === 'video') _ytPlayer.loadVideoById(id);
+      else _ytPlayer.loadPlaylist({ list: id, listType: 'playlist' });
+    } else {
+      _ytPlayer = new YT.Player('ytPlayerMount', {
+        height: '200', width: '200',
+        videoId: videoId,
+        playerVars: {
+          autoplay: 1, playsinline: 1, controls: 0, rel: 0,
+          modestbranding: 1, iv_load_policy: 3,
+          list: listId, listType: listId ? 'playlist' : undefined,
+        },
+        events: {
+          onReady: (e) => { e.target.playVideo(); _ytUpdate(); },
+          onStateChange: () => _ytUpdate(),
+        },
+      });
+    }
+    if (_ytProgTimer) clearInterval(_ytProgTimer);
+    _ytProgTimer = setInterval(_ytUpdateProgress, 500);
   }
+
+  function _ytUpdate() {
+    if (!_ytPlayer || !_ytPlayer.getVideoData) return;
+    const data = _ytPlayer.getVideoData();
+    if (!data) return;
+    const title = data.title || 'Играет…';
+    const author = data.author || 'YouTube';
+    const vid = data.video_id;
+    document.getElementById('ytTitle').textContent = title;
+    document.getElementById('ytSub').textContent = author;
+    if (vid) document.getElementById('ytCover').src = `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`;
+    const state = _ytPlayer.getPlayerState?.();
+    // 1=playing, 2=paused, 0=ended, 3=buffering, -1=unstarted, 5=cued
+    const btn = document.getElementById('ytPlayPauseBtn');
+    if (btn) btn.textContent = (state === 1) ? '⏸' : '▶';
+  }
+  function _ytUpdateProgress() {
+    if (!_ytPlayer || !_ytPlayer.getCurrentTime) return;
+    const cur = _ytPlayer.getCurrentTime?.() || 0;
+    const dur = _ytPlayer.getDuration?.() || 0;
+    const pct = dur > 0 ? Math.min(100, (cur / dur) * 100) : 0;
+    const fmt = (s) => Math.floor(s/60) + ':' + String(Math.floor(s%60)).padStart(2,'0');
+    document.getElementById('ytFill').style.width = pct + '%';
+    document.getElementById('ytCur').textContent = fmt(cur);
+    document.getElementById('ytDur').textContent = fmt(dur);
+  }
+  function ytToggle() {
+    if (!_ytPlayer) return;
+    const s = _ytPlayer.getPlayerState?.();
+    if (s === 1) _ytPlayer.pauseVideo();
+    else _ytPlayer.playVideo();
+  }
+  function ytNext() { if (_ytPlayer?.nextVideo) _ytPlayer.nextVideo(); }
+  function ytPrev() { if (_ytPlayer?.previousVideo) _ytPlayer.previousVideo(); }
+  function ytStopFull() {
+    if (_ytPlayer?.stopVideo) _ytPlayer.stopVideo();
+    document.getElementById('ytPlayer').style.display = 'none';
+    if (_ytProgTimer) { clearInterval(_ytProgTimer); _ytProgTimer = null; }
+  }
+  // Тап по прогресс-бару = перемотка
+  document.addEventListener('click', (e) => {
+    const bar = e.target.closest('.yt-progress');
+    if (!bar || !_ytPlayer?.getDuration) return;
+    const rect = bar.getBoundingClientRect();
+    const pct = (e.clientX - rect.left) / rect.width;
+    const dur = _ytPlayer.getDuration();
+    if (dur > 0) _ytPlayer.seekTo(dur * pct, true);
+  });
+
   function playYoutubeInput() {
     const v = (document.getElementById('ytUrlInput').value || '').trim();
     if (!v) return;
@@ -4623,15 +4758,13 @@ document.querySelectorAll('.shop-item').forEach(item => {
       playYt(parsed.id, parsed.type);
       document.getElementById('ytUrlInput').value = '';
     } else {
-      // Не URL — пробуем найти по ключевым словам среди быстрых кнопок
       const found = _voiceMatchTrack(v);
       if (found) {
         playYt(found.id, found.type);
         document.getElementById('ytUrlInput').value = '';
         return;
       }
-      const wrap = document.getElementById('ytFrameWrap');
-      if (wrap) wrap.innerHTML = '<div class="mp-yt-empty" style="color:var(--coral)">Не ссылка YouTube и не совпало с быстрыми кнопками. Скопируй адрес видео.</div>';
+      alert('Не ссылка YouTube и не совпало с популярными. Скопируй адрес видео/плейлиста.');
     }
   }
 
@@ -4701,8 +4834,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
   function _voiceMatchTrack(text) {
     const t = String(text || '').toLowerCase().replace(/ё/g, 'е').trim();
     if (!t) return null;
-    const all = [...YT_QUICK_BABY, ...YT_QUICK_PARENTS];
-    // Ищем наилучшее совпадение
+    const all = YT_QUICK;
     let best = null, bestScore = 0;
     for (const track of all) {
       for (const k of track.keys) {
