@@ -60,7 +60,7 @@
     margin: 0 auto;
     background: var(--bg);
     border: 1px solid var(--line);
-    border-radius: 28px;
+    border-radius: 18px;
     padding: 22px;
     display: flex;
     flex-direction: column;
@@ -143,18 +143,17 @@
     background: var(--card);
     border: 1px solid var(--line);
     color: var(--text-dim);
-    padding: 8px 14px;
-    border-radius: 12px;
+    padding: 6px 12px;
+    border-radius: 10px;
     cursor: pointer;
     font-family: inherit;
-    font-size: 12px;
+    font-size: 11px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     white-space: nowrap;
-    min-width: 148px;
     transition: background 0.15s, border-color 0.15s;
   }
   .menu-btn:hover { background: var(--card-hi); border-color: var(--amber); }
@@ -3134,9 +3133,8 @@
     <div class="header-icons">
       <div class="menu-wrap">
         <button class="menu-btn" id="menuBtn" onclick="toggleMenu(event)">
-          <span id="menuBtnEm">📊</span>
-          <span id="menuBtnLabel">Обзор</span>
-          <span class="m-arrow">▾</span>
+          <span id="menuBtnEm">☰</span>
+          <span id="menuBtnLabel">Меню</span>
         </button>
         <div class="menu-dropdown" id="menuDropdown">
           <div class="menu-item active" data-page="overview" onclick="switchPage('overview')">
@@ -3923,10 +3921,7 @@
     document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
     document.getElementById(page.viewId)?.classList.add('active');
     document.querySelector('.menu-item[data-page="' + page.id + '"]')?.classList.add('active');
-    const btnEm = document.getElementById('menuBtnEm');
-    const btnLb = document.getElementById('menuBtnLabel');
-    if (btnEm) btnEm.textContent = page.em;
-    if (btnLb) btnLb.textContent = page.label;
+    // Кнопка меню всегда «☰ Меню», без подстановки текущей страницы
     document.getElementById('menuDropdown')?.classList.remove('open');
     try { localStorage.setItem('tabletPage', page.id); } catch(e) {}
     window.scrollTo({ top: 0, behavior: 'instant' });
