@@ -889,9 +889,32 @@
   .yt-controls {
     display: flex;
     justify-content: center;
-    gap: 12px;
-    margin-top: 16px;
+    align-items: center;
+    gap: 14px;
+    margin-top: 20px;
   }
+  .yt-btn {
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid var(--line);
+    color: var(--text);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    transition: background 0.15s, transform 0.1s;
+  }
+  .yt-btn:hover { background: rgba(255,255,255,0.15); }
+  .yt-btn:active { transform: scale(0.95); }
+  .yt-btn.yt-play {
+    width: 64px; height: 64px;
+    background: var(--pink);
+    color: #1a1614;
+    border: 0;
+    font-size: 22px;
+    box-shadow: 0 6px 20px rgba(217, 155, 176, 0.4);
+  }
+  .yt-btn.yt-play:hover { background: #e8adc0; }
   .mp-quick-hint {
     margin-top: 12px;
     font-size: 11px;
@@ -3309,10 +3332,10 @@
         <div class="yt-progress"><div class="yt-progress-fill" id="ytFill"></div></div>
         <div class="yt-times"><span id="ytCur">0:00</span><span id="ytDur">0:00</span></div>
         <div class="yt-controls">
-          <button class="mp-btn" onclick="ytPrev()">⏮</button>
-          <button class="mp-btn mp-play" id="ytPlayPauseBtn" onclick="ytToggle()">⏸</button>
-          <button class="mp-btn" onclick="ytNext()">⏭</button>
-          <button class="mp-btn" onclick="ytStopFull()" title="Остановить">⏹</button>
+          <button class="yt-btn" onclick="ytPrev()">⏮</button>
+          <button class="yt-btn yt-play" id="ytPlayPauseBtn" onclick="ytToggle()">⏸</button>
+          <button class="yt-btn" onclick="ytNext()">⏭</button>
+          <button class="yt-btn" onclick="ytStopFull()" title="Остановить">⏹</button>
         </div>
       </div>
 
@@ -4684,15 +4707,15 @@ document.querySelectorAll('.shop-item').forEach(item => {
 
   // ── YouTube плеер (звук + обложка, как в Spotify) ──
   // Популярные треки/плейлисты — можно расширять
+  // Каналы которые ГАРАНТИРОВАННО разрешают embed (LiveStream'ы + плейлисты).
+  // Если что-то отвалится — легко заменить в этом массиве.
   const YT_QUICK = [
-    { icon: '🇺🇦', label: 'Хіти українською',  id: 'PLcXynX3PbSN7RwafnLZBUFDgSBIe6Bekb', type: 'list', keys: ['українськ', 'ukrain', 'украинск'] },
-    { icon: '🎸', label: 'Океан Ельзи',        id: 'PLXTeRw4o_1G74zBAUYYKPzk1XY8LDQITZ', type: 'list', keys: ['океан', 'ельзи', 'элзи', 'вакарчук'] },
-    { icon: '🎵', label: 'Русский рок',        id: 'PL3oW2tjiIxvSVigTUcPn2GKrmr4gY0mZC', type: 'list', keys: ['рок', 'русский рок', 'кино', 'дди'] },
-    { icon: '🎤', label: 'Поп 2020-х',         id: 'PL15B1E77BB5708555', type: 'list', keys: ['поп', 'хиты', 'популяр'] },
-    { icon: '☕', label: 'Lofi hip hop',       id: 'jfKfPfyJRdk', type: 'video', keys: ['лофи', 'lofi', 'фон'] },
-    { icon: '🎧', label: 'Chillout',           id: 'DWZWXWuHo6Q', type: 'video', keys: ['чил', 'chill', 'релакс'] },
-    { icon: '💪', label: 'Тренировка',         id: 'PLKlNYnvOo9RCiTt74HcnLdCFPtzz4uCCM', type: 'list', keys: ['тренировка', 'спорт', 'кач', 'workout'] },
-    { icon: '🚗', label: 'В дорогу',           id: 'PLwg22VSCR0W5j-1n2NCPnPqzc-CJRDgUv', type: 'list', keys: ['дорога', 'машина', 'road', 'drive'] },
+    { icon: '☕', label: 'Lofi Hip Hop 24/7',   id: 'jfKfPfyJRdk', type: 'video', keys: ['лофи', 'lofi', 'фон'] },
+    { icon: '🎧', label: 'Synthwave Radio 24/7',id: '4xDzrJKXOOY', type: 'video', keys: ['синт', 'synth', 'ретро'] },
+    { icon: '📚', label: 'Chillhop Radio 24/7', id: '5yx6BWlEVcY', type: 'video', keys: ['чил', 'chill', 'работа'] },
+    { icon: '🌌', label: 'Ambient Radio 24/7',  id: 'S_MOd40zlYU', type: 'video', keys: ['амбиент', 'ambient', 'релакс'] },
+    { icon: '🎹', label: 'Piano Music 24/7',    id: '4oStw0r33so', type: 'video', keys: ['пиано', 'piano', 'фортепиано'] },
+    { icon: '🎸', label: 'Rock Classics',       id: 'PLQkQfzsIUwRYcNhKzGx5wCJ4T8OiqmqbW', type: 'list', keys: ['рок', 'rock', 'классика рока'] },
   ];
 
   function _renderYtQuick() {
@@ -4757,7 +4780,16 @@ document.querySelectorAll('.shop-item').forEach(item => {
           },
           onError: (e) => {
             console.warn('YT error', e.data);
-            document.getElementById('ytTitle').textContent = 'Ошибка воспроизведения (код ' + e.data + ')';
+            const messages = {
+              2:   'Неверный ID видео',
+              5:   'Плеер не может воспроизвести (HTML5 не поддерживается)',
+              100: 'Видео удалено или приватное',
+              101: 'Автор запретил встраивание. Вставь другую ссылку.',
+              150: 'Автор запретил встраивание. Вставь другую ссылку.',
+            };
+            const msg = messages[e.data] || ('Ошибка ' + e.data);
+            document.getElementById('ytTitle').textContent = msg;
+            document.getElementById('ytSub').textContent = 'Скопируй ссылку с youtube.com и вставь в поле выше';
           },
         },
       };
