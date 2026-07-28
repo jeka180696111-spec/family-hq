@@ -4626,6 +4626,10 @@ document.querySelectorAll('.shop-item').forEach(item => {
   function classifyDeviceState(kind, dev) {
     if (kind === 'sensor') return dev ? 'state-sensor' : '';
     if (kind === 'vacuum') return dev && dev.online ? 'state-sensor' : '';
+    if (kind === 'inverter' || kind === 'inverter2') {
+      // Инвертор всегда «зелёный» (sensor) когда онлайн — он всегда работает
+      return dev && dev.online ? 'state-sensor' : '';
+    }
     if (!dev) return '';
     if (kind === 'ac' && dev.on) return 'state-cool';
     if (kind === 'boiler' && dev.on) return 'state-warm';
@@ -4785,14 +4789,39 @@ document.querySelectorAll('.shop-item').forEach(item => {
       if (dev && dev.online === false) g.classList.add('state-missing');
       g.dataset.deviceName = dev ? dev.name : '';
       g.dataset.deviceOn = dev ? String(!!dev.on) : '';
-      // Динамическая подпись для бойлера/пылесоса
-      if (dev && kind === 'boiler' && dev.on && dev.cur_power) {
-        const lb = g.querySelector('.fp-dev-lb');
-        if (lb) lb.textContent = Math.round(dev.cur_power) + 'Вт';
-      }
-      if (dev && kind === 'vacuum' && dev.battery !== undefined) {
-        const lb = g.querySelector('.fp-dev-lb');
-        if (lb) lb.textContent = (layoutDev?.label || 'Гоша') + ' ' + dev.battery + '%';
+      // Динамические подписи для устройств у которых есть телеметрия
+      const lb = g.querySelector('.fp-dev-lb');
+      if (lb) {
+        if (kind === 'boiler' && dev && dev.on && dev.cur_power) {
+          lb.textContent = Math.round(dev.cur_power) + 'Вт';
+        } else if (kind === 'vacuum' && dev && dev.battery !== undefined) {
+          lb.textContent = (layoutDev?.label || 'Гоша') + ' ' + dev.battery + '%';
+        } else if (kind === 'sensor') {
+          // Датчик — показываем «26° 50%» из state.nursery, если не найдено — из Tuya-устройства
+          let temp = null, humi = null;
+          if (dev) {
+            if (dev.temp !== undefined) temp = dev.temp;
+            if (dev.humi !== undefined) humi = dev.humi;
+          }
+          if (temp === null && state?.nursery?.temperature !== null && state?.nursery?.temperature !== undefined) {
+            temp = state.nursery.temperature;
+          }
+          if (humi === null && state?.nursery?.humidity !== null && state?.nursery?.humidity !== undefined) {
+            humi = state.nursery.humidity;
+          }
+          if (temp === null && nursery?.temperature !== undefined) temp = nursery.temperature;
+          if (humi === null && nursery?.humidity !== undefined) humi = nursery.humidity;
+          const parts = [];
+          if (temp !== null && temp !== undefined) parts.push(Number(temp).toFixed(1).replace('.0','') + '°');
+          if (humi !== null && humi !== undefined) parts.push(Math.round(humi) + '%');
+          lb.textContent = parts.length ? parts.join(' ') : (layoutDev?.label || 'датчик');
+        } else if (kind === 'inverter' || kind === 'inverter2') {
+          // Инвертор — заряд аккумулятора из state.inverter.soc
+          let soc = null;
+          if (dev && dev.battery !== undefined) soc = dev.battery;
+          if (soc === null && state?.inverter?.soc !== undefined && state.inverter.soc !== null) soc = state.inverter.soc;
+          lb.textContent = soc !== null ? Math.round(soc) + '%' : (layoutDev?.label || 'инвертор');
+        }
       }
     });
     const status = document.getElementById('planStatus');
