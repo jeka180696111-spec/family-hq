@@ -851,6 +851,18 @@
     padding: 20px;
     text-align: center;
   }
+  .mp-yt-controls {
+    margin-top: 12px;
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+  }
+  .mp-yt-controls .mp-btn {
+    width: auto; height: auto;
+    padding: 10px 20px;
+    border-radius: 10px;
+    font-size: 13px;
+  }
 
   /* ============ План квартиры ============ */
   .plan-head {
@@ -3137,21 +3149,32 @@
     <div class="music-panel" id="musicYoutubePanel" style="display:none">
       <div class="mp-yt-input">
         <input type="text" id="ytUrlInput" class="mp-search-input"
-               placeholder="Ссылка YouTube или поисковый запрос…"
+               placeholder="Вставь ссылку YouTube (youtu.be/… или ?v=…)…"
                onkeydown="if(event.key==='Enter') playYoutubeInput()">
         <button class="mp-search-btn" onclick="playYoutubeInput()">▶</button>
       </div>
       <div class="mp-quick">
-        <div class="mp-quick-title">Быстрые</div>
+        <div class="mp-quick-title">Для малыша</div>
         <div class="mp-quick-items">
-          <button class="mp-quick-btn" onclick="playYoutubeId('DWcJFNfaw9c')">🌊 Белый шум 10ч</button>
-          <button class="mp-quick-btn" onclick="playYoutubeSearch('lullaby for babies')">🌙 Колыбельные</button>
-          <button class="mp-quick-btn" onclick="playYoutubeSearch('mozart for baby')">🎼 Моцарт для малышей</button>
-          <button class="mp-quick-btn" onclick="playYoutubeSearch('rain sounds baby sleep')">🌧 Дождь</button>
+          <button class="mp-quick-btn" onclick="playYt('DWcJFNfaw9c','video')">🌊 Белый шум 10ч</button>
+          <button class="mp-quick-btn" onclick="playYt('PLBpXPo4ZlKn_A9PTBTe5qbY6Nfn2t0ftk','list')">🌙 Колыбельные</button>
+          <button class="mp-quick-btn" onclick="playYt('PLoFB6MvGSKX7RfHR2Y7nAkzuKCJ6uPB6y','list')">🎼 Классика для малыша</button>
+          <button class="mp-quick-btn" onclick="playYt('KyDCkUmFwOo','video')">🌧 Дождь 10ч</button>
+          <button class="mp-quick-btn" onclick="playYt('nDq6TstdEi8','video')">🍼 Шум матки (для сна)</button>
+          <button class="mp-quick-btn" onclick="playYt('t1KH_qWXhAA','video')">🎵 Синий трактор</button>
+        </div>
+        <div class="mp-quick-title" style="margin-top:14px">Для родителей</div>
+        <div class="mp-quick-items">
+          <button class="mp-quick-btn" onclick="playYt('jfKfPfyJRdk','video')">☕ Lofi hip hop</button>
+          <button class="mp-quick-btn" onclick="playYt('rUxyKA_-grg','video')">🎧 Chillout</button>
+          <button class="mp-quick-btn" onclick="playYt('5qap5aO4i9A','video')">📚 Chill Study Music</button>
         </div>
       </div>
       <div class="mp-yt-frame" id="ytFrameWrap">
-        <div class="mp-yt-empty">Тапни быстрый плейлист или введи ссылку/запрос ↑</div>
+        <div class="mp-yt-empty">Тапни быстрый плейлист или вставь ссылку YouTube ↑</div>
+      </div>
+      <div class="mp-yt-controls" style="display:none" id="ytControls">
+        <button class="mp-btn" onclick="stopYt()">⏹ Остановить</button>
       </div>
     </div>
   </div><!-- /page-music -->
@@ -4500,34 +4523,44 @@ document.querySelectorAll('.shop-item').forEach(item => {
     }
   }
 
-  // ── YouTube (публичные видео, без API-ключа) ──
+  // ── YouTube (публичные видео/плейлисты, без API-ключа) ──
   function _extractYtId(url) {
-    const m = String(url).match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([A-Za-z0-9_-]{11})/);
-    return m ? m[1] : null;
+    // Плейлист-ID начинается на PL/UU/OL/LL (обычно 34 символа)
+    const listM = String(url).match(/[?&]list=(P[LU][A-Za-z0-9_-]{10,})/);
+    if (listM) return { id: listM[1], type: 'list' };
+    // Обычное видео (11 символов)
+    const vidM = String(url).match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([A-Za-z0-9_-]{11})/);
+    if (vidM) return { id: vidM[1], type: 'video' };
+    return null;
   }
-  function playYoutubeId(id) {
+  function playYt(id, type) {
     const wrap = document.getElementById('ytFrameWrap');
     if (!wrap) return;
-    wrap.innerHTML = '<iframe src="https://www.youtube.com/embed/' + id + '?autoplay=1" ' +
-                     'allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>';
+    const src = type === 'list'
+      ? `https://www.youtube.com/embed/videoseries?list=${id}&autoplay=1`
+      : `https://www.youtube.com/embed/${id}?autoplay=1&playsinline=1`;
+    wrap.innerHTML = `<iframe src="${src}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
+    const ctrl = document.getElementById('ytControls');
+    if (ctrl) ctrl.style.display = '';
   }
-  function playYoutubeSearch(query) {
-    // Открываем поиск в iframe (первый результат авто-плей через playlist параметр не работает без API)
-    // Используем youtube nocookie search embed:
-    const q = encodeURIComponent(query);
+  function stopYt() {
     const wrap = document.getElementById('ytFrameWrap');
-    if (!wrap) return;
-    // Показываем список результатов через YouTube поиск (полноценный iframe с поиском не работает,
-    // поэтому открываем youtube.com/results в новой вкладке для выбора)
-    wrap.innerHTML = '<div class="mp-yt-empty">Открываю поиск на YouTube…</div>';
-    window.open('https://www.youtube.com/results?search_query=' + q, '_blank');
+    if (wrap) wrap.innerHTML = '<div class="mp-yt-empty">Остановлено. Тапни любую кнопку.</div>';
+    const ctrl = document.getElementById('ytControls');
+    if (ctrl) ctrl.style.display = 'none';
   }
   function playYoutubeInput() {
     const v = (document.getElementById('ytUrlInput').value || '').trim();
     if (!v) return;
-    const id = _extractYtId(v);
-    if (id) playYoutubeId(id);
-    else playYoutubeSearch(v);
+    const parsed = _extractYtId(v);
+    if (parsed) {
+      playYt(parsed.id, parsed.type);
+      document.getElementById('ytUrlInput').value = '';
+    } else {
+      // Не URL — предупредим что нужна ссылка (без поиска в браузере)
+      const wrap = document.getElementById('ytFrameWrap');
+      if (wrap) wrap.innerHTML = '<div class="mp-yt-empty" style="color:var(--coral)">Не ссылка YouTube. Скопируй адрес видео (youtu.be/... или youtube.com/watch?v=...).</div>';
+    }
   }
 
   // ============ ПЛАН КВАРТИРЫ ============
