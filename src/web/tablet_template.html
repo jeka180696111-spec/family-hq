@@ -1130,7 +1130,7 @@
   .mini-music-card {
     position: fixed;
     bottom: 12px;
-    right: 12px;
+    left: 12px;
     width: 360px;
     max-width: calc(100vw - 24px);
     background: linear-gradient(135deg, rgba(29, 185, 84, 0.15), var(--card));
@@ -1175,7 +1175,7 @@
   .mini-show-btn {
     position: fixed;
     bottom: 20px;
-    right: 20px;
+    left: 20px;
     width: 52px; height: 52px;
     border-radius: 50%;
     background: linear-gradient(135deg, #1DB954, #1ed760);
@@ -5071,8 +5071,15 @@ document.querySelectorAll('.shop-item').forEach(item => {
         const { x, y } = JSON.parse(posRaw);
         const card = document.getElementById('miniMusicCard');
         if (card && Number.isFinite(x) && Number.isFinite(y)) {
-          card.style.left = x + 'px'; card.style.top = y + 'px';
-          card.style.right = 'auto'; card.style.bottom = 'auto';
+          // Если позиция вылетает за экран (было привязано к правому углу
+          // при прошлом рендере) — сбрасываем на новый дефолт (левый нижний)
+          const w = 360, h = 220;
+          if (x + w > window.innerWidth || y + h > window.innerHeight || x < 0 || y < 0) {
+            localStorage.removeItem('miniPos');
+          } else {
+            card.style.left = x + 'px'; card.style.top = y + 'px';
+            card.style.right = 'auto'; card.style.bottom = 'auto';
+          }
         }
       }
     } catch(e){}
