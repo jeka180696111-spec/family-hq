@@ -1200,17 +1200,23 @@
   }
   .mini-music-embed iframe { display: block; width: 100%; }
   .mini-music-empty {
-    padding: 20px 8px;
-    text-align: center;
-    color: var(--text-mute);
-    font-size: 12px;
-  }
-  .mini-music-empty a {
-    color: #1DB954;
+    width: 100%;
+    padding: 14px 12px;
+    background: rgba(29, 185, 84, 0.15);
+    border: 1px solid rgba(29, 185, 84, 0.4);
+    color: var(--text);
+    border-radius: 10px;
     cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
     font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background 0.15s;
   }
-  .mini-music-empty a:hover { text-decoration: underline; }
+  .mini-music-empty:hover { background: rgba(29, 185, 84, 0.25); }
 
   /* Красивая кнопка «Открыть плейлисты» */
   .mini-open-btn {
@@ -3161,7 +3167,7 @@
   </header>
 
   <!-- MINI SPOTIFY PLAYER — плавает всегда, можно перетаскивать за верхнюю плашку -->
-  <div class="mini-music-card floating" id="miniMusicCard" style="display:none">
+  <div class="mini-music-card floating" id="miniMusicCard">
     <div class="mini-music-title" id="miniDragHandle" title="Тяни чтобы передвинуть">
       <span class="mini-drag-grip">⋮⋮</span>
       <span>🟢 Играет</span>
@@ -3170,14 +3176,14 @@
       </button>
       <button class="mini-hide-btn" onclick="hideMini()" title="Скрыть">✕</button>
     </div>
-    <div class="mini-music-embed">
+    <div class="mini-music-embed" id="miniMusicEmbed" style="display:none">
       <iframe id="miniSpEmbed" src="" width="100%" height="152" frameborder="0"
               allowtransparency="true" allow="autoplay; encrypted-media; picture-in-picture"
               loading="lazy"></iframe>
     </div>
-    <div class="mini-music-empty" id="miniMusicEmpty">
-      Ничего не играет. <a onclick="switchPage('music')">Открой Спотифай →</a>
-    </div>
+    <button class="mini-music-empty" id="miniMusicEmpty" onclick="switchPage('music')">
+      🎵 <span>Выбери что играть</span>
+    </button>
   </div>
   <!-- Кнопка возврата плеера (появляется когда скрыт) -->
   <button class="mini-show-btn" id="miniShowBtn" onclick="showMini()" style="display:none" title="Показать плеер">🟢</button>
@@ -5052,18 +5058,17 @@ document.querySelectorAll('.shop-item').forEach(item => {
     return `https://open.spotify.com/embed/${type}/${id}?utm_source=generator&theme=${_spEmbedTheme()}`;
   }
 
-  // Воспроизведение — ТОЛЬКО через мини-плеер на главном экране
-  // (два iframe одновременно = две конкурирующие сессии → кнопки не работают)
+  // Воспроизведение — ТОЛЬКО через мини-плеер (одна сессия)
   function spPlay(type, id) {
     const url = _spEmbedUrl(type, id);
     const mini = document.getElementById('miniSpEmbed');
     if (mini) {
       mini.src = url;
       document.getElementById('miniMusicCard').style.display = '';
+      document.getElementById('miniMusicEmbed').style.display = '';
       document.getElementById('miniMusicEmpty').style.display = 'none';
       try { localStorage.setItem('lastSpTrack', JSON.stringify({ type, id })); } catch(e) {}
     }
-    // Показать индикатор «играет на главном» на странице Спотифай
     const hint = document.getElementById('spNowPlaying');
     if (hint) hint.style.display = '';
   }
@@ -5107,9 +5112,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
       const mini = document.getElementById('miniSpEmbed');
       if (mini) {
         mini.src = url;
-        if (localStorage.getItem('miniHidden') !== '1') {
-          document.getElementById('miniMusicCard').style.display = '';
-        }
+        document.getElementById('miniMusicEmbed').style.display = '';
         document.getElementById('miniMusicEmpty').style.display = 'none';
       }
     } catch(e){}
