@@ -1523,10 +1523,20 @@ def register_tablet_routes(
         return await _spotify_get("/me") or {}
 
     @app.get("/api/tablet/spotify/playlists")
-    async def spotify_playlists(token: str = Query(""), limit: int = Query(50)):
+    async def spotify_playlists(token: str = Query("")):
+        """Все плейлисты пользователя — с пагинацией (Spotify отдаёт по 50)."""
         _check_token(token, expected_token)
-        data = await _spotify_get("/me/playlists", {"limit": min(limit, 50)})
-        return data or {"items": []}
+        items = []
+        offset = 0
+        while len(items) < 500:  # безопасный предел
+            data = await _spotify_get("/me/playlists", {"limit": 50, "offset": offset})
+            if not data or not data.get("items"):
+                break
+            items.extend(data["items"])
+            if not data.get("next"):
+                break
+            offset += 50
+        return {"items": items, "total": len(items)}
 
     @app.get("/api/tablet/spotify/liked")
     async def spotify_liked(token: str = Query(""), limit: int = Query(50)):

@@ -1025,6 +1025,18 @@
     color: #0a0f0a;
     font-weight: 500;
   }
+  .sp-tab-icon {
+    flex: 0;
+    background: transparent;
+    border: 0;
+    color: var(--text-dim);
+    padding: 8px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    min-width: 32px;
+  }
+  .sp-tab-icon:hover { background: var(--card); color: var(--amber); }
   .sp-content {
     min-height: 200px;
     max-height: 400px;
@@ -1095,6 +1107,30 @@
     color: var(--text-dim);
     padding: 8px 10px 4px;
   }
+
+  /* Мини-плеер на главном экране */
+  .mini-music-card {
+    background: linear-gradient(135deg, rgba(29, 185, 84, 0.10), var(--card));
+    border-color: rgba(29, 185, 84, 0.25);
+  }
+  .mini-music-embed {
+    border-radius: 10px;
+    overflow: hidden;
+    background: #000;
+  }
+  .mini-music-embed iframe { display: block; }
+  .mini-music-empty {
+    padding: 20px 8px;
+    text-align: center;
+    color: var(--text-mute);
+    font-size: 12px;
+  }
+  .mini-music-empty a {
+    color: #1DB954;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .mini-music-empty a:hover { text-decoration: underline; }
 
   /* Голосовое управление */
   .mp-yt-voice {
@@ -3003,6 +3039,22 @@
   <div class="masonry" id="masonry">
 
 
+    <!-- MINI SPOTIFY PLAYER -->
+    <div class="card mini-music-card" id="miniMusicCard" style="display:none">
+      <div class="card-title">
+        <span>🟢 Играет</span>
+        <button class="btn-more" onclick="switchPage('music')">открыть →</button>
+      </div>
+      <div class="mini-music-embed">
+        <iframe id="miniSpEmbed" src="" width="100%" height="80" frameborder="0"
+                allowtransparency="true" allow="autoplay; encrypted-media"
+                loading="lazy"></iframe>
+      </div>
+      <div class="mini-music-empty" id="miniMusicEmpty">
+        Ничего не играет. <a onclick="switchPage('music')">Открой Спотифай →</a>
+      </div>
+    </div>
+
     <!-- MATVEY CARD -->
     <div class="card">
       <div class="card-title clickable" onclick="openModal('baby')"><span id="babyTitleName">Матвей</span> · <span id="babyTitleAge">—</span><span class="expand-hint">↗</span></div>
@@ -3215,10 +3267,10 @@
         </div>
       </div>
       <div class="detail-tile" onclick="switchPage('music')">
-        <div class="dt-title">Плеер</div>
+        <div class="dt-title">Спотифай</div>
         <div class="dt-body">
-          <div class="dt-em">🎵</div>
-          Apple Music + YouTube
+          <div class="dt-em">🟢</div>
+          Плейлисты, поиск, плеер
         </div>
       </div>
       <div class="detail-tile add-tile">
@@ -3381,13 +3433,6 @@
 
       <!-- Основной интерфейс -->
       <div class="music-player" id="spPlayerBox" style="display:none">
-        <!-- Профиль -->
-        <div class="sp-user-row">
-          <img class="sp-user-avatar" id="spUserAvatar" src="" alt="">
-          <div class="sp-user-name" id="spUserName">—</div>
-          <button class="mp-logout" onclick="spotifyLogout()">Выйти</button>
-        </div>
-
         <!-- Поиск -->
         <div class="mp-search">
           <input type="text" id="spSearchInput" class="mp-search-input"
@@ -3401,6 +3446,8 @@
           <button class="sp-tab active" data-tab="playlists" onclick="spSwitchTab('playlists')">📁 Мои плейлисты</button>
           <button class="sp-tab" data-tab="liked" onclick="spSwitchTab('liked')">💚 Мне нравится</button>
           <button class="sp-tab" data-tab="search" onclick="spSwitchTab('search')" style="display:none" id="spSearchTab">🔍 Результаты</button>
+          <button class="sp-tab-icon" onclick="_spRefreshAll()" title="Обновить" style="flex:0">🔄</button>
+          <button class="sp-tab-icon" onclick="spotifyLogout()" title="Выйти из Spotify" style="flex:0">⏻</button>
         </div>
 
         <!-- Контент табов -->
@@ -3742,7 +3789,7 @@
     { id: 'feeding',  em: '🥄', label: 'Прикорм',        viewId: 'pageFeeding' },
     { id: 'plan',     em: '🏠', label: 'План квартиры',  viewId: 'pagePlan'    },
     { id: 'matvey',   em: '👶', label: 'Матвей крупно',  viewId: 'pageMatvey'  },
-    { id: 'music',    em: '🎵', label: 'Плеер',          viewId: 'pageMusic'   },
+    { id: 'music',    em: '🟢', label: 'Спотифай',       viewId: 'pageMusic'   },
   ];
   const ALL_PAGES = [...PAGES, ...SUBPAGES];
   function switchPage(name) {
@@ -4677,10 +4724,15 @@ document.querySelectorAll('.shop-item').forEach(item => {
       _showSpBox('spLoginBox');
       return;
     }
-    // Всё ок — грузим профиль и плейлисты
+    // Всё ок — грузим плейлисты
     _showSpBox('spPlayerBox');
-    _spLoadProfile();
     spSwitchTab('playlists');
+  }
+
+  function _spRefreshAll() {
+    _spPlaylistsCache = null;
+    _spLikedCache = null;
+    spSwitchTab(_spCurrentTab);
   }
 
   function spotifyLogin() {
@@ -4704,15 +4756,6 @@ document.querySelectorAll('.shop-item').forEach(item => {
       _spLikedCache = null;
       await _initSpotify();
     } catch(e) { alert('Ошибка: ' + (e.message||e)); }
-  }
-
-  async function _spLoadProfile() {
-    try {
-      const me = await apiGet('/api/tablet/spotify/me');
-      document.getElementById('spUserName').textContent = me.display_name || me.email || 'Spotify';
-      const av = me.images?.[0]?.url;
-      if (av) document.getElementById('spUserAvatar').src = av;
-    } catch(e) { console.warn('sp me failed', e); }
   }
 
   function spSwitchTab(tab) {
@@ -4742,7 +4785,16 @@ document.querySelectorAll('.shop-item').forEach(item => {
           <button class="sp-item-play" onclick="event.stopPropagation();spPlay('playlist','${p.id}')">▶ Играть</button>
         </div>
       `).join('');
-      document.getElementById('spContent').innerHTML = html || '<div class="sp-loading">У тебя пока нет плейлистов</div>';
+      document.getElementById('spContent').innerHTML = html || `
+        <div class="sp-loading">
+          Плейлисты не пришли.<br>
+          Возможные причины:<br>
+          <span style="color:var(--text-dim);font-size:11px">
+          • Ещё не синхронизировались после импорта — жми 🔄 через минуту<br>
+          • Ты только создал аккаунт → плейлистов пока нет<br>
+          • Импорт с Apple попал в «Мне нравится», не в плейлисты — проверь 💚
+          </span>
+        </div>`;
     } catch(e) {
       document.getElementById('spContent').innerHTML = '<div class="sp-loading" style="color:var(--coral)">Ошибка: ' + e.message + '</div>';
     }
@@ -4841,12 +4893,40 @@ document.querySelectorAll('.shop-item').forEach(item => {
   // Воспроизведение через официальный embed-плеер Spotify (работает на free)
   function spPlay(type, id) {
     const url = `https://open.spotify.com/embed/${type}/${id}?utm_source=generator&theme=0`;
+    // Большой плеер внутри Spotify-страницы
     const iframe = document.getElementById('spEmbedFrame');
-    iframe.src = url;
-    document.getElementById('spEmbed').style.display = '';
-    // Прокрутить к плееру
-    document.getElementById('spEmbed').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    if (iframe) {
+      iframe.src = url;
+      document.getElementById('spEmbed').style.display = '';
+      document.getElementById('spEmbed').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    // Мини-плеер на Обзоре — тот же embed в компактном виде (80px)
+    const mini = document.getElementById('miniSpEmbed');
+    if (mini) {
+      mini.src = url;
+      document.getElementById('miniMusicCard').style.display = '';
+      document.getElementById('miniMusicEmpty').style.display = 'none';
+      // Сохраняем последний в localStorage чтоб при перезагрузке восстановить
+      try { localStorage.setItem('lastSpTrack', JSON.stringify({ type, id })); } catch(e) {}
+    }
   }
+
+  // При загрузке — если что-то играло, восстанавливаем мини-плеер
+  (function _restoreMini() {
+    try {
+      const raw = localStorage.getItem('lastSpTrack');
+      if (!raw) return;
+      const { type, id } = JSON.parse(raw);
+      if (!type || !id) return;
+      const url = `https://open.spotify.com/embed/${type}/${id}?utm_source=generator&theme=0`;
+      const mini = document.getElementById('miniSpEmbed');
+      if (mini) {
+        mini.src = url;
+        document.getElementById('miniMusicCard').style.display = '';
+        document.getElementById('miniMusicEmpty').style.display = 'none';
+      }
+    } catch(e){}
+  })();
 
   // ── YouTube плеер (звук + обложка, как в Spotify) ──
   // Популярные треки/плейлисты — можно расширять
