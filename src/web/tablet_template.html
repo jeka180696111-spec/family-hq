@@ -898,6 +898,52 @@
     color: var(--text-mute);
     font-style: italic;
   }
+  .mp-add-fav-btn {
+    background: none;
+    border: 1px solid var(--line);
+    color: var(--text-dim);
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-size: 10px;
+    cursor: pointer;
+    margin-left: 10px;
+    text-transform: none;
+    letter-spacing: 0;
+    font-family: inherit;
+  }
+  .mp-add-fav-btn:hover { border-color: var(--amber); color: var(--amber); }
+  .mp-add-fav-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .mp-fav-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 4px 6px 12px;
+    background: rgba(212, 160, 74, 0.08);
+    border: 1px solid rgba(212, 160, 74, 0.25);
+    color: var(--text);
+    border-radius: 20px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    max-width: 220px;
+  }
+  .mp-fav-item:hover { background: rgba(212, 160, 74, 0.15); }
+  .mp-fav-item .fav-title {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mp-fav-item .fav-remove {
+    width: 20px; height: 20px;
+    border: 0; background: rgba(255,255,255,0.1);
+    color: var(--text-dim);
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 10px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .mp-fav-item .fav-remove:hover { background: var(--coral); color: white; }
   .mp-yt-controls {
     margin-top: 12px;
     display: flex;
@@ -3270,17 +3316,25 @@
         </div>
       </div>
 
-      <!-- Быстрые треки/плейлисты (не для малыша!) -->
+      <!-- Мои хиты (сохраняются в localStorage) -->
+      <div class="mp-quick">
+        <div class="mp-quick-title">
+          ⭐ Мои хиты
+          <button class="mp-add-fav-btn" id="ytAddFavBtn" onclick="ytAddCurrentToFav()">+ добавить текущий</button>
+        </div>
+        <div class="mp-quick-items" id="ytFavs"></div>
+        <div class="mp-quick-hint" id="ytFavsHint">Играешь трек — жмёшь «+ добавить текущий», он попадёт сюда. Тап по хиту = играть, ✕ = убрать.</div>
+      </div>
+
+      <!-- Быстрые популярные -->
       <div class="mp-quick">
         <div class="mp-quick-title">Популярное</div>
         <div class="mp-quick-items" id="ytQuick"></div>
         <div class="mp-quick-hint">Хочешь другие плейлисты? Скинь мне ссылки — добавлю сюда кнопки.</div>
       </div>
 
-      <!-- Скрытый iframe (только звук — сам плеер невидим, играет фоном) -->
-      <div id="ytHidden" style="position:absolute; left:-9999px; top:-9999px; width:200px; height:200px; pointer-events:none;">
-        <div id="ytPlayerMount"></div>
-      </div>
+      <!-- iframe плеера — 1×1px внутри самого плеера (не offscreen, иначе autoplay блокируется) -->
+      <div id="ytPlayerMount" style="position:absolute; width:1px; height:1px; opacity:0.01; pointer-events:none;"></div>
     </div>
   </div><!-- /page-music -->
 
@@ -4673,34 +4727,104 @@ document.querySelectorAll('.shop-item').forEach(item => {
   }
 
   async function playYt(id, type) {
-    await _loadYtApi();
     document.getElementById('ytPlayer').style.display = '';
-
-    const videoId = type === 'video' ? id : undefined;
-    const listId  = type === 'list'  ? id : undefined;
+    await _loadYtApi();
 
     if (_ytPlayer) {
-      // Переиспользуем существующий плеер
       if (type === 'video') _ytPlayer.loadVideoById(id);
       else _ytPlayer.loadPlaylist({ list: id, listType: 'playlist' });
+      // На всякий случай сразу играем
+      setTimeout(() => { try { _ytPlayer.playVideo(); } catch(e){} }, 300);
     } else {
-      _ytPlayer = new YT.Player('ytPlayerMount', {
+      const params = {
         height: '200', width: '200',
-        videoId: videoId,
         playerVars: {
           autoplay: 1, playsinline: 1, controls: 0, rel: 0,
           modestbranding: 1, iv_load_policy: 3,
-          list: listId, listType: listId ? 'playlist' : undefined,
         },
         events: {
-          onReady: (e) => { e.target.playVideo(); _ytUpdate(); },
-          onStateChange: () => _ytUpdate(),
+          onReady: (e) => {
+            try {
+              // На iOS/Safari autoplay иногда режется — форсируем play
+              e.target.playVideo();
+            } catch(err) { console.warn('play failed', err); }
+            _ytUpdate();
+          },
+          onStateChange: (e) => {
+            _ytUpdate();
+            // Если сам поставил на паузу через политику — попробуем ещё раз
+            if (e.data === -1) { try { e.target.playVideo(); } catch(err){} }
+          },
+          onError: (e) => {
+            console.warn('YT error', e.data);
+            document.getElementById('ytTitle').textContent = 'Ошибка воспроизведения (код ' + e.data + ')';
+          },
         },
-      });
+      };
+      if (type === 'video') {
+        params.videoId = id;
+      } else {
+        params.playerVars.list = id;
+        params.playerVars.listType = 'playlist';
+      }
+      _ytPlayer = new YT.Player('ytPlayerMount', params);
     }
     if (_ytProgTimer) clearInterval(_ytProgTimer);
     _ytProgTimer = setInterval(_ytUpdateProgress, 500);
   }
+
+  // ─── Избранное (Мои хиты) ─────────────────────────────────────
+  function _loadFavs() {
+    try {
+      const raw = localStorage.getItem('ytFavs');
+      return raw ? JSON.parse(raw) : [];
+    } catch(e) { return []; }
+  }
+  function _saveFavs(arr) {
+    try { localStorage.setItem('ytFavs', JSON.stringify(arr)); } catch(e){}
+  }
+  function renderYtFavs() {
+    const favs = _loadFavs();
+    const el = document.getElementById('ytFavs');
+    const hint = document.getElementById('ytFavsHint');
+    if (!el) return;
+    if (!favs.length) {
+      el.innerHTML = '';
+      if (hint) hint.style.display = '';
+      return;
+    }
+    if (hint) hint.style.display = 'none';
+    el.innerHTML = favs.map((f, i) => `
+      <span class="mp-fav-item" onclick="playYt('${f.id}','${f.type}')">
+        <span>${f.emoji || '🎵'}</span>
+        <span class="fav-title" title="${escapeAttr(f.title)}">${escapeHtml(f.title || 'Трек')}</span>
+        <button class="fav-remove" onclick="event.stopPropagation();ytRemoveFav(${i})" title="Убрать">✕</button>
+      </span>
+    `).join('');
+  }
+  function ytAddCurrentToFav() {
+    if (!_ytPlayer || !_ytPlayer.getVideoData) { alert('Сначала запусти какой-то трек'); return; }
+    const data = _ytPlayer.getVideoData();
+    if (!data || !data.video_id) { alert('Не могу определить трек'); return; }
+    const title = data.title || 'Без названия';
+    const favs = _loadFavs();
+    // Проверяем не добавлен ли уже
+    if (favs.some(f => f.id === data.video_id)) {
+      alert('Уже в избранном');
+      return;
+    }
+    favs.unshift({ id: data.video_id, type: 'video', title, emoji: '⭐' });
+    _saveFavs(favs);
+    renderYtFavs();
+  }
+  function ytRemoveFav(idx) {
+    const favs = _loadFavs();
+    favs.splice(idx, 1);
+    _saveFavs(favs);
+    renderYtFavs();
+  }
+  // Первичный рендер
+  renderYtFavs();
 
   function _ytUpdate() {
     if (!_ytPlayer || !_ytPlayer.getVideoData) return;
