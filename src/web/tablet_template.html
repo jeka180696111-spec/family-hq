@@ -4928,18 +4928,46 @@ document.querySelectorAll('.shop-item').forEach(item => {
     document.querySelectorAll('#pdmAction .fm-pill').forEach(p =>
       p.classList.toggle('picked', p.dataset.val === action));
 
-    // Заполняем dropdown-ы сценами из state.scenes
+    // Заполняем dropdown-ы сценами из state.scenes + спец-команды по типу устройства
     const scenes = (window.__lastScenes || []).slice()
       .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    // Для устройств не-Tuya (пылесос) добавим виртуальные "сцены" — команды API
+    const virtualScenes = [];
+    if (d.kind === 'vacuum') {
+      virtualScenes.push(
+        { name: 'vacuum:start', label: '🤖 Гоша — начать уборку' },
+        { name: 'vacuum:pause', label: '⏸ Гоша — пауза' },
+        { name: 'vacuum:home',  label: '🏠 Гоша — на базу' },
+      );
+    }
+    if (d.kind === 'inverter') {
+      // Пока просто индикатор — команд нет
+    }
+
     for (const selId of ['pdmSceneOn', 'pdmSceneOff']) {
       const sel = document.getElementById(selId);
       sel.innerHTML = '<option value="">— выбери сцену —</option>';
-      for (const s of scenes) {
-        if (!s.name) continue;
-        const opt = document.createElement('option');
-        opt.value = s.name;
-        opt.textContent = s.name;
-        sel.appendChild(opt);
+      if (virtualScenes.length) {
+        const g = document.createElement('optgroup');
+        g.label = '🤖 Команды устройства';
+        for (const vs of virtualScenes) {
+          const opt = document.createElement('option');
+          opt.value = vs.name; opt.textContent = vs.label;
+          g.appendChild(opt);
+        }
+        sel.appendChild(g);
+      }
+      if (scenes.length) {
+        const g = document.createElement('optgroup');
+        g.label = '🎬 Tuya-сцены';
+        for (const s of scenes) {
+          if (!s.name) continue;
+          const opt = document.createElement('option');
+          opt.value = s.name; opt.textContent = s.name;
+          g.appendChild(opt);
+        }
+        sel.appendChild(g);
       }
     }
     document.getElementById('pdmSceneOn').value  = d.sceneOn  || '';
@@ -5196,7 +5224,13 @@ document.querySelectorAll('.shop-item').forEach(item => {
       savePlanLayout(_planLayout);
       try {
         if (status) { status.textContent = '▶ ' + sceneName; status.classList.remove('error'); }
-        await apiPost('/api/tablet/action/scene', { query: sceneName });
+        if (sceneName.startsWith('vacuum:')) {
+          // Виртуальная сцена пылесоса → команда через action/vacuum
+          const cmd = sceneName.split(':')[1];
+          await apiPost('/api/tablet/action/vacuum', { cmd });
+        } else {
+          await apiPost('/api/tablet/action/scene', { query: sceneName });
+        }
         if (status) status.textContent = (nextOn ? '🟡 ' : '⚫ ') + sceneName;
       } catch(err) {
         if (status) { status.textContent = 'Ошибка: ' + (err.message||err); status.classList.add('error'); }
