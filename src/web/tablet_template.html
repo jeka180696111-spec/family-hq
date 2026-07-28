@@ -958,17 +958,24 @@
     fill: rgba(212,160,74,0.15);
   }
 
-  /* Off (устройство есть но выключено) */
-  .fp-dev.state-off .fp-dev-bg { fill: rgba(255,255,255,0.06); }
-  .fp-dev.state-off .fp-dev-em { opacity: 0.55; filter: grayscale(0.5); }
-  /* Not-found */
+  /* Выкл — серая рамка, эмодзи в цвете */
+  .fp-dev.state-off .fp-dev-bg {
+    fill: rgba(255,255,255,0.05);
+    stroke: rgba(255,255,255,0.35);
+    stroke-width: 1.5;
+  }
+  .fp-dev.state-off .fp-dev-em { opacity: 0.85; filter: none; }
+  .fp-dev.state-off .fp-dev-lb { fill: rgba(255,255,255,0.55); }
+
+  /* Оффлайн / не найдено — эмодзи серое, рамка тусклая пунктиром */
   .fp-dev.state-missing .fp-dev-bg {
-    fill: rgba(255,255,255,0.04);
+    fill: rgba(255,255,255,0.03);
     stroke: rgba(255,255,255,0.15);
     stroke-dasharray: 3 2;
+    stroke-width: 1;
   }
-  .fp-dev.state-missing .fp-dev-em { opacity: 0.3; filter: grayscale(1); }
-  .fp-dev.state-missing .fp-dev-lb { fill: rgba(255,255,255,0.35); }
+  .fp-dev.state-missing .fp-dev-em { opacity: 0.4; filter: grayscale(1); }
+  .fp-dev.state-missing .fp-dev-lb { fill: rgba(255,255,255,0.3); }
 
   /* On состояния — свечение соответствующим цветом */
   .fp-dev.state-on .fp-dev-bg {
@@ -3246,18 +3253,25 @@
           (например умный ИК-пульт) — введи имя вручную ниже.
         </div>
 
-        <div class="fm-q" style="margin-top:14px">…или ввести имя устройства/сцены вручную</div>
-        <input type="text" class="fm-input" id="pdmCustomName" placeholder="напр. «свет спальня уют» или ID сцены">
+        <div class="fm-q" style="margin-top:14px">…или ввести имя устройства вручную</div>
+        <input type="text" class="fm-input" id="pdmCustomName" placeholder="напр. «пульт кондер спальня»">
 
-        <div class="fm-q" style="margin-top:14px">При тапе (когда план закрыт) — что делать</div>
-        <div class="fm-pills" id="pdmAction">
-          <button class="fm-pill picked" data-val="toggle">🔀 вкл/выкл</button>
-          <button class="fm-pill" data-val="scene">🎬 запустить сцену</button>
+        <div class="fm-q" style="margin-top:14px">Что делать при тапе на иконку</div>
+        <div class="fm-pills" id="pdmAction" onclick="setTimeout(_pdmToggleActionBlocks,0)">
+          <button class="fm-pill picked" data-val="toggle">🔀 вкл/выкл (обычно)</button>
+          <button class="fm-pill" data-val="scene2">🎬 тумблер по 2 сценам</button>
           <button class="fm-pill" data-val="none">👁 только показывать</button>
         </div>
-        <div class="fm-cat-hint" style="margin-top:6px">
-          Для умных ламп со сценами (Ярко/Ночь/Уют) выбери «сцена» и в поле
-          «имя вручную» напиши название сцены как в Tuya.
+
+        <div id="pdmScene2Block" style="display:none">
+          <div class="fm-cat-hint" style="margin-top:12px;color:var(--amber)">
+            Для умных ламп/кондеров со сценами. Выбери сцену для «включения»
+            и сцену для «выключения» — тап будет чередовать их.
+          </div>
+          <div class="fm-q" style="margin-top:14px">Сцена для ВКЛ 🟡</div>
+          <select class="fm-input" id="pdmSceneOn"><option value="">— выбери сцену —</option></select>
+          <div class="fm-q" style="margin-top:12px">Сцена для ВЫКЛ ⚫</div>
+          <select class="fm-input" id="pdmSceneOff"><option value="">— выбери сцену —</option></select>
         </div>
 
         <div class="fm-actions">
@@ -4745,10 +4759,30 @@ document.querySelectorAll('.shop-item').forEach(item => {
       const layoutDev = _planLayout.devices.find(x => x.id === g.dataset.id);
       const dev = findPlanDevice(devices, layoutDev?.tuyaName, kind);
       g.classList.remove('state-on','state-cool','state-warm','state-sensor','state-off','state-missing');
+
+      // Для scene2-тумблера — цвет по локальному состоянию (у сцен нет обратной связи)
+      if (layoutDev?.action === 'scene2' || layoutDev?.action === 'scene') {
+        if (!layoutDev.sceneOn) g.classList.add('state-missing');
+        else if (layoutDev._on) {
+          if (kind === 'ac') g.classList.add('state-cool');
+          else if (kind === 'boiler') g.classList.add('state-warm');
+          else g.classList.add('state-on');
+          found++;
+        } else {
+          g.classList.add('state-off');
+          if (dev || layoutDev.sceneOn) found++;
+        }
+        g.dataset.deviceName = layoutDev.customName || '';
+        g.dataset.deviceOn = String(!!layoutDev._on);
+        return;
+      }
+
       const cls = classifyDeviceState(kind, dev);
       if (cls) { g.classList.add(cls); if (dev) found++; }
       else if (dev) { g.classList.add('state-off'); found++; }
       else g.classList.add('state-missing');
+      // Оффлайн: если устройство есть но online === false
+      if (dev && dev.online === false) g.classList.add('state-missing');
       g.dataset.deviceName = dev ? dev.name : '';
       g.dataset.deviceOn = dev ? String(!!dev.on) : '';
       // Динамическая подпись для бойлера/пылесоса
@@ -4888,10 +4922,36 @@ document.querySelectorAll('.shop-item').forEach(item => {
     }
     boundEl.textContent = d.tuyaName ? ` (сейчас: ${d.tuyaName})` : ' (сейчас: автопоиск)';
     document.getElementById('pdmCustomName').value = d.customName || '';
-    const action = d.action || 'toggle';
+    // Миграция старого action='scene' → 'scene2'
+    let action = d.action || 'toggle';
+    if (action === 'scene') action = 'scene2';
     document.querySelectorAll('#pdmAction .fm-pill').forEach(p =>
       p.classList.toggle('picked', p.dataset.val === action));
+
+    // Заполняем dropdown-ы сценами из state.scenes
+    const scenes = (window.__lastScenes || []).slice()
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    for (const selId of ['pdmSceneOn', 'pdmSceneOff']) {
+      const sel = document.getElementById(selId);
+      sel.innerHTML = '<option value="">— выбери сцену —</option>';
+      for (const s of scenes) {
+        if (!s.name) continue;
+        const opt = document.createElement('option');
+        opt.value = s.name;
+        opt.textContent = s.name;
+        sel.appendChild(opt);
+      }
+    }
+    document.getElementById('pdmSceneOn').value  = d.sceneOn  || '';
+    document.getElementById('pdmSceneOff').value = d.sceneOff || '';
+    _pdmToggleActionBlocks();
+
     document.getElementById('modal-plan-device').classList.add('open');
+  }
+
+  function _pdmToggleActionBlocks() {
+    const act = document.querySelector('#pdmAction .fm-pill.picked')?.dataset.val || 'toggle';
+    document.getElementById('pdmScene2Block').style.display = act === 'scene2' ? '' : 'none';
   }
 
   function closePlanDeviceModal() {
@@ -4907,14 +4967,14 @@ document.querySelectorAll('.shop-item').forEach(item => {
     const size = document.querySelector('#pdmSize .fm-pill.picked')?.dataset.val || 'm';
     d.size = size;
     d.customName = document.getElementById('pdmCustomName').value.trim();
-    // Кастом-имя приоритетнее радио-кнопок
-    if (d.customName) {
-      d.tuyaName = d.customName;
-    } else {
+    if (d.customName) d.tuyaName = d.customName;
+    else {
       const picked = document.querySelector('input[name="pdmTuya"]:checked');
       d.tuyaName = picked ? picked.value : '';
     }
     d.action = document.querySelector('#pdmAction .fm-pill.picked')?.dataset.val || 'toggle';
+    d.sceneOn  = document.getElementById('pdmSceneOn').value  || '';
+    d.sceneOff = document.getElementById('pdmSceneOff').value || '';
     closePlanDeviceModal();
     renderPlanSvg();
   }
@@ -5108,8 +5168,44 @@ document.querySelectorAll('.shop-item').forEach(item => {
     const name = layoutDev?.customName || g.dataset.deviceName;
 
     if (userAction === 'none') return;
+    const status = document.getElementById('planStatus');
+
+    // ─ ТУМБЛЕР ПО ДВУМ СЦЕНАМ ─
+    if (userAction === 'scene2' || userAction === 'scene') {
+      const sOn  = layoutDev?.sceneOn  || '';
+      const sOff = layoutDev?.sceneOff || '';
+      if (!sOn) {
+        if (status) { status.textContent = 'Не заданы сцены. Открой редактор.'; status.classList.add('error'); }
+        return;
+      }
+      // Локальное состояние тумблера — храним в самом layoutDev (сохраняется)
+      const wasOn = !!layoutDev._on;
+      const nextOn = !wasOn;
+      const sceneName = nextOn ? sOn : (sOff || sOn);
+      layoutDev._on = nextOn;
+      // Мгновенное визуальное состояние
+      g.classList.remove('state-on','state-cool','state-warm','state-off','state-missing');
+      if (nextOn) {
+        if (kind === 'ac') g.classList.add('state-cool');
+        else if (kind === 'boiler') g.classList.add('state-warm');
+        else g.classList.add('state-on');
+      } else {
+        g.classList.add('state-off');
+      }
+      // Сохраняем в localStorage (иначе после перезагрузки состояние сбросится)
+      savePlanLayout(_planLayout);
+      try {
+        if (status) { status.textContent = '▶ ' + sceneName; status.classList.remove('error'); }
+        await apiPost('/api/tablet/action/scene', { query: sceneName });
+        if (status) status.textContent = (nextOn ? '🟡 ' : '⚫ ') + sceneName;
+      } catch(err) {
+        if (status) { status.textContent = 'Ошибка: ' + (err.message||err); status.classList.add('error'); }
+      }
+      return;
+    }
+
+    // ─ ОБЫЧНЫЙ ON/OFF ─
     if (!name) {
-      const status = document.getElementById('planStatus');
       if (status) {
         status.textContent = 'Не привязано. Открой редактор → тап на иконку → выбери устройство.';
         status.classList.add('error');
@@ -5117,26 +5213,17 @@ document.querySelectorAll('.shop-item').forEach(item => {
       }
       return;
     }
-    const status = document.getElementById('planStatus');
     try {
-      if (userAction === 'scene') {
-        // Запускаем сцену Tuya по имени
-        if (status) { status.textContent = '▶ Запускаю сцену «' + name + '»…'; status.classList.remove('error'); }
-        await apiPost('/api/tablet/action/scene', { query: name });
-        if (status) status.textContent = '✓ Сцена «' + name + '» запущена';
-      } else {
-        // Простой переключатель on/off
-        const isOn = g.dataset.deviceOn === 'true';
-        const action = isOn ? 'off' : 'on';
-        g.classList.remove('state-on','state-cool','state-warm');
-        if (!isOn) {
-          if (kind === 'ac') g.classList.add('state-cool');
-          else if (kind === 'boiler') g.classList.add('state-warm');
-          else g.classList.add('state-on');
-        }
-        g.dataset.deviceOn = String(!isOn);
-        await apiPost('/api/tablet/action/socket', { device: name, action });
+      const isOn = g.dataset.deviceOn === 'true';
+      const action = isOn ? 'off' : 'on';
+      g.classList.remove('state-on','state-cool','state-warm');
+      if (!isOn) {
+        if (kind === 'ac') g.classList.add('state-cool');
+        else if (kind === 'boiler') g.classList.add('state-warm');
+        else g.classList.add('state-on');
       }
+      g.dataset.deviceOn = String(!isOn);
+      await apiPost('/api/tablet/action/socket', { device: name, action });
     } catch(err) {
       if (status) { status.textContent = 'Ошибка: ' + (err.message||err); status.classList.add('error'); }
     }
