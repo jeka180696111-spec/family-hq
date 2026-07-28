@@ -4771,9 +4771,20 @@ document.querySelectorAll('.shop-item').forEach(item => {
 
   async function _spRenderPlaylists() {
     try {
+      let data;
       if (!_spPlaylistsCache) {
-        const data = await apiGet('/api/tablet/spotify/playlists');
+        data = await apiGet('/api/tablet/spotify/playlists');
         _spPlaylistsCache = data.items || [];
+        // Показываем ошибку если API вернул её
+        if (data.error) {
+          document.getElementById('spContent').innerHTML = `
+            <div class="sp-loading" style="color:var(--coral)">
+              Spotify API ошибка: ${data.error.status}<br>
+              <span style="font-size:11px">${escapeHtml(data.error.message)}</span><br><br>
+              <span style="color:var(--text-dim)">Попробуй ⏻ Выйти и войти заново — часто помогает при устаревших scope.</span>
+            </div>`;
+          return;
+        }
       }
       const html = _spPlaylistsCache.map(p => `
         <div class="sp-item" onclick="spPlay('playlist','${p.id}')">
@@ -4787,12 +4798,11 @@ document.querySelectorAll('.shop-item').forEach(item => {
       `).join('');
       document.getElementById('spContent').innerHTML = html || `
         <div class="sp-loading">
-          Плейлисты не пришли.<br>
-          Возможные причины:<br>
+          Плейлистов пока нет в API. Попробуй:<br>
           <span style="color:var(--text-dim);font-size:11px">
-          • Ещё не синхронизировались после импорта — жми 🔄 через минуту<br>
-          • Ты только создал аккаунт → плейлистов пока нет<br>
-          • Импорт с Apple попал в «Мне нравится», не в плейлисты — проверь 💚
+          • Жми 🔄 через минуту<br>
+          • Или ⏻ Выйти и войти заново<br>
+          • Импорт с Apple мог попасть в «💚 Мне нравится»
           </span>
         </div>`;
     } catch(e) {
@@ -4835,6 +4845,14 @@ document.querySelectorAll('.shop-item').forEach(item => {
     document.getElementById('spContent').innerHTML = '<div class="sp-loading">Ищу «' + escapeHtml(query) + '»…</div>';
     try {
       const data = await apiGet('/api/tablet/spotify/search?q=' + encodeURIComponent(query));
+      if (data.error) {
+        document.getElementById('spContent').innerHTML = `
+          <div class="sp-loading" style="color:var(--coral)">
+            Spotify API ошибка: ${data.error.status}<br>
+            <span style="font-size:11px">${escapeHtml(data.error.message)}</span>
+          </div>`;
+        return;
+      }
       const sections = [];
       if (data.tracks?.items?.length) {
         sections.push('<div class="sp-section-title">🎵 Треки</div>');

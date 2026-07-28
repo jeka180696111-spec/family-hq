@@ -1502,10 +1502,11 @@ def register_tablet_routes(
         return {"success": True}
 
     async def _spotify_get(path: str, params: dict | None = None):
+        """Возвращает (data, error). data — dict если ок, error — dict {status, message} если нет."""
         import httpx
         tok = await _get_spotify_token()
         if not tok:
-            return None
+            return None, {"status": 0, "message": "not authorized (нет access_token)"}
         async with httpx.AsyncClient(timeout=15) as c:
             r = await c.get(
                 "https://api.spotify.com/v1" + path,
@@ -1514,13 +1515,21 @@ def register_tablet_routes(
             )
             if r.status_code != 200:
                 log.warning("spotify_api_failed", path=path, status=r.status_code, body=r.text[:200])
-                return None
-            return r.json()
+                # Пробуем распарсить Spotify-стандартный формат ошибок
+                try:
+                    j = r.json()
+                    msg = (j.get("error", {}) or {}).get("message") or r.text[:200]
+                except Exception:
+                    msg = r.text[:200]
+                return None, {"status": r.status_code, "message": msg}
+            return r.json(), None
 
     @app.get("/api/tablet/spotify/me")
     async def spotify_me(token: str = Query("")):
         _check_token(token, expected_token)
-        return await _spotify_get("/me") or {}
+        data, err = await _spotify_get("/me")
+        if err: return {"error": err}
+        return data or {}
 
     @app.get("/api/tablet/spotify/playlists")
     async def spotify_playlists(token: str = Query("")):
@@ -1528,32 +1537,42 @@ def register_tablet_routes(
         _check_token(token, expected_token)
         items = []
         offset = 0
-        while len(items) < 500:  # безопасный предел
-            data = await _spotify_get("/me/playlists", {"limit": 50, "offset": offset})
+        last_err = None
+        while len(items) < 500:
+            data, err = await _spotify_get("/me/playlists", {"limit": 50, "offset": offset})
+            if err:
+                last_err = err
+                break
             if not data or not data.get("items"):
                 break
             items.extend(data["items"])
             if not data.get("next"):
                 break
             offset += 50
-        return {"items": items, "total": len(items)}
+        out = {"items": items, "total": len(items)}
+        if last_err and not items:
+            out["error"] = last_err
+        return out
 
     @app.get("/api/tablet/spotify/liked")
     async def spotify_liked(token: str = Query(""), limit: int = Query(50)):
         _check_token(token, expected_token)
-        data = await _spotify_get("/me/tracks", {"limit": min(limit, 50)})
+        data, err = await _spotify_get("/me/tracks", {"limit": min(limit, 50)})
+        if err: return {"items": [], "error": err}
         return data or {"items": []}
 
     @app.get("/api/tablet/spotify/playlist_tracks")
     async def spotify_playlist_tracks(id: str = Query(...), token: str = Query(""), limit: int = Query(100)):
         _check_token(token, expected_token)
-        data = await _spotify_get(f"/playlists/{id}/tracks", {"limit": min(limit, 100)})
+        data, err = await _spotify_get(f"/playlists/{id}/tracks", {"limit": min(limit, 100)})
+        if err: return {"items": [], "error": err}
         return data or {"items": []}
 
     @app.get("/api/tablet/spotify/search")
     async def spotify_search(q: str = Query(...), token: str = Query(""), types: str = Query("track,artist,album,playlist")):
         _check_token(token, expected_token)
-        data = await _spotify_get("/search", {"q": q, "type": types, "limit": 10})
+        data, err = await _spotify_get("/search", {"q": q, "type": types, "limit": 10})
+        if err: return {"error": err}
         return data or {}
 
     log.info("tablet_routes_registered")
