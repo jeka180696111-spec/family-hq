@@ -655,3 +655,15 @@ class BabyState(Base):
     walking_since: Mapped[str | None] = mapped_column(String, nullable=True)
     walk_ended_at: Mapped[str | None] = mapped_column(String, nullable=True)
     updated_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class OAuthToken(Base):
+    """OAuth-токены для внешних сервисов (Spotify и т.п.).
+    Ключ — provider ('spotify'). Хранятся в БД чтобы пережить перезапуск."""
+    __tablename__ = "oauth_tokens"
+    provider: Mapped[str] = mapped_column(String, primary_key=True)
+    access_token: Mapped[str] = mapped_column(Text, nullable=False)
+    refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[int] = mapped_column(Integer, nullable=False)  # UNIX timestamp
+    scope: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False)

@@ -101,6 +101,14 @@ class Settings(BaseSettings):
     apple_music_key_p8: str = Field(default="")
     apple_music_key_path: str = Field(default="")
 
+    # Spotify — плеер на планшете
+    spotify_client_id: str = Field(default="")
+    spotify_client_secret: str = Field(default="")
+    # Полный публичный URL приложения — Spotify требует ТОЧНОЕ совпадение с
+    # тем что записано в App Dashboard. Например:
+    #   https://family-hq-production-34a6.up.railway.app
+    spotify_redirect_base: str = Field(default="")
+
     # OpenWeatherMap
     openweather_api_key: str = Field(default="")
 

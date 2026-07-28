@@ -1348,4 +1348,202 @@ def register_tablet_routes(
             log.exception("apple_music_token_failed")
             return {"configured": False, "reason": f"Ошибка подписи JWT: {str(e)[:150]}"}
 
+    # ─────────────────────────────────────────────────────────────────
+    # Spotify OAuth + прокси к Web API
+    # ─────────────────────────────────────────────────────────────────
+    from fastapi.responses import RedirectResponse
+
+    _SPOTIFY_SCOPES = " ".join([
+        "user-read-private", "user-read-email",
+        "user-library-read", "user-library-modify",
+        "playlist-read-private", "playlist-read-collaborative",
+        "user-read-recently-played", "user-top-read",
+        "streaming",  # для Web Playback SDK (только Premium)
+    ])
+
+    async def _get_spotify_token() -> dict | None:
+        """Читает access_token из БД, обновляет через refresh_token если истёк."""
+        import time, base64, httpx
+        from sqlalchemy import select
+        from src.db.models import OAuthToken
+        async with memory._engine.connect() as conn:
+            row = (await conn.execute(
+                select(OAuthToken).where(OAuthToken.provider == "spotify")
+            )).first()
+        if not row:
+            return None
+        access = row.access_token
+        refresh = row.refresh_token
+        exp = int(row.expires_at or 0)
+        now = int(time.time())
+        if exp - now > 60:
+            return {"access_token": access, "refresh_token": refresh, "expires_at": exp}
+        # Обновляем
+        cid = getattr(settings, "spotify_client_id", "")
+        csec = getattr(settings, "spotify_client_secret", "")
+        if not cid or not csec or not refresh:
+            return None
+        basic = base64.b64encode(f"{cid}:{csec}".encode()).decode()
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.post(
+                "https://accounts.spotify.com/api/token",
+                data={"grant_type": "refresh_token", "refresh_token": refresh},
+                headers={"Authorization": "Basic " + basic,
+                         "Content-Type": "application/x-www-form-urlencoded"},
+            )
+            r.raise_for_status()
+            data = r.json()
+        new_access = data["access_token"]
+        new_refresh = data.get("refresh_token") or refresh
+        new_exp = now + int(data.get("expires_in", 3600))
+        await _save_spotify_token(new_access, new_refresh, new_exp, data.get("scope"))
+        return {"access_token": new_access, "refresh_token": new_refresh, "expires_at": new_exp}
+
+    async def _save_spotify_token(access: str, refresh: str | None, expires_at: int, scope: str | None):
+        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+        from src.db.models import OAuthToken
+        from src.utils.time import now_kyiv
+        async with memory._engine.begin() as conn:
+            stmt = sqlite_insert(OAuthToken).values(
+                provider="spotify",
+                access_token=access,
+                refresh_token=refresh,
+                expires_at=expires_at,
+                scope=scope,
+                updated_at=now_kyiv().isoformat(),
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["provider"],
+                set_={
+                    "access_token": access,
+                    "refresh_token": refresh,
+                    "expires_at": expires_at,
+                    "scope": scope,
+                    "updated_at": now_kyiv().isoformat(),
+                },
+            )
+            await conn.execute(stmt)
+
+    def _spotify_redirect_uri() -> str:
+        base = (getattr(settings, "spotify_redirect_base", "") or "").rstrip("/")
+        return f"{base}/api/tablet/spotify/callback"
+
+    @app.get("/api/tablet/spotify/status")
+    async def spotify_status(token: str = Query("")):
+        _check_token(token, expected_token)
+        cid = getattr(settings, "spotify_client_id", "")
+        base = getattr(settings, "spotify_redirect_base", "")
+        if not cid or not base:
+            return {"configured": False, "reason": "SPOTIFY_CLIENT_ID/SECRET/REDIRECT_BASE не заданы в Railway"}
+        tok = await _get_spotify_token()
+        return {"configured": True, "authorized": bool(tok)}
+
+    @app.get("/api/tablet/spotify/login")
+    async def spotify_login(token: str = Query("")):
+        _check_token(token, expected_token)
+        import urllib.parse, secrets
+        cid = getattr(settings, "spotify_client_id", "")
+        if not cid:
+            raise HTTPException(400, "spotify not configured")
+        state = secrets.token_urlsafe(16)
+        params = {
+            "client_id": cid,
+            "response_type": "code",
+            "redirect_uri": _spotify_redirect_uri(),
+            "scope": _SPOTIFY_SCOPES,
+            "state": state,
+        }
+        url = "https://accounts.spotify.com/authorize?" + urllib.parse.urlencode(params)
+        return RedirectResponse(url)
+
+    @app.get("/api/tablet/spotify/callback")
+    async def spotify_callback(code: str = Query(""), state: str = Query(""), error: str = Query("")):
+        import base64, httpx, time
+        if error:
+            return HTMLResponse(f"<h2>Ошибка Spotify: {error}</h2>", status_code=400)
+        if not code:
+            return HTMLResponse("<h2>Нет code от Spotify</h2>", status_code=400)
+        cid = getattr(settings, "spotify_client_id", "")
+        csec = getattr(settings, "spotify_client_secret", "")
+        basic = base64.b64encode(f"{cid}:{csec}".encode()).decode()
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.post(
+                "https://accounts.spotify.com/api/token",
+                data={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": _spotify_redirect_uri(),
+                },
+                headers={"Authorization": "Basic " + basic,
+                         "Content-Type": "application/x-www-form-urlencoded"},
+            )
+            if r.status_code != 200:
+                return HTMLResponse(f"<h2>Spotify отказал: {r.status_code}</h2><pre>{r.text}</pre>", status_code=400)
+            data = r.json()
+        exp = int(time.time()) + int(data.get("expires_in", 3600))
+        await _save_spotify_token(
+            data["access_token"], data.get("refresh_token"), exp, data.get("scope"),
+        )
+        return HTMLResponse("""
+            <html><body style="font-family:sans-serif;background:#1a1614;color:#ede6dc;text-align:center;padding:60px">
+            <h1>✅ Spotify подключён!</h1>
+            <p>Можешь закрыть эту вкладку и вернуться на планшет.</p>
+            <script>setTimeout(()=>window.close(), 2000);</script>
+            </body></html>
+        """)
+
+    @app.get("/api/tablet/spotify/logout")
+    async def spotify_logout(token: str = Query("")):
+        _check_token(token, expected_token)
+        from sqlalchemy import delete
+        from src.db.models import OAuthToken
+        async with memory._engine.begin() as conn:
+            await conn.execute(delete(OAuthToken).where(OAuthToken.provider == "spotify"))
+        return {"success": True}
+
+    async def _spotify_get(path: str, params: dict | None = None):
+        import httpx
+        tok = await _get_spotify_token()
+        if not tok:
+            return None
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.get(
+                "https://api.spotify.com/v1" + path,
+                params=params or {},
+                headers={"Authorization": "Bearer " + tok["access_token"]},
+            )
+            if r.status_code != 200:
+                log.warning("spotify_api_failed", path=path, status=r.status_code, body=r.text[:200])
+                return None
+            return r.json()
+
+    @app.get("/api/tablet/spotify/me")
+    async def spotify_me(token: str = Query("")):
+        _check_token(token, expected_token)
+        return await _spotify_get("/me") or {}
+
+    @app.get("/api/tablet/spotify/playlists")
+    async def spotify_playlists(token: str = Query(""), limit: int = Query(50)):
+        _check_token(token, expected_token)
+        data = await _spotify_get("/me/playlists", {"limit": min(limit, 50)})
+        return data or {"items": []}
+
+    @app.get("/api/tablet/spotify/liked")
+    async def spotify_liked(token: str = Query(""), limit: int = Query(50)):
+        _check_token(token, expected_token)
+        data = await _spotify_get("/me/tracks", {"limit": min(limit, 50)})
+        return data or {"items": []}
+
+    @app.get("/api/tablet/spotify/playlist_tracks")
+    async def spotify_playlist_tracks(id: str = Query(...), token: str = Query(""), limit: int = Query(100)):
+        _check_token(token, expected_token)
+        data = await _spotify_get(f"/playlists/{id}/tracks", {"limit": min(limit, 100)})
+        return data or {"items": []}
+
+    @app.get("/api/tablet/spotify/search")
+    async def spotify_search(q: str = Query(...), token: str = Query(""), types: str = Query("track,artist,album,playlist")):
+        _check_token(token, expected_token)
+        data = await _spotify_get("/search", {"q": q, "type": types, "limit": 10})
+        return data or {}
+
     log.info("tablet_routes_registered")
