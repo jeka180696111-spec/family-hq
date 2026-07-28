@@ -1014,12 +1014,20 @@
 
   /* Планшет — «ты здесь» — постоянная cyan подсветка */
   .fp-dev.fp-dev-static .fp-dev-bg {
-    fill: rgba(122,181,193,0.25);
+    fill: rgba(122,181,193,0.35);
     stroke: var(--cyan);
-    stroke-width: 1.5;
+    stroke-width: 2;
   }
   .fp-dev.fp-dev-static .fp-dev-em { opacity: 1; }
-  .fp-dev.fp-dev-static .fp-dev-lb { fill: var(--cyan); font-size: 10px; }
+  .fp-dev.fp-dev-static .fp-dev-lb {
+    fill: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    /* Обводка для читаемости поверх любых цветов */
+    stroke: rgba(0,0,0,0.7);
+    stroke-width: 3;
+    paint-order: stroke fill;
+  }
 
   /* Пульсация активных */
   .fp-dev.state-on,
@@ -1124,18 +1132,19 @@
     fill: #ffd77a;
   }
 
+  /* Палитра — всегда тёмная (как сам план), не зависит от темы */
   .plan-palette {
     margin-top: 14px;
     padding: 12px 14px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
+    background: #23201c;
+    border: 1px solid rgba(255,255,255,0.12);
     border-radius: 12px;
   }
   .pal-title {
     font-size: 10px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: rgba(255,255,255,0.55);
+    color: rgba(255,255,255,0.7);
     margin-bottom: 10px;
   }
   .pal-items {
@@ -1144,9 +1153,9 @@
     gap: 8px;
   }
   .pal-item {
-    background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.15);
-    color: rgba(255,255,255,0.9);
+    background: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.25);
+    color: #ffffff;
     padding: 8px 14px;
     border-radius: 20px;
     cursor: pointer;
@@ -1155,13 +1164,14 @@
     transition: all 0.15s;
   }
   .pal-item:hover {
-    background: rgba(212, 160, 74, 0.2);
+    background: rgba(212, 160, 74, 0.3);
     border-color: var(--amber);
+    color: #ffd77a;
   }
   .pal-hint {
     margin-top: 10px;
     font-size: 11px;
-    color: rgba(255,255,255,0.5);
+    color: rgba(255,255,255,0.65);
     font-style: italic;
   }
 
