@@ -3212,6 +3212,43 @@
     </div>
   </div>
 
+  <!-- Модалка: настройка устройства на плане квартиры -->
+  <div class="modal-backdrop" id="modal-plan-device" onclick="if(event.target===this)closePlanDeviceModal()">
+    <div class="modal feeding-modal">
+      <div class="modal-head">
+        <div class="modal-title"><span id="pdmEm">💡</span> Настройка устройства</div>
+        <button class="modal-close" onclick="closePlanDeviceModal()">✕</button>
+      </div>
+      <div class="feeding-modal-body">
+        <div class="fm-q">Подпись под иконкой</div>
+        <input type="text" class="fm-input" id="pdmLabel" placeholder="напр. люстра над кроватью">
+
+        <div class="fm-q">Размер иконки</div>
+        <div class="fm-pills" id="pdmSize">
+          <button class="fm-pill" data-val="s">S</button>
+          <button class="fm-pill picked" data-val="m">M</button>
+          <button class="fm-pill" data-val="l">L</button>
+          <button class="fm-pill" data-val="xl">XL</button>
+        </div>
+
+        <div class="fm-q">К какому Tuya-устройству привязано <span id="pdmBoundStatus" style="color:var(--text-mute);text-transform:none;letter-spacing:0"></span></div>
+        <div id="pdmDeviceList" style="max-height:280px;overflow-y:auto;background:var(--card-hi);border:1px solid var(--line);border-radius:10px;padding:6px">
+          <div style="padding:16px;text-align:center;color:var(--text-mute);font-size:12px">Загружаю список устройств…</div>
+        </div>
+        <div class="fm-cat-hint" style="margin-top:6px">
+          Выбирай КОНКРЕТНОЕ устройство — иконка засветится когда оно вкл.
+          Если оставить «— автопоиск по типу» — прога сама подберёт первое подходящее.
+        </div>
+
+        <div class="fm-actions">
+          <button class="fm-cancel" onclick="deletePlanDeviceFromModal()" style="margin-right:auto;color:var(--coral);border-color:rgba(224,123,95,0.3)">🗑 Удалить</button>
+          <button class="fm-cancel" onclick="closePlanDeviceModal()">Отмена</button>
+          <button class="fm-save" onclick="savePlanDeviceModal()">Сохранить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ============= RIBBON / FOOTER ============= -->
   <div class="ribbon">
     <div>
@@ -4450,17 +4487,16 @@ document.querySelectorAll('.shop-item').forEach(item => {
 
   function _norm(s) { return String(s || '').toLowerCase().replace(/ё/g, 'е'); }
 
-  // Очень приглушённая палитра — почти нейтральный тёмный фон,
-  // с еле заметным тёплым/холодным тинтом чтобы комнаты различались.
+  // Приглушённая палитра — тёмный фон + заметный цветной тинт для различия комнат
   const PLAN_ROOM_COLORS = {
-    'Балкон':   'rgba(255, 255, 255, 0.04)',
-    'Спальня':  'rgba(212, 160, 74, 0.09)',
-    'Шкаф':     'rgba(255, 255, 255, 0.04)',
-    'Детская':  'rgba(255, 255, 255, 0.04)',
-    'Коридор':  'rgba(255, 255, 255, 0.04)',
-    'Кухня':    'rgba(134, 172, 106, 0.08)',
-    'Туалет':   'rgba(224, 123, 95, 0.07)',
-    'Ванна':    'rgba(255, 255, 255, 0.04)',
+    'Балкон':   'rgba(122, 181, 193, 0.12)',   // cyan — «наружу»
+    'Спальня':  'rgba(212, 160, 74, 0.15)',    // amber тёплая
+    'Шкаф':     'rgba(167, 137, 200, 0.12)',   // violet
+    'Детская':  'rgba(217, 155, 176, 0.14)',   // pink
+    'Коридор':  'rgba(134, 172, 106, 0.11)',   // sage
+    'Кухня':    'rgba(134, 172, 106, 0.15)',   // sage чуть насыщеннее
+    'Туалет':   'rgba(122, 181, 193, 0.18)',   // cyan
+    'Ванна':    'rgba(122, 181, 193, 0.10)',   // cyan бледнее
   };
 
   // Комнаты — полигоны (массивы точек). Для прямоугольной комнаты — 4 точки.
@@ -4596,19 +4632,27 @@ document.querySelectorAll('.shop-item').forEach(item => {
     }
 
     // Устройства
+    const SIZE_MAP = { s: 14, m: 22, l: 30, xl: 38 };
+    const EM_SIZE_MAP = { s: 12, m: 18, l: 24, xl: 30 };
     for (const d of _planLayout.devices) {
       const meta = DEVICE_META[d.kind] || DEVICE_META.light;
+      const size = d.size || 'm';
+      const r = SIZE_MAP[size] || 22;
+      const emSize = EM_SIZE_MAP[size] || 18;
       const g = _el('g', {
-        'class': 'fp-dev' + (meta.staticOnly ? ' fp-dev-static' : ''),
+        'class': 'fp-dev' + (meta.staticOnly ? ' fp-dev-static' : '') + ' fp-size-' + size,
         'data-id': d.id,
         'data-kind': d.kind,
         'transform': `translate(${d.x}, ${d.y})`,
       });
-      g.appendChild(_el('circle', { 'class': 'fp-dev-bg', r: 22 }));
-      const em = _el('text', { 'class': 'fp-dev-em', y: 7, 'text-anchor': 'middle' });
+      g.appendChild(_el('circle', { 'class': 'fp-dev-bg', r: r }));
+      const em = _el('text', {
+        'class': 'fp-dev-em', y: emSize * 0.35,
+        'text-anchor': 'middle', 'font-size': emSize,
+      });
       em.textContent = meta.em;
       g.appendChild(em);
-      const lb = _el('text', { 'class': 'fp-dev-lb', y: 40, 'text-anchor': 'middle' });
+      const lb = _el('text', { 'class': 'fp-dev-lb', y: r + 12, 'text-anchor': 'middle' });
       lb.textContent = d.label || meta.label;
       g.appendChild(lb);
       svg.appendChild(g);
@@ -4771,25 +4815,87 @@ document.querySelectorAll('.shop-item').forEach(item => {
     }
   }
 
-  function bindTuyaDevice(devId) {
-    const layoutDev = _planLayout.devices.find(d => d.id === devId);
-    if (!layoutDev) return;
+  // ─── Модалка настройки устройства на плане ───
+  let _pdmDevId = null;
+
+  function openPlanDeviceModal(devId) {
+    const d = _planLayout.devices.find(x => x.id === devId);
+    if (!d) return;
+    _pdmDevId = devId;
+    const meta = DEVICE_META[d.kind] || DEVICE_META.light;
+    document.getElementById('pdmEm').textContent = meta.em;
+    document.getElementById('pdmLabel').value = d.label || meta.label || '';
+    // Размер
+    const size = d.size || 'm';
+    document.querySelectorAll('#pdmSize .fm-pill').forEach(p =>
+      p.classList.toggle('picked', p.dataset.val === size));
+    // Список Tuya устройств
     const devices = window.__lastDevices || [];
-    const names = devices.map(d => d.name).filter(Boolean);
-    if (!names.length) { alert('Устройств Tuya не найдено'); return; }
-    const current = layoutDev.tuyaName || '(fuzzy по типу)';
-    const list = names.map((n, i) => `${i+1}. ${n}`).join('\n');
-    const pick = prompt('К какому Tuya-устройству привязать?\nСейчас: ' + current + '\n\n' + list + '\n\n(введи номер или имя, или "-" чтобы сбросить)');
-    if (pick === null) return;
-    if (pick === '-' || pick === '') { layoutDev.tuyaName = ''; }
-    else if (/^\d+$/.test(pick.trim())) {
-      const i = parseInt(pick, 10) - 1;
-      if (names[i]) layoutDev.tuyaName = names[i];
+    const listEl = document.getElementById('pdmDeviceList');
+    const boundEl = document.getElementById('pdmBoundStatus');
+    if (!devices.length) {
+      listEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--coral);font-size:12px">Tuya-устройств пока не пришло. Открой обычную страницу «Умный дом», подожди 10 сек, потом вернись сюда.</div>';
     } else {
-      layoutDev.tuyaName = pick.trim();
+      // Фильтрация по типу — сверху покажем те что подходят по meta.matchAll
+      const kindTokens = (meta.matchAll || '').split(',').map(_norm).filter(Boolean);
+      function score(name) {
+        const n = _norm(name);
+        if (!n) return 0;
+        if (!kindTokens.length) return 1;
+        return kindTokens.some(t => n.includes(t)) ? 2 : 1;
+      }
+      const sorted = devices.slice().sort((a, b) =>
+        score(b.name) - score(a.name) || a.name.localeCompare(b.name));
+      const rows = sorted.map(dev => {
+        const s = score(dev.name);
+        const isBound = _norm(dev.name) === _norm(d.tuyaName || '');
+        const badge = s === 2 ? '<span style="color:var(--sage);font-size:10px;margin-left:6px">✓ подходит по типу</span>' : '';
+        const onStatus = dev.on ? ' · <span style="color:var(--amber)">включено</span>' : (dev.online ? '' : ' · <span style="color:var(--text-mute)">оффлайн</span>');
+        return `
+          <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;cursor:pointer;margin-bottom:2px;${isBound?'background:rgba(212,160,74,0.15);':''}">
+            <input type="radio" name="pdmTuya" value="${escapeAttr(dev.name)}" ${isBound?'checked':''} style="accent-color:var(--amber)">
+            <span style="flex:1;font-size:13px">${escapeHtml(dev.name)}${badge}<span style="font-size:11px;color:var(--text-dim)">${onStatus}</span></span>
+          </label>`;
+      });
+      // Плюс опция «автопоиск»
+      const autoChecked = !d.tuyaName;
+      rows.unshift(`
+        <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;cursor:pointer;margin-bottom:6px;border-bottom:1px solid var(--line-soft);${autoChecked?'background:rgba(122,181,193,0.10);':''}">
+          <input type="radio" name="pdmTuya" value="" ${autoChecked?'checked':''} style="accent-color:var(--cyan)">
+          <span style="flex:1;font-size:12px;color:var(--text-dim)">— автопоиск по типу (${meta.label})</span>
+        </label>`);
+      listEl.innerHTML = rows.join('');
     }
+    boundEl.textContent = d.tuyaName ? ` (сейчас: ${d.tuyaName})` : ' (сейчас: автопоиск)';
+    document.getElementById('modal-plan-device').classList.add('open');
+  }
+
+  function closePlanDeviceModal() {
+    document.getElementById('modal-plan-device').classList.remove('open');
+    _pdmDevId = null;
+  }
+
+  function savePlanDeviceModal() {
+    if (!_pdmDevId) return;
+    const d = _planLayout.devices.find(x => x.id === _pdmDevId);
+    if (!d) return;
+    d.label = document.getElementById('pdmLabel').value.trim() || (DEVICE_META[d.kind]?.label || d.kind);
+    const size = document.querySelector('#pdmSize .fm-pill.picked')?.dataset.val || 'm';
+    d.size = size;
+    const picked = document.querySelector('input[name="pdmTuya"]:checked');
+    d.tuyaName = picked ? picked.value : '';
+    closePlanDeviceModal();
     renderPlanSvg();
   }
+
+  function deletePlanDeviceFromModal() {
+    if (!_pdmDevId) return;
+    if (!confirm('Удалить это устройство с плана?')) return;
+    deletePlanDevice(_pdmDevId);
+    closePlanDeviceModal();
+  }
+
+  // Пилл-пикер уже глобально обрабатывает клик по .fm-pill — работает для #pdmSize
 
   // ── Drag & Resize ──
   const _drag = { active: false, id: null, kind: null, corner: null, sx: 0, sy: 0, ox: 0, oy: 0, ow: 0, oh: 0 };
@@ -4810,12 +4916,13 @@ document.querySelectorAll('.shop-item').forEach(item => {
     _drag.active = true;
     _drag.type = type; _drag.id = id; _drag.extra = extra || null;
     _drag.sx = p.x; _drag.sy = p.y;
+    _drag.moved = false;
     if (type === 'room') {
       const r = _planLayout.rooms.find(r => r.id === id);
       if (r) { _drag.origPoints = r.points.map(pt => ({...pt})); }
     } else if (type === 'vertex') {
       const r = _planLayout.rooms.find(r => r.id === id);
-      if (r && r.points[extra]) { _drag.ox = r.points[extra].x; _drag.oy = r.points[extra].y; }
+      if (r && r.points[extra] !== undefined) { _drag.ox = r.points[extra].x; _drag.oy = r.points[extra].y; }
     } else if (type === 'dev') {
       const d = _planLayout.devices.find(d => d.id === id);
       if (d) { _drag.ox = d.x; _drag.oy = d.y; }
@@ -4826,6 +4933,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
     if (!_drag.active) return;
     const p = _svgPoint(evt);
     const dx = p.x - _drag.sx, dy = p.y - _drag.sy;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) _drag.moved = true;
     const SNAP = 5;
     if (_drag.type === 'room') {
       const r = _planLayout.rooms.find(r => r.id === _drag.id);
@@ -4848,7 +4956,16 @@ document.querySelectorAll('.shop-item').forEach(item => {
     renderPlanSvg();
     evt.preventDefault?.();
   }
-  function _endDrag() { _drag.active = false; _drag.id = null; _drag.extra = null; _drag.origPoints = null; }
+  function _endDrag() {
+    // Если это был тап на устройство БЕЗ реального перетаскивания —
+    // открываем модалку настроек (одиночного тапа хватает, не нужно двойного).
+    if (_drag.active && !_drag.moved && _drag.type === 'dev' && _planEditing) {
+      const id = _drag.id;
+      // Отложенный вызов, чтобы _endDrag завершился
+      setTimeout(() => openPlanDeviceModal(id), 0);
+    }
+    _drag.active = false; _drag.id = null; _drag.extra = null; _drag.origPoints = null; _drag.moved = false;
+  }
 
   // Клик по «серединке ребра» — добавить вершину
   function _insertVertex(roomId, edgeIndex) {
@@ -4886,7 +5003,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
       _insertVertex(mh.dataset.roomId, parseInt(mh.dataset.edge, 10));
       return;
     }
-    // Устройство
+    // Устройство — начинаем drag (модалка настроек открывается по dblclick)
     const dev = target.closest('.fp-dev');
     if (dev) {
       _planSelectedId = dev.dataset.id;
@@ -4939,18 +5056,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
     }
     const dev = e.target.closest('.fp-dev');
     if (dev) {
-      const id = dev.dataset.id;
-      const layoutDev = _planLayout.devices.find(d => d.id === id);
-      const answer = prompt(
-        (layoutDev?.label || '') + '\nПривязано: ' + (layoutDev?.tuyaName || '— (fuzzy)') +
-        '\n\n1 — привязать к Tuya\n2 — переименовать подпись\n3 — удалить\n(введи цифру)'
-      );
-      if (answer === '1') bindTuyaDevice(id);
-      else if (answer === '2') {
-        const n = prompt('Новая подпись:', layoutDev.label || '');
-        if (n !== null) { layoutDev.label = n.trim(); renderPlanSvg(); }
-      }
-      else if (answer === '3') { if (confirm('Удалить устройство?')) deletePlanDevice(id); }
+      openPlanDeviceModal(dev.dataset.id);
       return;
     }
     const room = e.target.closest('.fp-room-g');
