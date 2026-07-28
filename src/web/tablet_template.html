@@ -864,6 +864,50 @@
     font-size: 13px;
   }
 
+  /* Голосовое управление */
+  .mp-yt-voice {
+    margin-bottom: 14px;
+    text-align: center;
+  }
+  .mp-voice-btn {
+    background: linear-gradient(135deg, var(--pink), var(--violet));
+    color: #1a1614;
+    border: 0;
+    padding: 14px 28px;
+    border-radius: 30px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 4px 20px rgba(217, 155, 176, 0.35);
+    transition: transform 0.15s;
+  }
+  .mp-voice-btn:hover { transform: translateY(-1px); }
+  .mp-voice-btn:active { transform: translateY(0); }
+  .mp-voice-btn.listening {
+    background: linear-gradient(135deg, var(--coral), var(--amber));
+    animation: voice-pulse 1s ease-in-out infinite;
+  }
+  @keyframes voice-pulse {
+    0%, 100% { box-shadow: 0 4px 20px rgba(224, 123, 95, 0.35); }
+    50%      { box-shadow: 0 4px 30px rgba(224, 123, 95, 0.65); }
+  }
+  .mp-voice-btn #voiceIcon { font-size: 20px; }
+  .mp-voice-status {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-dim);
+    min-height: 16px;
+  }
+  .mp-voice-status.heard {
+    color: var(--amber);
+    font-style: italic;
+  }
+  .mp-voice-status.error { color: var(--coral); }
+
   /* ============ План квартиры ============ */
   .plan-head {
     display: flex;
@@ -3147,31 +3191,30 @@
 
     <!-- YouTube панель -->
     <div class="music-panel" id="musicYoutubePanel" style="display:none">
+      <div class="mp-yt-voice">
+        <button class="mp-voice-btn" id="voiceBtn" onclick="startVoice()" title="Скажи «включи белый шум» / «поставь колыбельные»">
+          <span id="voiceIcon">🎤</span>
+          <span id="voiceLabel">Скажи что включить</span>
+        </button>
+        <div class="mp-voice-status" id="voiceStatus"></div>
+      </div>
+
       <div class="mp-yt-input">
         <input type="text" id="ytUrlInput" class="mp-search-input"
-               placeholder="Вставь ссылку YouTube (youtu.be/… или ?v=…)…"
+               placeholder="Или вставь ссылку YouTube (youtu.be/… или ?v=…)…"
                onkeydown="if(event.key==='Enter') playYoutubeInput()">
         <button class="mp-search-btn" onclick="playYoutubeInput()">▶</button>
       </div>
+
       <div class="mp-quick">
         <div class="mp-quick-title">Для малыша</div>
-        <div class="mp-quick-items">
-          <button class="mp-quick-btn" onclick="playYt('DWcJFNfaw9c','video')">🌊 Белый шум 10ч</button>
-          <button class="mp-quick-btn" onclick="playYt('PLBpXPo4ZlKn_A9PTBTe5qbY6Nfn2t0ftk','list')">🌙 Колыбельные</button>
-          <button class="mp-quick-btn" onclick="playYt('PLoFB6MvGSKX7RfHR2Y7nAkzuKCJ6uPB6y','list')">🎼 Классика для малыша</button>
-          <button class="mp-quick-btn" onclick="playYt('KyDCkUmFwOo','video')">🌧 Дождь 10ч</button>
-          <button class="mp-quick-btn" onclick="playYt('nDq6TstdEi8','video')">🍼 Шум матки (для сна)</button>
-          <button class="mp-quick-btn" onclick="playYt('t1KH_qWXhAA','video')">🎵 Синий трактор</button>
-        </div>
+        <div class="mp-quick-items" id="ytQuickBaby"></div>
         <div class="mp-quick-title" style="margin-top:14px">Для родителей</div>
-        <div class="mp-quick-items">
-          <button class="mp-quick-btn" onclick="playYt('jfKfPfyJRdk','video')">☕ Lofi hip hop</button>
-          <button class="mp-quick-btn" onclick="playYt('rUxyKA_-grg','video')">🎧 Chillout</button>
-          <button class="mp-quick-btn" onclick="playYt('5qap5aO4i9A','video')">📚 Chill Study Music</button>
-        </div>
+        <div class="mp-quick-items" id="ytQuickParents"></div>
       </div>
+
       <div class="mp-yt-frame" id="ytFrameWrap">
-        <div class="mp-yt-empty">Тапни быстрый плейлист или вставь ссылку YouTube ↑</div>
+        <div class="mp-yt-empty">Тапни быстрый плейлист, скажи голосом или вставь ссылку YouTube ↑</div>
       </div>
       <div class="mp-yt-controls" style="display:none" id="ytControls">
         <button class="mp-btn" onclick="stopYt()">⏹ Остановить</button>
@@ -4523,12 +4566,35 @@ document.querySelectorAll('.shop-item').forEach(item => {
     }
   }
 
-  // ── YouTube (публичные видео/плейлисты, без API-ключа) ──
+  // ── YouTube: быстрые треки с голосовыми ключевыми словами ──
+  const YT_QUICK_BABY = [
+    { icon: '🌊', label: 'Белый шум 10ч',      id: 'nMfPqeZjc2c', type: 'video', keys: ['белый шум', 'шум', 'бельый шум'] },
+    { icon: '🌙', label: 'Колыбельные',        id: 'aXHITypCXFA', type: 'video', keys: ['колыбельн', 'убаюкать', 'спать', 'засыпать'] },
+    { icon: '🎼', label: 'Классика малышу',    id: 'aObkbeejK-8', type: 'video', keys: ['классик', 'моцарт', 'бетховен'] },
+    { icon: '🌧', label: 'Дождь 10ч',          id: 'mPZkdNFkNps', type: 'video', keys: ['дождь', 'ливень'] },
+    { icon: '🍼', label: 'Шум матки',          id: 'gFAdRRXVSaU', type: 'video', keys: ['шум матки', 'утроб'] },
+    { icon: '🎵', label: 'Синий трактор',      id: 'sVCRP1H0iEo', type: 'video', keys: ['трактор', 'синий трактор', 'мультик'] },
+    { icon: '🐴', label: 'Ой у лузі калина',   id: 'IuUOgD73nGk', type: 'video', keys: ['калина', 'украинск'] },
+  ];
+  const YT_QUICK_PARENTS = [
+    { icon: '☕', label: 'Lofi hip hop',       id: 'jfKfPfyJRdk', type: 'video', keys: ['лофи', 'lofi', 'фон'] },
+    { icon: '🎧', label: 'Chillout',           id: 'DWZWXWuHo6Q', type: 'video', keys: ['чил', 'chill', 'релакс'] },
+    { icon: '📚', label: 'Chill Study',        id: 'lTRiuFIWV54', type: 'video', keys: ['учеба', 'работа', 'концентрац'] },
+    { icon: '🎸', label: 'Русский рок',        id: 'S1TvT7WlZDQ', type: 'video', keys: ['рок', 'русский рок', 'кино'] },
+  ];
+
+  function _renderYtQuick() {
+    const mkBtn = (t) => `<button class="mp-quick-btn" onclick="playYt('${t.id}','${t.type}')">${t.icon} ${t.label}</button>`;
+    const baby = document.getElementById('ytQuickBaby');
+    const par = document.getElementById('ytQuickParents');
+    if (baby) baby.innerHTML = YT_QUICK_BABY.map(mkBtn).join('');
+    if (par)  par.innerHTML  = YT_QUICK_PARENTS.map(mkBtn).join('');
+  }
+  _renderYtQuick();
+
   function _extractYtId(url) {
-    // Плейлист-ID начинается на PL/UU/OL/LL (обычно 34 символа)
     const listM = String(url).match(/[?&]list=(P[LU][A-Za-z0-9_-]{10,})/);
     if (listM) return { id: listM[1], type: 'list' };
-    // Обычное видео (11 символов)
     const vidM = String(url).match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([A-Za-z0-9_-]{11})/);
     if (vidM) return { id: vidM[1], type: 'video' };
     return null;
@@ -4537,9 +4603,9 @@ document.querySelectorAll('.shop-item').forEach(item => {
     const wrap = document.getElementById('ytFrameWrap');
     if (!wrap) return;
     const src = type === 'list'
-      ? `https://www.youtube.com/embed/videoseries?list=${id}&autoplay=1`
-      : `https://www.youtube.com/embed/${id}?autoplay=1&playsinline=1`;
-    wrap.innerHTML = `<iframe src="${src}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
+      ? `https://www.youtube-nocookie.com/embed/videoseries?list=${id}&autoplay=1`
+      : `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&playsinline=1&rel=0`;
+    wrap.innerHTML = `<iframe src="${src}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`;
     const ctrl = document.getElementById('ytControls');
     if (ctrl) ctrl.style.display = '';
   }
@@ -4557,10 +4623,100 @@ document.querySelectorAll('.shop-item').forEach(item => {
       playYt(parsed.id, parsed.type);
       document.getElementById('ytUrlInput').value = '';
     } else {
-      // Не URL — предупредим что нужна ссылка (без поиска в браузере)
+      // Не URL — пробуем найти по ключевым словам среди быстрых кнопок
+      const found = _voiceMatchTrack(v);
+      if (found) {
+        playYt(found.id, found.type);
+        document.getElementById('ytUrlInput').value = '';
+        return;
+      }
       const wrap = document.getElementById('ytFrameWrap');
-      if (wrap) wrap.innerHTML = '<div class="mp-yt-empty" style="color:var(--coral)">Не ссылка YouTube. Скопируй адрес видео (youtu.be/... или youtube.com/watch?v=...).</div>';
+      if (wrap) wrap.innerHTML = '<div class="mp-yt-empty" style="color:var(--coral)">Не ссылка YouTube и не совпало с быстрыми кнопками. Скопируй адрес видео.</div>';
     }
+  }
+
+  // ── Голос: Web Speech API (браузерный, бесплатный, распознаёт русский) ──
+  let _voiceRec = null;
+  function startVoice() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      _voiceSay('Браузер не умеет распознавать речь. Нужен Chrome/Edge.', 'error');
+      return;
+    }
+    if (_voiceRec) { try { _voiceRec.stop(); } catch(e){} _voiceRec = null; }
+    const btn = document.getElementById('voiceBtn');
+    const iconEl = document.getElementById('voiceIcon');
+    const labelEl = document.getElementById('voiceLabel');
+
+    const rec = new SR();
+    _voiceRec = rec;
+    rec.lang = 'ru-RU';
+    rec.interimResults = false;
+    rec.maxAlternatives = 3;
+
+    btn.classList.add('listening');
+    if (iconEl) iconEl.textContent = '🎙';
+    if (labelEl) labelEl.textContent = 'Слушаю…';
+    _voiceSay('Скажи «включи белый шум», «поставь колыбельные»…', '');
+
+    rec.onresult = (e) => {
+      const alts = [];
+      for (let i = 0; i < e.results[0].length; i++) alts.push(e.results[0][i].transcript);
+      const heard = alts[0];
+      _voiceSay('Услышал: «' + heard + '»', 'heard');
+      // Пробуем все варианты, вдруг лучший не сматчился
+      let hit = null;
+      for (const alt of alts) {
+        hit = _voiceMatchTrack(alt);
+        if (hit) break;
+      }
+      if (hit) {
+        _voiceSay('▶ Включаю «' + hit.label + '»', 'heard');
+        playYt(hit.id, hit.type);
+      } else {
+        _voiceSay('Не понял. Попробуй: «белый шум», «колыбельные», «моцарт», «дождь», «лофи»…', 'error');
+      }
+    };
+    rec.onerror = (e) => {
+      _voiceSay('Ошибка: ' + e.error + (e.error === 'not-allowed' ? ' — разреши микрофон в браузере' : ''), 'error');
+    };
+    rec.onend = () => {
+      btn.classList.remove('listening');
+      if (iconEl) iconEl.textContent = '🎤';
+      if (labelEl) labelEl.textContent = 'Скажи что включить';
+      _voiceRec = null;
+    };
+    try { rec.start(); }
+    catch(e) { _voiceSay('Не могу запустить: ' + e.message, 'error'); }
+  }
+
+  function _voiceSay(msg, cls) {
+    const s = document.getElementById('voiceStatus');
+    if (!s) return;
+    s.textContent = msg;
+    s.classList.remove('heard', 'error');
+    if (cls) s.classList.add(cls);
+  }
+
+  function _voiceMatchTrack(text) {
+    const t = String(text || '').toLowerCase().replace(/ё/g, 'е').trim();
+    if (!t) return null;
+    const all = [...YT_QUICK_BABY, ...YT_QUICK_PARENTS];
+    // Ищем наилучшее совпадение
+    let best = null, bestScore = 0;
+    for (const track of all) {
+      for (const k of track.keys) {
+        const key = k.toLowerCase().replace(/ё/g,'е');
+        if (t.includes(key)) {
+          const score = key.length;
+          if (score > bestScore) { best = track; bestScore = score; }
+        }
+      }
+      // Совпадение с меткой (Синий трактор → «синий трактор»)
+      const lab = track.label.toLowerCase().replace(/ё/g,'е');
+      if (t.includes(lab) && lab.length > bestScore) { best = track; bestScore = lab.length; }
+    }
+    return best;
   }
 
   // ============ ПЛАН КВАРТИРЫ ============
