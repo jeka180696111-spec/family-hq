@@ -980,6 +980,122 @@
     font-size: 13px;
   }
 
+  /* ═══ Spotify UI ═══ */
+  .sp-user-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line-soft);
+    margin-bottom: 14px;
+  }
+  .sp-user-avatar {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #1DB954, #1ed760);
+    object-fit: cover;
+  }
+  .sp-user-name {
+    flex: 1;
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 500;
+  }
+  .sp-lib-tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--card-hi);
+    border-radius: 10px;
+    padding: 3px;
+    margin: 14px 0;
+  }
+  .sp-tab {
+    flex: 1;
+    background: transparent;
+    border: 0;
+    color: var(--text-dim);
+    padding: 8px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+  }
+  .sp-tab.active {
+    background: #1DB954;
+    color: #0a0f0a;
+    font-weight: 500;
+  }
+  .sp-content {
+    min-height: 200px;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+  .sp-loading {
+    text-align: center;
+    color: var(--text-mute);
+    padding: 30px;
+    font-size: 13px;
+  }
+  .sp-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .sp-item:hover { background: var(--card-hi); }
+  .sp-item-cover {
+    width: 44px; height: 44px;
+    border-radius: 6px;
+    background: var(--card-hi);
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+  .sp-item-body { flex: 1; min-width: 0; }
+  .sp-item-title {
+    font-size: 13px;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sp-item-sub {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sp-item-play {
+    background: transparent;
+    border: 1px solid #1DB954;
+    color: #1DB954;
+    padding: 6px 12px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  .sp-item-play:hover { background: #1DB954; color: #0a0f0a; }
+  .sp-embed {
+    margin-top: 16px;
+    background: #000;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .sp-embed iframe { display: block; border-radius: 12px; }
+  .sp-section-title {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    padding: 8px 10px 4px;
+  }
+
   /* Голосовое управление */
   .mp-yt-voice {
     margin-bottom: 14px;
@@ -3232,75 +3348,71 @@
       </div>
     </div>
 
-    <!-- Apple Music панель -->
-    <div class="music-panel" id="musicApplePanel">
-      <!-- Не настроено (нет ключей на сервере) -->
-      <div class="music-setup" id="musicSetupBox" style="display:none">
+    <!-- Spotify панель -->
+    <div class="music-panel" id="musicSpotifyPanel">
+      <!-- Не настроено — нет ключей на сервере -->
+      <div class="music-setup" id="spSetupBox" style="display:none">
         <div class="setup-em">🔑</div>
-        <div class="setup-title">Apple Music ещё не подключён</div>
-        <div class="setup-hint" id="musicSetupHint">
-          Чтобы работал плеер, добавь на сервер (Railway → Variables):
+        <div class="setup-title">Spotify не подключён</div>
+        <div class="setup-hint" id="spSetupHint">
+          В Railway → Variables добавь:
           <ol>
-            <li><b>APPLE_MUSIC_TEAM_ID</b> — 10 символов, из developer.apple.com</li>
-            <li><b>APPLE_MUSIC_KEY_ID</b> — 10 символов, ID сгенерированного ключа</li>
-            <li><b>APPLE_MUSIC_KEY_P8</b> — содержимое .p8 файла (можно одной строкой)</li>
+            <li><b>SPOTIFY_CLIENT_ID</b></li>
+            <li><b>SPOTIFY_CLIENT_SECRET</b></li>
+            <li><b>SPOTIFY_REDIRECT_BASE</b> — публичный URL приложения</li>
           </ol>
-          После — просто обнови эту страницу.
+          После — обнови эту страницу.
         </div>
       </div>
 
-      <!-- Не авторизован (ключи есть, но пользователь ещё не залогинился) -->
-      <div class="music-login" id="musicLoginBox" style="display:none">
-        <div class="setup-em">🍎</div>
-        <div class="setup-title">Войди в Apple Music</div>
-        <div class="setup-hint">Один раз введёшь пароль Apple ID — планшет запомнит.<br>
-        Нужна активная подписка Apple Music (Individual или Family).</div>
-        <button class="music-login-btn" onclick="appleMusicLogin()">🍎 Войти</button>
+      <!-- Не авторизован -->
+      <div class="music-login" id="spLoginBox" style="display:none">
+        <div class="setup-em">🟢</div>
+        <div class="setup-title">Войди в Spotify</div>
+        <div class="setup-hint">Раз войдёшь — планшет запомнит и будет играть твои плейлисты.</div>
+        <button class="music-login-btn" onclick="spotifyLogin()" style="background:#1DB954;color:white">🟢 Войти в Spotify</button>
       </div>
 
       <!-- Загрузка -->
-      <div class="music-loading" id="musicLoadingBox">
+      <div class="music-loading" id="spLoadingBox">
         <div class="setup-em">⏳</div>
-        Проверяю Apple Music…
+        Проверяю Spotify…
       </div>
 
-      <!-- Плеер -->
-      <div class="music-player" id="musicPlayerBox" style="display:none">
-        <div class="mp-hero">
-          <img class="mp-art" id="mpArt" src="" alt="" onerror="this.style.visibility='hidden'">
-          <div class="mp-track" id="mpTrack">—</div>
-          <div class="mp-artist" id="mpArtist">—</div>
-          <div class="mp-progress"><div class="mp-progress-fill" id="mpFill"></div></div>
-          <div class="mp-times"><span id="mpCur">0:00</span><span id="mpDur">0:00</span></div>
+      <!-- Основной интерфейс -->
+      <div class="music-player" id="spPlayerBox" style="display:none">
+        <!-- Профиль -->
+        <div class="sp-user-row">
+          <img class="sp-user-avatar" id="spUserAvatar" src="" alt="">
+          <div class="sp-user-name" id="spUserName">—</div>
+          <button class="mp-logout" onclick="spotifyLogout()">Выйти</button>
         </div>
 
-        <div class="mp-controls">
-          <button class="mp-btn" onclick="applePrev()">⏮</button>
-          <button class="mp-btn mp-play" id="mpPlayBtn" onclick="applePlayPause()">▶</button>
-          <button class="mp-btn" onclick="appleNext()">⏭</button>
-        </div>
-
-        <div class="mp-quick">
-          <div class="mp-quick-title">Быстрые плейлисты</div>
-          <div class="mp-quick-items">
-            <button class="mp-quick-btn" onclick="playAppleSearch('колыбельные baby lullaby')">🌙 Колыбельные</button>
-            <button class="mp-quick-btn" onclick="playAppleSearch('classical for baby')">🎼 Классика для малыша</button>
-            <button class="mp-quick-btn" onclick="playAppleSearch('white noise baby sleep')">🌊 Белый шум</button>
-            <button class="mp-quick-btn" onclick="playAppleSearch('nature sounds')">🌲 Звуки природы</button>
-            <button class="mp-quick-btn" onclick="playAppleSearch('детские песни')">👶 Детские песни</button>
-          </div>
-        </div>
-
+        <!-- Поиск -->
         <div class="mp-search">
-          <input type="text" id="mpSearchInput" class="mp-search-input"
-                 placeholder="Найти песню, альбом, исполнителя…"
-                 onkeydown="if(event.key==='Enter') playAppleSearch(this.value)">
-          <button class="mp-search-btn" onclick="playAppleSearch(document.getElementById('mpSearchInput').value)">🔍</button>
+          <input type="text" id="spSearchInput" class="mp-search-input"
+                 placeholder="🔍 Найти песню, альбом, исполнителя, плейлист…"
+                 onkeydown="if(event.key==='Enter') spSearch(this.value)">
+          <button class="mp-search-btn" style="background:#1DB954;color:white" onclick="spSearch(document.getElementById('spSearchInput').value)">🔍</button>
         </div>
 
-        <div class="mp-user">
-          <span id="mpUserStatus">🍎 Подключено</span>
-          <button class="mp-logout" onclick="appleMusicLogout()">Выйти</button>
+        <!-- Табы Библиотека / Плейлисты / Поиск -->
+        <div class="sp-lib-tabs">
+          <button class="sp-tab active" data-tab="playlists" onclick="spSwitchTab('playlists')">📁 Мои плейлисты</button>
+          <button class="sp-tab" data-tab="liked" onclick="spSwitchTab('liked')">💚 Мне нравится</button>
+          <button class="sp-tab" data-tab="search" onclick="spSwitchTab('search')" style="display:none" id="spSearchTab">🔍 Результаты</button>
+        </div>
+
+        <!-- Контент табов -->
+        <div class="sp-content" id="spContent">
+          <div class="sp-loading">Загружаю…</div>
+        </div>
+
+        <!-- Embed-плеер играющего трека/плейлиста (внизу) -->
+        <div class="sp-embed" id="spEmbed" style="display:none">
+          <iframe id="spEmbedFrame" src="" width="100%" height="152" frameborder="0"
+                  allowtransparency="true" allow="autoplay; encrypted-media; picture-in-picture"
+                  loading="lazy"></iframe>
         </div>
       </div>
     </div>
@@ -4520,189 +4632,220 @@ document.querySelectorAll('.shop-item').forEach(item => {
   // loadGrowth() вызывается при открытии страницы «Матвей крупно» (см. switchPage)
 
   // ============ ПЛЕЕР ============
-  let _musicSource = 'apple';
-  let _musicKitLoaded = false;
-  let _musicKitConfigured = false;
-  let _musicInst = null;
-  let _musicDevToken = null;
-  let _mpProgressTimer = null;
+  let _musicSource = 'spotify';
 
   function switchMusicSource(src) {
     _musicSource = src;
     document.querySelectorAll('.music-source-tabs .src-tab').forEach(t =>
       t.classList.toggle('active', t.dataset.src === src));
-    document.getElementById('musicApplePanel').style.display = src === 'apple' ? '' : 'none';
+    document.getElementById('musicSpotifyPanel').style.display = src === 'spotify' ? '' : 'none';
     document.getElementById('musicYoutubePanel').style.display = src === 'youtube' ? '' : 'none';
   }
 
   async function loadMusic() {
     switchMusicSource(_musicSource);
-    if (_musicSource === 'apple') await _initApple();
+    if (_musicSource === 'spotify') await _initSpotify();
   }
 
-  function _showMusicBox(which) {
-    for (const id of ['musicSetupBox','musicLoginBox','musicLoadingBox','musicPlayerBox']) {
+  function _showSpBox(which) {
+    for (const id of ['spSetupBox','spLoginBox','spLoadingBox','spPlayerBox']) {
       const el = document.getElementById(id);
       if (el) el.style.display = id === which ? '' : 'none';
     }
   }
 
-  async function _fetchMusicToken() {
-    try {
-      const r = await apiGet('/api/tablet/music/token');
-      if (r && r.configured && r.token) { _musicDevToken = r.token; return r; }
-      return r || {configured: false, reason: 'ошибка сервера'};
-    } catch(e) {
-      return { configured: false, reason: e.message || String(e) };
-    }
-  }
+  // ═══ Spotify ═══
+  let _spCurrentTab = 'playlists';
+  let _spPlaylistsCache = null;
+  let _spLikedCache = null;
 
-  function _loadMusicKit() {
-    if (_musicKitLoaded) return Promise.resolve();
-    return new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = 'https://js-cdn.music.apple.com/musickit/v3/musickit.js';
-      s.async = true;
-      s.dataset.web_components = '';
-      s.onload = () => { _musicKitLoaded = true; resolve(); };
-      s.onerror = () => reject(new Error('MusicKit JS не загрузился'));
-      document.head.appendChild(s);
-    });
-  }
+  async function _initSpotify() {
+    _showSpBox('spLoadingBox');
+    let status;
+    try { status = await apiGet('/api/tablet/spotify/status'); }
+    catch(e) { status = { configured: false, reason: e.message || String(e) }; }
 
-  async function _initApple() {
-    _showMusicBox('musicLoadingBox');
-
-    const info = await _fetchMusicToken();
-    if (!info.configured) {
-      const hint = document.getElementById('musicSetupHint');
-      if (hint && info.reason) {
-        hint.innerHTML = '<b style="color:var(--coral)">' + info.reason + '</b><br><br>' + hint.innerHTML;
+    if (!status.configured) {
+      const hint = document.getElementById('spSetupHint');
+      if (hint && status.reason) {
+        hint.innerHTML = '<b style="color:var(--coral)">' + status.reason + '</b><br><br>' + hint.innerHTML;
       }
-      _showMusicBox('musicSetupBox');
+      _showSpBox('spSetupBox');
       return;
     }
-
-    try { await _loadMusicKit(); }
-    catch(e) {
-      const hint = document.getElementById('musicSetupHint');
-      if (hint) hint.textContent = 'MusicKit JS не загрузился: ' + e.message;
-      _showMusicBox('musicSetupBox');
+    if (!status.authorized) {
+      _showSpBox('spLoginBox');
       return;
     }
+    // Всё ок — грузим профиль и плейлисты
+    _showSpBox('spPlayerBox');
+    _spLoadProfile();
+    spSwitchTab('playlists');
+  }
 
-    // MusicKit v3 использует событие 'musickitloaded'
-    if (!window.MusicKit) {
-      await new Promise(r => document.addEventListener('musickitloaded', r, { once: true }));
-    }
-
-    if (!_musicKitConfigured) {
-      try {
-        await MusicKit.configure({
-          developerToken: _musicDevToken,
-          app: { name: 'Family HQ', build: '1.0' },
-        });
-        _musicKitConfigured = true;
-      } catch(e) {
-        const hint = document.getElementById('musicSetupHint');
-        if (hint) hint.textContent = 'Configure error: ' + (e.message||e);
-        _showMusicBox('musicSetupBox');
-        return;
+  function spotifyLogin() {
+    // Открываем окно OAuth (сам сервер сделает редирект на Spotify)
+    const url = '/api/tablet/spotify/login?token=' + encodeURIComponent(TOKEN);
+    const w = window.open(url, 'spotifyLogin', 'width=500,height=700');
+    // После callback окно само закроется — проверяем каждые 2 сек
+    const timer = setInterval(async () => {
+      if (w && w.closed) {
+        clearInterval(timer);
+        await _initSpotify();
       }
-    }
-
-    _musicInst = MusicKit.getInstance();
-    if (_musicInst.isAuthorized) _showPlayer();
-    else _showMusicBox('musicLoginBox');
-
-    // Слушаем изменение now-playing
-    _musicInst.addEventListener('playbackStateDidChange', _updateNowPlaying);
-    _musicInst.addEventListener('nowPlayingItemDidChange', _updateNowPlaying);
+    }, 1500);
   }
 
-  function _showPlayer() {
-    _showMusicBox('musicPlayerBox');
-    _updateNowPlaying();
-    if (_mpProgressTimer) clearInterval(_mpProgressTimer);
-    _mpProgressTimer = setInterval(_updateProgress, 500);
-  }
-
-  async function appleMusicLogin() {
-    if (!_musicInst) return;
+  async function spotifyLogout() {
+    if (!confirm('Выйти из Spotify?')) return;
     try {
-      await _musicInst.authorize();
-      _showPlayer();
-    } catch(e) {
-      alert('Не удалось войти: ' + (e.message||e));
-    }
-  }
-  async function appleMusicLogout() {
-    if (!_musicInst) return;
-    await _musicInst.unauthorize();
-    _showMusicBox('musicLoginBox');
-    if (_mpProgressTimer) { clearInterval(_mpProgressTimer); _mpProgressTimer = null; }
+      await fetch('/api/tablet/spotify/logout?token=' + encodeURIComponent(TOKEN));
+      _spPlaylistsCache = null;
+      _spLikedCache = null;
+      await _initSpotify();
+    } catch(e) { alert('Ошибка: ' + (e.message||e)); }
   }
 
-  function _updateNowPlaying() {
-    if (!_musicInst) return;
-    const item = _musicInst.nowPlayingItem;
-    const playBtn = document.getElementById('mpPlayBtn');
-    if (playBtn) playBtn.textContent = _musicInst.playbackState === 2 ? '⏸' : '▶';
-    if (!item) return;
-    const attrs = item.attributes || {};
-    document.getElementById('mpTrack').textContent = attrs.name || item.title || '—';
-    document.getElementById('mpArtist').textContent =
-      (attrs.artistName || item.artistName || '') +
-      (attrs.albumName ? ' · ' + attrs.albumName : '');
-    const art = attrs.artwork;
-    const artEl = document.getElementById('mpArt');
-    if (art && artEl) {
-      const url = art.url.replace('{w}', '400').replace('{h}', '400');
-      artEl.src = url; artEl.style.visibility = 'visible';
-    }
-  }
-  function _updateProgress() {
-    if (!_musicInst || !_musicInst.nowPlayingItem) return;
-    const cur = _musicInst.currentPlaybackTime || 0;
-    const dur = _musicInst.currentPlaybackDuration || 0;
-    const pct = dur > 0 ? Math.min(100, (cur / dur) * 100) : 0;
-    const fmt = (s) => Math.floor(s/60) + ':' + String(Math.floor(s%60)).padStart(2,'0');
-    document.getElementById('mpFill').style.width = pct + '%';
-    document.getElementById('mpCur').textContent = fmt(cur);
-    document.getElementById('mpDur').textContent = fmt(dur);
-  }
-
-  async function applePlayPause() {
-    if (!_musicInst) return;
-    if (_musicInst.playbackState === 2) await _musicInst.pause();
-    else await _musicInst.play();
-    _updateNowPlaying();
-  }
-  async function appleNext() { if (_musicInst) await _musicInst.skipToNextItem(); }
-  async function applePrev() { if (_musicInst) await _musicInst.skipToPreviousItem(); }
-
-  async function playAppleSearch(query) {
-    if (!_musicInst || !query.trim()) return;
+  async function _spLoadProfile() {
     try {
-      const res = await _musicInst.api.music('/v1/catalog/{{storefrontId}}/search'.replace('{{storefrontId}}', _musicInst.storefrontId || 'us'), {
-        term: query, types: 'songs,playlists', limit: 5,
-      });
-      const results = res.data.results;
-      // Приоритет: playlist → songs
-      const playlist = results.playlists?.data?.[0];
-      const song = results.songs?.data?.[0];
-      if (playlist) {
-        await _musicInst.setQueue({ playlist: playlist.id });
-        await _musicInst.play();
-      } else if (song) {
-        await _musicInst.setQueue({ song: song.id });
-        await _musicInst.play();
-      } else {
-        alert('Ничего не найдено');
+      const me = await apiGet('/api/tablet/spotify/me');
+      document.getElementById('spUserName').textContent = me.display_name || me.email || 'Spotify';
+      const av = me.images?.[0]?.url;
+      if (av) document.getElementById('spUserAvatar').src = av;
+    } catch(e) { console.warn('sp me failed', e); }
+  }
+
+  function spSwitchTab(tab) {
+    _spCurrentTab = tab;
+    document.querySelectorAll('.sp-tab').forEach(t =>
+      t.classList.toggle('active', t.dataset.tab === tab));
+    const content = document.getElementById('spContent');
+    content.innerHTML = '<div class="sp-loading">Загружаю…</div>';
+    if (tab === 'playlists') _spRenderPlaylists();
+    else if (tab === 'liked') _spRenderLiked();
+    else if (tab === 'search') { /* результаты уже отрисованы после поиска */ }
+  }
+
+  async function _spRenderPlaylists() {
+    try {
+      if (!_spPlaylistsCache) {
+        const data = await apiGet('/api/tablet/spotify/playlists');
+        _spPlaylistsCache = data.items || [];
       }
+      const html = _spPlaylistsCache.map(p => `
+        <div class="sp-item" onclick="spPlay('playlist','${p.id}')">
+          <img class="sp-item-cover" src="${p.images?.[0]?.url || ''}" onerror="this.style.visibility='hidden'">
+          <div class="sp-item-body">
+            <div class="sp-item-title">${escapeHtml(p.name || '')}</div>
+            <div class="sp-item-sub">${p.tracks?.total || 0} треков · ${escapeHtml(p.owner?.display_name || '')}</div>
+          </div>
+          <button class="sp-item-play" onclick="event.stopPropagation();spPlay('playlist','${p.id}')">▶ Играть</button>
+        </div>
+      `).join('');
+      document.getElementById('spContent').innerHTML = html || '<div class="sp-loading">У тебя пока нет плейлистов</div>';
     } catch(e) {
-      alert('Ошибка: ' + (e.message||e));
+      document.getElementById('spContent').innerHTML = '<div class="sp-loading" style="color:var(--coral)">Ошибка: ' + e.message + '</div>';
     }
+  }
+
+  async function _spRenderLiked() {
+    try {
+      if (!_spLikedCache) {
+        const data = await apiGet('/api/tablet/spotify/liked');
+        _spLikedCache = data.items || [];
+      }
+      const html = _spLikedCache.map(it => {
+        const t = it.track || {};
+        const img = t.album?.images?.[0]?.url;
+        const artists = (t.artists || []).map(a => a.name).join(', ');
+        return `
+          <div class="sp-item" onclick="spPlay('track','${t.id}')">
+            <img class="sp-item-cover" src="${img || ''}" onerror="this.style.visibility='hidden'">
+            <div class="sp-item-body">
+              <div class="sp-item-title">${escapeHtml(t.name || '')}</div>
+              <div class="sp-item-sub">${escapeHtml(artists)} · ${escapeHtml(t.album?.name || '')}</div>
+            </div>
+            <button class="sp-item-play" onclick="event.stopPropagation();spPlay('track','${t.id}')">▶</button>
+          </div>
+        `;
+      }).join('');
+      document.getElementById('spContent').innerHTML = html || '<div class="sp-loading">Ты ещё ничего не лайкнул</div>';
+    } catch(e) {
+      document.getElementById('spContent').innerHTML = '<div class="sp-loading" style="color:var(--coral)">Ошибка: ' + e.message + '</div>';
+    }
+  }
+
+  async function spSearch(query) {
+    query = String(query || '').trim();
+    if (!query) return;
+    document.getElementById('spSearchTab').style.display = '';
+    spSwitchTab('search');
+    document.getElementById('spContent').innerHTML = '<div class="sp-loading">Ищу «' + escapeHtml(query) + '»…</div>';
+    try {
+      const data = await apiGet('/api/tablet/spotify/search?q=' + encodeURIComponent(query));
+      const sections = [];
+      if (data.tracks?.items?.length) {
+        sections.push('<div class="sp-section-title">🎵 Треки</div>');
+        for (const t of data.tracks.items.slice(0, 5)) {
+          const img = t.album?.images?.[0]?.url;
+          const artists = (t.artists || []).map(a => a.name).join(', ');
+          sections.push(`
+            <div class="sp-item" onclick="spPlay('track','${t.id}')">
+              <img class="sp-item-cover" src="${img || ''}" onerror="this.style.visibility='hidden'">
+              <div class="sp-item-body">
+                <div class="sp-item-title">${escapeHtml(t.name || '')}</div>
+                <div class="sp-item-sub">${escapeHtml(artists)}</div>
+              </div>
+              <button class="sp-item-play" onclick="event.stopPropagation();spPlay('track','${t.id}')">▶</button>
+            </div>`);
+        }
+      }
+      if (data.albums?.items?.length) {
+        sections.push('<div class="sp-section-title">💿 Альбомы</div>');
+        for (const a of data.albums.items.slice(0, 3)) {
+          const img = a.images?.[0]?.url;
+          const artists = (a.artists || []).map(x => x.name).join(', ');
+          sections.push(`
+            <div class="sp-item" onclick="spPlay('album','${a.id}')">
+              <img class="sp-item-cover" src="${img || ''}" onerror="this.style.visibility='hidden'">
+              <div class="sp-item-body">
+                <div class="sp-item-title">${escapeHtml(a.name || '')}</div>
+                <div class="sp-item-sub">${escapeHtml(artists)} · альбом</div>
+              </div>
+              <button class="sp-item-play" onclick="event.stopPropagation();spPlay('album','${a.id}')">▶</button>
+            </div>`);
+        }
+      }
+      if (data.playlists?.items?.length) {
+        sections.push('<div class="sp-section-title">📁 Плейлисты</div>');
+        for (const p of data.playlists.items.slice(0, 3)) {
+          if (!p) continue;
+          const img = p.images?.[0]?.url;
+          sections.push(`
+            <div class="sp-item" onclick="spPlay('playlist','${p.id}')">
+              <img class="sp-item-cover" src="${img || ''}" onerror="this.style.visibility='hidden'">
+              <div class="sp-item-body">
+                <div class="sp-item-title">${escapeHtml(p.name || '')}</div>
+                <div class="sp-item-sub">${escapeHtml(p.owner?.display_name || '')} · плейлист</div>
+              </div>
+              <button class="sp-item-play" onclick="event.stopPropagation();spPlay('playlist','${p.id}')">▶</button>
+            </div>`);
+        }
+      }
+      document.getElementById('spContent').innerHTML = sections.join('') || '<div class="sp-loading">Ничего не найдено</div>';
+    } catch(e) {
+      document.getElementById('spContent').innerHTML = '<div class="sp-loading" style="color:var(--coral)">Ошибка: ' + e.message + '</div>';
+    }
+  }
+
+  // Воспроизведение через официальный embed-плеер Spotify (работает на free)
+  function spPlay(type, id) {
+    const url = `https://open.spotify.com/embed/${type}/${id}?utm_source=generator&theme=0`;
+    const iframe = document.getElementById('spEmbedFrame');
+    iframe.src = url;
+    document.getElementById('spEmbed').style.display = '';
+    // Прокрутить к плееру
+    document.getElementById('spEmbed').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
   // ── YouTube плеер (звук + обложка, как в Spotify) ──
