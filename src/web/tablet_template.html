@@ -1126,11 +1126,13 @@
   }
 
   /* Мини-плеер на главном экране */
-  /* Мини-плеер — всегда плавающий, перетаскиваемый */
+  /* Мини-плеер — всегда плавающий, перетаскиваемый.
+     Привязан к контейнеру .tablet (макс. 1400px), а не к вьюпорту:
+     на широких экранах внутри карточки, а не по краю окна. */
   .mini-music-card {
     position: fixed;
     bottom: 12px;
-    left: 12px;
+    left: max(12px, calc(50vw - 700px + 12px));
     width: 360px;
     max-width: calc(100vw - 24px);
     background: linear-gradient(135deg, rgba(29, 185, 84, 0.15), var(--card));
@@ -1175,7 +1177,7 @@
   .mini-show-btn {
     position: fixed;
     bottom: 20px;
-    left: 20px;
+    left: max(20px, calc(50vw - 700px + 20px));
     width: 52px; height: 52px;
     border-radius: 50%;
     background: linear-gradient(135deg, #1DB954, #1ed760);
@@ -5071,10 +5073,11 @@ document.querySelectorAll('.shop-item').forEach(item => {
         const { x, y } = JSON.parse(posRaw);
         const card = document.getElementById('miniMusicCard');
         if (card && Number.isFinite(x) && Number.isFinite(y)) {
-          // Если позиция вылетает за экран (было привязано к правому углу
-          // при прошлом рендере) — сбрасываем на новый дефолт (левый нижний)
+          // Если позиция вылетает за границы контейнера .tablet — сбрасываем
           const w = 360, h = 220;
-          if (x + w > window.innerWidth || y + h > window.innerHeight || x < 0 || y < 0) {
+          const containerLeft = Math.max(0, (window.innerWidth - 1400) / 2);
+          const containerRight = Math.min(window.innerWidth, containerLeft + 1400);
+          if (x + w > containerRight || y + h > window.innerHeight || x < containerLeft || y < 0) {
             localStorage.removeItem('miniPos');
           } else {
             card.style.left = x + 'px'; card.style.top = y + 'px';
@@ -5143,9 +5146,11 @@ document.querySelectorAll('.shop-item').forEach(item => {
       if (!dragging) return;
       let nx = ox + (clientX - sx);
       let ny = oy + (clientY - sy);
-      // Ограничиваем экраном
+      // Ограничиваем контейнером .tablet (макс 1400px, по центру)
       const w = card.offsetWidth, h = card.offsetHeight;
-      nx = Math.max(0, Math.min(window.innerWidth  - w, nx));
+      const containerLeft = Math.max(0, (window.innerWidth - 1400) / 2);
+      const containerRight = Math.min(window.innerWidth, containerLeft + 1400);
+      nx = Math.max(containerLeft, Math.min(containerRight - w, nx));
       ny = Math.max(0, Math.min(window.innerHeight - h, ny));
       card.style.left = nx + 'px';
       card.style.top  = ny + 'px';
