@@ -1095,7 +1095,8 @@
   .sp-item-play:hover { background: #1DB954; color: #0a0f0a; }
   .sp-embed {
     margin-top: 16px;
-    background: #000;
+    background: var(--card-hi);
+    border: 1px solid var(--line);
     border-radius: 12px;
     overflow: hidden;
   }
@@ -1116,7 +1117,7 @@
   .mini-music-embed {
     border-radius: 10px;
     overflow: hidden;
-    background: #000;
+    background: var(--card-hi);
   }
   .mini-music-embed iframe { display: block; }
   .mini-music-empty {
@@ -3046,8 +3047,8 @@
         <button class="btn-more" onclick="switchPage('music')">открыть →</button>
       </div>
       <div class="mini-music-embed">
-        <iframe id="miniSpEmbed" src="" width="100%" height="80" frameborder="0"
-                allowtransparency="true" allow="autoplay; encrypted-media"
+        <iframe id="miniSpEmbed" src="" width="100%" height="152" frameborder="0"
+                allowtransparency="true" allow="autoplay; encrypted-media; picture-in-picture"
                 loading="lazy"></iframe>
       </div>
       <div class="mini-music-empty" id="miniMusicEmpty">
@@ -4908,35 +4909,46 @@ document.querySelectorAll('.shop-item').forEach(item => {
     }
   }
 
+  // Определяем текущую тему приложения — Spotify embed поддерживает
+  // 2 варианта: theme=0 (тёмный) и theme=1 (светлый).
+  function _spEmbedTheme() {
+    // Тема хранится в data-theme на <html>
+    const t = document.documentElement.getAttribute('data-theme');
+    if (t === 'light') return 1;
+    if (t === 'dark') return 0;
+    const prefersLight = window.matchMedia?.('(prefers-color-scheme: light)').matches;
+    return prefersLight ? 1 : 0;
+  }
+  function _spEmbedUrl(type, id) {
+    return `https://open.spotify.com/embed/${type}/${id}?utm_source=generator&theme=${_spEmbedTheme()}`;
+  }
+
   // Воспроизведение через официальный embed-плеер Spotify (работает на free)
   function spPlay(type, id) {
-    const url = `https://open.spotify.com/embed/${type}/${id}?utm_source=generator&theme=0`;
-    // Большой плеер внутри Spotify-страницы
+    const url = _spEmbedUrl(type, id);
     const iframe = document.getElementById('spEmbedFrame');
     if (iframe) {
       iframe.src = url;
       document.getElementById('spEmbed').style.display = '';
       document.getElementById('spEmbed').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
-    // Мини-плеер на Обзоре — тот же embed в компактном виде (80px)
     const mini = document.getElementById('miniSpEmbed');
     if (mini) {
       mini.src = url;
       document.getElementById('miniMusicCard').style.display = '';
       document.getElementById('miniMusicEmpty').style.display = 'none';
-      // Сохраняем последний в localStorage чтоб при перезагрузке восстановить
       try { localStorage.setItem('lastSpTrack', JSON.stringify({ type, id })); } catch(e) {}
     }
   }
 
-  // При загрузке — если что-то играло, восстанавливаем мини-плеер
+  // Восстанавливаем мини-плеер при загрузке
   (function _restoreMini() {
     try {
       const raw = localStorage.getItem('lastSpTrack');
       if (!raw) return;
       const { type, id } = JSON.parse(raw);
       if (!type || !id) return;
-      const url = `https://open.spotify.com/embed/${type}/${id}?utm_source=generator&theme=0`;
+      const url = _spEmbedUrl(type, id);
       const mini = document.getElementById('miniSpEmbed');
       if (mini) {
         mini.src = url;
@@ -4945,6 +4957,29 @@ document.querySelectorAll('.shop-item').forEach(item => {
       }
     } catch(e){}
   })();
+
+  // При смене темы приложения — перезагружаем iframe Spotify в новой теме
+  function _reloadSpotifyEmbedsForTheme() {
+    const raw = localStorage.getItem('lastSpTrack');
+    if (!raw) return;
+    try {
+      const { type, id } = JSON.parse(raw);
+      if (!type || !id) return;
+      const url = _spEmbedUrl(type, id);
+      const mini = document.getElementById('miniSpEmbed');
+      const big = document.getElementById('spEmbedFrame');
+      if (mini && mini.src) mini.src = url;
+      if (big && big.src) big.src = url;
+    } catch(e){}
+  }
+  // Слушаем изменение data-theme на <html>
+  if (window.MutationObserver) {
+    let _lastTheme = _spEmbedTheme();
+    new MutationObserver(() => {
+      const cur = _spEmbedTheme();
+      if (cur !== _lastTheme) { _lastTheme = cur; _reloadSpotifyEmbedsForTheme(); }
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  }
 
   // ── YouTube плеер (звук + обложка, как в Spotify) ──
   // Популярные треки/плейлисты — можно расширять
