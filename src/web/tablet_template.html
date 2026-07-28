@@ -54,6 +54,10 @@
     padding: 20px;
     transition: background 0.3s, color 0.3s;
   }
+  @media (max-width: 600px) {
+    body { padding: 6px; }
+    .tablet { padding: 12px; border-radius: 14px; }
+  }
   button { font-family: inherit; }
   .tablet {
     max-width: 1400px;
@@ -1132,7 +1136,7 @@
     position: fixed;
     bottom: 12px;
     left: max(12px, calc(50vw - 700px + 12px));
-    width: 360px;
+    width: min(360px, calc(100vw - 24px));
     max-width: calc(100vw - 24px);
     background: linear-gradient(135deg, rgba(29, 185, 84, 0.15), var(--card));
     border: 1px solid rgba(29, 185, 84, 0.35);
@@ -1336,6 +1340,11 @@
     height: auto;
     display: block;
     margin: 0 auto;
+  }
+  /* На мобилке — план крупнее по высоте (не сплющивается в узкую полоску) */
+  @media (max-width: 600px) {
+    .floorplan { min-height: 400px; }
+    .plan-wrap { padding: 8px; }
   }
   /* Комнаты — очень приглушённые, обводка светлее фона */
   .fp-room {
@@ -7282,6 +7291,12 @@ document.querySelectorAll('.shop-item').forEach(item => {
     'cardStates', 'autoDim', 'theme',
     'alertDismissedFor', 'tiredDismissedFor',
     'walkOutScene', 'walkBackScene',
+    // Синхронизируем настройки планшета между телефоном и компом
+    'planLayout',        // план квартиры + устройства
+    'ytFavs',            // избранные треки YouTube (историческое)
+    'lastSpTrack',       // последний трек в Спотифае
+    'miniPos', 'miniHidden',   // позиция и видимость плеера
+    'tabletPage',        // последняя открытая страница
   ];
   function _keyIsSynced(k) {
     return SYNC_KEYS.some(pref => k === pref || (pref.endsWith(':') && k.startsWith(pref)));
