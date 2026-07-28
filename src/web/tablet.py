@@ -1353,12 +1353,14 @@ def register_tablet_routes(
     # ─────────────────────────────────────────────────────────────────
     from fastapi.responses import RedirectResponse
 
+    # Без 'streaming' и 'user-library-modify' — эти scope в Development Mode
+    # приложения требуют Premium от владельца. Оставляем только read-scope,
+    # embed-плеер (open.spotify.com/embed) работает без streaming scope.
     _SPOTIFY_SCOPES = " ".join([
         "user-read-private", "user-read-email",
-        "user-library-read", "user-library-modify",
+        "user-library-read",
         "playlist-read-private", "playlist-read-collaborative",
         "user-read-recently-played", "user-top-read",
-        "streaming",  # для Web Playback SDK (только Premium)
     ])
 
     async def _get_spotify_token() -> dict | None:
