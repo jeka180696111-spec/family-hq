@@ -92,6 +92,15 @@ class Settings(BaseSettings):
     # SmartThings (Samsung POWERbot, other ST-connected devices)
     smartthings_token: str = Field(default="")
 
+    # Apple Music (MusicKit) — плеер на планшете
+    # Team ID (10 симв.), Key ID (10 симв.), приватный ключ .p8 файла
+    # (либо APPLE_MUSIC_KEY_P8 = весь текст ключа с "-----BEGIN PRIVATE KEY-----",
+    #  либо APPLE_MUSIC_KEY_PATH = путь до .p8 файла)
+    apple_music_team_id: str = Field(default="")
+    apple_music_key_id: str = Field(default="")
+    apple_music_key_p8: str = Field(default="")
+    apple_music_key_path: str = Field(default="")
+
     # OpenWeatherMap
     openweather_api_key: str = Field(default="")
 

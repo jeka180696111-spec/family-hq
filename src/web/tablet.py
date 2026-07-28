@@ -1252,4 +1252,61 @@ def register_tablet_routes(
             log.exception("tablet_growth_log_failed")
             return {"success": False, "error": str(e)[:200]}
 
+    # ─────────────────────────────────────────────────────────────────
+    # Apple Music — генерация developer token из .p8 ключа
+    # ─────────────────────────────────────────────────────────────────
+    _music_token_cache: dict = {"token": None, "exp": 0.0}
+
+    @app.get("/api/tablet/music/token")
+    async def tablet_music_token(token: str = Query("")):
+        _check_token(token, expected_token)
+        import time
+        team_id = (getattr(settings, "apple_music_team_id", "") or "").strip()
+        key_id  = (getattr(settings, "apple_music_key_id", "") or "").strip()
+        p8_text = (getattr(settings, "apple_music_key_p8", "") or "").strip()
+        p8_path = (getattr(settings, "apple_music_key_path", "") or "").strip()
+
+        if not team_id or not key_id or (not p8_text and not p8_path):
+            return {"configured": False, "reason": "Ключи Apple Music не настроены"}
+
+        if not p8_text and p8_path:
+            try:
+                with open(p8_path) as f: p8_text = f.read()
+            except Exception as e:
+                return {"configured": False, "reason": f"не могу прочитать key_path: {e}"}
+
+        # Нормализуем формат ключа (поддержка одной строки без переносов)
+        if "-----BEGIN" not in p8_text:
+            body = "".join(p8_text.split())
+            p8_text = "-----BEGIN PRIVATE KEY-----\n" + "\n".join(
+                body[i:i+64] for i in range(0, len(body), 64)
+            ) + "\n-----END PRIVATE KEY-----\n"
+
+        now = int(time.time())
+        # Токен валиден до 6 месяцев (максимум по Apple)
+        exp = now + int(60 * 60 * 24 * 180 * 0.95)  # 95% от 6 мес — обновляем заранее
+
+        cached = _music_token_cache
+        if cached["token"] and cached["exp"] - now > 60 * 60 * 24:
+            return {"configured": True, "token": cached["token"], "expires_at": cached["exp"]}
+
+        try:
+            import jwt as pyjwt
+        except ImportError:
+            return {"configured": False, "reason": "PyJWT не установлен на сервере"}
+
+        try:
+            token_str = pyjwt.encode(
+                payload={"iss": team_id, "iat": now, "exp": exp},
+                key=p8_text,
+                algorithm="ES256",
+                headers={"alg": "ES256", "kid": key_id},
+            )
+            _music_token_cache["token"] = token_str
+            _music_token_cache["exp"] = exp
+            return {"configured": True, "token": token_str, "expires_at": exp}
+        except Exception as e:
+            log.exception("apple_music_token_failed")
+            return {"configured": False, "reason": f"Ошибка подписи JWT: {str(e)[:150]}"}
+
     log.info("tablet_routes_registered")

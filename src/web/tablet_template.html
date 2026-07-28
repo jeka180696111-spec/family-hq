@@ -604,6 +604,254 @@
   .growth-legend .lg-baby { color: var(--amber); }
   .growth-legend .lg-band { color: rgba(212,160,74,0.5); }
 
+  /* ============ Плеер ============ */
+  .music-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .music-title {
+    font-family: ui-serif, Georgia, serif;
+    font-size: 26px;
+    color: var(--amber);
+  }
+  .music-source-tabs {
+    display: flex;
+    gap: 6px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 4px;
+  }
+  .music-source-tabs .src-tab {
+    background: transparent;
+    border: 0;
+    color: var(--text-dim);
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+  }
+  .music-source-tabs .src-tab.active {
+    background: var(--pink);
+    color: #1a1614;
+    font-weight: 500;
+  }
+  .music-source-tabs .src-tab[data-src="youtube"].active {
+    background: #ff6b5f;
+    color: white;
+  }
+
+  .music-panel {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  .music-setup, .music-login, .music-loading {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 40px 30px;
+    text-align: center;
+    color: var(--text-dim);
+  }
+  .setup-em { font-size: 48px; margin-bottom: 12px; }
+  .setup-title {
+    font-family: ui-serif, Georgia, serif;
+    font-size: 20px;
+    color: var(--text);
+    margin-bottom: 10px;
+  }
+  .setup-hint {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-dim);
+    max-width: 500px;
+    margin: 0 auto;
+    text-align: left;
+  }
+  .setup-hint ol { margin: 10px 0 0 20px; }
+  .setup-hint li { margin-bottom: 6px; }
+  .music-login-btn {
+    margin-top: 20px;
+    background: var(--amber);
+    color: #1a1200;
+    border: 0;
+    padding: 12px 28px;
+    border-radius: 12px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .music-player {
+    background: linear-gradient(160deg, rgba(217, 155, 176, 0.15), var(--card));
+    border: 1px solid rgba(217, 155, 176, 0.25);
+    border-radius: 16px;
+    padding: 24px;
+  }
+  .mp-hero {
+    text-align: center;
+    margin-bottom: 20px;
+  }
+  .mp-art {
+    width: 180px; height: 180px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #d99bb0, #a789c8);
+    box-shadow: 0 12px 30px rgba(217, 155, 176, 0.35);
+    margin-bottom: 16px;
+    object-fit: cover;
+  }
+  .mp-track {
+    font-family: ui-serif, Georgia, serif;
+    font-size: 20px;
+    color: var(--text);
+    line-height: 1.2;
+  }
+  .mp-artist {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+  .mp-progress {
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    margin: 20px 4px 6px;
+    overflow: hidden;
+  }
+  .mp-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--pink);
+    transition: width 0.3s;
+  }
+  .mp-times {
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: var(--text-dim);
+    padding: 0 4px;
+    font-family: ui-serif, Georgia, serif;
+  }
+  .mp-controls {
+    display: flex;
+    justify-content: center;
+    gap: 14px;
+    margin-top: 18px;
+  }
+  .mp-btn {
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid var(--line);
+    color: var(--text);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+  }
+  .mp-btn.mp-play {
+    width: 64px; height: 64px;
+    background: var(--pink);
+    color: #1a1614;
+    border: 0;
+    font-size: 22px;
+  }
+  .mp-quick { margin-top: 24px; }
+  .mp-quick-title {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  .mp-quick-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .mp-quick-btn {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--line);
+    color: var(--text);
+    padding: 10px 14px;
+    border-radius: 24px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+  }
+  .mp-quick-btn:hover { border-color: var(--pink); }
+
+  .mp-search, .mp-yt-input {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+  }
+  .mp-search-input {
+    flex: 1;
+    background: var(--card-hi);
+    border: 1px solid var(--line);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-family: inherit;
+    font-size: 13px;
+  }
+  .mp-search-input:focus { outline: none; border-color: var(--pink); }
+  .mp-search-btn {
+    background: var(--pink);
+    color: #1a1614;
+    border: 0;
+    padding: 10px 16px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .mp-user {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .mp-logout {
+    background: none;
+    border: 1px solid var(--line);
+    color: var(--text-dim);
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 11px;
+    font-family: inherit;
+  }
+
+  .mp-yt-frame {
+    margin-top: 16px;
+    aspect-ratio: 16 / 9;
+    background: var(--card-hi);
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .mp-yt-frame iframe { width: 100%; height: 100%; border: 0; }
+  .mp-yt-empty {
+    color: var(--text-mute);
+    font-size: 13px;
+    padding: 20px;
+    text-align: center;
+  }
+
   /* ============ План квартиры ============ */
   .plan-head {
     display: flex;
@@ -2637,12 +2885,11 @@
           Сегодня / пробовали / реакции
         </div>
       </div>
-      <div class="detail-tile disabled">
+      <div class="detail-tile" onclick="switchPage('music')">
         <div class="dt-title">Плеер</div>
         <div class="dt-body">
           <div class="dt-em">🎵</div>
           Apple Music + YouTube
-          <div class="dt-soon">скоро</div>
         </div>
       </div>
       <div class="detail-tile add-tile">
@@ -2761,6 +3008,112 @@
       </div>
     </div>
   </div><!-- /page-matvey -->
+
+  <!-- ============= PAGE: ПЛЕЕР ============= -->
+  <div class="page-view page-music" id="pageMusic">
+    <div class="music-head">
+      <div class="music-title">Плеер</div>
+      <div class="music-source-tabs">
+        <button class="src-tab active" data-src="apple" onclick="switchMusicSource('apple')">🍎 Apple Music</button>
+        <button class="src-tab" data-src="youtube" onclick="switchMusicSource('youtube')">▶ YouTube</button>
+      </div>
+    </div>
+
+    <!-- Apple Music панель -->
+    <div class="music-panel" id="musicApplePanel">
+      <!-- Не настроено (нет ключей на сервере) -->
+      <div class="music-setup" id="musicSetupBox" style="display:none">
+        <div class="setup-em">🔑</div>
+        <div class="setup-title">Apple Music ещё не подключён</div>
+        <div class="setup-hint" id="musicSetupHint">
+          Чтобы работал плеер, добавь на сервер (Railway → Variables):
+          <ol>
+            <li><b>APPLE_MUSIC_TEAM_ID</b> — 10 символов, из developer.apple.com</li>
+            <li><b>APPLE_MUSIC_KEY_ID</b> — 10 символов, ID сгенерированного ключа</li>
+            <li><b>APPLE_MUSIC_KEY_P8</b> — содержимое .p8 файла (можно одной строкой)</li>
+          </ol>
+          После — просто обнови эту страницу.
+        </div>
+      </div>
+
+      <!-- Не авторизован (ключи есть, но пользователь ещё не залогинился) -->
+      <div class="music-login" id="musicLoginBox" style="display:none">
+        <div class="setup-em">🍎</div>
+        <div class="setup-title">Войди в Apple Music</div>
+        <div class="setup-hint">Один раз введёшь пароль Apple ID — планшет запомнит.<br>
+        Нужна активная подписка Apple Music (Individual или Family).</div>
+        <button class="music-login-btn" onclick="appleMusicLogin()">🍎 Войти</button>
+      </div>
+
+      <!-- Загрузка -->
+      <div class="music-loading" id="musicLoadingBox">
+        <div class="setup-em">⏳</div>
+        Проверяю Apple Music…
+      </div>
+
+      <!-- Плеер -->
+      <div class="music-player" id="musicPlayerBox" style="display:none">
+        <div class="mp-hero">
+          <img class="mp-art" id="mpArt" src="" alt="" onerror="this.style.visibility='hidden'">
+          <div class="mp-track" id="mpTrack">—</div>
+          <div class="mp-artist" id="mpArtist">—</div>
+          <div class="mp-progress"><div class="mp-progress-fill" id="mpFill"></div></div>
+          <div class="mp-times"><span id="mpCur">0:00</span><span id="mpDur">0:00</span></div>
+        </div>
+
+        <div class="mp-controls">
+          <button class="mp-btn" onclick="applePrev()">⏮</button>
+          <button class="mp-btn mp-play" id="mpPlayBtn" onclick="applePlayPause()">▶</button>
+          <button class="mp-btn" onclick="appleNext()">⏭</button>
+        </div>
+
+        <div class="mp-quick">
+          <div class="mp-quick-title">Быстрые плейлисты</div>
+          <div class="mp-quick-items">
+            <button class="mp-quick-btn" onclick="playAppleSearch('колыбельные baby lullaby')">🌙 Колыбельные</button>
+            <button class="mp-quick-btn" onclick="playAppleSearch('classical for baby')">🎼 Классика для малыша</button>
+            <button class="mp-quick-btn" onclick="playAppleSearch('white noise baby sleep')">🌊 Белый шум</button>
+            <button class="mp-quick-btn" onclick="playAppleSearch('nature sounds')">🌲 Звуки природы</button>
+            <button class="mp-quick-btn" onclick="playAppleSearch('детские песни')">👶 Детские песни</button>
+          </div>
+        </div>
+
+        <div class="mp-search">
+          <input type="text" id="mpSearchInput" class="mp-search-input"
+                 placeholder="Найти песню, альбом, исполнителя…"
+                 onkeydown="if(event.key==='Enter') playAppleSearch(this.value)">
+          <button class="mp-search-btn" onclick="playAppleSearch(document.getElementById('mpSearchInput').value)">🔍</button>
+        </div>
+
+        <div class="mp-user">
+          <span id="mpUserStatus">🍎 Подключено</span>
+          <button class="mp-logout" onclick="appleMusicLogout()">Выйти</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- YouTube панель -->
+    <div class="music-panel" id="musicYoutubePanel" style="display:none">
+      <div class="mp-yt-input">
+        <input type="text" id="ytUrlInput" class="mp-search-input"
+               placeholder="Ссылка YouTube или поисковый запрос…"
+               onkeydown="if(event.key==='Enter') playYoutubeInput()">
+        <button class="mp-search-btn" onclick="playYoutubeInput()">▶</button>
+      </div>
+      <div class="mp-quick">
+        <div class="mp-quick-title">Быстрые</div>
+        <div class="mp-quick-items">
+          <button class="mp-quick-btn" onclick="playYoutubeId('DWcJFNfaw9c')">🌊 Белый шум 10ч</button>
+          <button class="mp-quick-btn" onclick="playYoutubeSearch('lullaby for babies')">🌙 Колыбельные</button>
+          <button class="mp-quick-btn" onclick="playYoutubeSearch('mozart for baby')">🎼 Моцарт для малышей</button>
+          <button class="mp-quick-btn" onclick="playYoutubeSearch('rain sounds baby sleep')">🌧 Дождь</button>
+        </div>
+      </div>
+      <div class="mp-yt-frame" id="ytFrameWrap">
+        <div class="mp-yt-empty">Тапни быстрый плейлист или введи ссылку/запрос ↑</div>
+      </div>
+    </div>
+  </div><!-- /page-music -->
 
   <!-- Модалка: реакция на новый продукт (тап по «на очереди») -->
   <div class="modal-backdrop" id="modal-feeding-log" onclick="if(event.target===this)closeFeedingLog()">
@@ -2973,6 +3326,7 @@
     { id: 'feeding',  em: '🥄', label: 'Прикорм',        viewId: 'pageFeeding' },
     { id: 'plan',     em: '🏠', label: 'План квартиры',  viewId: 'pagePlan'    },
     { id: 'matvey',   em: '👶', label: 'Матвей крупно',  viewId: 'pageMatvey'  },
+    { id: 'music',    em: '🎵', label: 'Плеер',          viewId: 'pageMusic'   },
   ];
   const ALL_PAGES = [...PAGES, ...SUBPAGES];
   function switchPage(name) {
@@ -2992,6 +3346,7 @@
     if (page.id === 'feeding' && typeof loadFeeding === 'function') loadFeeding();
     if (page.id === 'plan' && typeof loadPlan === 'function') loadPlan();
     if (page.id === 'matvey' && typeof loadGrowth === 'function') loadGrowth();
+    if (page.id === 'music' && typeof loadMusic === 'function') loadMusic();
   }
   function toggleMenu(e) {
     e?.stopPropagation();
@@ -3859,6 +4214,222 @@ document.querySelectorAll('.shop-item').forEach(item => {
   }
 
   // loadGrowth() вызывается при открытии страницы «Матвей крупно» (см. switchPage)
+
+  // ============ ПЛЕЕР ============
+  let _musicSource = 'apple';
+  let _musicKitLoaded = false;
+  let _musicKitConfigured = false;
+  let _musicInst = null;
+  let _musicDevToken = null;
+  let _mpProgressTimer = null;
+
+  function switchMusicSource(src) {
+    _musicSource = src;
+    document.querySelectorAll('.music-source-tabs .src-tab').forEach(t =>
+      t.classList.toggle('active', t.dataset.src === src));
+    document.getElementById('musicApplePanel').style.display = src === 'apple' ? '' : 'none';
+    document.getElementById('musicYoutubePanel').style.display = src === 'youtube' ? '' : 'none';
+  }
+
+  async function loadMusic() {
+    switchMusicSource(_musicSource);
+    if (_musicSource === 'apple') await _initApple();
+  }
+
+  function _showMusicBox(which) {
+    for (const id of ['musicSetupBox','musicLoginBox','musicLoadingBox','musicPlayerBox']) {
+      const el = document.getElementById(id);
+      if (el) el.style.display = id === which ? '' : 'none';
+    }
+  }
+
+  async function _fetchMusicToken() {
+    try {
+      const r = await apiGet('/api/tablet/music/token');
+      if (r && r.configured && r.token) { _musicDevToken = r.token; return r; }
+      return r || {configured: false, reason: 'ошибка сервера'};
+    } catch(e) {
+      return { configured: false, reason: e.message || String(e) };
+    }
+  }
+
+  function _loadMusicKit() {
+    if (_musicKitLoaded) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://js-cdn.music.apple.com/musickit/v3/musickit.js';
+      s.async = true;
+      s.dataset.web_components = '';
+      s.onload = () => { _musicKitLoaded = true; resolve(); };
+      s.onerror = () => reject(new Error('MusicKit JS не загрузился'));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function _initApple() {
+    _showMusicBox('musicLoadingBox');
+
+    const info = await _fetchMusicToken();
+    if (!info.configured) {
+      const hint = document.getElementById('musicSetupHint');
+      if (hint && info.reason) {
+        hint.innerHTML = '<b style="color:var(--coral)">' + info.reason + '</b><br><br>' + hint.innerHTML;
+      }
+      _showMusicBox('musicSetupBox');
+      return;
+    }
+
+    try { await _loadMusicKit(); }
+    catch(e) {
+      const hint = document.getElementById('musicSetupHint');
+      if (hint) hint.textContent = 'MusicKit JS не загрузился: ' + e.message;
+      _showMusicBox('musicSetupBox');
+      return;
+    }
+
+    // MusicKit v3 использует событие 'musickitloaded'
+    if (!window.MusicKit) {
+      await new Promise(r => document.addEventListener('musickitloaded', r, { once: true }));
+    }
+
+    if (!_musicKitConfigured) {
+      try {
+        await MusicKit.configure({
+          developerToken: _musicDevToken,
+          app: { name: 'Family HQ', build: '1.0' },
+        });
+        _musicKitConfigured = true;
+      } catch(e) {
+        const hint = document.getElementById('musicSetupHint');
+        if (hint) hint.textContent = 'Configure error: ' + (e.message||e);
+        _showMusicBox('musicSetupBox');
+        return;
+      }
+    }
+
+    _musicInst = MusicKit.getInstance();
+    if (_musicInst.isAuthorized) _showPlayer();
+    else _showMusicBox('musicLoginBox');
+
+    // Слушаем изменение now-playing
+    _musicInst.addEventListener('playbackStateDidChange', _updateNowPlaying);
+    _musicInst.addEventListener('nowPlayingItemDidChange', _updateNowPlaying);
+  }
+
+  function _showPlayer() {
+    _showMusicBox('musicPlayerBox');
+    _updateNowPlaying();
+    if (_mpProgressTimer) clearInterval(_mpProgressTimer);
+    _mpProgressTimer = setInterval(_updateProgress, 500);
+  }
+
+  async function appleMusicLogin() {
+    if (!_musicInst) return;
+    try {
+      await _musicInst.authorize();
+      _showPlayer();
+    } catch(e) {
+      alert('Не удалось войти: ' + (e.message||e));
+    }
+  }
+  async function appleMusicLogout() {
+    if (!_musicInst) return;
+    await _musicInst.unauthorize();
+    _showMusicBox('musicLoginBox');
+    if (_mpProgressTimer) { clearInterval(_mpProgressTimer); _mpProgressTimer = null; }
+  }
+
+  function _updateNowPlaying() {
+    if (!_musicInst) return;
+    const item = _musicInst.nowPlayingItem;
+    const playBtn = document.getElementById('mpPlayBtn');
+    if (playBtn) playBtn.textContent = _musicInst.playbackState === 2 ? '⏸' : '▶';
+    if (!item) return;
+    const attrs = item.attributes || {};
+    document.getElementById('mpTrack').textContent = attrs.name || item.title || '—';
+    document.getElementById('mpArtist').textContent =
+      (attrs.artistName || item.artistName || '') +
+      (attrs.albumName ? ' · ' + attrs.albumName : '');
+    const art = attrs.artwork;
+    const artEl = document.getElementById('mpArt');
+    if (art && artEl) {
+      const url = art.url.replace('{w}', '400').replace('{h}', '400');
+      artEl.src = url; artEl.style.visibility = 'visible';
+    }
+  }
+  function _updateProgress() {
+    if (!_musicInst || !_musicInst.nowPlayingItem) return;
+    const cur = _musicInst.currentPlaybackTime || 0;
+    const dur = _musicInst.currentPlaybackDuration || 0;
+    const pct = dur > 0 ? Math.min(100, (cur / dur) * 100) : 0;
+    const fmt = (s) => Math.floor(s/60) + ':' + String(Math.floor(s%60)).padStart(2,'0');
+    document.getElementById('mpFill').style.width = pct + '%';
+    document.getElementById('mpCur').textContent = fmt(cur);
+    document.getElementById('mpDur').textContent = fmt(dur);
+  }
+
+  async function applePlayPause() {
+    if (!_musicInst) return;
+    if (_musicInst.playbackState === 2) await _musicInst.pause();
+    else await _musicInst.play();
+    _updateNowPlaying();
+  }
+  async function appleNext() { if (_musicInst) await _musicInst.skipToNextItem(); }
+  async function applePrev() { if (_musicInst) await _musicInst.skipToPreviousItem(); }
+
+  async function playAppleSearch(query) {
+    if (!_musicInst || !query.trim()) return;
+    try {
+      const res = await _musicInst.api.music('/v1/catalog/{{storefrontId}}/search'.replace('{{storefrontId}}', _musicInst.storefrontId || 'us'), {
+        term: query, types: 'songs,playlists', limit: 5,
+      });
+      const results = res.data.results;
+      // Приоритет: playlist → songs
+      const playlist = results.playlists?.data?.[0];
+      const song = results.songs?.data?.[0];
+      if (playlist) {
+        await _musicInst.setQueue({ playlist: playlist.id });
+        await _musicInst.play();
+      } else if (song) {
+        await _musicInst.setQueue({ song: song.id });
+        await _musicInst.play();
+      } else {
+        alert('Ничего не найдено');
+      }
+    } catch(e) {
+      alert('Ошибка: ' + (e.message||e));
+    }
+  }
+
+  // ── YouTube (публичные видео, без API-ключа) ──
+  function _extractYtId(url) {
+    const m = String(url).match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([A-Za-z0-9_-]{11})/);
+    return m ? m[1] : null;
+  }
+  function playYoutubeId(id) {
+    const wrap = document.getElementById('ytFrameWrap');
+    if (!wrap) return;
+    wrap.innerHTML = '<iframe src="https://www.youtube.com/embed/' + id + '?autoplay=1" ' +
+                     'allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>';
+  }
+  function playYoutubeSearch(query) {
+    // Открываем поиск в iframe (первый результат авто-плей через playlist параметр не работает без API)
+    // Используем youtube nocookie search embed:
+    const q = encodeURIComponent(query);
+    const wrap = document.getElementById('ytFrameWrap');
+    if (!wrap) return;
+    // Показываем список результатов через YouTube поиск (полноценный iframe с поиском не работает,
+    // поэтому открываем youtube.com/results в новой вкладке для выбора)
+    wrap.innerHTML = '<div class="mp-yt-empty">Открываю поиск на YouTube…</div>';
+    window.open('https://www.youtube.com/results?search_query=' + q, '_blank');
+  }
+  function playYoutubeInput() {
+    const v = (document.getElementById('ytUrlInput').value || '').trim();
+    if (!v) return;
+    const id = _extractYtId(v);
+    if (id) playYoutubeId(id);
+    else playYoutubeSearch(v);
+  }
 
   // ============ ПЛАН КВАРТИРЫ ============
   // Планировка живёт в localStorage под ключом 'planLayout'.
