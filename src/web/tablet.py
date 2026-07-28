@@ -280,6 +280,38 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
     except Exception:
         log.exception("tablet_lux_failed")
 
+    # Виртуальные устройства для плана квартиры (инвертор, пылесос)
+    # чтобы юзер мог их привязать к иконкам на плане.
+    try:
+        inv = state.get("inverter") or {}
+        if state.get("devices") is not None:
+            if inv.get("online") is not None:
+                state["devices"].append({
+                    "id": "virtual:inverter",
+                    "name": "Инвертор",
+                    "online": bool(inv.get("online")),
+                    "category": "inverter",
+                    "on": inv.get("battery_flow") == "discharging",
+                    "cur_power": inv.get("load_w"),
+                    "battery": inv.get("soc"),
+                    "virtual": True,
+                    "read_only": True,
+                })
+            vac = state.get("vacuum") or {}
+            if vac.get("id"):
+                state["devices"].append({
+                    "id": "virtual:vacuum:" + str(vac.get("id")),
+                    "name": vac.get("name") or "Пылесос",
+                    "online": True,
+                    "category": "vacuum",
+                    "on": vac.get("state_key") == "cleaning",
+                    "battery": vac.get("battery"),
+                    "virtual": True,
+                    "read_only": True,
+                })
+    except Exception:
+        log.exception("tablet_virtual_devices_failed")
+
 
     # Список покупок из Google Sheets (если Ежедневник настроен)
     try:

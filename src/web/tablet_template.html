@@ -871,16 +871,22 @@
     color: var(--text-dim);
     letter-spacing: 0.06em;
   }
+  /* Внешняя обёртка — следует теме (в светлой теме будет светлой) */
   .plan-wrap {
-    background: #1a1614;
-    border: 1px solid rgba(255,255,255,0.08);
+    background: var(--card);
+    border: 1px solid var(--line);
     border-radius: 16px;
     padding: 14px;
-    color: #ede6dc;
   }
-  /* Форсируем тёмный фон для плана даже в светлой теме */
-  .plan-wrap .plan-legend { color: rgba(255,255,255,0.65); }
-  .plan-wrap .plan-status { color: rgba(255,255,255,0.5); border-top-color: rgba(255,255,255,0.08); }
+  /* SVG-план — всегда тёмный, независимо от темы. Комнаты остаются тёмными. */
+  .floorplan {
+    background: #1a1614;
+    border-radius: 12px;
+    padding: 8px;
+  }
+  /* Легенда и статус внутри плана */
+  .plan-legend, .plan-status { color: var(--text-dim); }
+  .plan-status { border-top-color: var(--line-soft); }
   .floorplan {
     width: 100%;
     max-width: 900px;
@@ -3231,13 +3237,27 @@
           <button class="fm-pill" data-val="xl">XL</button>
         </div>
 
-        <div class="fm-q">К какому Tuya-устройству привязано <span id="pdmBoundStatus" style="color:var(--text-mute);text-transform:none;letter-spacing:0"></span></div>
-        <div id="pdmDeviceList" style="max-height:280px;overflow-y:auto;background:var(--card-hi);border:1px solid var(--line);border-radius:10px;padding:6px">
+        <div class="fm-q">К какому устройству привязано <span id="pdmBoundStatus" style="color:var(--text-mute);text-transform:none;letter-spacing:0"></span></div>
+        <div id="pdmDeviceList" style="max-height:260px;overflow-y:auto;background:var(--card-hi);border:1px solid var(--line);border-radius:10px;padding:6px">
           <div style="padding:16px;text-align:center;color:var(--text-mute);font-size:12px">Загружаю список устройств…</div>
         </div>
         <div class="fm-cat-hint" style="margin-top:6px">
-          Выбирай КОНКРЕТНОЕ устройство — иконка засветится когда оно вкл.
-          Если оставить «— автопоиск по типу» — прога сама подберёт первое подходящее.
+          Инвертор и пылесос теперь тоже в списке. Если нужного устройства нет
+          (например умный ИК-пульт) — введи имя вручную ниже.
+        </div>
+
+        <div class="fm-q" style="margin-top:14px">…или ввести имя устройства/сцены вручную</div>
+        <input type="text" class="fm-input" id="pdmCustomName" placeholder="напр. «свет спальня уют» или ID сцены">
+
+        <div class="fm-q" style="margin-top:14px">При тапе (когда план закрыт) — что делать</div>
+        <div class="fm-pills" id="pdmAction">
+          <button class="fm-pill picked" data-val="toggle">🔀 вкл/выкл</button>
+          <button class="fm-pill" data-val="scene">🎬 запустить сцену</button>
+          <button class="fm-pill" data-val="none">👁 только показывать</button>
+        </div>
+        <div class="fm-cat-hint" style="margin-top:6px">
+          Для умных ламп со сценами (Ярко/Ночь/Уют) выбери «сцена» и в поле
+          «имя вручную» напиши название сцены как в Tuya.
         </div>
 
         <div class="fm-actions">
@@ -4487,16 +4507,16 @@ document.querySelectorAll('.shop-item').forEach(item => {
 
   function _norm(s) { return String(s || '').toLowerCase().replace(/ё/g, 'е'); }
 
-  // Приглушённая палитра — тёмный фон + заметный цветной тинт для различия комнат
+  // Яркая-но-приглушённая палитра — комнаты хорошо различимы, но глазу приятно
   const PLAN_ROOM_COLORS = {
-    'Балкон':   'rgba(122, 181, 193, 0.12)',   // cyan — «наружу»
-    'Спальня':  'rgba(212, 160, 74, 0.15)',    // amber тёплая
-    'Шкаф':     'rgba(167, 137, 200, 0.12)',   // violet
-    'Детская':  'rgba(217, 155, 176, 0.14)',   // pink
-    'Коридор':  'rgba(134, 172, 106, 0.11)',   // sage
-    'Кухня':    'rgba(134, 172, 106, 0.15)',   // sage чуть насыщеннее
-    'Туалет':   'rgba(122, 181, 193, 0.18)',   // cyan
-    'Ванна':    'rgba(122, 181, 193, 0.10)',   // cyan бледнее
+    'Балкон':   'rgba(122, 181, 193, 0.22)',   // cyan
+    'Спальня':  'rgba(212, 160, 74, 0.28)',    // amber тёплая
+    'Шкаф':     'rgba(167, 137, 200, 0.24)',   // violet
+    'Детская':  'rgba(217, 155, 176, 0.26)',   // pink
+    'Коридор':  'rgba(134, 172, 106, 0.22)',   // sage
+    'Кухня':    'rgba(134, 172, 106, 0.30)',   // sage насыщенная
+    'Туалет':   'rgba(122, 181, 193, 0.30)',   // cyan
+    'Ванна':    'rgba(122, 181, 193, 0.18)',   // cyan бледнее
   };
 
   // Комнаты — полигоны (массивы точек). Для прямоугольной комнаты — 4 точки.
@@ -4867,6 +4887,10 @@ document.querySelectorAll('.shop-item').forEach(item => {
       listEl.innerHTML = rows.join('');
     }
     boundEl.textContent = d.tuyaName ? ` (сейчас: ${d.tuyaName})` : ' (сейчас: автопоиск)';
+    document.getElementById('pdmCustomName').value = d.customName || '';
+    const action = d.action || 'toggle';
+    document.querySelectorAll('#pdmAction .fm-pill').forEach(p =>
+      p.classList.toggle('picked', p.dataset.val === action));
     document.getElementById('modal-plan-device').classList.add('open');
   }
 
@@ -4882,8 +4906,15 @@ document.querySelectorAll('.shop-item').forEach(item => {
     d.label = document.getElementById('pdmLabel').value.trim() || (DEVICE_META[d.kind]?.label || d.kind);
     const size = document.querySelector('#pdmSize .fm-pill.picked')?.dataset.val || 'm';
     d.size = size;
-    const picked = document.querySelector('input[name="pdmTuya"]:checked');
-    d.tuyaName = picked ? picked.value : '';
+    d.customName = document.getElementById('pdmCustomName').value.trim();
+    // Кастом-имя приоритетнее радио-кнопок
+    if (d.customName) {
+      d.tuyaName = d.customName;
+    } else {
+      const picked = document.querySelector('input[name="pdmTuya"]:checked');
+      d.tuyaName = picked ? picked.value : '';
+    }
+    d.action = document.querySelector('#pdmAction .fm-pill.picked')?.dataset.val || 'toggle';
     closePlanDeviceModal();
     renderPlanSvg();
   }
@@ -5063,37 +5094,50 @@ document.querySelectorAll('.shop-item').forEach(item => {
     if (room) renamePlanRoom(room.dataset.id);
   });
 
-  // Клик по устройству в НЕ-edit режиме — переключение
+  // Клик по устройству в НЕ-edit режиме — переключение / запуск сцены
   document.addEventListener('click', async (e) => {
     if (_planEditing) return;
     const g = e.target.closest('.fp-dev');
     if (!g || g.classList.contains('fp-dev-static')) return;
     const svg = document.getElementById('floorplanSvg');
     if (!svg?.contains(g)) return;
-    const name = g.dataset.deviceName;
+    const id = g.dataset.id;
+    const layoutDev = _planLayout.devices.find(d => d.id === id);
     const kind = g.dataset.kind;
-    if (kind === 'sensor' || kind === 'vacuum') return;
+    const userAction = layoutDev?.action || 'toggle';
+    const name = layoutDev?.customName || g.dataset.deviceName;
+
+    if (userAction === 'none') return;
     if (!name) {
       const status = document.getElementById('planStatus');
       if (status) {
-        status.textContent = `Устройство не привязано. В режиме редактирования сделай двойной тап → «привязать».`;
+        status.textContent = 'Не привязано. Открой редактор → тап на иконку → выбери устройство.';
         status.classList.add('error');
         setTimeout(() => applyPlanLiveState(), 2500);
       }
       return;
     }
-    const isOn = g.dataset.deviceOn === 'true';
-    const action = isOn ? 'off' : 'on';
-    g.classList.remove('state-on','state-cool','state-warm');
-    if (!isOn) {
-      if (kind === 'ac') g.classList.add('state-cool');
-      else if (kind === 'boiler') g.classList.add('state-warm');
-      else g.classList.add('state-on');
-    }
-    g.dataset.deviceOn = String(!isOn);
-    try { await apiPost('/api/tablet/action/socket', { device: name, action }); }
-    catch(err) {
-      const status = document.getElementById('planStatus');
+    const status = document.getElementById('planStatus');
+    try {
+      if (userAction === 'scene') {
+        // Запускаем сцену Tuya по имени
+        if (status) { status.textContent = '▶ Запускаю сцену «' + name + '»…'; status.classList.remove('error'); }
+        await apiPost('/api/tablet/action/scene', { query: name });
+        if (status) status.textContent = '✓ Сцена «' + name + '» запущена';
+      } else {
+        // Простой переключатель on/off
+        const isOn = g.dataset.deviceOn === 'true';
+        const action = isOn ? 'off' : 'on';
+        g.classList.remove('state-on','state-cool','state-warm');
+        if (!isOn) {
+          if (kind === 'ac') g.classList.add('state-cool');
+          else if (kind === 'boiler') g.classList.add('state-warm');
+          else g.classList.add('state-on');
+        }
+        g.dataset.deviceOn = String(!isOn);
+        await apiPost('/api/tablet/action/socket', { device: name, action });
+      }
+    } catch(err) {
       if (status) { status.textContent = 'Ошибка: ' + (err.message||err); status.classList.add('error'); }
     }
   });
