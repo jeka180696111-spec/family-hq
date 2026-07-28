@@ -1081,21 +1081,34 @@
   .plan-wrap.editing .fp-selected .fp-room { stroke: var(--amber); stroke-width: 3; stroke-dasharray: none; }
   .plan-wrap.editing .fp-selected .fp-dev-bg { stroke: var(--amber); stroke-width: 3; }
 
+  .fp-handles-layer { pointer-events: auto; }
   .fp-handle-vertex {
     fill: var(--amber);
     stroke: #1a1200;
-    stroke-width: 1;
+    stroke-width: 1.5;
     cursor: move;
+    pointer-events: none;    /* hit-target ловит клик */
+  }
+  .fp-handle-vertex-hit {
+    fill: transparent;
+    cursor: move;
+    pointer-events: all;
   }
   .fp-handle-mid {
-    fill: rgba(212,160,74,0.35);
+    fill: rgba(212,160,74,0.4);
     stroke: var(--amber);
     stroke-width: 1;
     stroke-dasharray: 2 1;
-    cursor: pointer;
+    pointer-events: none;
   }
-  .fp-handle-mid:hover {
-    fill: var(--amber);
+  .fp-handle-mid-hit {
+    fill: transparent;
+    cursor: pointer;
+    pointer-events: all;
+  }
+  .fp-handle-mid-hit:hover + .fp-handle-mid,
+  .fp-handle-vertex-hit:hover + .fp-handle-vertex {
+    fill: #ffd77a;
   }
 
   .plan-palette {
@@ -4563,7 +4576,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
     if (!svg) return;
     while (svg.firstChild) svg.removeChild(svg.firstChild);
 
-    // Комнаты — полигоны
+    // Первый проход — все полигоны + подписи комнат
     for (const r of _planLayout.rooms) {
       const g = _el('g', { 'class': 'fp-room-g', 'data-id': r.id });
       const poly = _el('polygon', {
@@ -4579,30 +4592,6 @@ document.querySelectorAll('.shop-item').forEach(item => {
       });
       tx.textContent = r.name.toUpperCase();
       g.appendChild(tx);
-      // Handles на каждой вершине + серединки рёбер (для добавления вершины)
-      if (_planEditing) {
-        // Вершины
-        r.points.forEach((p, i) => {
-          const h = _el('rect', {
-            'class': 'fp-handle fp-handle-vertex',
-            x: p.x - 6, y: p.y - 6, width: 12, height: 12,
-            'data-room-id': r.id, 'data-vertex': i,
-          });
-          g.appendChild(h);
-        });
-        // Серединки рёбер (полупрозрачные кружки, тап = добавить вершину)
-        r.points.forEach((p, i) => {
-          const next = r.points[(i + 1) % r.points.length];
-          const mx = (p.x + next.x) / 2;
-          const my = (p.y + next.y) / 2;
-          const mh = _el('circle', {
-            'class': 'fp-handle fp-handle-mid',
-            cx: mx, cy: my, r: 5,
-            'data-room-id': r.id, 'data-edge': i,
-          });
-          g.appendChild(mh);
-        });
-      }
       svg.appendChild(g);
     }
 
@@ -4625,8 +4614,53 @@ document.querySelectorAll('.shop-item').forEach(item => {
       svg.appendChild(g);
     }
 
+    // Хэндлы (только в режиме редактирования) — САМЫМ ВЕРХНИМ слоем,
+    // чтобы гарантированно перекрывать полигоны любых комнат и устройств
+    if (_planEditing) {
+      const handlesLayer = _el('g', { 'class': 'fp-handles-layer' });
+      for (const r of _planLayout.rooms) {
+        // Серединки рёбер — тап добавляет вершину
+        r.points.forEach((p, i) => {
+          const next = r.points[(i + 1) % r.points.length];
+          const mx = (p.x + next.x) / 2;
+          const my = (p.y + next.y) / 2;
+          // Прозрачный hit-target 24×24 + видимый кружок 7px
+          const hit = _el('circle', {
+            'class': 'fp-handle fp-handle-mid-hit',
+            cx: mx, cy: my, r: 12,
+            'data-room-id': r.id, 'data-edge': i,
+          });
+          handlesLayer.appendChild(hit);
+          const mh = _el('circle', {
+            'class': 'fp-handle fp-handle-mid',
+            cx: mx, cy: my, r: 7,
+            'data-room-id': r.id, 'data-edge': i,
+          });
+          handlesLayer.appendChild(mh);
+        });
+        // Вершины — жёлтые квадратики (последними → на самом верху)
+        r.points.forEach((p, i) => {
+          // Невидимый увеличенный hit-target
+          const hit = _el('rect', {
+            'class': 'fp-handle fp-handle-vertex-hit',
+            x: p.x - 14, y: p.y - 14, width: 28, height: 28,
+            'data-room-id': r.id, 'data-vertex': i,
+          });
+          handlesLayer.appendChild(hit);
+          const h = _el('rect', {
+            'class': 'fp-handle fp-handle-vertex',
+            x: p.x - 8, y: p.y - 8, width: 16, height: 16,
+            rx: 2,
+            'data-room-id': r.id, 'data-vertex': i,
+          });
+          handlesLayer.appendChild(h);
+        });
+      }
+      svg.appendChild(handlesLayer);
+    }
+
     if (_planSelectedId) {
-      const sel = svg.querySelector('[data-id="' + _planSelectedId + '"]');
+      const sel = svg.querySelector('.fp-room-g[data-id="' + _planSelectedId + '"], .fp-dev[data-id="' + _planSelectedId + '"]');
       if (sel) sel.classList.add('fp-selected');
     }
 
