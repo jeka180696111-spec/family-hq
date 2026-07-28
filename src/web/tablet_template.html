@@ -4868,17 +4868,40 @@ document.querySelectorAll('.shop-item').forEach(item => {
     renderPlanSvg();
   }
 
-  // Универсальный роутинг тапа на SVG-элементы
+  // Универсальный роутинг тапа. Ищем по data-атрибутам, чтобы ловить и
+  // видимые хэндлы, и невидимые hit-targets (у которых свой класс с суффиксом).
   function _routeStart(evt, target) {
     if (!_planEditing) return;
-    const vh = target.closest('.fp-handle-vertex');
-    if (vh) { _planSelectedId = vh.dataset.roomId; _startDrag(evt, 'vertex', vh.dataset.roomId, parseInt(vh.dataset.vertex, 10)); renderPlanSvg(); return; }
-    const mh = target.closest('.fp-handle-mid');
-    if (mh) { _insertVertex(mh.dataset.roomId, parseInt(mh.dataset.edge, 10)); return; }
+    // Вершина (жёлтый квадратик) — по data-vertex
+    const vh = target.closest('[data-vertex]');
+    if (vh) {
+      _planSelectedId = vh.dataset.roomId;
+      _startDrag(evt, 'vertex', vh.dataset.roomId, parseInt(vh.dataset.vertex, 10));
+      renderPlanSvg();
+      return;
+    }
+    // Серединка ребра — по data-edge
+    const mh = target.closest('[data-edge]');
+    if (mh) {
+      _insertVertex(mh.dataset.roomId, parseInt(mh.dataset.edge, 10));
+      return;
+    }
+    // Устройство
     const dev = target.closest('.fp-dev');
-    if (dev) { _planSelectedId = dev.dataset.id; _startDrag(evt, 'dev', dev.dataset.id); renderPlanSvg(); return; }
+    if (dev) {
+      _planSelectedId = dev.dataset.id;
+      _startDrag(evt, 'dev', dev.dataset.id);
+      renderPlanSvg();
+      return;
+    }
+    // Клик по комнате — двигать её целиком
     const room = target.closest('.fp-room-g');
-    if (room) { _planSelectedId = room.dataset.id; _startDrag(evt, 'room', room.dataset.id); renderPlanSvg(); return; }
+    if (room) {
+      _planSelectedId = room.dataset.id;
+      _startDrag(evt, 'room', room.dataset.id);
+      renderPlanSvg();
+      return;
+    }
   }
 
   document.addEventListener('mousedown', (e) => {
@@ -4909,7 +4932,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
   // dblclick: устройство → меню, вершина → удалить (если >3), комната → переименовать
   document.addEventListener('dblclick', (e) => {
     if (!_planEditing) return;
-    const vh = e.target.closest('.fp-handle-vertex');
+    const vh = e.target.closest('[data-vertex]');
     if (vh && confirm('Удалить эту вершину?')) {
       _removeVertex(vh.dataset.roomId, parseInt(vh.dataset.vertex, 10));
       return;
