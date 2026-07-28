@@ -968,6 +968,7 @@
   .fp-dev.state-off .fp-dev-lb { fill: rgba(255,255,255,0.55); }
 
   /* Оффлайн / не найдено — эмодзи серое, рамка тусклая пунктиром */
+  .fp-dev.state-missing { cursor: not-allowed; }
   .fp-dev.state-missing .fp-dev-bg {
     fill: rgba(255,255,255,0.03);
     stroke: rgba(255,255,255,0.15);
@@ -976,6 +977,10 @@
   }
   .fp-dev.state-missing .fp-dev-em { opacity: 0.4; filter: grayscale(1); }
   .fp-dev.state-missing .fp-dev-lb { fill: rgba(255,255,255,0.3); }
+  .fp-dev.state-missing:hover .fp-dev-bg {
+    stroke: rgba(224, 123, 95, 0.5);
+    stroke-dasharray: 3 2;
+  }
 
   /* On состояния — свечение соответствующим цветом */
   .fp-dev.state-on .fp-dev-bg {
@@ -4634,11 +4639,20 @@ document.querySelectorAll('.shop-item').forEach(item => {
   }
 
   function classifyDeviceState(kind, dev) {
-    if (kind === 'sensor') return dev ? 'state-sensor' : '';
-    if (kind === 'vacuum') return dev && dev.online ? 'state-sensor' : '';
+    if (kind === 'sensor') {
+      // Если есть данные из state.nursery — тоже норма
+      if (dev) return 'state-sensor';
+      const s = window.__lastState;
+      if (s?.nursery && (s.nursery.temperature !== null || s.nursery.humidity !== null)) return 'state-sensor';
+      return '';
+    }
+    if (kind === 'vacuum') return dev ? 'state-sensor' : '';
     if (kind === 'inverter' || kind === 'inverter2') {
-      // Инвертор всегда «зелёный» (sensor) когда онлайн — он всегда работает
-      return dev && dev.online ? 'state-sensor' : '';
+      // Инвертор считаем онлайн если есть ЛЮБЫЕ данные (soc/battery/cur_power)
+      const s = window.__lastState;
+      if (dev && (dev.battery !== undefined || dev.online)) return 'state-sensor';
+      if (s?.inverter && (s.inverter.soc !== undefined && s.inverter.soc !== null)) return 'state-sensor';
+      return '';
     }
     if (!dev) return '';
     if (kind === 'ac' && dev.on) return 'state-cool';
@@ -4764,7 +4778,11 @@ document.querySelectorAll('.shop-item').forEach(item => {
   function applyPlanLiveState(state) {
     const svg = document.getElementById('floorplanSvg');
     if (!svg) return;
-    const devices = state?.devices || window.__lastDevices || [];
+    // Кэш state чтобы одиночные ре-рендеры не теряли nursery/inverter
+    state = state || window.__lastState || {};
+    const devices = state.devices || window.__lastDevices || [];
+    const nursery = state.nursery;
+    const inverter = state.inverter;
     let found = 0, total = 0;
     svg.querySelectorAll('.fp-dev').forEach(g => {
       if (g.classList.contains('fp-dev-static')) return;
@@ -4774,10 +4792,28 @@ document.querySelectorAll('.shop-item').forEach(item => {
       const dev = findPlanDevice(devices, layoutDev?.tuyaName, kind);
       g.classList.remove('state-on','state-cool','state-warm','state-sensor','state-off','state-missing');
 
-      // Для scene2-тумблера — цвет по локальному состоянию (у сцен нет обратной связи)
+      // Для scene2 — если привязали конкретное устройство (dev найден),
+      // берём его РЕАЛЬНОЕ состояние (dev.on) как источник правды.
+      // Иначе — локальное _on из localStorage.
       if (layoutDev?.action === 'scene2' || layoutDev?.action === 'scene') {
+        let effectiveOn = layoutDev._on;
+        if (dev) {
+          // У бойлера — используем cur_power > 5W как признак «работает»
+          if (kind === 'boiler') {
+            effectiveOn = !!(dev.on || (dev.cur_power && dev.cur_power > 5));
+          } else if (dev.on !== undefined && dev.online !== false) {
+            effectiveOn = !!dev.on;
+          }
+          // Синхронизируем локальное _on с реальным
+          if (layoutDev._on !== effectiveOn) {
+            layoutDev._on = effectiveOn;
+            // Сохраняем реже — только когда меняется
+            try { savePlanLayout(_planLayout); } catch(e){}
+          }
+        }
         if (!layoutDev.sceneOn) g.classList.add('state-missing');
-        else if (layoutDev._on) {
+        else if (dev && dev.online === false) g.classList.add('state-missing');
+        else if (effectiveOn) {
           if (kind === 'ac') g.classList.add('state-cool');
           else if (kind === 'boiler') g.classList.add('state-warm');
           else g.classList.add('state-on');
@@ -4786,17 +4822,26 @@ document.querySelectorAll('.shop-item').forEach(item => {
           g.classList.add('state-off');
           if (dev || layoutDev.sceneOn) found++;
         }
-        g.dataset.deviceName = layoutDev.customName || '';
-        g.dataset.deviceOn = String(!!layoutDev._on);
+        g.dataset.deviceName = layoutDev.customName || (dev?.name || '');
+        g.dataset.deviceOn = String(!!effectiveOn);
         return;
       }
 
-      const cls = classifyDeviceState(kind, dev);
+      // Обычный режим on/off
+      // Для бойлера: доп. проверка по мощности
+      let effOn = dev ? !!dev.on : false;
+      if (dev && kind === 'boiler' && !effOn && dev.cur_power && dev.cur_power > 5) {
+        effOn = true;
+      }
+      const cls = classifyDeviceState(kind, effOn ? {...dev, on: true} : dev);
       if (cls) { g.classList.add(cls); if (dev) found++; }
       else if (dev) { g.classList.add('state-off'); found++; }
       else g.classList.add('state-missing');
-      // Оффлайн: если устройство есть но online === false
-      if (dev && dev.online === false) g.classList.add('state-missing');
+      // Оффлайн: если устройство есть но online === false — считаем как отсутствующее
+      if (dev && dev.online === false) {
+        g.classList.remove('state-on','state-cool','state-warm','state-sensor','state-off');
+        g.classList.add('state-missing');
+      }
       g.dataset.deviceName = dev ? dev.name : '';
       g.dataset.deviceOn = dev ? String(!!dev.on) : '';
       // Динамические подписи для устройств у которых есть телеметрия
@@ -5236,6 +5281,16 @@ document.querySelectorAll('.shop-item').forEach(item => {
 
     if (userAction === 'none') return;
     const status = document.getElementById('planStatus');
+
+    // Оффлайн-устройство — не даём кликать
+    if (g.classList.contains('state-missing') && layoutDev?.tuyaName) {
+      if (status) {
+        status.textContent = '⚠ Устройство «' + (layoutDev.customName || layoutDev.tuyaName) + '» оффлайн';
+        status.classList.add('error');
+        setTimeout(() => applyPlanLiveState(), 2500);
+      }
+      return;
+    }
 
     // ─ ТУМБЛЕР ПО ДВУМ СЦЕНАМ ─
     if (userAction === 'scene2' || userAction === 'scene') {
@@ -6192,6 +6247,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
       updateNursery(s.nursery);
       updateInverter(s.inverter, s.devices);
       window.__lastDevices = s.devices || [];
+      window.__lastState = s;
       updateDevices(s.devices);
       // План квартиры — если открыт
       if (document.getElementById('pagePlan')?.classList.contains('active')) {

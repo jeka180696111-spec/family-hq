@@ -285,11 +285,18 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
     try:
         inv = state.get("inverter") or {}
         if state.get("devices") is not None:
-            if inv.get("online") is not None:
+            # Инвертор в списке — если пришли ЛЮБЫЕ данные (soc, load, online)
+            has_inv_data = (
+                inv.get("soc") is not None or inv.get("load_w") is not None
+                or inv.get("online") is not None
+            )
+            if has_inv_data:
+                # Онлайн если явно True или есть soc (данные пришли)
+                is_online = bool(inv.get("online")) or inv.get("soc") is not None
                 state["devices"].append({
                     "id": "virtual:inverter",
                     "name": "Инвертор",
-                    "online": bool(inv.get("online")),
+                    "online": is_online,
                     "category": "inverter",
                     "on": inv.get("battery_flow") == "discharging",
                     "cur_power": inv.get("load_w"),
