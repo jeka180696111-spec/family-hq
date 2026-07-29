@@ -392,6 +392,29 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
     except Exception:
         log.exception("tablet_automations_failed")
 
+    # Посылки Новой Почты — только те, что ещё не доставлены (карточка
+    # на планшете сама скрывается, когда список пуст).
+    try:
+        from sqlalchemy import select
+        from src.db.models import Parcel
+        async with memory._engine.connect() as conn:
+            rows = list(await conn.execute(
+                select(Parcel).where(Parcel.delivered_at.is_(None))
+                .order_by(Parcel.created_at.desc()).limit(10)
+            ))
+        state["parcels"] = [
+            {
+                "ttn": r.ttn,
+                "title": r.title or r.ttn,
+                "status": r.status or "",
+                "member": r.member or "",
+            }
+            for r in rows
+        ]
+    except Exception:
+        log.exception("tablet_parcels_failed")
+        state["parcels"] = []
+
     return state
 
 

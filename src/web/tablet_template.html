@@ -3377,6 +3377,12 @@
       <button class="plan-add" id="shopAdd" onclick="addShopping()">+ Добавить покупку</button>
     </div>
 
+    <!-- ПОСЫЛКИ (Новая Почта) — сама скрывается, если посылок нет -->
+    <div class="card" id="cardParcels" style="display:none">
+      <div class="card-title">Посылки</div>
+      <div class="today-list" id="parcelsList"></div>
+    </div>
+
     </div>
 
   </div><!-- /page-overview -->
@@ -6938,6 +6944,26 @@ document.querySelectorAll('.shop-item').forEach(item => {
       </div>`;
     }).join('');
   }
+  function updateParcels(items) {
+    const card = document.getElementById('cardParcels');
+    const list = document.getElementById('parcelsList');
+    if (!card || !list) return;
+    if (!items || !items.length) {
+      card.style.display = 'none';
+      return;
+    }
+    card.style.display = '';
+    list.innerHTML = items.map(p => {
+      const status = (p.status || '').toLowerCase();
+      const emoji = /отримано|видано|получено|delivered/.test(status) ? '✅'
+                  : /прибул|відділенн|отделен|pickup/.test(status) ? '🎯' : '📦';
+      const sub = [p.status, p.member].filter(Boolean).join(' · ').replace(/</g, '&lt;');
+      return `<div class="today-item" style="display:flex; align-items:center; gap:8px">
+        <div class="today-time">${emoji}</div>
+        <div class="today-text" style="flex:1">${(p.title || '').replace(/</g, '&lt;')}${sub ? `<span class="sub">${sub}</span>` : ''}</div>
+      </div>`;
+    }).join('');
+  }
   window.markShoppingDone = async function(name, alreadyDone) {
     if (!TOKEN) return;
     if (alreadyDone === true || alreadyDone === 'true') return;
@@ -7247,6 +7273,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
       updateScenes(s.scenes);
       updateEvents(s.today_events);
       updateShopping(s.shopping);
+      updateParcels(s.parcels);
       // Автоматизации count
       window.__lastAutomations = s.automations || [];
       window.__lastScenes = s.scenes || [];
