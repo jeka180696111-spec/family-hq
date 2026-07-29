@@ -2946,7 +2946,7 @@ class DevOpsAgent(BaseAgent):
         async with self._memory._engine.begin() as conn:
             await conn.execute(insert(EventLog).values(
                 level="INFO",
-                event="time_capsule",
+                component="time_capsule",
                 agent_id=self.agent_id,
                 message=f"{title} :: {text}",
                 created_at=iso_now(),

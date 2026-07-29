@@ -86,7 +86,7 @@ async def _already_sent(memory, marker: str) -> bool:
     from src.db.models import EventLog
     async with memory._engine.connect() as conn:
         row = (await conn.execute(
-            select(EventLog).where(EventLog.event == "anniv_sent").where(
+            select(EventLog).where(EventLog.component == "anniv_sent").where(
                 EventLog.payload == marker
             ).limit(1)
         )).first()
@@ -99,7 +99,7 @@ async def _mark_sent(memory, marker: str) -> None:
     from src.utils.time import iso_now
     async with memory._engine.begin() as conn:
         await conn.execute(insert(EventLog).values(
-            event="anniv_sent", payload=marker,
+            level="INFO", component="anniv_sent", message=marker, payload=marker,
             created_at=iso_now(), agent_id="devops",
         ))
 

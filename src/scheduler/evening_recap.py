@@ -117,6 +117,7 @@ async def send_evening_recap(
             await conn.execute(insert(EventLog).values(
                 created_at=iso_now(),
                 level="INFO",
+                component="evening_recap",
                 message=marker,
             ))
         log.info("evening_recap_sent", outage_min=total_outage_min,

@@ -326,7 +326,7 @@ async def check_time_capsules(news_agent, memory) -> None:
         today = now_kyiv().date()
         async with memory._engine.connect() as conn:
             rows = list(await conn.execute(
-                select(EventLog).where(EventLog.event == "time_capsule")
+                select(EventLog).where(EventLog.component == "time_capsule")
             ))
         hits = []
         for r in rows:
