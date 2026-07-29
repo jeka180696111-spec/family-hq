@@ -3977,6 +3977,9 @@ class DevOpsAgent(BaseAgent):
             }
             if status.get("actual_delivery"):
                 values["delivered_at"] = status["actual_delivery"]
+            elif any(k in (status.get("status") or "").lower()
+                     for k in ("отримано", "получено", "delivered", "видано")):
+                values["delivered_at"] = now
             if existing:
                 if title:
                     values["title"] = title
