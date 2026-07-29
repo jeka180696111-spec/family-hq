@@ -107,6 +107,8 @@ async def poll_parcels(memory: Any, bot_manager: Any, chat_id: int,
             }
             if fresh.get("actual_delivery"):
                 values["delivered_at"] = fresh["actual_delivery"]
+            elif _is_delivered(new_status):
+                values["delivered_at"] = iso_now()
             async with memory._engine.begin() as conn:
                 await conn.execute(
                     sql_update(Parcel).where(Parcel.id == p.id).values(**values)
@@ -241,8 +243,17 @@ async def discover_incoming_parcels(memory: Any, bot_manager: Any, chat_id: int)
                             "cost_uah": enriched.get("total_uah"),
                             "scheduled_at": enriched.get("scheduled_at") or None,
                         })
+                        if enriched.get("actual_delivery"):
+                            row["delivered_at"] = enriched["actual_delivery"]
                 except Exception:
                     log.exception("parcel_discovery_enrich_failed", ttn=ttn)
+                # 90-дневное окно автопоиска может зацепить уже давно полученные
+                # посылки. NP не всегда отдаёт отдельную дату получения, но сам
+                # статус текстом прямо говорит "Отримано/видано" — на это и
+                # опираемся как на резервный признак, иначе такая посылка
+                # навсегда зависла бы в «активных» на планшете.
+                if _is_delivered(row.get("status")) and not row.get("delivered_at"):
+                    row["delivered_at"] = now_iso
                 async with memory._engine.begin() as conn:
                     await conn.execute(insert(Parcel).values(**row))
                 if bot_manager and chat_id:
