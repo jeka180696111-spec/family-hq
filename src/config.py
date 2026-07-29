@@ -120,6 +120,18 @@ class Settings(BaseSettings):
 
     # Nova Poshta tracking — single key, user pastes TTNs manually in chat
     nova_poshta_api_key: str = Field(default="")
+    # Private-cabinet session token(s) (TokenOAuth2 header) — reverse-engineered
+    # from my.novaposhta.ua's own web traffic, NOT the public API above.
+    # Unlocks auto-discovery of INCOMING parcels (getIncomingDocumentsByPhone),
+    # which the public developer key can never see. Each token is scoped to
+    # whoever's session it came from (recipient phone tied to that account) —
+    # one family member covers only their own incoming parcels. Session is
+    # long-lived (weeks) — copy by hand: DevTools → Network → any
+    # api.novaposhta.ua request while browsing "Вхідні посилки" → Headers →
+    # Request Headers → TokenOAuth2. Re-copy when the bot reports it expired.
+    # One account: just the token. Several: comma-separate as
+    # "Имя:токен,Имя2:токен2" (label is used in chat notifications).
+    nova_poshta_token_oauth2: str = Field(default="")
 
     # Google Gemini API — text fallback when Anthropic is unavailable
     # (no credits / outage / rate limit). Free tier: 1500 req/day Flash.

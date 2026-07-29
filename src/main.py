@@ -1413,12 +1413,20 @@ async def run(dry_run: bool = False) -> None:
     except Exception:
         log.exception("baby_sync_setup_failed")
 
-    # Nova Poshta — auto-discover new parcels every hour + track active
+    # Nova Poshta — re-check status of already-tracked parcels every 30 min
     try:
         from src.scheduler.parcels import register_parcel_poll_job
         register_parcel_poll_job(scheduler, memory, bot_manager, chat_id, calendar_client)
     except Exception:
         log.exception("parcel_poll_setup_failed")
+
+    # Nova Poshta — auto-discover new incoming parcels every 30 min
+    # (no-ops unless NOVA_POSHTA_TOKEN_OAUTH2 is configured)
+    try:
+        from src.scheduler.parcels import register_parcel_discovery_job
+        register_parcel_discovery_job(scheduler, memory, bot_manager, chat_id)
+    except Exception:
+        log.exception("parcel_discovery_setup_failed")
 
     # Weekly Family Chronicle PDF every Sunday 20:00
     try:
