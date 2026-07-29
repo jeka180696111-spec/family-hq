@@ -24,6 +24,12 @@ _COLUMN_PATCHES: list[tuple[str, str, str]] = [
     ("baby_state", "walking_since", "TEXT"),
     ("baby_state", "walk_ended_at", "TEXT"),
     ("parcels", "member", "TEXT"),
+    ("parcels", "city_from", "TEXT"),
+    ("parcels", "city_to", "TEXT"),
+    ("parcels", "warehouse", "TEXT"),
+    ("parcels", "weight_kg", "REAL"),
+    ("parcels", "cost_uah", "REAL"),
+    ("parcels", "scheduled_at", "TEXT"),
 ]
 
 

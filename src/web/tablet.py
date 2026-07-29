@@ -408,6 +408,12 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
                 "title": r.title or r.ttn,
                 "status": r.status or "",
                 "member": r.member or "",
+                "city_from": r.city_from or "",
+                "city_to": r.city_to or "",
+                "warehouse": r.warehouse or "",
+                "weight_kg": r.weight_kg,
+                "cost_uah": r.cost_uah,
+                "scheduled_at": r.scheduled_at or "",
             }
             for r in rows
         ]
