@@ -8,12 +8,14 @@ Two ways parcels get into the `parcels` table:
 
 2. Auto-discovery — every 30 min, if NOVA_POSHTA_TOKEN_OAUTH2 is set,
    discover_incoming_parcels() calls the private-cabinet
-   getIncomingDocumentsByPhone method (see nova_poshta.py) and inserts any
-   TTN not already tracked, no manual paste needed. This is a reverse-
-   engineered, undocumented endpoint — if NP breaks or the session token
-   expires, this silently stops finding new parcels until the token is
-   refreshed (the family gets a one-time heads-up in chat, not a repeat
-   spam, on the first auth failure — see _auth_warned below).
+   getIncomingDocumentsByPhone method (see nova_poshta.py) once per
+   configured account/token and inserts any TTN not already tracked, no
+   manual paste needed. This is a reverse-engineered, undocumented
+   endpoint, and each token only sees parcels addressed to whoever's
+   session it came from — if NP breaks it or a session token expires,
+   that account's parcels silently stop being found until the token is
+   refreshed (the family gets a one-time per-account heads-up in chat,
+   not a repeat spam, on the first auth failure — see _auth_warned below).
 
 Either way, once a TTN is in the table, poll_parcels() below takes over:
 every 30 min it re-checks status and pushes a notification on change.
@@ -33,8 +35,26 @@ from src.utils.time import iso_now, now_kyiv
 log = structlog.get_logger()
 
 # In-memory only (resets on restart) — avoids re-sending the "token expired"
-# warning every 30 minutes while nobody's refreshed it yet.
-_auth_warned = False
+# warning every 30 minutes while nobody's refreshed a given account's token.
+_auth_warned: set[str] = set()
+
+
+def _parse_oauth_tokens(raw: str) -> list[tuple[str, str]]:
+    """"Имя:токен,Имя2:токен2" for several accounts, or a single bare token
+    (auto-labelled "аккаунт N") when there's only one family member tracking."""
+    out: list[tuple[str, str]] = []
+    for i, part in enumerate((raw or "").split(","), start=1):
+        part = part.strip()
+        if not part:
+            continue
+        if ":" in part:
+            label, token = part.split(":", 1)
+            label, token = label.strip(), token.strip()
+        else:
+            label, token = f"аккаунт {i}", part
+        if token:
+            out.append((label, token))
+    return out
 
 
 _ARRIVED_KEYWORDS = ("прибула", "у відділенні", "прибыла", "в отделение", "ready for pickup")
@@ -141,78 +161,76 @@ def register_parcel_poll_job(scheduler, memory, bot_manager, chat_id: int,
 
 
 async def discover_incoming_parcels(memory: Any, bot_manager: Any, chat_id: int) -> None:
-    """Find new incoming parcels automatically, no TTN paste required.
-    No-ops if NOVA_POSHTA_TOKEN_OAUTH2 isn't configured."""
-    global _auth_warned
+    """Find new incoming parcels automatically, no TTN paste required —
+    once per configured account/token. No-ops if NOVA_POSHTA_TOKEN_OAUTH2
+    isn't configured."""
     try:
         from src.config import get_settings
         from src.integrations.nova_poshta import NovaPoshtaAuthError, NovaPoshtaClient
         settings = get_settings()
-        oauth_token = getattr(settings, "nova_poshta_oauth_token", "")
         client = NovaPoshtaClient.from_settings(settings)
-        if not client or not oauth_token:
+        accounts = _parse_oauth_tokens(getattr(settings, "nova_poshta_token_oauth2", ""))
+        if not client or not accounts:
             return
 
         now = now_kyiv()
-        try:
-            incoming = await client.list_incoming_by_phone(
-                oauth_token,
-                date_from=now - timedelta(days=90),
-                date_to=now + timedelta(days=1),
-            )
-        except NovaPoshtaAuthError:
-            log.warning("parcel_discovery_auth_expired")
-            if not _auth_warned:
-                _auth_warned = True
-                if bot_manager and chat_id:
-                    try:
-                        await bot_manager.send_message(
-                            agent_id="devops", chat_id=chat_id,
-                            text=(
-                                "⚠️ Токен Новой Почты (NOVA_POSHTA_TOKEN_OAUTH2) устарел — "
-                                "автопоиск входящих посылок остановлен. Нужно заново достать "
-                                "TokenOAuth2 из личного кабинета my.novaposhta.ua (DevTools → "
-                                "Network → любой запрос к api.novaposhta.ua → Headers → "
-                                "Request Headers → TokenOAuth2) и обновить переменную в Railway."
-                            ),
-                        )
-                    except Exception:
-                        log.exception("parcel_discovery_auth_notify_failed")
-            return
-        _auth_warned = False
-
-        if not incoming:
-            return
-
         async with memory._engine.connect() as conn:
             existing_ttns = {row.ttn for row in await conn.execute(select(Parcel.ttn))}
 
-        for inv in incoming:
-            ttn = (inv.get("Number") or "").strip()
-            if not ttn or ttn in existing_ttns:
+        for label, oauth_token in accounts:
+            try:
+                incoming = await client.list_incoming_by_phone(
+                    oauth_token,
+                    date_from=now - timedelta(days=90),
+                    date_to=now + timedelta(days=1),
+                )
+            except NovaPoshtaAuthError:
+                log.warning("parcel_discovery_auth_expired", account=label)
+                if label not in _auth_warned:
+                    _auth_warned.add(label)
+                    if bot_manager and chat_id:
+                        try:
+                            await bot_manager.send_message(
+                                agent_id="devops", chat_id=chat_id,
+                                text=(
+                                    f"⚠️ Токен Новой Почты «{label}» (NOVA_POSHTA_TOKEN_OAUTH2) устарел — "
+                                    "автопоиск входящих посылок для этого аккаунта остановлен. Нужно "
+                                    "заново достать TokenOAuth2 из личного кабинета my.novaposhta.ua "
+                                    "(DevTools → Network → любой запрос к api.novaposhta.ua → Headers → "
+                                    "Request Headers → TokenOAuth2) и обновить переменную в Railway."
+                                ),
+                            )
+                        except Exception:
+                            log.exception("parcel_discovery_auth_notify_failed", account=label)
                 continue
-            existing_ttns.add(ttn)
-            status = inv.get("TrackingStatusName") or ""
-            title = inv.get("CargoDescription") or ""
-            sender = inv.get("SenderName") or ""
-            now_iso = iso_now()
-            async with memory._engine.begin() as conn:
-                await conn.execute(insert(Parcel).values(
-                    carrier="nova_poshta", ttn=ttn,
-                    title=title or None, member="family",
-                    status=status, status_code=str(inv.get("TrackingStatusCode") or ""),
-                    last_checked_at=now_iso, created_at=now_iso,
-                ))
-            if bot_manager and chat_id:
-                text = f"📦 Новая посылка (авто): <b>{title or ttn}</b>\n{status}"
-                if sender:
-                    text += f"\nОт: {sender}"
-                try:
-                    await bot_manager.send_message(
-                        agent_id="devops", chat_id=chat_id, text=text,
-                    )
-                except Exception:
-                    log.exception("parcel_discovery_push_failed", ttn=ttn)
+            _auth_warned.discard(label)
+
+            for inv in incoming:
+                ttn = (inv.get("Number") or "").strip()
+                if not ttn or ttn in existing_ttns:
+                    continue
+                existing_ttns.add(ttn)
+                status = inv.get("TrackingStatusName") or ""
+                title = inv.get("CargoDescription") or ""
+                sender = inv.get("SenderName") or ""
+                now_iso = iso_now()
+                async with memory._engine.begin() as conn:
+                    await conn.execute(insert(Parcel).values(
+                        carrier="nova_poshta", ttn=ttn,
+                        title=title or None, member=label,
+                        status=status, status_code=str(inv.get("TrackingStatusCode") or ""),
+                        last_checked_at=now_iso, created_at=now_iso,
+                    ))
+                if bot_manager and chat_id:
+                    text = f"📦 Новая посылка (авто, {label}): <b>{title or ttn}</b>\n{status}"
+                    if sender:
+                        text += f"\nОт: {sender}"
+                    try:
+                        await bot_manager.send_message(
+                            agent_id="devops", chat_id=chat_id, text=text,
+                        )
+                    except Exception:
+                        log.exception("parcel_discovery_push_failed", ttn=ttn)
     except Exception:
         log.exception("parcel_discovery_tick_failed")
 
