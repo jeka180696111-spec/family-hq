@@ -3967,6 +3967,12 @@ class DevOpsAgent(BaseAgent):
             values = {
                 "status": status.get("status"),
                 "status_code": str(status.get("status_code") or ""),
+                "city_from": status.get("city_from") or None,
+                "city_to": status.get("city_to") or None,
+                "warehouse": status.get("warehouse") or None,
+                "weight_kg": status.get("weight_kg"),
+                "cost_uah": status.get("total_uah"),
+                "scheduled_at": status.get("scheduled_at") or None,
                 "last_checked_at": now,
             }
             if status.get("actual_delivery"):

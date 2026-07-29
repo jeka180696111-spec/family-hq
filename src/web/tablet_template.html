@@ -2804,6 +2804,17 @@
   .today-text { font-size: 12px; color: var(--text); align-self: center; line-height: 1.3; }
   .today-text .sub { color: var(--text-dim); font-size: 10px; display: block; }
 
+  /* --- Посылки --- */
+  .parcel-item {
+    background: var(--card-hi);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+  }
+  .parcel-item:last-child { margin-bottom: 0; }
+  .parcel-title { font-size: 14px; color: var(--text); font-weight: 500; line-height: 1.3; }
+  .parcel-detail { font-size: 12px; color: var(--text-dim); margin-top: 5px; line-height: 1.6; }
+
   /* --- Shopping --- */
   .shop-list { display: flex; flex-direction: column; gap: 5px; }
   .shop-item {
@@ -4389,6 +4400,11 @@ document.querySelectorAll('.shop-item').forEach(item => {
       const masonry = document.getElementById('masonry');
       const byId = new Map(cards.map(c => [c.dataset.cardId, c]));
       order.forEach(id => { const c = byId.get(id); if (c) masonry.appendChild(c); });
+      // Карточки, которых ещё не было в сохранённом порядке (например, новые,
+      // добавленные позже в код) — переносим в конец, а не оставляем там,
+      // куда их случайно вытеснило перемещение уже известных карточек.
+      const known = new Set(order);
+      cards.forEach(c => { if (!known.has(c.dataset.cardId)) masonry.appendChild(c); });
     } catch(e){}
   }
 
@@ -6944,6 +6960,15 @@ document.querySelectorAll('.shop-item').forEach(item => {
       </div>`;
     }).join('');
   }
+  function _parcelDateFmt(s) {
+    if (!s) return '';
+    try {
+      const d = new Date(String(s).replace(' ', 'T'));
+      if (isNaN(d.getTime())) return s;
+      return d.toLocaleDateString('ru-RU', {day:'2-digit', month:'2-digit'}) + ' в ' +
+             d.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+    } catch(e) { return s; }
+  }
   function updateParcels(items) {
     const card = document.getElementById('cardParcels');
     const list = document.getElementById('parcelsList');
@@ -6954,13 +6979,23 @@ document.querySelectorAll('.shop-item').forEach(item => {
     }
     card.style.display = '';
     list.innerHTML = items.map(p => {
+      const esc = s => (s || '').toString().replace(/</g, '&lt;');
       const status = (p.status || '').toLowerCase();
       const emoji = /отримано|видано|получено|delivered/.test(status) ? '✅'
                   : /прибул|відділенн|отделен|pickup/.test(status) ? '🎯' : '📦';
-      const sub = [p.status, p.member].filter(Boolean).join(' · ').replace(/</g, '&lt;');
-      return `<div class="today-item" style="display:flex; align-items:center; gap:8px">
-        <div class="today-time">${emoji}</div>
-        <div class="today-text" style="flex:1">${(p.title || '').replace(/</g, '&lt;')}${sub ? `<span class="sub">${sub}</span>` : ''}</div>
+      const lines = [];
+      if (p.status) lines.push(`${emoji} ${esc(p.status)}`);
+      if (p.city_from || p.city_to) lines.push(`📍 ${esc(p.city_from) || '?'} → ${esc(p.city_to) || '?'}`);
+      if (p.warehouse) lines.push(`🏢 Отделение № ${esc(p.warehouse)}`);
+      const wc = [];
+      if (p.weight_kg) wc.push(`⚖️ ${p.weight_kg} кг`);
+      if (p.cost_uah) wc.push(`💰 ${Math.round(p.cost_uah)}₴`);
+      if (wc.length) lines.push(wc.join(' · '));
+      if (p.scheduled_at) lines.push(`🕐 Прибытие: ${esc(_parcelDateFmt(p.scheduled_at))}`);
+      if (p.member) lines.push(`👤 ${esc(p.member)}`);
+      return `<div class="parcel-item">
+        <div class="parcel-title">📦 ${esc(p.title)}</div>
+        <div class="parcel-detail">${lines.join('<br>')}</div>
       </div>`;
     }).join('');
   }

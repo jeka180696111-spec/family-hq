@@ -97,6 +97,12 @@ async def poll_parcels(memory: Any, bot_manager: Any, chat_id: int,
             values: dict[str, Any] = {
                 "status": new_status,
                 "status_code": str(fresh.get("status_code") or ""),
+                "city_from": fresh.get("city_from") or None,
+                "city_to": fresh.get("city_to") or None,
+                "warehouse": fresh.get("warehouse") or None,
+                "weight_kg": fresh.get("weight_kg"),
+                "cost_uah": fresh.get("total_uah"),
+                "scheduled_at": fresh.get("scheduled_at") or None,
                 "last_checked_at": iso_now(),
             }
             if fresh.get("actual_delivery"):
@@ -214,13 +220,31 @@ async def discover_incoming_parcels(memory: Any, bot_manager: Any, chat_id: int)
                 title = inv.get("CargoDescription") or ""
                 sender = inv.get("SenderName") or ""
                 now_iso = iso_now()
+                row = {
+                    "carrier": "nova_poshta", "ttn": ttn,
+                    "title": title or None, "member": label,
+                    "status": status, "status_code": str(inv.get("TrackingStatusCode") or ""),
+                    "last_checked_at": now_iso, "created_at": now_iso,
+                }
+                # Обогащаем маршрутом/весом/стоимостью сразу же через тот же
+                # публичный track(), которым пользуется ручной режим — иначе
+                # эти детали появились бы только через 30 мин, на следующем
+                # тике poll_parcels().
+                try:
+                    enriched = await client.track(ttn)
+                    if not enriched.get("error"):
+                        row.update({
+                            "city_from": enriched.get("city_from") or None,
+                            "city_to": enriched.get("city_to") or None,
+                            "warehouse": enriched.get("warehouse") or None,
+                            "weight_kg": enriched.get("weight_kg"),
+                            "cost_uah": enriched.get("total_uah"),
+                            "scheduled_at": enriched.get("scheduled_at") or None,
+                        })
+                except Exception:
+                    log.exception("parcel_discovery_enrich_failed", ttn=ttn)
                 async with memory._engine.begin() as conn:
-                    await conn.execute(insert(Parcel).values(
-                        carrier="nova_poshta", ttn=ttn,
-                        title=title or None, member=label,
-                        status=status, status_code=str(inv.get("TrackingStatusCode") or ""),
-                        last_checked_at=now_iso, created_at=now_iso,
-                    ))
+                    await conn.execute(insert(Parcel).values(**row))
                 if bot_manager and chat_id:
                     text = f"📦 Новая посылка (авто, {label}): <b>{title or ttn}</b>\n{status}"
                     if sender:
