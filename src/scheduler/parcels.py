@@ -1,14 +1,22 @@
-"""Nova Poshta parcel poller — every 30 min checks active TTNs the user
-has pasted into chat, pushes a notification on status change, marks
-delivered_at when the parcel is received.
+"""Nova Poshta parcel poller.
 
-Discovery is manual: the user pastes a 14-digit TTN in the family chat
-(or sends 'Прораб, отследи ТТН XYZ'). main.py picks it up via regex
-and calls devops._parcel_track. From there this poller takes over.
+Two ways parcels get into the `parcels` table:
 
-Auto-discovery via getDocumentList was removed because NP's public API
-only sees outgoing parcels, never incoming — useless for this family's
-workflow.
+1. Manual — the user pastes a 14-digit TTN in the family chat (or sends
+   'Прораб, отследи ТТН XYZ'). main.py picks it up via regex and calls
+   devops._parcel_track(). This always works (public API key only).
+
+2. Auto-discovery — every 30 min, if NOVA_POSHTA_TOKEN_OAUTH2 is set,
+   discover_incoming_parcels() calls the private-cabinet
+   getIncomingDocumentsByPhone method (see nova_poshta.py) and inserts any
+   TTN not already tracked, no manual paste needed. This is a reverse-
+   engineered, undocumented endpoint — if NP breaks or the session token
+   expires, this silently stops finding new parcels until the token is
+   refreshed (the family gets a one-time heads-up in chat, not a repeat
+   spam, on the first auth failure — see _auth_warned below).
+
+Either way, once a TTN is in the table, poll_parcels() below takes over:
+every 30 min it re-checks status and pushes a notification on change.
 """
 from __future__ import annotations
 
@@ -16,13 +24,17 @@ from datetime import timedelta
 from typing import Any
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import insert, select
 from sqlalchemy import update as sql_update
 
 from src.db.models import Parcel
 from src.utils.time import iso_now, now_kyiv
 
 log = structlog.get_logger()
+
+# In-memory only (resets on restart) — avoids re-sending the "token expired"
+# warning every 30 minutes while nobody's refreshed it yet.
+_auth_warned = False
 
 
 _ARRIVED_KEYWORDS = ("прибула", "у відділенні", "прибыла", "в отделение", "ready for pickup")
@@ -126,3 +138,89 @@ def register_parcel_poll_job(scheduler, memory, bot_manager, chat_id: int,
         id="parcel_poll", replace_existing=True,
     )
     log.info("parcel_poll_registered")
+
+
+async def discover_incoming_parcels(memory: Any, bot_manager: Any, chat_id: int) -> None:
+    """Find new incoming parcels automatically, no TTN paste required.
+    No-ops if NOVA_POSHTA_TOKEN_OAUTH2 isn't configured."""
+    global _auth_warned
+    try:
+        from src.config import get_settings
+        from src.integrations.nova_poshta import NovaPoshtaAuthError, NovaPoshtaClient
+        settings = get_settings()
+        oauth_token = getattr(settings, "nova_poshta_oauth_token", "")
+        client = NovaPoshtaClient.from_settings(settings)
+        if not client or not oauth_token:
+            return
+
+        now = now_kyiv()
+        try:
+            incoming = await client.list_incoming_by_phone(
+                oauth_token,
+                date_from=now - timedelta(days=90),
+                date_to=now + timedelta(days=1),
+            )
+        except NovaPoshtaAuthError:
+            log.warning("parcel_discovery_auth_expired")
+            if not _auth_warned:
+                _auth_warned = True
+                if bot_manager and chat_id:
+                    try:
+                        await bot_manager.send_message(
+                            agent_id="devops", chat_id=chat_id,
+                            text=(
+                                "⚠️ Токен Новой Почты (NOVA_POSHTA_TOKEN_OAUTH2) устарел — "
+                                "автопоиск входящих посылок остановлен. Нужно заново достать "
+                                "TokenOAuth2 из личного кабинета my.novaposhta.ua (DevTools → "
+                                "Network → любой запрос к api.novaposhta.ua → Headers → "
+                                "Request Headers → TokenOAuth2) и обновить переменную в Railway."
+                            ),
+                        )
+                    except Exception:
+                        log.exception("parcel_discovery_auth_notify_failed")
+            return
+        _auth_warned = False
+
+        if not incoming:
+            return
+
+        async with memory._engine.connect() as conn:
+            existing_ttns = {row.ttn for row in await conn.execute(select(Parcel.ttn))}
+
+        for inv in incoming:
+            ttn = (inv.get("Number") or "").strip()
+            if not ttn or ttn in existing_ttns:
+                continue
+            existing_ttns.add(ttn)
+            status = inv.get("TrackingStatusName") or ""
+            title = inv.get("CargoDescription") or ""
+            sender = inv.get("SenderName") or ""
+            now_iso = iso_now()
+            async with memory._engine.begin() as conn:
+                await conn.execute(insert(Parcel).values(
+                    carrier="nova_poshta", ttn=ttn,
+                    title=title or None, member="family",
+                    status=status, status_code=str(inv.get("TrackingStatusCode") or ""),
+                    last_checked_at=now_iso, created_at=now_iso,
+                ))
+            if bot_manager and chat_id:
+                text = f"📦 Новая посылка (авто): <b>{title or ttn}</b>\n{status}"
+                if sender:
+                    text += f"\nОт: {sender}"
+                try:
+                    await bot_manager.send_message(
+                        agent_id="devops", chat_id=chat_id, text=text,
+                    )
+                except Exception:
+                    log.exception("parcel_discovery_push_failed", ttn=ttn)
+    except Exception:
+        log.exception("parcel_discovery_tick_failed")
+
+
+def register_parcel_discovery_job(scheduler, memory, bot_manager, chat_id: int) -> None:
+    scheduler.add_job(
+        discover_incoming_parcels, "interval", minutes=30,
+        args=[memory, bot_manager, chat_id],
+        id="parcel_discovery", replace_existing=True,
+    )
+    log.info("parcel_discovery_registered")

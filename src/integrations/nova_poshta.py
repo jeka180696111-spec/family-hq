@@ -5,6 +5,7 @@ API key: register at https://novaposhta.ua/private/ → API → Get key.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 import aiohttp
@@ -13,6 +14,14 @@ import structlog
 log = structlog.get_logger()
 
 _API_URL = "https://api.novaposhta.ua/v2.0/json/"
+
+
+class NovaPoshtaAuthError(Exception):
+    """TokenOAuth2 (personal-cabinet session token) is missing, invalid, or
+    expired — getIncomingDocumentsByPhone answered success=false. NP doesn't
+    document this method or its failure shape, so this is a best-effort
+    signal, not a confirmed error code: any non-success response from this
+    call is treated as "token needs refreshing"."""
 
 
 class NovaPoshtaClient:
@@ -91,70 +100,49 @@ class NovaPoshtaClient:
                 log.exception("nova_track_failed", ttn=t)
         return out
 
-    async def _unused_try_list_incoming(self, days_back: int = 30) -> list[dict]:
-        """Experimental: try several method variants to retrieve INCOMING
-        parcels (where the key holder is the recipient). Returns first
-        non-empty result. NP has no documented incoming endpoint, but
-        with the mobile-app key, some private methods may respond."""
-        from datetime import datetime, timedelta
-        end = datetime.now()
-        start = end - timedelta(days=days_back)
-        date_from = start.strftime("%d.%m.%Y")
-        date_to = end.strftime("%d.%m.%Y")
+    async def list_incoming_by_phone(
+        self, oauth_token: str, date_from: datetime, date_to: datetime,
+        page: int = 1, limit: int = 100,
+    ) -> list[dict]:
+        """Auto-discover INCOMING parcels (recipient side) — the thing the
+        public API/apiKey can never do (see git history: getDocumentList,
+        getStatusDocumentsByPhone and getCounterpartyContactPersons were all
+        tried against the public key and only ever return outgoing/nothing).
 
-        attempts = [
-            # 1) Same getDocumentList but explicit empty SenderRef + GetFullList
-            {
-                "modelName": "InternetDocument",
-                "calledMethod": "getDocumentList",
-                "methodProperties": {
-                    "DateTimeFrom": date_from, "DateTimeTo": date_to,
-                    "GetFullList": "1", "Page": "1",
-                },
-            },
-            # 2) Tracking by phone (some NP variants accept this)
-            {
-                "modelName": "TrackingDocumentGeneral",
-                "calledMethod": "getStatusDocumentsByPhone",
-                "methodProperties": {},
-            },
-            # 3) Counterparty: list of parcels where I'm the recipient
-            {
-                "modelName": "Counterparty",
-                "calledMethod": "getCounterpartyContactPersons",
-                "methodProperties": {"Ref": "", "Page": "1"},
-            },
-        ]
+        This calls the same endpoint but reverse-engineered from
+        my.novaposhta.ua's own web traffic: auth is a `TokenOAuth2` header
+        carrying the personal cabinet's web-session token (NOT the apiKey
+        body field), and the method itself — `getIncomingDocumentsByPhone`
+        — is undocumented and private to that cabinet frontend. The session
+        behind this token is long-lived (weeks), so a family member copies
+        it by hand from DevTools once in a while (NOVA_POSHTA_TOKEN_OAUTH2)
+        rather than this needing a full login flow.
 
-        out: list[dict] = []
+        Unofficial: Nova Poshta can change or break this at any time.
+        """
+        body = {
+            "system": "PA 3.0",
+            "modelName": "InternetDocument",
+            "calledMethod": "getIncomingDocumentsByPhone",
+            "methodProperties": {
+                "DateFrom": date_from.strftime("%d.%m.%Y %H:%M:%S"),
+                "DateTo": date_to.strftime("%d.%m.%Y %H:%M:%S"),
+                "Page": page,
+                "Limit": limit,
+                "SearchByCounterparties": None,
+                "iCounterparties": None,
+            },
+        }
+        headers = {"Content-Type": "application/json", "TokenOAuth2": oauth_token}
         async with aiohttp.ClientSession() as session:
-            for body in attempts:
-                payload = {"apiKey": self.api_key, **body}
-                try:
-                    async with session.post(_API_URL, json=payload) as resp:
-                        data = await resp.json()
-                except Exception:
-                    log.exception("nova_incoming_attempt_failed",
-                                  method=body["calledMethod"])
-                    continue
-                if data.get("success") and data.get("data"):
-                    log.info("nova_incoming_attempt_ok",
-                             method=body["calledMethod"], rows=len(data["data"]))
-                    for d in data["data"]:
-                        if not isinstance(d, dict):
-                            continue
-                        out.append({
-                            "ttn": d.get("IntDocNumber") or d.get("Number") or d.get("DocNumber"),
-                            "description": d.get("Description"),
-                            "state": d.get("StateName") or d.get("Status"),
-                            "raw_method": body["calledMethod"],
-                        })
-                    if out:
-                        return out
-                else:
-                    log.info("nova_incoming_attempt_empty",
-                             method=body["calledMethod"],
-                             errors=data.get("errors") or data.get("warnings"))
+            async with session.post(_API_URL, json=body, headers=headers) as resp:
+                data = await resp.json()
+        if not data.get("success"):
+            raise NovaPoshtaAuthError(str(data.get("errors") or "unknown"))
+        out: list[dict] = []
+        for group in data.get("data", []) or []:
+            if isinstance(group, dict):
+                out.extend(group.get("result") or [])
         return out
 
     async def list_recent_documents(self, days_back: int = 14) -> list[dict]:
