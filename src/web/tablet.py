@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request, Body
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 import structlog
 
@@ -26,6 +26,7 @@ log = structlog.get_logger()
 
 
 _TEMPLATE_PATH = Path(__file__).parent / "tablet_template.html"
+_STATIC_DIR = Path(__file__).parent / "static"
 
 
 def _check_token(token: str, expected: str) -> None:
@@ -451,13 +452,60 @@ def register_tablet_routes(
     async def tablet_page(token: str = Query("")):
         _check_token(token, expected_token)
         html = _load_template()
-        # Инжектим токен в HTML чтобы JS мог использовать его для API-запросов
+        # PWA-теги — устанавливаемое приложение (иконка, отдельное окно без
+        # адресной строки), а не просто закладка браузера. Манифест несёт
+        # токен в start_url, чтобы значок на главном экране открывался сразу,
+        # без повторного логина.
+        manifest_href = f"/tablet/manifest.json?token={token}"
+        head_tags = (
+            '<!doctype html>\n'
+            '<meta charset="utf-8">\n'
+            '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n'
+            '<meta name="theme-color" content="#b8862e">\n'
+            f'<link rel="manifest" href="{manifest_href}">\n'
+            '<link rel="apple-touch-icon" href="/tablet/static/icon-192.png">\n'
+            '<meta name="apple-mobile-web-app-capable" content="yes">\n'
+            '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">\n'
+            '<meta name="apple-mobile-web-app-title" content="Family HQ">\n'
+        )
+        html = head_tags + html
+        # Инжектим токен в HTML чтобы JS мог использовать его для API-запросов,
+        # плюс регистрируем service worker (нужен для полноценной установки).
         html = html.replace(
             "<script>",
-            f"<script>window.TABLET_TOKEN = {json.dumps(token)};",
+            f"<script>window.TABLET_TOKEN = {json.dumps(token)};"
+            "if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/tablet/sw.js'); }",
             1,
         )
         return HTMLResponse(html)
+
+    @app.get("/tablet/manifest.json")
+    async def tablet_manifest(token: str = Query("")):
+        _check_token(token, expected_token)
+        return JSONResponse({
+            "name": "Family HQ",
+            "short_name": "Family HQ",
+            "start_url": f"/tablet?token={token}",
+            "display": "standalone",
+            "orientation": "any",
+            "background_color": "#f5ecd5",
+            "theme_color": "#b8862e",
+            "icons": [
+                {"src": "/tablet/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
+                {"src": "/tablet/static/icon-512.png", "sizes": "512x512", "type": "image/png"},
+            ],
+        })
+
+    @app.get("/tablet/sw.js")
+    async def tablet_sw():
+        return FileResponse(_STATIC_DIR / "sw.js", media_type="application/javascript")
+
+    @app.get("/tablet/static/{filename}")
+    async def tablet_static(filename: str):
+        # Только иконки — не отдаём произвольные файлы по имени.
+        if filename not in ("icon-192.png", "icon-512.png"):
+            raise HTTPException(status_code=404)
+        return FileResponse(_STATIC_DIR / filename, media_type="image/png")
 
     # Кеш последнего успешного snapshot'а — если сборка залипла и словили
     # таймаут, отдадим предыдущий вместо 502.
