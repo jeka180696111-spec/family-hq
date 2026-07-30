@@ -285,38 +285,41 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
     # чтобы юзер мог их привязать к иконкам на плане.
     try:
         inv = state.get("inverter") or {}
-        if state.get("devices") is not None:
-            # Инвертор в списке — если пришли ЛЮБЫЕ данные (soc, load, online)
-            has_inv_data = (
-                inv.get("soc") is not None or inv.get("load_w") is not None
-                or inv.get("online") is not None
-            )
-            if has_inv_data:
-                # Онлайн если явно True или есть soc (данные пришли)
-                is_online = bool(inv.get("online")) or inv.get("soc") is not None
-                state["devices"].append({
-                    "id": "virtual:inverter",
-                    "name": "Инвертор",
-                    "online": is_online,
-                    "category": "inverter",
-                    "on": inv.get("battery_flow") == "discharging",
-                    "cur_power": inv.get("load_w"),
-                    "battery": inv.get("soc"),
-                    "virtual": True,
-                    "read_only": True,
-                })
-            vac = state.get("vacuum") or {}
-            if vac.get("id"):
-                state["devices"].append({
-                    "id": "virtual:vacuum:" + str(vac.get("id")),
-                    "name": vac.get("name") or "Пылесос",
-                    "online": True,
-                    "category": "vacuum",
-                    "on": vac.get("state_key") == "cleaning",
-                    "battery": vac.get("battery"),
-                    "virtual": True,
-                    "read_only": True,
-                })
+        # setdefault, а не «devices уже не None» — иначе сбой Tuya (квота,
+        # таймаут, сеть) выше по коду гасил и виртуальный инвертор/пылесос
+        # тоже, хотя их данные (LuxCloud/SmartThings) от Tuya не зависят.
+        state.setdefault("devices", [])
+        # Инвертор в списке — если пришли ЛЮБЫЕ данные (soc, load, online)
+        has_inv_data = (
+            inv.get("soc") is not None or inv.get("load_w") is not None
+            or inv.get("online") is not None
+        )
+        if has_inv_data:
+            # Онлайн если явно True или есть soc (данные пришли)
+            is_online = bool(inv.get("online")) or inv.get("soc") is not None
+            state["devices"].append({
+                "id": "virtual:inverter",
+                "name": "Инвертор",
+                "online": is_online,
+                "category": "inverter",
+                "on": inv.get("battery_flow") == "discharging",
+                "cur_power": inv.get("load_w"),
+                "battery": inv.get("soc"),
+                "virtual": True,
+                "read_only": True,
+            })
+        vac = state.get("vacuum") or {}
+        if vac.get("id"):
+            state["devices"].append({
+                "id": "virtual:vacuum:" + str(vac.get("id")),
+                "name": vac.get("name") or "Пылесос",
+                "online": True,
+                "category": "vacuum",
+                "on": vac.get("state_key") == "cleaning",
+                "battery": vac.get("battery"),
+                "virtual": True,
+                "read_only": True,
+            })
     except Exception:
         log.exception("tablet_virtual_devices_failed")
 
