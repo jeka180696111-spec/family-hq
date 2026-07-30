@@ -136,8 +136,11 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
             sensor = await tuya.read_sensor(sensor_name)
             got = isinstance(sensor, dict) and "readings" in sensor and sensor.get("readings")
             if not got:
-                # Fallback: ищем среди устройств первое с temperature/va_temperature
-                devices = await tuya.list_devices(force_refresh=True)
+                # Fallback: ищем среди устройств первое с temperature/va_temperature.
+                # Без force_refresh — план­шет опрашивает состояние каждые 8с, а тут
+                # и без того есть 60-секундный кэш в клиенте; форсировать его каждый
+                # раз означало бы в ~7 раз больше запросов к Tuya, чем нужно.
+                devices = await tuya.list_devices()
                 for d in devices:
                     for s in (d.get("status") or []):
                         code = s.get("code", "")
@@ -163,7 +166,11 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
         from src.integrations.tuya import TuyaClient
         tuya = TuyaClient.from_settings(settings)
         if tuya:
-            devices = await tuya.list_devices(force_refresh=True)
+            # Без force_refresh — см. комментарий у датчика детской выше:
+            # 60-секундный кэш клиента более чем достаточен для опроса раз
+            # в 8с, а форсировать его — платить лимитом Tuya без реальной
+            # нужды (обновление раз в минуту незаметно на настенном экране).
+            devices = await tuya.list_devices()
             dev_out = []
             for d in devices:
                 row = {
