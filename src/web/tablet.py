@@ -207,7 +207,7 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
                     "online": d.get("online"), "category": d.get("category"),
                 }
                 for s in (d.get("status") or []):
-                    code = s.get("code", ""); val = s.get("value")
+                    code = s.get("code") or ""; val = s.get("value")
                     if code == "switch" or code.startswith("switch_"):
                         if "on" not in row:
                             row["on"] = bool(val)
@@ -254,8 +254,8 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
                    or st.find_vacuum(devices_st))
             if vac:
                 summary = await st.vacuum_summary(vac)
-                movement = (summary.get("movement") or "").lower()  # cleaning|homing|idle|charging
-                mode = (summary.get("mode") or "").lower()
+                movement = str(summary.get("movement") or "").lower()  # cleaning|homing|idle|charging
+                mode = str(summary.get("mode") or "").lower()
                 battery = summary.get("battery")
                 RU_STATE = {
                     "cleaning": "убирает",
