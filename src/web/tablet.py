@@ -132,20 +132,28 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
         from src.integrations.tuya import TuyaClient
         tuya = TuyaClient.from_settings(settings)
         if tuya:
+            # Явный короткий таймаут на КАЖДЫЙ вызов Tuya: у клиента и так
+            # свои 15с на HTTP-запрос, а вся _build_tablet_state ограничена
+            # 20с суммарно — если Tuya сейчас лежит (квота и т.п.), она может
+            # «думать» все 15с перед ошибкой и не оставить времени на секции
+            # ниже (инвертор, календарь, автоматизации), которые от Tuya
+            # никак не зависят. 5с достаточно для нормального ответа Tuya.
             sensor_name = getattr(settings, "baby_room_sensor_name", "детская") or "детская"
-            sensor = await tuya.read_sensor(sensor_name)
+            sensor = await asyncio.wait_for(tuya.read_sensor(sensor_name), timeout=5.0)
             got = isinstance(sensor, dict) and "readings" in sensor and sensor.get("readings")
             if not got:
                 # Fallback: ищем среди устройств первое с temperature/va_temperature.
                 # Без force_refresh — план­шет опрашивает состояние каждые 8с, а тут
                 # и без того есть 60-секундный кэш в клиенте; форсировать его каждый
                 # раз означало бы в ~7 раз больше запросов к Tuya, чем нужно.
-                devices = await tuya.list_devices()
+                devices = await asyncio.wait_for(tuya.list_devices(), timeout=5.0)
                 for d in devices:
                     for s in (d.get("status") or []):
                         code = s.get("code", "")
                         if code in ("va_temperature", "temp_current", "temperature"):
-                            sensor = await tuya.read_sensor(d.get("name", ""))
+                            sensor = await asyncio.wait_for(
+                                tuya.read_sensor(d.get("name", "")), timeout=5.0,
+                            )
                             got = isinstance(sensor, dict) and "readings" in sensor and sensor.get("readings")
                             if got:
                                 break
@@ -170,7 +178,8 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
             # 60-секундный кэш клиента более чем достаточен для опроса раз
             # в 8с, а форсировать его — платить лимитом Tuya без реальной
             # нужды (обновление раз в минуту незаметно на настенном экране).
-            devices = await tuya.list_devices()
+            # Короткий локальный таймаут — см. комментарий выше про 15с/20с.
+            devices = await asyncio.wait_for(tuya.list_devices(), timeout=5.0)
             dev_out = []
             for d in devices:
                 row = {
@@ -202,7 +211,7 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
                 dev_out.append(row)
             state["devices"] = dev_out
 
-            scenes = await tuya.list_scenes()
+            scenes = await asyncio.wait_for(tuya.list_scenes(), timeout=5.0)
             state["scenes"] = [
                 {"id": s["id"], "name": s["name"], "is_automation": s.get("is_automation", False)}
                 for s in scenes if s.get("name")
