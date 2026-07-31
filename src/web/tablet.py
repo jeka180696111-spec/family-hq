@@ -402,7 +402,7 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
         from src.integrations.gcalendar import CalendarClient
         if settings.google_service_account_json and settings.calendar_id:
             cal = CalendarClient(settings.google_service_account_json, settings.calendar_id)
-            events = await asyncio.wait_for(cal.list_upcoming(days_ahead=7), timeout=5.0)
+            events = await asyncio.wait_for(cal.list_upcoming(days=7), timeout=5.0)
             today = []
             for e in events[:20]:
                 today.append({

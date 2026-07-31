@@ -394,6 +394,14 @@ class LuxCloudClient:
             cutoff = (now_kyiv() - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
             out = [e for e in out if (e.get("start_time") or "") >= cutoff]
 
+        # LuxCloud does NOT guarantee newest-first order (unofficial API —
+        # never confirmed sorted, and grid_watcher.py's caller trusts this
+        # ordering completely to decide "what's the latest grid state").
+        # Sort explicitly so an inconsistently-ordered response can't make
+        # an old, already-resolved event look like the newest signal and
+        # cause the outage detector to flip-flop on stale data.
+        out.sort(key=lambda e: e.get("start_time") or "", reverse=True)
+
         return out
 
     async def probe_hosts(self) -> dict:
