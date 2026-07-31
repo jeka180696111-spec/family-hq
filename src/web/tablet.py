@@ -76,8 +76,8 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
         from src.integrations.weather import WeatherClient
         w = WeatherClient.from_settings(settings)
         if w:
-            cur = await w.current()
-            hourly = await w.forecast(hours=120)
+            cur = await asyncio.wait_for(w.current(), timeout=5.0)
+            hourly = await asyncio.wait_for(w.forecast(hours=120), timeout=5.0)
             weather = {
                 "city": cur.get("city"),
                 "temp_c": cur.get("temp_c"),
@@ -225,7 +225,7 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
         from src.integrations.smartthings import SmartThingsClient
         st = SmartThingsClient.from_settings(settings)
         if st:
-            devices_st = await st.list_devices()
+            devices_st = await asyncio.wait_for(st.list_devices(), timeout=5.0)
             log.info("tablet_smartthings_devices",
                      count=len(devices_st),
                      names=[d.get("name") for d in devices_st][:20])
@@ -267,7 +267,7 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
         from src.integrations.luxcloud import LuxCloudClient
         lux = LuxCloudClient.from_settings(settings)
         if lux:
-            rt = await lux.runtime()
+            rt = await asyncio.wait_for(lux.runtime(), timeout=5.0)
             grid_import = rt.get("grid_import_w") or 0
             grid_export = rt.get("grid_export_w") or 0
             charge_w = rt.get("battery_charge_w") or 0
@@ -345,7 +345,7 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
         cal = (agents or {}).get("calendar") if agents else None
         sheets = getattr(cal, "_sheets", None) if cal else None
         if sheets and hasattr(sheets, "get_shopping_list"):
-            items = await sheets.get_shopping_list()
+            items = await asyncio.wait_for(sheets.get_shopping_list(), timeout=5.0)
             state["shopping"] = [
                 {"name": it.get("name", ""), "done": bool(it.get("done", False))}
                 for it in (items or [])[:10]
@@ -382,7 +382,7 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
         from src.integrations.gcalendar import CalendarClient
         if settings.google_service_account_json and settings.calendar_id:
             cal = CalendarClient(settings.google_service_account_json, settings.calendar_id)
-            events = await cal.list_upcoming(days_ahead=7)
+            events = await asyncio.wait_for(cal.list_upcoming(days_ahead=7), timeout=5.0)
             today = []
             for e in events[:20]:
                 today.append({
