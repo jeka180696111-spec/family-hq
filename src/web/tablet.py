@@ -301,7 +301,7 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
                 # Сеть считаем активной если через неё что-то течёт (import
                 # либо export), либо status инвертора не «off-grid».
                 "grid_active": (grid_import > 20 or grid_export > 20 or
-                                (rt.get("status") or "").lower() not in ("off-grid", "offgrid", "island")),
+                                str(rt.get("status") or "").lower() not in ("off-grid", "offgrid", "island")),
                 "solar_w": rt.get("pv_total_w") or rt.get("solar_w") or rt.get("pv_w"),
                 "grid_import_w": grid_import,
                 "grid_export_w": grid_export,
