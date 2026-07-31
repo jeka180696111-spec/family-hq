@@ -34,6 +34,26 @@ def _check_token(token: str, expected: str) -> None:
         raise HTTPException(status_code=401, detail="invalid token")
 
 
+# _build_tablet_state() runs on every /api/tablet/state hit — every 8s while
+# the tablet is open, all day. Tuya/LuxCloud/SmartThings clients were being
+# constructed fresh via .from_settings() on every single call, which meant:
+# a brand new (unauthenticated) instance each time, so Tuya's own token +
+# 60s/300s device/scene caches never actually persisted between polls (they
+# live on the instance, and the instance never survived past one call), and
+# LuxCloud had to do a full login handshake every 8 seconds instead of once.
+# That's the real reason Tuya's quota drained so fast even after removing
+# force_refresh, and why LuxCloud occasionally missed the 5s per-call budget
+# on a cold connection + login round-trip. One process-lifetime instance per
+# integration, reused across every poll, fixes both at the root.
+_shared_clients: dict[str, Any] = {}
+
+
+def _cached_client(key: str, factory):
+    if key not in _shared_clients:
+        _shared_clients[key] = factory()
+    return _shared_clients[key]
+
+
 async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = None) -> dict:
     """Собираем состояние для планшета: расширенное относительно dashboard."""
     import asyncio
@@ -130,7 +150,7 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
     # затем fallback на ЛЮБОЕ устройство содержащее датчик температуры
     try:
         from src.integrations.tuya import TuyaClient
-        tuya = TuyaClient.from_settings(settings)
+        tuya = _cached_client("tuya", lambda: TuyaClient.from_settings(settings))
         if tuya:
             # Явный короткий таймаут на КАЖДЫЙ вызов Tuya: у клиента и так
             # свои 15с на HTTP-запрос, а вся _build_tablet_state ограничена
@@ -172,7 +192,7 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
     # Устройства и сцены Tuya
     try:
         from src.integrations.tuya import TuyaClient
-        tuya = TuyaClient.from_settings(settings)
+        tuya = _cached_client("tuya", lambda: TuyaClient.from_settings(settings))
         if tuya:
             # Без force_refresh — см. комментарий у датчика детской выше:
             # 60-секундный кэш клиента более чем достаточен для опроса раз
@@ -223,7 +243,7 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
     # SmartThings — робот-пылесос (Гоша / robot / любое имя)
     try:
         from src.integrations.smartthings import SmartThingsClient
-        st = SmartThingsClient.from_settings(settings)
+        st = _cached_client("smartthings", lambda: SmartThingsClient.from_settings(settings))
         if st:
             devices_st = await asyncio.wait_for(st.list_devices(), timeout=5.0)
             log.info("tablet_smartthings_devices",
@@ -265,7 +285,7 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
     # Инвертор + автономность
     try:
         from src.integrations.luxcloud import LuxCloudClient
-        lux = LuxCloudClient.from_settings(settings)
+        lux = _cached_client("luxcloud", lambda: LuxCloudClient.from_settings(settings))
         if lux:
             rt = await asyncio.wait_for(lux.runtime(), timeout=5.0)
             grid_import = rt.get("grid_import_w") or 0
