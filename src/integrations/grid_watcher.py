@@ -75,6 +75,11 @@ class GridWatcher:
         # Three ticks at 30s = 90s confirmation before firing.
         self._discharge_streak: int = 0
         self._last_runtime_push: datetime | None = None
+        # Кэш клиента на экземпляр — tick() запускается каждые 30с, а
+        # новый LuxCloudClient/TuyaClient — это полный логин/токен заново
+        # на каждом тике (2880 раз в сутки только от одной этой задачи).
+        self._lux_client: Any = None
+        self._tuya_client_cached: Any = None
 
     async def tick(self) -> None:
         """Event-driven detection: trust ONLY the inverter's own
@@ -86,9 +91,11 @@ class GridWatcher:
         Battery-percentage alerts during an active outage remain — those
         are read straight from data and don't classify grid state."""
         try:
-            from src.config import get_settings
-            from src.integrations.luxcloud import LuxCloudClient
-            client = LuxCloudClient.from_settings(get_settings())
+            if self._lux_client is None:
+                from src.config import get_settings
+                from src.integrations.luxcloud import LuxCloudClient
+                self._lux_client = LuxCloudClient.from_settings(get_settings())
+            client = self._lux_client
             if not client:
                 return
             data = await client.runtime()
@@ -200,7 +207,9 @@ class GridWatcher:
             from src.integrations.tuya import TuyaClient
             from src.utils.inverter import runtime_report
             settings = get_settings()
-            tuya = TuyaClient.from_settings(settings)
+            if self._tuya_client_cached is None:
+                self._tuya_client_cached = TuyaClient.from_settings(settings)
+            tuya = self._tuya_client_cached
             report = await runtime_report(
                 lux_data=data,
                 capacity_wh=int(getattr(settings, "battery_capacity_wh", 5184)),
