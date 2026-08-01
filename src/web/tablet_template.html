@@ -86,7 +86,8 @@
     .header { grid-template-columns: auto 1fr auto; gap: 16px; }
     .header-reminder { display: none; }  /* на мобиле уходит */
   }
-  /* Reminder-chip — уютная тёплая плашка с напоминанием перед выходом */
+  /* Reminder-chip — уютная тёплая плашка с напоминанием перед выходом.
+     Скрывается когда пустой text (см. JS ниже — класс .empty). */
   .header-reminder {
     display: inline-flex;
     align-items: center;
@@ -103,6 +104,7 @@
     text-overflow: ellipsis;
     box-shadow: 0 0 12px rgba(212, 160, 74, 0.06);
   }
+  .header-reminder.empty { display: none; }
   .header-reminder-em { font-size: 14px; flex-shrink: 0; }
   .header-reminder-text { overflow: hidden; text-overflow: ellipsis; }
   .clock-block .clock {
@@ -3538,10 +3540,11 @@
       </div>
     </div>
 
-    <!-- Напоминание «Не забудь …» — перекочевало из нижней ribbon-строки -->
-    <div class="header-reminder" title="Совет от Дворецкого перед выходом">
+    <!-- Напоминание «Не забудь …» — перекочевало из нижней ribbon-строки.
+         Изначально empty, покажется когда прилетит state.weather -->
+    <div class="header-reminder empty" title="Совет от Дворецкого перед выходом">
       <span class="header-reminder-em">💡</span>
-      <span class="header-reminder-text" data-t="reminder">—</span>
+      <span class="header-reminder-text" data-t="reminder"></span>
     </div>
 
     <div class="header-icons">
@@ -6578,7 +6581,13 @@ document.querySelectorAll('.shop-item').forEach(item => {
 
 
   function updateReminder(w) {
-    if (!w) return;
+    // Прячем всю плашку если данных нет
+    const chip = document.querySelector('.header-reminder');
+    if (!w) {
+      if (chip) chip.classList.add('empty');
+      return;
+    }
+    if (chip) chip.classList.remove('empty');
     const parts = [];
     const t = w.temp_c;
     const rain = w.forecast && w.forecast[0] ? w.forecast[0].rain : 0;
