@@ -1697,4 +1697,40 @@ def register_tablet_routes(
         if err: return {"error": err}
         return data or {}
 
+    # ─────────────────────────────────────────────────────────────────
+    # Голосовая транскрипция через Whisper (fallback для iOS Safari
+    # где Web Speech API работает плохо).
+    # ─────────────────────────────────────────────────────────────────
+    from fastapi import UploadFile, File
+
+    @app.post("/api/tablet/voice/transcribe")
+    async def tablet_voice_transcribe(
+        token: str = Query(""),
+        file: UploadFile = File(...),
+    ):
+        _check_token(token, expected_token)
+        try:
+            from src.integrations.transcribe import TranscribeClient
+            client = TranscribeClient.from_settings(settings)
+            if not client:
+                return {"success": False, "error": "OPENAI_API_KEY не настроен"}
+            # Сохраняем во временный файл — TranscribeClient принимает path
+            import tempfile, os
+            ext = ".webm"
+            if file.filename and "." in file.filename:
+                ext = "." + file.filename.rsplit(".", 1)[-1]
+            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+                content = await file.read()
+                tmp.write(content)
+                tmp_path = tmp.name
+            try:
+                text = await client.transcribe(tmp_path, language="ru")
+                return {"success": True, "text": text}
+            finally:
+                try: os.unlink(tmp_path)
+                except Exception: pass
+        except Exception as e:
+            log.exception("voice_transcribe_failed")
+            return {"success": False, "error": str(e)[:200]}
+
     log.info("tablet_routes_registered")

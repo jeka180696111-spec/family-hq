@@ -8091,8 +8091,12 @@ document.querySelectorAll('.shop-item').forEach(item => {
       rec = _newRec();
       if (!rec) { _log('Браузер не поддерживает распознавание речи. Нужен Chrome/Edge.', 'error'); return; }
       if (_isIOSSafari()) {
-        _log('iOS Safari плохо держит непрерывное слушание. Используй ручной 🎤 «Скажи команду».', 'error');
-        // Всё же попробуем, но пользователь предупреждён
+        // На iOS Safari wake-word не работает надёжно. Показываем сообщение,
+        // wake-режим НЕ запускаем — юзер использует ручной 🎤.
+        _setState(S.OFF, '📱', 'На iOS — ручной микрофон', 'Тапни 🎤 в нижней плашке чтобы сказать команду');
+        _log('iOS Safari: используй кнопку 🎤 внизу — команда пойдёт через Whisper', 'bot');
+        state = S.OFF;
+        return;
       }
       _setState(S.WAKE, '👂', 'Слушает имя', 'Скажи «Клауди…»');
       rec.onresult = (e) => {
@@ -8137,16 +8141,22 @@ document.querySelectorAll('.shop-item').forEach(item => {
       catch(e) { _log('Не могу запустить микрофон: ' + e.message, 'error'); }
     }
 
-    function _startCommand() {
+    async function _startCommand() {
+      cmdBuffer = '';
+      _setState(S.CMD, '🎙', 'Слушаю команду', 'Говори что нужно…');
+      _tts('Да?');
+
+      // На iOS Safari — используем MediaRecorder + Whisper (Web Speech там кривой)
+      if (_isIOSSafari()) {
+        return _startCommandViaWhisper();
+      }
+
       if (rec) { try { rec.stop(); } catch(e){} }
       rec = _newRec();
       if (!rec) return;
       rec.continuous = false;
       rec.interimResults = false;
       rec.maxAlternatives = 3;
-      cmdBuffer = '';
-      _setState(S.CMD, '🎙', 'Слушаю команду', 'Говори что нужно…');
-      _tts('Да?');
       clearTimeout(cmdTimer);
       cmdTimer = setTimeout(() => {
         try { rec.stop(); } catch(e){}
@@ -8180,6 +8190,56 @@ document.querySelectorAll('.shop-item').forEach(item => {
       };
       try { rec.start(); }
       catch(e) { _log('Не могу слушать команду: ' + e.message, 'error'); _startWake(); }
+    }
+
+    // ── iOS Safari fallback: MediaRecorder + Whisper ──
+    async function _startCommandViaWhisper() {
+      let stream, mediaRec, chunks = [];
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch(e) {
+        _log('Микрофон недоступен: ' + e.message, 'error');
+        _startWake();
+        return;
+      }
+      // Выбираем формат который поддерживает браузер
+      const mimeTypes = ['audio/webm', 'audio/mp4', 'audio/ogg', ''];
+      let mimeType = mimeTypes.find(m => !m || MediaRecorder.isTypeSupported?.(m)) || '';
+      try {
+        mediaRec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      } catch(e) {
+        _log('MediaRecorder не поддерживается: ' + e.message, 'error');
+        stream.getTracks().forEach(t => t.stop());
+        _startWake();
+        return;
+      }
+      mediaRec.ondataavailable = (ev) => { if (ev.data.size > 0) chunks.push(ev.data); };
+      mediaRec.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        if (!chunks.length) { _startWake(); return; }
+        const blob = new Blob(chunks, { type: mediaRec.mimeType || 'audio/webm' });
+        _setState(S.BUSY, '📡', 'Отправляю на Whisper…', '');
+        try {
+          const fd = new FormData();
+          const ext = (mediaRec.mimeType || 'audio/webm').split('/')[1].split(';')[0];
+          fd.append('file', blob, 'voice.' + ext);
+          const r = await fetch('/api/tablet/voice/transcribe?token=' + encodeURIComponent(TOKEN), {
+            method: 'POST', body: fd,
+          });
+          const j = await r.json();
+          if (!j.success) throw new Error(j.error || 'ошибка');
+          const text = (j.text || '').trim();
+          if (!text) { _log('Не расслышала', 'error'); _startWake(); return; }
+          _log(text, 'user');
+          await _handleCommand([text]);
+        } catch(e) {
+          _log('Whisper: ' + (e.message||e), 'error');
+          _startWake();
+        }
+      };
+      mediaRec.start();
+      // Через 8 секунд — стоп
+      setTimeout(() => { try { mediaRec.stop(); } catch(e){} }, CMD_TIMEOUT_MS);
     }
 
     async function _handleCommand(alts) {
