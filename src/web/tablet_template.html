@@ -3113,9 +3113,29 @@
   .ribbon-title {
     font-size: 10px; color: var(--text-dim);
     letter-spacing: 0.14em; text-transform: uppercase; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .ribbon-msg { color: var(--text); font-size: 13px; margin-top: 2px; }
+  .ribbon-msg {
+    color: var(--text); font-size: 13px; margin-top: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   .ribbon-msg .accent { color: var(--amber); }
+
+  /* На мобиле — прячем заголовок и оставляем только основную строку
+     в одну линию + сокращаем кнопку «Уехали» до иконки. */
+  @media (max-width: 600px) {
+    .ribbon {
+      padding: 10px 12px;
+      gap: 8px;
+      grid-template-columns: 1fr auto auto;
+    }
+    .ribbon-title { display: none; }
+    .ribbon-msg { font-size: 12px; margin: 0; }
+    .home-mega-btn { padding: 8px 12px; font-size: 12px; }
+    .home-mega-btn span:not(.mega-icon) { display: none; }
+    .home-mega-btn .mega-icon { font-size: 20px; }
+    .sos-btn { padding: 10px 14px; font-size: 12px; }
+  }
   .mic {
     width: 56px; height: 56px;
     border-radius: 50%;
