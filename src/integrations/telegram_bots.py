@@ -253,6 +253,42 @@ class BotManager:
         """Return the ``Bot`` object for *agent_id*, or ``None``."""
         return self._bots.get(agent_id)
 
+    async def edit_message(
+        self,
+        agent_id: str,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        parse_mode: str = "HTML",
+    ) -> bool:
+        """Редактирует существующее сообщение. True если успех."""
+        bot = self._bots.get(agent_id)
+        if bot is None:
+            return False
+        safe_text = sanitize_html_for_telegram(text) if parse_mode == "HTML" else text
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id, message_id=message_id,
+                text=safe_text, parse_mode=parse_mode,
+            )
+            return True
+        except TelegramError as exc:
+            # "message is not modified" — не ошибка, просто содержимое такое же
+            if "not modified" in str(exc).lower():
+                return True
+            # Fallback plain text
+            if "can't parse" in str(exc).lower():
+                try:
+                    await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text)
+                    return True
+                except Exception:
+                    pass
+            log.warning("edit_message_failed", agent_id=agent_id, error=str(exc)[:200])
+            return False
+        except Exception:
+            log.exception("edit_message_error", agent_id=agent_id)
+            return False
+
     async def send_photo(
         self,
         agent_id: str,

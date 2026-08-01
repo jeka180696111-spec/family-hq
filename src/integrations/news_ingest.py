@@ -174,6 +174,7 @@ class NewsIngestor:
         chat_id: int | None = None,
         claude_client: Any = None,
         model_cheap: str = "claude-haiku-4-5-20251001",
+        gemini_client: Any = None,
     ) -> None:
         self._memory = memory
         self._channel_ids: set[int] = set()
@@ -181,7 +182,17 @@ class NewsIngestor:
         self._bots = bot_manager
         self._chat_id = chat_id
         self._claude = claude_client
+        self._gemini = gemini_client
         self._model = model_cheap
+        # Digest manager — редактируемая карточка вместо потока сообщений
+        self._digest = None
+        if bot_manager and chat_id:
+            from src.integrations.alert_digest import AlertDigestManager
+            self._digest = AlertDigestManager(
+                memory=memory, bot_manager=bot_manager, chat_id=chat_id,
+                claude_client=claude_client, gemini_client=gemini_client,
+                model_cheap=model_cheap,
+            )
 
     async def load_tracked_channels(self) -> None:
         async with self._memory._engine.connect() as conn:
@@ -281,26 +292,26 @@ class NewsIngestor:
 
         # Critical channels: state-machine alerts
         if category == "critical" and region:
-            await self._handle_alert_event(status, region, text, meta)
+            await self._handle_alert_event(status, region, text, meta, normalized)
 
-    async def _handle_alert_event(self, status: str, region: str, text: str, meta: dict) -> None:
+    async def _handle_alert_event(self, status: str, region: str, text: str, meta: dict, channel_id: int = 0) -> None:
         active = await self._get_active(region)
 
         if status == "alert_start":
             if active:
                 # Already active — treat as update if there's threat detail
                 if _THREAT_PATTERNS.search(text):
-                    await self._push_update(region, text, meta)
+                    await self._push_update(region, text, meta, channel_id)
                 else:
                     log.info("alert_start_repeat_ignored", region=region)
                 return
             await self._open_alert(region, meta.get("username") or "")
-            await self._push_start(region, text, meta)
+            await self._push_start(region, text, meta, channel_id)
             return
 
         if status == "alert_update":
             if active:
-                await self._push_update(region, text, meta)
+                await self._push_update(region, text, meta, channel_id)
             # If no active alert, ignore — random шахед mention without тревога
             return
 
@@ -326,7 +337,7 @@ class NewsIngestor:
             "last_update_at": row.last_update_at,
         }
 
-    async def _open_alert(self, region: str, source: str) -> None:
+    async def _open_alert(self, region: str, source: str, tg_message_id: int | None = None) -> None:
         now = iso_now()
         async with self._memory._engine.begin() as conn:
             await conn.execute(
@@ -336,9 +347,11 @@ class NewsIngestor:
                     sources=json.dumps([source] if source else []),
                     announced_at=now,
                     last_update_at=now,
+                    tg_message_id=tg_message_id,
+                    digest_json=None,
                 )
             )
-        log.info("alert_opened", region=region, source=source)
+        log.info("alert_opened", region=region, source=source, tg_message_id=tg_message_id)
 
     async def _close_alert(self, region: str, text: str, active: dict) -> None:
         try:
@@ -347,18 +360,27 @@ class NewsIngestor:
         except Exception:
             duration_min = 0
 
+        # Финальное сообщение через digest-манагер (использует накопленные данные)
+        if self._digest:
+            try:
+                await self._digest.send_final(region, duration_min)
+            except Exception:
+                log.exception("digest_final_send_failed")
+            try:
+                await self._digest.cleanup_after_alert(region)
+            except Exception:
+                pass
+        else:
+            # Fallback — простое сообщение
+            msg = f"✅ <b>ОТБОЙ — {region}</b>\nДлилась: {duration_min} мин"
+            try:
+                await self._bots.send_message(agent_id="news", chat_id=self._chat_id, text=msg)
+            except Exception:
+                log.exception("alert_close_push_failed")
+
         async with self._memory._engine.begin() as conn:
             await conn.execute(delete(ActiveAlert).where(ActiveAlert.region == region))
-
-        msg = (
-            f"✅ <b>ОТБОЙ — {region}</b>\n"
-            f"Длилась: {duration_min} мин"
-        )
-        try:
-            await self._bots.send_message(agent_id="news", chat_id=self._chat_id, text=msg)
-            log.info("alert_closed", region=region, duration_min=duration_min)
-        except Exception:
-            log.exception("alert_close_push_failed")
+        log.info("alert_closed", region=region, duration_min=duration_min)
 
     async def _touch_alert(self, region: str) -> None:
         async with self._memory._engine.begin() as conn:
@@ -368,37 +390,49 @@ class NewsIngestor:
 
     # ─── Pushes ──────────────────────────────────────────────────────
 
-    async def _push_start(self, region: str, text: str, meta: dict) -> None:
-        snippet = await self._summarize(text, mode="start")
-        src = meta.get("username") or "канал"
-        msg = (
-            f"🚨🚨🚨 <b>ТРЕВОГА — {region}</b>\n\n"
-            f"{snippet}\n\n"
-            f"<i>Источник: @{src}</i>"
+    async def _push_start(self, region: str, text: str, meta: dict, channel_id: int = 0) -> None:
+        """Отправляем СКЕЛЕТ-карточку. Первый пост сразу сохраняем в буфер,
+        через 60с debounce Дозорный обновит с LLM-анализом."""
+        skeleton = self._digest.initial_skeleton(region) if self._digest else (
+            f"🚨 <b>ТРЕВОГА — {region}</b>"
         )
+        tg_message_id = None
         try:
-            await self._bots.send_message(agent_id="news", chat_id=self._chat_id, text=msg)
-            log.info("alert_start_pushed", region=region)
+            msg_obj = await self._bots.send_message(
+                agent_id="news", chat_id=self._chat_id, text=skeleton,
+            )
+            tg_message_id = getattr(msg_obj, "message_id", None)
+            log.info("alert_start_pushed", region=region, tg_message_id=tg_message_id)
         except Exception:
             log.exception("alert_start_push_failed")
 
-    async def _push_update(self, region: str, text: str, meta: dict) -> None:
-        await self._touch_alert(region)
-        snippet = await self._summarize(text, mode="update")
-        if not snippet:
-            log.info("alert_update_skipped_empty", region=region)
-            return
-        src = meta.get("username") or "канал"
-        msg = (
-            f"🔄 <b>{region} — обновление</b>\n\n"
-            f"{snippet}\n\n"
-            f"<i>@{src}</i>"
-        )
+        # Пере-открыть ActiveAlert с tg_message_id (или обновить если уже создан)
         try:
-            await self._bots.send_message(agent_id="news", chat_id=self._chat_id, text=msg)
-            log.info("alert_update_pushed", region=region)
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(
+                    update(ActiveAlert).where(ActiveAlert.region == region).values(
+                        tg_message_id=tg_message_id,
+                    )
+                )
         except Exception:
-            log.exception("alert_update_push_failed")
+            log.exception("alert_start_save_tgid_failed")
+
+        # Первый пост в буфер + запуск debounce
+        if self._digest and text:
+            await self._digest.add_post(
+                region=region, channel_id=channel_id,
+                channel_title=meta.get("title") or meta.get("username"), text=text,
+            )
+
+    async def _push_update(self, region: str, text: str, meta: dict, channel_id: int = 0) -> None:
+        await self._touch_alert(region)
+        # Просто добавляем в буфер — карточка сама обновится через debounce
+        if self._digest and text:
+            await self._digest.add_post(
+                region=region, channel_id=channel_id,
+                channel_title=meta.get("title") or meta.get("username"), text=text,
+            )
+            log.info("alert_update_buffered", region=region)
 
     async def _push_utility(self, text: str, meta: dict) -> None:
         from src.scheduler.wave3 import is_quiet_now

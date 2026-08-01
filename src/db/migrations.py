@@ -30,6 +30,9 @@ _COLUMN_PATCHES: list[tuple[str, str, str]] = [
     ("parcels", "weight_kg", "REAL"),
     ("parcels", "cost_uah", "REAL"),
     ("parcels", "scheduled_at", "TEXT"),
+    # Дозорный digest — редактируемая карточка + кеш LLM-анализа
+    ("active_alerts", "tg_message_id", "INTEGER"),
+    ("active_alerts", "digest_json", "TEXT"),
 ]
 
 

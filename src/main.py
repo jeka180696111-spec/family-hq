@@ -1632,12 +1632,16 @@ async def run(dry_run: bool = False) -> None:
 
     # News ingestion: save posts from tracked channels and detect alerts
     from src.integrations.news_ingest import NewsIngestor
+    # Gemini как fallback для digest (если Claude недоступен / кончился баланс)
+    from src.integrations.gemini_client import GeminiClient
+    _news_gemini = GeminiClient.from_settings(settings)
     news_ingestor = NewsIngestor(
         memory,
         bot_manager=bot_manager,
         chat_id=chat_id,
         claude_client=claude,
         model_cheap=settings.model_cheap,
+        gemini_client=_news_gemini,
     )
     await news_ingestor.load_tracked_channels()
     userbot.add_news_handler(news_ingestor.handle)

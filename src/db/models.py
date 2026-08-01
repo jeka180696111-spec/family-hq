@@ -168,6 +168,23 @@ class ActiveAlert(Base):
     sources: Mapped[str] = mapped_column(Text, nullable=False)
     announced_at: Mapped[str] = mapped_column(String, nullable=False)
     last_update_at: Mapped[str] = mapped_column(String, nullable=False)
+    # ID сообщения-карточки в Telegram (для editMessageText вместо спама)
+    tg_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Кешированный JSON digest — что летит/куда/когда (LLM analysis)
+    digest_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class AlertPost(Base):
+    """Буфер сырых постов из каналов во время активной тревоги.
+    Используется для LLM-анализа и построения digest'a."""
+    __tablename__ = "alert_posts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    region: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    channel_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    channel_title: Mapped[str | None] = mapped_column(String, nullable=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    received_at: Mapped[str] = mapped_column(String, nullable=False, index=True)
 
 
 # ---------------------------------------------------------------------------
