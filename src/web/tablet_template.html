@@ -2472,29 +2472,26 @@
     pointer-events: none;
     z-index: 200;
     display: none;
-    /* Три слоя: яркая кромка + средний ореол + мягкое свечение вглубь */
+    /* Яркая кромка + короткий ореол (не более ~50px внутрь), центр чистый */
     box-shadow:
-      inset 0  0  0   3px   rgba(255,  40,  40, 0.95),
-      inset 0  0  30px 0    rgba(255,  40,  40, 0.85),
-      inset 0  0  90px 12px rgba(255,  55,  55, 0.55),
-      inset 0  0 200px 30px rgba(255,  60,  60, 0.25);
+      inset 0  0  0   3px  rgba(255,  40,  40, 0.9),
+      inset 0  0  18px 0   rgba(255,  40,  40, 0.6),
+      inset 0  0  50px 4px rgba(255,  55,  55, 0.25);
     animation: alert-glow 1.8s ease-in-out infinite;
   }
   body.alerted .alert-frame { display: block; }
   @keyframes alert-glow {
     0%, 100% {
       box-shadow:
-        inset 0 0  0   3px   rgba(255,  40, 40, 0.85),
-        inset 0 0  25px 0    rgba(255,  40, 40, 0.7),
-        inset 0 0  80px 10px rgba(255,  55, 55, 0.45),
-        inset 0 0 180px 25px rgba(255,  60, 60, 0.18);
+        inset 0 0  0   3px  rgba(255, 40, 40, 0.75),
+        inset 0 0  15px 0   rgba(255, 40, 40, 0.45),
+        inset 0 0  40px 3px rgba(255, 55, 55, 0.15);
     }
     50% {
       box-shadow:
-        inset 0 0  0   3px   rgba(255,  60, 60, 1.0),
-        inset 0 0  35px 0    rgba(255,  60, 60, 0.95),
-        inset 0 0 110px 18px rgba(255,  80, 80, 0.65),
-        inset 0 0 230px 40px rgba(255,  90, 90, 0.32);
+        inset 0 0  0   3px  rgba(255, 60, 60, 1.0),
+        inset 0 0  22px 0   rgba(255, 60, 60, 0.7),
+        inset 0 0  60px 6px rgba(255, 80, 80, 0.3);
     }
   }
   .alert-banner-top {
@@ -2558,17 +2555,15 @@
   @keyframes tired-glow {
     0%, 100% {
       box-shadow:
-        inset 0 0   0   3px   rgba( 66, 135, 245, 0.7),
-        inset 0 0  25px 0    rgba( 66, 135, 245, 0.55),
-        inset 0 0  80px 10px rgba( 99, 164, 255, 0.35),
-        inset 0 0 180px 25px rgba(120, 175, 255, 0.15);
+        inset 0 0  0   3px  rgba( 66, 135, 245, 0.6),
+        inset 0 0  15px 0   rgba( 66, 135, 245, 0.4),
+        inset 0 0  40px 3px rgba( 99, 164, 255, 0.15);
     }
     50% {
       box-shadow:
-        inset 0 0   0   3px   rgba( 99, 164, 255, 0.95),
-        inset 0 0  35px 0    rgba( 99, 164, 255, 0.85),
-        inset 0 0 110px 18px rgba(120, 175, 255, 0.55),
-        inset 0 0 230px 40px rgba(140, 190, 255, 0.28);
+        inset 0 0  0   3px  rgba( 99, 164, 255, 0.9),
+        inset 0 0  22px 0   rgba( 99, 164, 255, 0.7),
+        inset 0 0  60px 6px rgba(120, 175, 255, 0.28);
     }
   }
   .tired-banner-top {
@@ -8086,10 +8081,19 @@ document.querySelectorAll('.shop-item').forEach(item => {
       return r;
     }
 
+    function _isIOSSafari() {
+      const ua = navigator.userAgent;
+      return /iPad|iPhone|iPod/.test(ua) && /Safari/.test(ua) && !/CriOS|FxiOS/.test(ua);
+    }
+
     function _startWake() {
       if (rec) { try { rec.stop(); } catch(e){} }
       rec = _newRec();
       if (!rec) { _log('Браузер не поддерживает распознавание речи. Нужен Chrome/Edge.', 'error'); return; }
+      if (_isIOSSafari()) {
+        _log('iOS Safari плохо держит непрерывное слушание. Используй ручной 🎤 «Скажи команду».', 'error');
+        // Всё же попробуем, но пользователь предупреждён
+      }
       _setState(S.WAKE, '👂', 'Слушает имя', 'Скажи «Клауди…»');
       rec.onresult = (e) => {
         for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -8104,11 +8108,21 @@ document.querySelectorAll('.shop-item').forEach(item => {
         }
       };
       rec.onerror = (e) => {
-        // no-speech / not-allowed / aborted — просто перезапускаем
-        if (e.error === 'not-allowed') {
+        // Тихо игнорируем нормальные «ошибки» — они постоянно летят
+        // и это ожидаемое поведение SpeechRecognition:
+        //   aborted — прервали сами (например перед перезапуском)
+        //   no-speech — тишина
+        //   audio-capture — устройство недоступно
+        if (['aborted', 'no-speech', 'audio-capture', 'network'].includes(e.error)) return;
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
           _log('Микрофон запрещён браузером. Разреши в настройках.', 'error');
           stop();
+        } else if (e.error === 'language-not-supported') {
+          _log('Русский язык не поддерживается этим браузером.', 'error');
+          stop();
         }
+        // Прочие — просто логируем в консоль
+        else console.warn('voice error', e.error);
       };
       rec.onend = () => {
         // Auto-restart чтобы всегда слушал
@@ -8150,6 +8164,11 @@ document.querySelectorAll('.shop-item').forEach(item => {
       };
       rec.onerror = (e) => {
         clearTimeout(cmdTimer);
+        if (['aborted', 'no-speech'].includes(e.error)) {
+          // Ожидаемо — вернёмся в режим ожидания без сообщения
+          _startWake();
+          return;
+        }
         _log('Ошибка распознавания: ' + e.error, 'error');
         _startWake();
       };
