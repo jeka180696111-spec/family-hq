@@ -3357,8 +3357,8 @@
     <div class="voice-panel-state">
       <span class="voice-state-em" id="voiceStateEm">💤</span>
       <div class="voice-state-info">
-        <div class="voice-state-title" id="voiceStateTitle">Ассистент выключен</div>
-        <div class="voice-state-sub" id="voiceStateSub">Скажи «Клауди», чтобы разбудить</div>
+        <div class="voice-state-title" id="voiceStateTitle">Альтрон выключен</div>
+        <div class="voice-state-sub" id="voiceStateSub">Скажи «Альтрон», чтобы разбудить</div>
       </div>
     </div>
     <button class="voice-panel-close" onclick="_voiceClosePanel()" title="Скрыть панель">✕</button>
@@ -8005,16 +8005,21 @@ document.querySelectorAll('.shop-item').forEach(item => {
   restoreCardStates();
 
   // ═══════════════════════════════════════════════════════════════
-  // ГОЛОСОВОЙ АССИСТЕНТ КЛАУДИ
+  // ГОЛОСОВОЙ АССИСТЕНТ АЛЬТРОН
   // ═══════════════════════════════════════════════════════════════
   // Особенности:
   // - Web Speech API (браузерный, бесплатный)
-  // - Всегда слушает wake word («клауди»)
+  // - Всегда слушает wake word («альтрон»)
   // - После wake — 8 сек слушает команду
   // - Парсит + маршрутизирует (Spotify, Tuya сцены, пылесос, чат)
   // - Отвечает голосом (SpeechSynthesis)
   const VoiceAgent = (() => {
-    const WAKE_WORDS = ['клауди', 'клоди', 'клавдия', 'кладди', 'клавде', 'клауде'];
+    // Варианты которые распознаватель может услышать вместо «Альтрон»
+    const WAKE_WORDS = [
+      'альтрон', 'ультрон', 'олтрон', 'алтрон', 'альтран', 'ольтрон',
+      'алтарон', 'альтарон', 'альтроны', 'алтроны', 'алтырон', 'альтырон',
+      'алтырон',
+    ];
     const CMD_TIMEOUT_MS = 8000;
     const S = { OFF: 'off', WAKE: 'wake', CMD: 'cmd', BUSY: 'busy' };
     let state = S.OFF;
@@ -8098,7 +8103,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
         state = S.OFF;
         return;
       }
-      _setState(S.WAKE, '👂', 'Слушает имя', 'Скажи «Клауди…»');
+      _setState(S.WAKE, '👂', 'Слушает имя', 'Скажи «Альтрон…»');
       rec.onresult = (e) => {
         for (let i = e.resultIndex; i < e.results.length; i++) {
           const t = String(e.results[i][0].transcript || '').toLowerCase().replace(/ё/g,'е').trim();
@@ -8144,7 +8149,9 @@ document.querySelectorAll('.shop-item').forEach(item => {
     async function _startCommand() {
       cmdBuffer = '';
       _setState(S.CMD, '🎙', 'Слушаю команду', 'Говори что нужно…');
-      _tts('Да?');
+      // Случайный ответ на wake — не «Да?» а разное, как настоящий ИИ
+      const greets = ['Да?', 'Слушаю', 'Что нужно?', 'Здесь', 'Тебя слушаю', 'Я на связи'];
+      _tts(greets[Math.floor(Math.random() * greets.length)]);
 
       // На iOS Safari — используем MediaRecorder + Whisper (Web Speech там кривой)
       if (_isIOSSafari()) {
@@ -8383,7 +8390,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
       state = S.OFF;
       clearTimeout(cmdTimer);
       if (rec) { try { rec.stop(); } catch(e){} rec = null; }
-      _setState(S.OFF, '💤', 'Ассистент выключен', 'Тап 🎙 в шапке, чтобы разбудить');
+      _setState(S.OFF, '💤', 'Альтрон выключен', 'Тап 🎤 внизу или скажи «Альтрон»');
       try { localStorage.setItem('voiceAgent', 'off'); } catch(e){}
     }
     function toggle() {
