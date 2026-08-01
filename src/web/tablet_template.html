@@ -3152,14 +3152,24 @@
     border: 1px solid var(--line);
     border-radius: 18px;
   }
+  /* Обе части в одну строку: маленький заголовок + основной текст */
+  .ribbon-text {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    overflow: hidden;
+  }
   .ribbon-title {
     font-size: 10px; color: var(--text-dim);
     letter-spacing: 0.14em; text-transform: uppercase; font-weight: 600;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   .ribbon-msg {
-    color: var(--text); font-size: 13px; margin-top: 2px;
+    color: var(--text); font-size: 13px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    min-width: 0;
   }
   .ribbon-msg .accent { color: var(--amber); }
 
@@ -4086,9 +4096,9 @@
 
   <!-- ============= RIBBON / FOOTER ============= -->
   <div class="ribbon">
-    <div>
-      <div class="ribbon-title">Не забудь перед выходом</div>
-      <div class="ribbon-msg" data-t="reminder">—</div>
+    <div class="ribbon-text">
+      <span class="ribbon-title">Не забудь:</span>
+      <span class="ribbon-msg" data-t="reminder">—</span>
     </div>
     <!-- микрофон переехал в bottom-nav -->
     <button class="home-mega-btn away" id="megaBtn" onclick="toggleHomeState(this)">
