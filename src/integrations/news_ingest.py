@@ -417,12 +417,14 @@ class NewsIngestor:
         except Exception:
             log.exception("alert_start_save_tgid_failed")
 
-        # Первый пост в буфер + запуск debounce
-        if self._digest and text:
-            await self._digest.add_post(
-                region=region, channel_id=channel_id,
-                channel_title=meta.get("title") or meta.get("username"), text=text,
-            )
+        # Первый пост в буфер + запуск фонового тикера
+        if self._digest:
+            self._digest.start_ticker(region)
+            if text:
+                await self._digest.add_post(
+                    region=region, channel_id=channel_id,
+                    channel_title=meta.get("title") or meta.get("username"), text=text,
+                )
 
     async def _push_update(self, region: str, text: str, meta: dict, channel_id: int = 0) -> None:
         await self._touch_alert(region)
