@@ -124,6 +124,133 @@
   }
   .icon-btn:hover { color: var(--amber); border-color: var(--amber); transform: scale(1.05); }
 
+  /* ═══ Голосовой ассистент ═══ */
+  .voice-toggle-btn { position: relative; }
+  .voice-toggle-btn.on {
+    background: linear-gradient(135deg, #d4a04a, #a97a2c);
+    color: #1a1200;
+    border-color: var(--amber);
+  }
+  .voice-toggle-btn.listening {
+    background: linear-gradient(135deg, #e07b5f, #d4a04a);
+    color: #1a1200;
+    border-color: var(--coral);
+    animation: voice-toggle-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes voice-toggle-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(224, 123, 95, 0.7); }
+    50%      { box-shadow: 0 0 0 8px rgba(224, 123, 95, 0); }
+  }
+
+  /* Панель ассистента — плавающая справа-снизу, скрывается */
+  .voice-panel {
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    width: 340px;
+    max-width: calc(100vw - 24px);
+    max-height: 60vh;
+    background: linear-gradient(160deg, rgba(212,160,74,0.15), var(--card));
+    border: 1px solid rgba(212,160,74,0.35);
+    border-radius: 14px;
+    padding: 12px 14px;
+    z-index: 250;
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+    animation: mini-slide-in 0.25s ease-out;
+  }
+  .voice-panel.open { display: flex; }
+  .voice-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .voice-panel-state {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+  }
+  .voice-state-em { font-size: 26px; }
+  .voice-state-info { flex: 1; min-width: 0; }
+  .voice-state-title {
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 500;
+  }
+  .voice-state-sub {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+  .voice-panel-close {
+    background: transparent;
+    border: 0;
+    color: var(--text-mute);
+    padding: 4px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .voice-panel-close:hover { color: var(--coral); }
+  .voice-panel-log {
+    background: rgba(0,0,0,0.25);
+    border-radius: 8px;
+    padding: 8px 10px;
+    max-height: 180px;
+    overflow-y: auto;
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.4;
+    display: flex;
+    flex-direction: column-reverse;
+  }
+  .voice-panel-log:empty::before {
+    content: 'Лог команд появится здесь…';
+    color: var(--text-mute);
+    font-style: italic;
+  }
+  .voice-log-line { margin-bottom: 4px; }
+  .voice-log-line.user { color: var(--text); }
+  .voice-log-line.user::before { content: '👤 '; }
+  .voice-log-line.bot  { color: var(--amber); }
+  .voice-log-line.bot::before  { content: '🤖 '; }
+  .voice-log-line.error { color: var(--coral); }
+  .voice-log-line.error::before { content: '⚠ '; }
+  .voice-panel-controls {
+    display: flex;
+    gap: 8px;
+  }
+  .voice-btn-primary {
+    flex: 1;
+    background: var(--amber);
+    color: #1a1200;
+    border: 0;
+    padding: 10px 14px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .voice-btn-primary:hover { filter: brightness(1.1); }
+  .voice-btn-primary.listening {
+    background: linear-gradient(135deg, var(--coral), var(--amber));
+    animation: voice-toggle-pulse 1s ease-in-out infinite;
+  }
+  .voice-btn-secondary {
+    background: var(--card-hi);
+    border: 1px solid var(--line);
+    color: var(--text-dim);
+    padding: 10px 14px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+  }
+
   /* === MAIN GRID === */
   /* Grid layout с автоплотностью — карточки заполняют пустоты + управляемые размеры */
   .masonry {
@@ -3156,6 +3283,26 @@
   <span class="dot"></span>
   <span id="tiredBannerText">🍼 Матвейка устал — пора укладывать</span>
 </div>
+
+<!-- Голосовой ассистент: панель статуса + лог -->
+<div class="voice-panel" id="voicePanel">
+  <div class="voice-panel-header">
+    <div class="voice-panel-state">
+      <span class="voice-state-em" id="voiceStateEm">💤</span>
+      <div class="voice-state-info">
+        <div class="voice-state-title" id="voiceStateTitle">Ассистент выключен</div>
+        <div class="voice-state-sub" id="voiceStateSub">Скажи «Клауди», чтобы разбудить</div>
+      </div>
+    </div>
+    <button class="voice-panel-close" onclick="_voiceClosePanel()" title="Скрыть панель">✕</button>
+  </div>
+  <div class="voice-panel-log" id="voicePanelLog"></div>
+  <div class="voice-panel-controls">
+    <button class="voice-btn-primary" id="voiceListenBtn" onclick="_voiceManualCommand()">🎤 Скажи команду</button>
+    <button class="voice-btn-secondary" onclick="_voiceOpenSettings()" title="Настройки">⚙</button>
+  </div>
+</div>
+
 <div class="tablet">
 
   <!-- ============= HEADER ============= -->
@@ -3202,6 +3349,7 @@
         </div>
       </div>
       <button class="edit-layout-btn" id="editLayoutBtn" onclick="toggleLayoutEdit()">✎ Порядок</button>
+      <button class="icon-btn voice-toggle-btn" id="voiceToggleBtn" title="Голосовой ассистент — тап чтобы включить/выключить" onclick="toggleVoiceAgent()">🎙</button>
       <button class="icon-btn" title="Настройки" onclick="openModal('settings')">⚙</button>
       <button class="icon-btn" title="Переключить тему" onclick="toggleTheme()">☀</button>
     </div>
@@ -8132,8 +8280,337 @@ document.querySelectorAll('.shop-item').forEach(item => {
   }
   restoreCardStates();
 
+  // ═══════════════════════════════════════════════════════════════
+  // ГОЛОСОВОЙ АССИСТЕНТ КЛАУДИ
+  // ═══════════════════════════════════════════════════════════════
+  // Особенности:
+  // - Web Speech API (браузерный, бесплатный)
+  // - Всегда слушает wake word («клауди»)
+  // - После wake — 8 сек слушает команду
+  // - Парсит + маршрутизирует (Spotify, Tuya сцены, пылесос, чат)
+  // - Отвечает голосом (SpeechSynthesis)
+  const VoiceAgent = (() => {
+    const WAKE_WORDS = ['клауди', 'клоди', 'клавдия', 'кладди', 'клавде', 'клауде'];
+    const CMD_TIMEOUT_MS = 8000;
+    const S = { OFF: 'off', WAKE: 'wake', CMD: 'cmd', BUSY: 'busy' };
+    let state = S.OFF;
+    let rec = null;
+    let cmdTimer = null;
+    let cmdBuffer = '';
+    let ttsEnabled = true;
 
+    function _log(text, cls) {
+      const box = document.getElementById('voicePanelLog');
+      if (!box) return;
+      const line = document.createElement('div');
+      line.className = 'voice-log-line ' + (cls || '');
+      line.textContent = text;
+      box.prepend(line);
+      while (box.children.length > 30) box.removeChild(box.lastChild);
+    }
+    function _setState(s, emoji, title, sub) {
+      state = s;
+      const em = document.getElementById('voiceStateEm');
+      const t = document.getElementById('voiceStateTitle');
+      const su = document.getElementById('voiceStateSub');
+      const btn = document.getElementById('voiceToggleBtn');
+      const listenBtn = document.getElementById('voiceListenBtn');
+      if (em) em.textContent = emoji;
+      if (t) t.textContent = title;
+      if (su) su.textContent = sub;
+      if (btn) {
+        btn.classList.toggle('on', s !== S.OFF);
+        btn.classList.toggle('listening', s === S.CMD);
+      }
+      if (listenBtn) {
+        listenBtn.classList.toggle('listening', s === S.CMD);
+        listenBtn.textContent = s === S.CMD ? '🎙 Слушаю…' : '🎤 Скажи команду';
+      }
+    }
 
+    function _tts(text) {
+      if (!ttsEnabled || !window.speechSynthesis) return;
+      try {
+        speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = 'ru-RU';
+        u.rate = 1.05;
+        u.pitch = 1.05;
+        // Пытаемся найти русский женский голос
+        const voices = speechSynthesis.getVoices();
+        const ruF = voices.find(v => v.lang.startsWith('ru') && /female|женск|milena|katya/i.test(v.name))
+                 || voices.find(v => v.lang.startsWith('ru'));
+        if (ruF) u.voice = ruF;
+        speechSynthesis.speak(u);
+      } catch(e) { console.warn('tts', e); }
+    }
+
+    function _newRec() {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) return null;
+      const r = new SR();
+      r.lang = 'ru-RU';
+      r.continuous = true;
+      r.interimResults = true;
+      return r;
+    }
+
+    function _startWake() {
+      if (rec) { try { rec.stop(); } catch(e){} }
+      rec = _newRec();
+      if (!rec) { _log('Браузер не поддерживает распознавание речи. Нужен Chrome/Edge.', 'error'); return; }
+      _setState(S.WAKE, '👂', 'Слушает имя', 'Скажи «Клауди…»');
+      rec.onresult = (e) => {
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const t = String(e.results[i][0].transcript || '').toLowerCase().replace(/ё/g,'е').trim();
+          if (!t) continue;
+          if (WAKE_WORDS.some(w => t.includes(w))) {
+            _log('«' + t + '» — слышу имя', 'user');
+            try { rec.stop(); } catch(err){}
+            _startCommand();
+            return;
+          }
+        }
+      };
+      rec.onerror = (e) => {
+        // no-speech / not-allowed / aborted — просто перезапускаем
+        if (e.error === 'not-allowed') {
+          _log('Микрофон запрещён браузером. Разреши в настройках.', 'error');
+          stop();
+        }
+      };
+      rec.onend = () => {
+        // Auto-restart чтобы всегда слушал
+        if (state === S.WAKE) {
+          try { rec.start(); } catch(err) {
+            // если сразу упал — подождём чуть-чуть и перезапустим
+            setTimeout(() => { if (state === S.WAKE) _startWake(); }, 500);
+          }
+        }
+      };
+      try { rec.start(); }
+      catch(e) { _log('Не могу запустить микрофон: ' + e.message, 'error'); }
+    }
+
+    function _startCommand() {
+      if (rec) { try { rec.stop(); } catch(e){} }
+      rec = _newRec();
+      if (!rec) return;
+      rec.continuous = false;
+      rec.interimResults = false;
+      rec.maxAlternatives = 3;
+      cmdBuffer = '';
+      _setState(S.CMD, '🎙', 'Слушаю команду', 'Говори что нужно…');
+      _tts('Да?');
+      clearTimeout(cmdTimer);
+      cmdTimer = setTimeout(() => {
+        try { rec.stop(); } catch(e){}
+        _log('Тайм-аут ожидания команды', 'error');
+        _startWake();
+      }, CMD_TIMEOUT_MS);
+
+      rec.onresult = (e) => {
+        clearTimeout(cmdTimer);
+        const alts = [];
+        for (let i = 0; i < e.results[0].length; i++) alts.push(e.results[0][i].transcript);
+        cmdBuffer = alts[0] || '';
+        _log(cmdBuffer, 'user');
+        _handleCommand(alts);
+      };
+      rec.onerror = (e) => {
+        clearTimeout(cmdTimer);
+        _log('Ошибка распознавания: ' + e.error, 'error');
+        _startWake();
+      };
+      rec.onend = () => {
+        clearTimeout(cmdTimer);
+        // Если результат ещё не пришёл (rec.onresult вызовется до onend)
+        // — просто вернёмся в wake
+        if (state === S.CMD) setTimeout(() => _startWake(), 200);
+      };
+      try { rec.start(); }
+      catch(e) { _log('Не могу слушать команду: ' + e.message, 'error'); _startWake(); }
+    }
+
+    async function _handleCommand(alts) {
+      _setState(S.BUSY, '⚙', 'Выполняю…', '');
+      try {
+        for (const alt of alts) {
+          const ok = await _tryRoute(alt);
+          if (ok) return _startWake();
+        }
+        // Ничего не поняли — fallback: отправляем в чат к Дворецкому
+        _log('Не поняла, отправляю Дворецкому в чат', 'bot');
+        _tts('Не поняла, отправляю Дворецкому');
+        try {
+          await apiPost('/api/tablet/chat', { text: '@Дворецкий ' + alts[0] });
+        } catch(e) {}
+      } catch(e) {
+        _log('Ошибка: ' + (e.message||e), 'error');
+        _tts('Ошибка');
+      } finally {
+        _startWake();
+      }
+    }
+
+    async function _tryRoute(text) {
+      const t = String(text||'').toLowerCase().replace(/ё/g,'е').trim();
+      if (!t) return false;
+
+      // ═ Управление плеером ═
+      if (/^(стоп|пауза|остановись|заглохни|тихо|заткнись)$/.test(t)) {
+        _sendSpControl('pause');
+        return _reply('Пауза');
+      }
+      if (/^(продолжай|играй|плей)$/.test(t)) {
+        _sendSpControl('play');
+        return _reply('Играю');
+      }
+      if (/^(след|следующий|дальше|next|скип)/.test(t)) {
+        _sendSpControl('next');
+        return _reply('Следующий');
+      }
+      if (/^(пред|назад|prev|обратно)/.test(t)) {
+        _sendSpControl('prev');
+        return _reply('Предыдущий');
+      }
+      if (/(громче|погромче|увеличь громкост)/.test(t)) {
+        _sendSpControl('volume-up');
+        return _reply('Громче');
+      }
+      if (/(тише|потише|убавь|уменьши громкост)/.test(t)) {
+        _sendSpControl('volume-down');
+        return _reply('Тише');
+      }
+
+      // ═ Музыка: включи X / поставь Y ═
+      const musicMatch = t.match(/(?:включи|поставь|запусти|играй)\s+(?:плейлист|альбом|песню|трек|песни|музыку)?\s*(.+)/);
+      if (musicMatch) {
+        const q = musicMatch[1].trim().replace(/^пожалуйста\s*/, '');
+        // Если совпадает с одной из быстрых кнопок YouTube — играем
+        const hit = _voiceMatchTrack(q);
+        if (hit && typeof playYt === 'function') {
+          playYt(hit.id, hit.type);
+          return _reply('Включаю ' + hit.label);
+        }
+        // Иначе — Spotify search
+        try {
+          const r = await apiGet('/api/tablet/spotify/search?q=' + encodeURIComponent(q));
+          const pl = r.playlists?.items?.[0];
+          const al = r.albums?.items?.[0];
+          const tr = r.tracks?.items?.[0];
+          if (pl && typeof spPlay === 'function') { spPlay('playlist', pl.id); return _reply('Включаю плейлист ' + pl.name); }
+          if (al && typeof spPlay === 'function') { spPlay('album', al.id); return _reply('Включаю альбом ' + al.name); }
+          if (tr && typeof spPlay === 'function') { spPlay('track', tr.id); return _reply('Включаю ' + tr.name); }
+        } catch(e) {}
+        return _reply('В Spotify не нашла «' + q + '»', 'error');
+      }
+
+      // ═ Пылесос ═
+      if (/(пылесос|гоша)/.test(t) && /(старт|начн|убир|включ|поехал|погнали)/.test(t)) {
+        await apiPost('/api/tablet/action/vacuum', { cmd: 'start' });
+        return _reply('Гоша поехал убирать');
+      }
+      if (/(пылесос|гоша)/.test(t) && /(домой|база|стоп|заверши|хватит)/.test(t)) {
+        await apiPost('/api/tablet/action/vacuum', { cmd: 'home' });
+        return _reply('Гоша домой');
+      }
+      if (/(пылесос|гоша)/.test(t) && /(пауза|стой|погоди)/.test(t)) {
+        await apiPost('/api/tablet/action/vacuum', { cmd: 'pause' });
+        return _reply('Гоша на паузе');
+      }
+
+      // ═ Умный дом (Tuya сцены/розетки) ═
+      // «включи свет в детской», «выключи кондер», «сцена спальня ярко»
+      const homeMatch = t.match(/(включи|выключи|запусти|погаси|зажги)\s+(.+)/);
+      if (homeMatch) {
+        const action = /^(включи|запусти|зажги)$/.test(homeMatch[1]) ? 'on' : 'off';
+        const query = homeMatch[2].trim().replace(/^пожалуйста\s*/, '');
+        // Сначала пробуем как сцену
+        try {
+          const r = await apiPost('/api/tablet/action/scene', { query });
+          if (r?.success !== false) return _reply(action === 'on' ? 'Включаю ' + query : 'Выключаю ' + query);
+        } catch(e) {}
+        // Fallback: как розетка/устройство
+        try {
+          await apiPost('/api/tablet/action/socket', { device: query, action });
+          return _reply((action === 'on' ? 'Включила ' : 'Выключила ') + query);
+        } catch(e) {}
+        return false;
+      }
+
+      // ═ Погода / время (простые вопросы) ═
+      if (/(который час|сколько времени|время сейчас)/.test(t)) {
+        const d = new Date();
+        return _reply(`Сейчас ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`);
+      }
+      if (/(погод|температур|тепло|холодно)/.test(t)) {
+        const tempEl = document.querySelector('[data-t="temp"]');
+        const feels = document.querySelector('[data-t="feels"]');
+        if (tempEl) return _reply(`На улице ${tempEl.textContent}. ${feels?.textContent || ''}`);
+      }
+
+      return false;
+    }
+
+    function _sendSpControl(cmd) {
+      // Управление Spotify через Web API (Premium ✓) — todo для Web Playback SDK
+      // Пока — заглушка, пишем в лог
+      _log('Spotify: ' + cmd + ' (SDK не подключён, включу в задаче #10)', 'bot');
+    }
+
+    function _reply(text, cls) {
+      _log(text, cls || 'bot');
+      _tts(text);
+      return true;
+    }
+
+    async function _manualCommand() {
+      if (state === S.OFF) start();
+      _startCommand();
+    }
+
+    function start() {
+      const panel = document.getElementById('voicePanel');
+      if (panel) panel.classList.add('open');
+      _startWake();
+      try { localStorage.setItem('voiceAgent', 'on'); } catch(e){}
+    }
+    function stop() {
+      state = S.OFF;
+      clearTimeout(cmdTimer);
+      if (rec) { try { rec.stop(); } catch(e){} rec = null; }
+      _setState(S.OFF, '💤', 'Ассистент выключен', 'Тап 🎙 в шапке, чтобы разбудить');
+      try { localStorage.setItem('voiceAgent', 'off'); } catch(e){}
+    }
+    function toggle() {
+      if (state === S.OFF) start();
+      else stop();
+    }
+    function closePanel() {
+      const p = document.getElementById('voicePanel');
+      if (p) p.classList.remove('open');
+      // Но НЕ выключаем — просто скрываем панель
+    }
+
+    // Автозапуск если было включено (после перезагрузки страницы)
+    try {
+      if (localStorage.getItem('voiceAgent') === 'on') {
+        setTimeout(() => start(), 500);
+      }
+    } catch(e){}
+    // Прогреваем voices (async в Chrome)
+    if (window.speechSynthesis) {
+      speechSynthesis.getVoices();
+      speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
+    }
+
+    return { start, stop, toggle, closePanel, manualCommand: _manualCommand };
+  })();
+  function toggleVoiceAgent() { VoiceAgent.toggle(); }
+  function _voiceClosePanel() { VoiceAgent.closePanel(); }
+  function _voiceManualCommand() { VoiceAgent.manualCommand(); }
+  function _voiceOpenSettings() { alert('Настройки голоса — тут будут wake-word, голос TTS и т.п. Пока — только on/off.'); }
 
 </script>
 
