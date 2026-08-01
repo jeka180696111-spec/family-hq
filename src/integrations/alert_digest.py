@@ -58,7 +58,11 @@ _DIGEST_PROMPT = """Ты военный аналитик мониторинга 
   ]
 }}
 
-Типы оружия используй короткие: "Шахед", "Х-101", "Х-59", "Калибр", "Кинжал", "Искандер", "Точка-У", "Ту-160", "МиГ-31".
+Типы оружия используй короткие: "Шахед", "Х-101", "Х-59", "Калибр", "Кинжал", "Искандер", "Точка-У",
+"Ту-160", "МиГ-31", "КАБ" (управляемые бомбы, в чатах их часто зовут "бандероли"), "ФАБ", "УМПБ",
+"крылатая ракета" (если тип не указан), "баллистика" (если явно баллистика).
+ЛЮБОЕ упоминание "бандероль" / "бандероли" = "КАБ".
+Не игнорируй ракеты и КАБы — если в постах хоть раз упомянуто, обязательно занеси в weapons.
 ETA пиши в формате «~HH:MM» (местное время Одессы), если явно указано минимум одно упоминание. Иначе — пропусти.
 Прилёты (`hits`) — включай ЛЮБОЕ упоминание из мониторингов, даже неподтверждённое. Ставь `confirmed: false` если только один источник или явно «уточняется».
 
@@ -243,7 +247,8 @@ class AlertDigestManager:
     крутится фоновый таск, который дёргает refresh_digest раз в TICK_SEC.
     """
 
-    TICK_SEC = 45  # как часто перерисовываем карточку пока тревога активна
+    TICK_SEC = 60          # heartbeat пока тревога активна (тикает длительность)
+    COALESCE_SEC = 3       # окно склейки: несколько постов подряд — один refresh
     _last_text: dict[str, str] = {}  # чтобы не спамить "message not modified"
 
     def __init__(
@@ -263,6 +268,8 @@ class AlertDigestManager:
         self._model = model_cheap
         # Фоновые тикеры — по региону
         self._tick_tasks: dict[str, asyncio.Task] = {}
+        # Задачи-коалесеры на «свежий пост» — по региону
+        self._coalesce_tasks: dict[str, asyncio.Task] = {}
         # Флаг «есть непереваренные посты» — не гоняем LLM впустую
         self._dirty: dict[str, bool] = {}
 
@@ -283,6 +290,21 @@ class AlertDigestManager:
         # Если тикер по каким-то причинам не запущен (напр. перезапуск процесса
         # с уже активной тревогой) — стартуем.
         self.start_ticker(region)
+        # Немедленный refresh с коротким окном склейки: если несколько каналов
+        # прислали одно и то же событие в течение 3с, дёрнем LLM один раз.
+        existing = self._coalesce_tasks.get(region)
+        if existing and not existing.done():
+            return
+        self._coalesce_tasks[region] = asyncio.create_task(self._coalesce_refresh(region))
+
+    async def _coalesce_refresh(self, region: str) -> None:
+        try:
+            await asyncio.sleep(self.COALESCE_SEC)
+            await self.refresh_digest(region)
+        except Exception:
+            log.exception("digest_coalesce_refresh_failed", region=region)
+        finally:
+            self._coalesce_tasks.pop(region, None)
 
     def start_ticker(self, region: str) -> None:
         """Запустить фоновый цикл обновления карточки. Идемпотентно."""
@@ -296,6 +318,9 @@ class AlertDigestManager:
         t = self._tick_tasks.pop(region, None)
         if t and not t.done():
             t.cancel()
+        c = self._coalesce_tasks.pop(region, None)
+        if c and not c.done():
+            c.cancel()
         self._dirty.pop(region, None)
         self._last_text.pop(region, None)
 

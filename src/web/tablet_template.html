@@ -2689,7 +2689,49 @@
     box-shadow: 0 6px 30px rgba(217, 45, 45, 0.5);
     animation: alert-slide 0.4s ease;
   }
-  body.alerted .alert-banner-top { display: block; }
+  body.alerted .alert-banner-top { display: block; cursor: pointer; }
+  .alert-chevron {
+    display: inline-block; margin-left: 10px; font-size: 12px;
+    transition: transform 0.2s;
+  }
+  body.alert-digest-open .alert-chevron { transform: rotate(180deg); }
+
+  /* Раскрывающаяся карточка Дозорного под красным баннером */
+  .alert-digest-panel {
+    position: fixed;
+    top: 74px; left: 50%; transform: translateX(-50%);
+    max-width: 720px; width: calc(100vw - 32px);
+    z-index: 209;
+    background:
+      radial-gradient(ellipse at top, rgba(217, 45, 45, 0.15) 0%, transparent 60%),
+      linear-gradient(180deg, rgba(30, 15, 15, 0.98) 0%, rgba(20, 10, 10, 0.98) 100%);
+    border: 1px solid rgba(217, 45, 45, 0.55);
+    border-radius: 18px;
+    padding: 16px 18px;
+    box-shadow:
+      0 0 30px rgba(217, 45, 45, 0.35),
+      0 12px 40px rgba(0, 0, 0, 0.6);
+    color: var(--text);
+    max-height: 70vh;
+    overflow-y: auto;
+    animation: alert-slide 0.25s ease;
+  }
+  body.alert-digest-open .alert-digest-panel[hidden] { display: block !important; }
+  .adp-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid rgba(255, 100, 100, 0.25); }
+  .adp-title { font-family: ui-serif, Georgia, serif; font-size: 20px; color: #ff9c9c; letter-spacing: 0.04em; }
+  .adp-sub { font-size: 12px; color: var(--text-mute); }
+  .adp-body { display: flex; flex-direction: column; gap: 12px; }
+  .adp-section-title {
+    font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: rgba(255, 200, 90, 0.9); font-weight: 500;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .adp-list { margin: 4px 0 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+  .adp-list li { font-size: 14px; line-height: 1.4; color: var(--text); padding-left: 14px; position: relative; }
+  .adp-list li::before { content: "•"; position: absolute; left: 2px; color: rgba(255, 200, 90, 0.8); }
+  .adp-hit-unconfirmed { color: var(--text-dim); font-style: italic; font-size: 12px; margin-left: 4px; }
+  .adp-empty { color: var(--text-dim); font-style: italic; font-size: 13px; text-align: center; padding: 12px; }
+  .adp-updated { font-size: 10px; color: var(--text-mute); text-align: right; margin-top: 8px; letter-spacing: 0.05em; }
   @keyframes alert-slide {
     from { transform: translate(-50%, -100%); opacity: 0; }
     to { transform: translate(-50%, 0); opacity: 1; }
@@ -3548,9 +3590,19 @@
 
 <div class="brightness-overlay" id="brightnessOverlay"></div>
 <div class="alert-frame"></div>
-<div class="alert-banner-top">
+<div class="alert-banner-top" onclick="toggleAlertDigest()">
   <span class="dot"></span>
   <span id="alertBannerText">🚨 ВОЗДУШНАЯ ТРЕВОГА · Одесса</span>
+  <span class="alert-chevron" id="alertChevron">▾</span>
+</div>
+<div class="alert-digest-panel" id="alertDigestPanel" hidden>
+  <div class="adp-head">
+    <div class="adp-title" id="adpTitle">Дозорный</div>
+    <div class="adp-sub" id="adpSub">—</div>
+  </div>
+  <div class="adp-body" id="adpBody">
+    <div class="adp-empty">Собираю данные из каналов…</div>
+  </div>
 </div>
 
 <div class="tired-frame"></div>
@@ -4623,6 +4675,89 @@ document.querySelectorAll('.shop-item').forEach(item => {
   renderPlan();
 
 
+  // === ДОЗОРНЫЙ — раскрывающаяся карточка тревоги ===
+  function toggleAlertDigest() {
+    if (!window.__lastAlertActive) return;
+    document.body.classList.toggle('alert-digest-open');
+    const panel = document.getElementById('alertDigestPanel');
+    if (panel) panel.hidden = !document.body.classList.contains('alert-digest-open');
+  }
+  function _fmtStartedHM(iso) {
+    try { const d = new Date(iso); return d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}); }
+    catch(e){ return '?'; }
+  }
+  function _fmtDurationMin(iso) {
+    try { return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000)); }
+    catch(e){ return 0; }
+  }
+  function _fmtUpdated(iso) {
+    if (!iso) return '';
+    try {
+      const sec = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime())/1000));
+      if (sec < 60) return sec + ' сек назад';
+      const m = Math.floor(sec/60); return m + ' мин назад';
+    } catch(e){ return ''; }
+  }
+  function renderAlertDigest(alert) {
+    if (!alert || !alert.active) return;
+    const sub = document.getElementById('adpSub');
+    if (sub) {
+      const dur = _fmtDurationMin(alert.started_at);
+      sub.textContent = `с ${_fmtStartedHM(alert.started_at)} · ${dur} мин · ${alert.region || '—'}`;
+    }
+    const body = document.getElementById('adpBody');
+    if (!body) return;
+    const d = alert.digest;
+    if (!d) {
+      body.innerHTML = '<div class="adp-empty">⏳ Собираю данные из каналов…</div>';
+      return;
+    }
+    const parts = [];
+    const weapons = d.weapons || [];
+    if (weapons.length) {
+      parts.push('<div><div class="adp-section-title">✈ ЛЕТИТ</div><ul class="adp-list">' +
+        weapons.map(w => {
+          let s = w.type || '?';
+          if (w.count != null) s += ' × ' + w.count;
+          if (w.origin) s += ' <span class="adp-hit-unconfirmed">(' + w.origin + ')</span>';
+          return '<li>' + s + '</li>';
+        }).join('') + '</ul></div>');
+    }
+    const targets = d.targets || [];
+    if (targets.length) {
+      parts.push('<div><div class="adp-section-title">🎯 КУРС</div><ul class="adp-list">' +
+        targets.map(t => '<li>' + t + '</li>').join('') + '</ul></div>');
+    }
+    const eta = d.eta || [];
+    if (eta.length) {
+      parts.push('<div><div class="adp-section-title">⏱ ETA</div><ul class="adp-list">' +
+        eta.map(e => '<li>' + (e.weapon || '?') + ' — ' + (e.arrival_time || '?') + '</li>').join('') + '</ul></div>');
+    }
+    const hits = d.hits || [];
+    parts.push('<div><div class="adp-section-title" style="color:#ff9c9c">💥 ПРИЛЁТЫ</div>' +
+      (hits.length
+        ? '<ul class="adp-list">' + hits.map(h => {
+            let s = h.location || '?';
+            if (h.detail) s += ' — ' + h.detail;
+            if (!h.confirmed) s += ' <span class="adp-hit-unconfirmed">(не подтверждено)</span>';
+            return '<li>' + s + '</li>';
+          }).join('') + '</ul>'
+        : '<div class="adp-empty" style="text-align:left;padding:6px 0">пока нет</div>') +
+      '</div>');
+    const others = d.other_regions || [];
+    if (others.length) {
+      parts.push('<div><div class="adp-section-title">⚠ ДРУГИЕ РЕГИОНЫ</div><ul class="adp-list">' +
+        others.map(o => {
+          const ws = (o.weapons || []).map(w => (w.type||'?') + ' × ' + (w.count||'?')).join(', ');
+          let s = o.region || '?';
+          if (ws) s += ' — ' + ws;
+          if (o.target) s += ' → ' + o.target;
+          return '<li>' + s + '</li>';
+        }).join('') + '</ul></div>');
+    }
+    parts.push('<div class="adp-updated">Обновлено ' + _fmtUpdated(alert.last_update_at) + '</div>');
+    body.innerHTML = parts.join('');
+  }
 
 
   // === WAKE LOCK — не даём экрану гаснуть ===
@@ -7455,10 +7590,19 @@ document.querySelectorAll('.shop-item').forEach(item => {
         const region = s.alert.region || 'Одесса';
         const t = document.getElementById('alertBannerText');
         if (t) t.textContent = `🚨 ВОЗДУШНАЯ ТРЕВОГА · ${region}`;
+        renderAlertDigest(s.alert);
+      } else {
+        document.body.classList.remove('alert-digest-open');
       }
       if (!isAlert && dismissedAlert) localStorage.removeItem('alertDismissedFor');
       window.__lastAlertKey = alertKey;
       window.__lastAlertActive = isAlert;
+
+      // Если тревоги нет — скрываем panel Дозорного насильно
+      if (!showAlert) {
+        const panel = document.getElementById('alertDigestPanel');
+        if (panel) panel.hidden = true;
+      }
 
       // «Пора укладывать» — синяя рамка.
       updateTiredFrame(s.baby);
