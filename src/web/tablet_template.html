@@ -123,6 +123,7 @@
     transition: all 0.15s;
   }
   .icon-btn:hover { color: var(--amber); border-color: var(--amber); transform: scale(1.05); }
+  .icon-btn.active { color: var(--amber); border-color: var(--amber); background: rgba(212, 160, 74, 0.15); }
 
   /* ═══ Нижняя плашка навигации ═══ */
   .bottom-nav {
@@ -4541,8 +4542,11 @@ document.querySelectorAll('.shop-item').forEach(item => {
   function toggleLayoutEdit() {
     layoutEditMode = !layoutEditMode;
     document.body.classList.toggle('editing', layoutEditMode);
+    // Меняем только состояние (класс) — иконка остаётся, текста нет
     document.getElementById('editLayoutBtn').classList.toggle('active', layoutEditMode);
-    document.getElementById('editLayoutBtn').textContent = layoutEditMode ? '✓ Готово' : '✎ Порядок';
+    document.getElementById('editLayoutBtn').setAttribute(
+      'title', layoutEditMode ? 'Готово' : 'Редактировать порядок карточек'
+    );
     document.querySelectorAll('.masonry > .card').forEach(c => {
       c.setAttribute('draggable', layoutEditMode ? 'true' : 'false');
     });
