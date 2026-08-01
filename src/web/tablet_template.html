@@ -3728,10 +3728,7 @@
   <div class="page-view page-music" id="pageMusic">
     <div class="music-head">
       <div class="music-title">Плеер</div>
-      <div class="music-source-tabs">
-        <button class="src-tab active" data-src="spotify" onclick="switchMusicSource('spotify')">🟢 Spotify</button>
-        <button class="src-tab" data-src="youtube" onclick="switchMusicSource('youtube')">▶ YouTube</button>
-      </div>
+      <!-- Табы источников удалены — оставлен только Spotify -->
     </div>
 
     <!-- Spotify панель -->
@@ -3797,60 +3794,6 @@
       </div>
     </div>
 
-    <!-- YouTube панель — плеер вида как Spotify (аудио, обложка, кнопки) -->
-    <div class="music-panel" id="musicYoutubePanel" style="display:none">
-      <!-- Голос -->
-      <div class="mp-yt-voice">
-        <button class="mp-voice-btn" id="voiceBtn" onclick="startVoice()">
-          <span id="voiceIcon">🎤</span>
-          <span id="voiceLabel">Скажи что включить</span>
-        </button>
-        <div class="mp-voice-status" id="voiceStatus"></div>
-      </div>
-
-      <!-- Ввод ссылки -->
-      <div class="mp-yt-input">
-        <input type="text" id="ytUrlInput" class="mp-search-input"
-               placeholder="Вставь ссылку YouTube (video или playlist)…"
-               onkeydown="if(event.key==='Enter') playYoutubeInput()">
-        <button class="mp-search-btn" onclick="playYoutubeInput()">▶</button>
-      </div>
-
-      <!-- Сам плеер: обложка, название, кнопки -->
-      <div class="yt-player" id="ytPlayer" style="display:none">
-        <img class="yt-cover" id="ytCover" src="" alt="">
-        <div class="yt-title" id="ytTitle">—</div>
-        <div class="yt-sub" id="ytSub">YouTube</div>
-        <div class="yt-progress"><div class="yt-progress-fill" id="ytFill"></div></div>
-        <div class="yt-times"><span id="ytCur">0:00</span><span id="ytDur">0:00</span></div>
-        <div class="yt-controls">
-          <button class="yt-btn" onclick="ytPrev()">⏮</button>
-          <button class="yt-btn yt-play" id="ytPlayPauseBtn" onclick="ytToggle()">⏸</button>
-          <button class="yt-btn" onclick="ytNext()">⏭</button>
-          <button class="yt-btn" onclick="ytStopFull()" title="Остановить">⏹</button>
-        </div>
-      </div>
-
-      <!-- Мои хиты (сохраняются в localStorage) -->
-      <div class="mp-quick">
-        <div class="mp-quick-title">
-          ⭐ Мои хиты
-          <button class="mp-add-fav-btn" id="ytAddFavBtn" onclick="ytAddCurrentToFav()">+ добавить текущий</button>
-        </div>
-        <div class="mp-quick-items" id="ytFavs"></div>
-        <div class="mp-quick-hint" id="ytFavsHint">Играешь трек — жмёшь «+ добавить текущий», он попадёт сюда. Тап по хиту = играть, ✕ = убрать.</div>
-      </div>
-
-      <!-- Быстрые популярные -->
-      <div class="mp-quick">
-        <div class="mp-quick-title">Популярное</div>
-        <div class="mp-quick-items" id="ytQuick"></div>
-        <div class="mp-quick-hint">Хочешь другие плейлисты? Скинь мне ссылки — добавлю сюда кнопки.</div>
-      </div>
-
-      <!-- iframe плеера — 1×1px внутри самого плеера (не offscreen, иначе autoplay блокируется) -->
-      <div id="ytPlayerMount" style="position:absolute; width:1px; height:1px; opacity:0.01; pointer-events:none;"></div>
-    </div>
   </div><!-- /page-music -->
 
   <!-- Модалка: реакция на новый продукт (тап по «на очереди») -->
@@ -5022,7 +4965,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
     document.querySelectorAll('.music-source-tabs .src-tab').forEach(t =>
       t.classList.toggle('active', t.dataset.src === src));
     document.getElementById('musicSpotifyPanel').style.display = src === 'spotify' ? '' : 'none';
-    document.getElementById('musicYoutubePanel').style.display = src === 'youtube' ? '' : 'none';
+    // YouTube удалён — оставлен только Spotify
   }
 
   async function loadMusic() {
@@ -5417,307 +5360,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
     }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   }
 
-  // ── YouTube плеер (звук + обложка, как в Spotify) ──
-  // Популярные треки/плейлисты — можно расширять
-  // Каналы которые ГАРАНТИРОВАННО разрешают embed (LiveStream'ы + плейлисты).
-  // Если что-то отвалится — легко заменить в этом массиве.
-  const YT_QUICK = [
-    { icon: '☕', label: 'Lofi Hip Hop 24/7',   id: 'jfKfPfyJRdk', type: 'video', keys: ['лофи', 'lofi', 'фон'] },
-    { icon: '🎧', label: 'Synthwave Radio 24/7',id: '4xDzrJKXOOY', type: 'video', keys: ['синт', 'synth', 'ретро'] },
-    { icon: '📚', label: 'Chillhop Radio 24/7', id: '5yx6BWlEVcY', type: 'video', keys: ['чил', 'chill', 'работа'] },
-    { icon: '🌌', label: 'Ambient Radio 24/7',  id: 'S_MOd40zlYU', type: 'video', keys: ['амбиент', 'ambient', 'релакс'] },
-    { icon: '🎹', label: 'Piano Music 24/7',    id: '4oStw0r33so', type: 'video', keys: ['пиано', 'piano', 'фортепиано'] },
-    { icon: '🎸', label: 'Rock Classics',       id: 'PLQkQfzsIUwRYcNhKzGx5wCJ4T8OiqmqbW', type: 'list', keys: ['рок', 'rock', 'классика рока'] },
-  ];
-
-  function _renderYtQuick() {
-    const mkBtn = (t) => `<button class="mp-quick-btn" onclick="playYt('${t.id}','${t.type}')">${t.icon} ${t.label}</button>`;
-    const el = document.getElementById('ytQuick');
-    if (el) el.innerHTML = YT_QUICK.map(mkBtn).join('');
-  }
-  _renderYtQuick();
-
-  function _extractYtId(url) {
-    const listM = String(url).match(/[?&]list=(P[LU][A-Za-z0-9_-]{10,})/);
-    if (listM) return { id: listM[1], type: 'list' };
-    const vidM = String(url).match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([A-Za-z0-9_-]{11})/);
-    if (vidM) return { id: vidM[1], type: 'video' };
-    return null;
-  }
-
-  // YouTube IFrame API — для управления плеером
-  let _ytPlayer = null;
-  let _ytApiReady = false;
-  let _ytProgTimer = null;
-
-  function _loadYtApi() {
-    if (_ytApiReady || window.YT) return Promise.resolve();
-    return new Promise((resolve) => {
-      window.onYouTubeIframeAPIReady = () => { _ytApiReady = true; resolve(); };
-      const s = document.createElement('script');
-      s.src = 'https://www.youtube.com/iframe_api';
-      s.async = true;
-      document.head.appendChild(s);
-    });
-  }
-
-  async function playYt(id, type) {
-    document.getElementById('ytPlayer').style.display = '';
-    await _loadYtApi();
-
-    if (_ytPlayer) {
-      if (type === 'video') _ytPlayer.loadVideoById(id);
-      else _ytPlayer.loadPlaylist({ list: id, listType: 'playlist' });
-      // На всякий случай сразу играем
-      setTimeout(() => { try { _ytPlayer.playVideo(); } catch(e){} }, 300);
-    } else {
-      const params = {
-        height: '200', width: '200',
-        playerVars: {
-          autoplay: 1, playsinline: 1, controls: 0, rel: 0,
-          modestbranding: 1, iv_load_policy: 3,
-        },
-        events: {
-          onReady: (e) => {
-            try {
-              // На iOS/Safari autoplay иногда режется — форсируем play
-              e.target.playVideo();
-            } catch(err) { console.warn('play failed', err); }
-            _ytUpdate();
-          },
-          onStateChange: (e) => {
-            _ytUpdate();
-            // Если сам поставил на паузу через политику — попробуем ещё раз
-            if (e.data === -1) { try { e.target.playVideo(); } catch(err){} }
-          },
-          onError: (e) => {
-            console.warn('YT error', e.data);
-            const messages = {
-              2:   'Неверный ID видео',
-              5:   'Плеер не может воспроизвести (HTML5 не поддерживается)',
-              100: 'Видео удалено или приватное',
-              101: 'Автор запретил встраивание. Вставь другую ссылку.',
-              150: 'Автор запретил встраивание. Вставь другую ссылку.',
-            };
-            const msg = messages[e.data] || ('Ошибка ' + e.data);
-            document.getElementById('ytTitle').textContent = msg;
-            document.getElementById('ytSub').textContent = 'Скопируй ссылку с youtube.com и вставь в поле выше';
-          },
-        },
-      };
-      if (type === 'video') {
-        params.videoId = id;
-      } else {
-        params.playerVars.list = id;
-        params.playerVars.listType = 'playlist';
-      }
-      _ytPlayer = new YT.Player('ytPlayerMount', params);
-    }
-    if (_ytProgTimer) clearInterval(_ytProgTimer);
-    _ytProgTimer = setInterval(_ytUpdateProgress, 500);
-  }
-
-  // ─── Избранное (Мои хиты) ─────────────────────────────────────
-  function _loadFavs() {
-    try {
-      const raw = localStorage.getItem('ytFavs');
-      return raw ? JSON.parse(raw) : [];
-    } catch(e) { return []; }
-  }
-  function _saveFavs(arr) {
-    try { localStorage.setItem('ytFavs', JSON.stringify(arr)); } catch(e){}
-  }
-  function renderYtFavs() {
-    const favs = _loadFavs();
-    const el = document.getElementById('ytFavs');
-    const hint = document.getElementById('ytFavsHint');
-    if (!el) return;
-    if (!favs.length) {
-      el.innerHTML = '';
-      if (hint) hint.style.display = '';
-      return;
-    }
-    if (hint) hint.style.display = 'none';
-    el.innerHTML = favs.map((f, i) => `
-      <span class="mp-fav-item" onclick="playYt('${f.id}','${f.type}')">
-        <span>${f.emoji || '🎵'}</span>
-        <span class="fav-title" title="${escapeAttr(f.title)}">${escapeHtml(f.title || 'Трек')}</span>
-        <button class="fav-remove" onclick="event.stopPropagation();ytRemoveFav(${i})" title="Убрать">✕</button>
-      </span>
-    `).join('');
-  }
-  function ytAddCurrentToFav() {
-    if (!_ytPlayer || !_ytPlayer.getVideoData) { alert('Сначала запусти какой-то трек'); return; }
-    const data = _ytPlayer.getVideoData();
-    if (!data || !data.video_id) { alert('Не могу определить трек'); return; }
-    const title = data.title || 'Без названия';
-    const favs = _loadFavs();
-    // Проверяем не добавлен ли уже
-    if (favs.some(f => f.id === data.video_id)) {
-      alert('Уже в избранном');
-      return;
-    }
-    favs.unshift({ id: data.video_id, type: 'video', title, emoji: '⭐' });
-    _saveFavs(favs);
-    renderYtFavs();
-  }
-  function ytRemoveFav(idx) {
-    const favs = _loadFavs();
-    favs.splice(idx, 1);
-    _saveFavs(favs);
-    renderYtFavs();
-  }
-  // Первичный рендер
-  renderYtFavs();
-
-  function _ytUpdate() {
-    if (!_ytPlayer || !_ytPlayer.getVideoData) return;
-    const data = _ytPlayer.getVideoData();
-    if (!data) return;
-    const title = data.title || 'Играет…';
-    const author = data.author || 'YouTube';
-    const vid = data.video_id;
-    document.getElementById('ytTitle').textContent = title;
-    document.getElementById('ytSub').textContent = author;
-    if (vid) document.getElementById('ytCover').src = `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`;
-    const state = _ytPlayer.getPlayerState?.();
-    // 1=playing, 2=paused, 0=ended, 3=buffering, -1=unstarted, 5=cued
-    const btn = document.getElementById('ytPlayPauseBtn');
-    if (btn) btn.textContent = (state === 1) ? '⏸' : '▶';
-  }
-  function _ytUpdateProgress() {
-    if (!_ytPlayer || !_ytPlayer.getCurrentTime) return;
-    const cur = _ytPlayer.getCurrentTime?.() || 0;
-    const dur = _ytPlayer.getDuration?.() || 0;
-    const pct = dur > 0 ? Math.min(100, (cur / dur) * 100) : 0;
-    const fmt = (s) => Math.floor(s/60) + ':' + String(Math.floor(s%60)).padStart(2,'0');
-    document.getElementById('ytFill').style.width = pct + '%';
-    document.getElementById('ytCur').textContent = fmt(cur);
-    document.getElementById('ytDur').textContent = fmt(dur);
-  }
-  function ytToggle() {
-    if (!_ytPlayer) return;
-    const s = _ytPlayer.getPlayerState?.();
-    if (s === 1) _ytPlayer.pauseVideo();
-    else _ytPlayer.playVideo();
-  }
-  function ytNext() { if (_ytPlayer?.nextVideo) _ytPlayer.nextVideo(); }
-  function ytPrev() { if (_ytPlayer?.previousVideo) _ytPlayer.previousVideo(); }
-  function ytStopFull() {
-    if (_ytPlayer?.stopVideo) _ytPlayer.stopVideo();
-    document.getElementById('ytPlayer').style.display = 'none';
-    if (_ytProgTimer) { clearInterval(_ytProgTimer); _ytProgTimer = null; }
-  }
-  // Тап по прогресс-бару = перемотка
-  document.addEventListener('click', (e) => {
-    const bar = e.target.closest('.yt-progress');
-    if (!bar || !_ytPlayer?.getDuration) return;
-    const rect = bar.getBoundingClientRect();
-    const pct = (e.clientX - rect.left) / rect.width;
-    const dur = _ytPlayer.getDuration();
-    if (dur > 0) _ytPlayer.seekTo(dur * pct, true);
-  });
-
-  function playYoutubeInput() {
-    const v = (document.getElementById('ytUrlInput').value || '').trim();
-    if (!v) return;
-    const parsed = _extractYtId(v);
-    if (parsed) {
-      playYt(parsed.id, parsed.type);
-      document.getElementById('ytUrlInput').value = '';
-    } else {
-      const found = _voiceMatchTrack(v);
-      if (found) {
-        playYt(found.id, found.type);
-        document.getElementById('ytUrlInput').value = '';
-        return;
-      }
-      alert('Не ссылка YouTube и не совпало с популярными. Скопируй адрес видео/плейлиста.');
-    }
-  }
-
-  // ── Голос: Web Speech API (браузерный, бесплатный, распознаёт русский) ──
-  let _voiceRec = null;
-  function startVoice() {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) {
-      _voiceSay('Браузер не умеет распознавать речь. Нужен Chrome/Edge.', 'error');
-      return;
-    }
-    if (_voiceRec) { try { _voiceRec.stop(); } catch(e){} _voiceRec = null; }
-    const btn = document.getElementById('voiceBtn');
-    const iconEl = document.getElementById('voiceIcon');
-    const labelEl = document.getElementById('voiceLabel');
-
-    const rec = new SR();
-    _voiceRec = rec;
-    rec.lang = 'ru-RU';
-    rec.interimResults = false;
-    rec.maxAlternatives = 3;
-
-    btn.classList.add('listening');
-    if (iconEl) iconEl.textContent = '🎙';
-    if (labelEl) labelEl.textContent = 'Слушаю…';
-    _voiceSay('Скажи «включи белый шум», «поставь колыбельные»…', '');
-
-    rec.onresult = (e) => {
-      const alts = [];
-      for (let i = 0; i < e.results[0].length; i++) alts.push(e.results[0][i].transcript);
-      const heard = alts[0];
-      _voiceSay('Услышал: «' + heard + '»', 'heard');
-      // Пробуем все варианты, вдруг лучший не сматчился
-      let hit = null;
-      for (const alt of alts) {
-        hit = _voiceMatchTrack(alt);
-        if (hit) break;
-      }
-      if (hit) {
-        _voiceSay('▶ Включаю «' + hit.label + '»', 'heard');
-        playYt(hit.id, hit.type);
-      } else {
-        _voiceSay('Не понял. Попробуй: «белый шум», «колыбельные», «моцарт», «дождь», «лофи»…', 'error');
-      }
-    };
-    rec.onerror = (e) => {
-      _voiceSay('Ошибка: ' + e.error + (e.error === 'not-allowed' ? ' — разреши микрофон в браузере' : ''), 'error');
-    };
-    rec.onend = () => {
-      btn.classList.remove('listening');
-      if (iconEl) iconEl.textContent = '🎤';
-      if (labelEl) labelEl.textContent = 'Скажи что включить';
-      _voiceRec = null;
-    };
-    try { rec.start(); }
-    catch(e) { _voiceSay('Не могу запустить: ' + e.message, 'error'); }
-  }
-
-  function _voiceSay(msg, cls) {
-    const s = document.getElementById('voiceStatus');
-    if (!s) return;
-    s.textContent = msg;
-    s.classList.remove('heard', 'error');
-    if (cls) s.classList.add(cls);
-  }
-
-  function _voiceMatchTrack(text) {
-    const t = String(text || '').toLowerCase().replace(/ё/g, 'е').trim();
-    if (!t) return null;
-    const all = YT_QUICK;
-    let best = null, bestScore = 0;
-    for (const track of all) {
-      for (const k of track.keys) {
-        const key = k.toLowerCase().replace(/ё/g,'е');
-        if (t.includes(key)) {
-          const score = key.length;
-          if (score > bestScore) { best = track; bestScore = score; }
-        }
-      }
-      // Совпадение с меткой (Синий трактор → «синий трактор»)
-      const lab = track.label.toLowerCase().replace(/ё/g,'е');
-      if (t.includes(lab) && lab.length > bestScore) { best = track; bestScore = lab.length; }
-    }
-    return best;
-  }
+  // YouTube убран — оставлен только Spotify
 
   // ============ ПЛАН КВАРТИРЫ ============
   // Планировка живёт в localStorage под ключом 'planLayout'.
@@ -7536,10 +7179,10 @@ document.querySelectorAll('.shop-item').forEach(item => {
     'walkOutScene', 'walkBackScene',
     // Синхронизируем настройки планшета между телефоном и компом
     'planLayout',        // план квартиры + устройства
-    'ytFavs',            // избранные треки YouTube (историческое)
     'lastSpTrack',       // последний трек в Спотифае
     'miniPos', 'miniHidden',   // позиция и видимость плеера
     'tabletPage',        // последняя открытая страница
+    'voiceAgent',        // вкл/выкл голосового ассистента
   ];
   function _keyIsSynced(k) {
     return SYNC_KEYS.some(pref => k === pref || (pref.endsWith(':') && k.startsWith(pref)));
@@ -8483,17 +8126,10 @@ document.querySelectorAll('.shop-item').forEach(item => {
         return _reply('Тише');
       }
 
-      // ═ Музыка: включи X / поставь Y ═
+      // ═ Музыка: включи X / поставь Y — Spotify search ═
       const musicMatch = t.match(/(?:включи|поставь|запусти|играй)\s+(?:плейлист|альбом|песню|трек|песни|музыку)?\s*(.+)/);
       if (musicMatch) {
         const q = musicMatch[1].trim().replace(/^пожалуйста\s*/, '');
-        // Если совпадает с одной из быстрых кнопок YouTube — играем
-        const hit = _voiceMatchTrack(q);
-        if (hit && typeof playYt === 'function') {
-          playYt(hit.id, hit.type);
-          return _reply('Включаю ' + hit.label);
-        }
-        // Иначе — Spotify search
         try {
           const r = await apiGet('/api/tablet/spotify/search?q=' + encodeURIComponent(q));
           const pl = r.playlists?.items?.[0];
