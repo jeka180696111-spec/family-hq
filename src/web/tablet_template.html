@@ -2264,21 +2264,39 @@
     transition: opacity 2s ease;
   }
 
-  /* Рамка тревоги — ТОЛЬКО жирный красный бордер, БЕЗ inset shadow,
-     чтобы не приглушать контент по краям. */
+  /* Рамка тревоги — свечение от края внутрь, пульсирует.
+     Внешняя кайма яркая, дальше от края растекается и гаснет.
+     Реализовано через box-shadow inset разной интенсивности + пульс. */
   .alert-frame {
     position: fixed;
     inset: 0;
     pointer-events: none;
     z-index: 200;
-    border: 6px solid #d92d2d;
     display: none;
-    animation: alert-pulse 1.4s ease-in-out infinite;
+    /* Три слоя: яркая кромка + средний ореол + мягкое свечение вглубь */
+    box-shadow:
+      inset 0  0  0   3px   rgba(255,  40,  40, 0.95),
+      inset 0  0  30px 0    rgba(255,  40,  40, 0.85),
+      inset 0  0  90px 12px rgba(255,  55,  55, 0.55),
+      inset 0  0 200px 30px rgba(255,  60,  60, 0.25);
+    animation: alert-glow 1.8s ease-in-out infinite;
   }
   body.alerted .alert-frame { display: block; }
-  @keyframes alert-pulse {
-    0%, 100% { border-color: rgba(217, 45, 45, 0.7); }
-    50%      { border-color: #ff3838; }
+  @keyframes alert-glow {
+    0%, 100% {
+      box-shadow:
+        inset 0 0  0   3px   rgba(255,  40, 40, 0.85),
+        inset 0 0  25px 0    rgba(255,  40, 40, 0.7),
+        inset 0 0  80px 10px rgba(255,  55, 55, 0.45),
+        inset 0 0 180px 25px rgba(255,  60, 60, 0.18);
+    }
+    50% {
+      box-shadow:
+        inset 0 0  0   3px   rgba(255,  60, 60, 1.0),
+        inset 0 0  35px 0    rgba(255,  60, 60, 0.95),
+        inset 0 0 110px 18px rgba(255,  80, 80, 0.65),
+        inset 0 0 230px 40px rgba(255,  90, 90, 0.32);
+    }
   }
   .alert-banner-top {
     position: fixed;
@@ -2327,20 +2345,32 @@
   }
   .banner-close:hover { background: rgba(255,255,255,0.32); }
 
-  /* Синяя рамка «пора укладывать» — только бордер, без inset shadow */
+  /* Синее свечение «пора укладывать» — тот же приём что и alert, но синий,
+     помедленнее (сон-ритм 2.5с). */
   .tired-frame {
     position: fixed;
     inset: 0;
     pointer-events: none;
     z-index: 199;
-    border: 6px solid #4287f5;
     display: none;
-    animation: tired-pulse 2s ease-in-out infinite;
+    animation: tired-glow 2.6s ease-in-out infinite;
   }
   body.tired .tired-frame { display: block; }
-  @keyframes tired-pulse {
-    0%, 100% { border-color: rgba(66, 135, 245, 0.55); }
-    50%      { border-color: #63a4ff; }
+  @keyframes tired-glow {
+    0%, 100% {
+      box-shadow:
+        inset 0 0   0   3px   rgba( 66, 135, 245, 0.7),
+        inset 0 0  25px 0    rgba( 66, 135, 245, 0.55),
+        inset 0 0  80px 10px rgba( 99, 164, 255, 0.35),
+        inset 0 0 180px 25px rgba(120, 175, 255, 0.15);
+    }
+    50% {
+      box-shadow:
+        inset 0 0   0   3px   rgba( 99, 164, 255, 0.95),
+        inset 0 0  35px 0    rgba( 99, 164, 255, 0.85),
+        inset 0 0 110px 18px rgba(120, 175, 255, 0.55),
+        inset 0 0 230px 40px rgba(140, 190, 255, 0.28);
+    }
   }
   .tired-banner-top {
     position: fixed;
