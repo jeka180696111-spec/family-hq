@@ -1823,6 +1823,131 @@ def register_tablet_routes(
                 return None, {"status": r.status_code, "message": msg}
             return r.json(), None
 
+    async def _spotify_put(path: str, params: dict | None = None, json_body: Any = None):
+        import httpx
+        tok = await _get_spotify_token()
+        if not tok:
+            return None, {"status": 0, "message": "not authorized"}
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.put(
+                "https://api.spotify.com/v1" + path,
+                params=params or {}, json=json_body,
+                headers={"Authorization": "Bearer " + tok["access_token"],
+                         "Content-Type": "application/json"},
+            )
+            if r.status_code in (200, 202, 204):
+                return {}, None
+            log.warning("spotify_put_failed", path=path, status=r.status_code, body=r.text[:200])
+            try: msg = (r.json().get("error", {}) or {}).get("message") or r.text[:200]
+            except Exception: msg = r.text[:200]
+            return None, {"status": r.status_code, "message": msg}
+
+    async def _spotify_post(path: str, params: dict | None = None):
+        import httpx
+        tok = await _get_spotify_token()
+        if not tok:
+            return None, {"status": 0, "message": "not authorized"}
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.post(
+                "https://api.spotify.com/v1" + path, params=params or {},
+                headers={"Authorization": "Bearer " + tok["access_token"]},
+            )
+            if r.status_code in (200, 202, 204):
+                return {}, None
+            log.warning("spotify_post_failed", path=path, status=r.status_code, body=r.text[:200])
+            try: msg = (r.json().get("error", {}) or {}).get("message") or r.text[:200]
+            except Exception: msg = r.text[:200]
+            return None, {"status": r.status_code, "message": msg}
+
+    @app.get("/api/tablet/spotify/devices")
+    async def spotify_devices(token: str = Query("")):
+        _check_token(token, expected_token)
+        data, err = await _spotify_get("/me/player/devices")
+        if err: return {"devices": [], "error": err}
+        return {"devices": (data or {}).get("devices", [])}
+
+    @app.get("/api/tablet/spotify/now-playing")
+    async def spotify_now_playing(token: str = Query("")):
+        _check_token(token, expected_token)
+        data, err = await _spotify_get("/me/player")
+        if err:
+            return {"playing": False, "error": err}
+        if not data:
+            return {"playing": False}
+        item = data.get("item") or {}
+        album = item.get("album") or {}
+        images = album.get("images") or []
+        artists = [a.get("name", "") for a in (item.get("artists") or [])]
+        return {
+            "playing": bool(data.get("is_playing")),
+            "progress_ms": data.get("progress_ms") or 0,
+            "duration_ms": item.get("duration_ms") or 0,
+            "track": item.get("name") or "",
+            "artists": artists,
+            "album": album.get("name") or "",
+            "cover_url": (images[0].get("url") if images else "") or "",
+            "device": (data.get("device") or {}).get("name") or "",
+            "device_id": (data.get("device") or {}).get("id") or "",
+            "device_volume": (data.get("device") or {}).get("volume_percent"),
+            "shuffle": bool(data.get("shuffle_state")),
+            "repeat": data.get("repeat_state") or "off",
+        }
+
+    @app.post("/api/tablet/spotify/play")
+    async def spotify_play(payload: dict = Body(default_factory=dict), token: str = Query("")):
+        _check_token(token, expected_token)
+        params = {}
+        dev = payload.get("device_id")
+        if dev: params["device_id"] = dev
+        body: dict = {}
+        if payload.get("context_uri"): body["context_uri"] = payload["context_uri"]
+        if payload.get("uris"): body["uris"] = payload["uris"]
+        if "position_ms" in payload: body["position_ms"] = int(payload["position_ms"])
+        _, err = await _spotify_put("/me/player/play", params=params, json_body=body or None)
+        return {"success": err is None, "error": err}
+
+    @app.post("/api/tablet/spotify/pause")
+    async def spotify_pause(token: str = Query("")):
+        _check_token(token, expected_token)
+        _, err = await _spotify_put("/me/player/pause")
+        return {"success": err is None, "error": err}
+
+    @app.post("/api/tablet/spotify/next")
+    async def spotify_next(token: str = Query("")):
+        _check_token(token, expected_token)
+        _, err = await _spotify_post("/me/player/next")
+        return {"success": err is None, "error": err}
+
+    @app.post("/api/tablet/spotify/previous")
+    async def spotify_previous(token: str = Query("")):
+        _check_token(token, expected_token)
+        _, err = await _spotify_post("/me/player/previous")
+        return {"success": err is None, "error": err}
+
+    @app.post("/api/tablet/spotify/seek")
+    async def spotify_seek(payload: dict = Body(...), token: str = Query("")):
+        _check_token(token, expected_token)
+        pos = int(payload.get("position_ms") or 0)
+        _, err = await _spotify_put("/me/player/seek", params={"position_ms": pos})
+        return {"success": err is None, "error": err}
+
+    @app.post("/api/tablet/spotify/volume")
+    async def spotify_volume(payload: dict = Body(...), token: str = Query("")):
+        _check_token(token, expected_token)
+        vol = max(0, min(100, int(payload.get("volume_percent") or 0)))
+        _, err = await _spotify_put("/me/player/volume", params={"volume_percent": vol})
+        return {"success": err is None, "error": err}
+
+    @app.post("/api/tablet/spotify/transfer")
+    async def spotify_transfer(payload: dict = Body(...), token: str = Query("")):
+        _check_token(token, expected_token)
+        dev = payload.get("device_id")
+        if not dev:
+            raise HTTPException(400, "device_id required")
+        play = bool(payload.get("play", True))
+        _, err = await _spotify_put("/me/player", json_body={"device_ids": [dev], "play": play})
+        return {"success": err is None, "error": err}
+
     @app.get("/api/tablet/spotify/me")
     async def spotify_me(token: str = Query("")):
         _check_token(token, expected_token)
