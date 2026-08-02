@@ -1801,7 +1801,12 @@ def register_tablet_routes(
         return {"success": True}
 
     async def _spotify_get(path: str, params: dict | None = None):
-        """Возвращает (data, error). data — dict если ок, error — dict {status, message} если нет."""
+        """Возвращает (data, error). data — dict если ок, error — dict {status, message} если нет.
+
+        204 No Content от Spotify — это НЕ ошибка (например когда никто не слушает
+        через Spotify Connect). Возвращаем (None, None) чтобы вызывающий сам
+        решил как трактовать «пусто».
+        """
         import httpx
         tok = await _get_spotify_token()
         if not tok:
@@ -1812,6 +1817,8 @@ def register_tablet_routes(
                 params=params or {},
                 headers={"Authorization": "Bearer " + tok["access_token"]},
             )
+            if r.status_code == 204:
+                return None, None
             if r.status_code != 200:
                 log.warning("spotify_api_failed", path=path, status=r.status_code, body=r.text[:200])
                 # Пробуем распарсить Spotify-стандартный формат ошибок
@@ -1820,6 +1827,11 @@ def register_tablet_routes(
                     msg = (j.get("error", {}) or {}).get("message") or r.text[:200]
                 except Exception:
                     msg = r.text[:200]
+                # 401/403 обычно означают что пользователь дал OAuth ДО того как
+                # мы добавили новые scopes (user-read-playback-state и т.п.).
+                # Даём UI понятную подсказку.
+                if r.status_code in (401, 403):
+                    msg = f"{msg} · Возможно нужно перелогиниться в Spotify (новые права доступа)"
                 return None, {"status": r.status_code, "message": msg}
             return r.json(), None
 
