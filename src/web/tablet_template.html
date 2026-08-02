@@ -6043,9 +6043,18 @@ document.querySelectorAll('.shop-item').forEach(item => {
     const dur = document.getElementById('npTimeDur');
     if (!track) return;
     if (!s || !s.track) {
-      track.textContent = 'Ничего не играет';
-      artist.textContent = '—';
-      album.textContent = '';
+      // Различаем «нет ошибки, просто ничего не играет через Connect»
+      // vs «ошибка API — например протухли права доступа»
+      if (s && s.error) {
+        const em = (s.error.status === 401 || s.error.status === 403);
+        track.textContent = em ? 'Нужен перелогин Spotify' : 'Ошибка Spotify API';
+        artist.textContent = em ? 'Мы добавили новые права — войди заново' : (s.error.message || '');
+        album.textContent = em ? 'Кнопка выхода — справа под "Плейлисты"' : ('код ' + (s.error.status || '?'));
+      } else {
+        track.textContent = 'Ничего не играет через Spotify Connect';
+        artist.textContent = 'Открой Spotify на телефоне / колонке и нажми Play';
+        album.textContent = '';
+      }
       cover.classList.remove('has-image');
       cover.style.backgroundImage = '';
       if (playBtn) playBtn.textContent = '▶';
