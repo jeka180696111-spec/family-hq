@@ -4193,9 +4193,14 @@
         <div class="mq-hint" id="mqLastFeed">—</div>
       </button>
       <button class="mq-btn" onclick="quickBabyAction('sleep')">
-        <div class="mq-em" id="mqSleepEm">💤</div>
-        <div class="mq-lb" id="mqSleepLb">Уложить</div>
+        <div class="mq-em">💤</div>
+        <div class="mq-lb">Уложить</div>
         <div class="mq-hint" id="mqSleepHint">—</div>
+      </button>
+      <button class="mq-btn" onclick="quickBabyAction('wake')">
+        <div class="mq-em">☀️</div>
+        <div class="mq-lb">Проснулся</div>
+        <div class="mq-hint" id="mqWakeHint">—</div>
       </button>
       <button class="mq-btn" onclick="quickBabyAction('diaper')">
         <div class="mq-em">💩</div>
@@ -4251,35 +4256,7 @@
       <div class="photos-empty">📸 Фото ещё нет</div>
     </div>
 
-    <!-- Достижения -->
-    <div class="matvey-section-title">
-      Достижения
-      <button class="btn-add" onclick="openMilestoneAdd()">+ Отметить</button>
-    </div>
-    <div class="milestones-grid" id="milestonesGrid">
-      <div class="milestones-empty">⭐ Пока пусто — отметь первое достижение</div>
-    </div>
   </div><!-- /page-matvey -->
-
-  <!-- Модалка: добавить достижение -->
-  <div class="modal-backdrop" id="modal-milestone-add" onclick="if(event.target===this)closeMilestoneAdd()">
-    <div class="modal milestone-modal">
-      <div class="modal-head">
-        <div class="modal-title">⭐ Новое достижение</div>
-        <button class="modal-close" onclick="closeMilestoneAdd()">✕</button>
-      </div>
-      <div class="feeding-modal-body">
-        <div class="fm-q">Выбери из списка или впиши свой</div>
-        <div class="mm-preset-grid" id="milestonePresetGrid"></div>
-        <input type="text" class="fm-input" id="milestoneCustom" placeholder="Своё название…">
-        <input type="text" class="fm-input" id="milestoneNote" placeholder="Заметка (необязательно)" style="margin-top:8px">
-        <div class="fm-actions" style="margin-top:14px">
-          <button class="fm-cancel" onclick="closeMilestoneAdd()">Отмена</button>
-          <button class="fm-save" onclick="submitMilestone()">Сохранить</button>
-        </div>
-      </div>
-    </div>
-  </div>
 
   <!-- Лайтбокс для фото -->
   <div class="photo-lightbox" id="photoLightbox" style="display:none" onclick="closePhotoLightbox()">
@@ -4661,7 +4638,6 @@
     if (page.id === 'feeding' && typeof loadFeeding === 'function') loadFeeding();
     if (page.id === 'plan' && typeof loadPlan === 'function') loadPlan();
     if (page.id === 'matvey' && typeof loadGrowth === 'function') loadGrowth();
-    if (page.id === 'matvey' && typeof loadMilestones === 'function') loadMilestones();
     if (page.id === 'matvey' && typeof loadMatveyPhotos === 'function') loadMatveyPhotos();
     if (page.id === 'matvey' && typeof refreshQuickButtons === 'function') refreshQuickButtons();
     if (page.id === 'music' && typeof loadMusic === 'function') loadMusic();
@@ -5648,18 +5624,15 @@ document.querySelectorAll('.shop-item').forEach(item => {
       // Кормление
       const feed = document.getElementById('mqLastFeed');
       if (feed) feed.textContent = baby.last_feed_at ? _fmtAgo(baby.last_feed_at) : 'не отмечено';
-      // Сон
-      const sleepEm = document.getElementById('mqSleepEm');
-      const sleepLb = document.getElementById('mqSleepLb');
+      // Сон / бодрствование — 2 отдельные кнопки, показываем состояние в хинтах
       const sleepHint = document.getElementById('mqSleepHint');
+      const wakeHint = document.getElementById('mqWakeHint');
       if (baby.sleeping_since) {
-        if (sleepEm) sleepEm.textContent = '☀️';
-        if (sleepLb) sleepLb.textContent = 'Проснулся';
         if (sleepHint) sleepHint.textContent = 'спит ' + _fmtAgo(baby.sleeping_since).replace(' назад','');
+        if (wakeHint) wakeHint.textContent = 'разбудить';
       } else {
-        if (sleepEm) sleepEm.textContent = '💤';
-        if (sleepLb) sleepLb.textContent = 'Уложить';
-        if (sleepHint) sleepHint.textContent = baby.awake_since ? 'бодрствует ' + _fmtAgo(baby.awake_since).replace(' назад','') : '';
+        if (sleepHint) sleepHint.textContent = baby.awake_since ? 'без сна ' + _fmtAgo(baby.awake_since).replace(' назад','') : '';
+        if (wakeHint) wakeHint.textContent = baby.awake_since ? 'проснулся ' + _fmtAgo(baby.awake_since).replace(' назад','') : '—';
       }
       // Подгузник
       const diaper = document.getElementById('mqLastDiaper');
@@ -5682,7 +5655,10 @@ document.querySelectorAll('.shop-item').forEach(item => {
         event = map[choice.trim()] || choice.trim();
       } else if (action === 'sleep') {
         kind = 'sleep';
-        event = baby.sleeping_since ? 'Проснулся' : 'Уснул';
+        event = 'Уснул';
+      } else if (action === 'wake') {
+        kind = 'sleep';
+        event = 'Проснулся';
       } else if (action === 'diaper') {
         const choice = window.prompt('Подгузник:\n1 — Мокрый\n2 — Какал\n3 — Смешанный', '1');
         if (!choice) return;
@@ -5736,91 +5712,6 @@ document.querySelectorAll('.shop-item').forEach(item => {
     const lb = document.getElementById('photoLightbox');
     if (lb) lb.style.display = 'none';
   }
-
-  // Достижения
-  const MILESTONE_PRESETS = [
-    {em:'😊', title:'Улыбнулся'},
-    {em:'😄', title:'Засмеялся'},
-    {em:'🔄', title:'Перевернулся'},
-    {em:'🪑', title:'Сел сам'},
-    {em:'🐢', title:'Пополз'},
-    {em:'🧍', title:'Встал'},
-    {em:'🚶', title:'Пошёл'},
-    {em:'🦷', title:'Первый зуб'},
-    {em:'🗣️', title:'Первое слово'},
-    {em:'👋', title:'Помахал'},
-    {em:'🥄', title:'Держит ложку'},
-    {em:'▪', title:'Другое'},
-  ];
-  async function loadMilestones() {
-    if (!TOKEN) return;
-    const grid = document.getElementById('milestonesGrid');
-    if (!grid) return;
-    try {
-      const r = await apiGet('/api/tablet/matvey/milestones');
-      const items = (r && r.milestones) || [];
-      if (!items.length) {
-        grid.innerHTML = '<div class="milestones-empty">⭐ Пока пусто — отметь первое достижение</div>';
-        return;
-      }
-      grid.innerHTML = items.map(m =>
-        '<div class="milestone-card">' +
-          '<div class="milestone-em">' + (m.emoji || '⭐') + '</div>' +
-          '<div class="milestone-title">' + (m.title || '—') + '</div>' +
-          '<div class="milestone-meta">' + (m.age || '') + (m.date ? ' · ' + m.date : '') + '</div>' +
-          (m.note ? '<div class="milestone-note">' + m.note + '</div>' : '') +
-        '</div>'
-      ).join('');
-    } catch(e) {
-      grid.innerHTML = '<div class="milestones-empty">Не удалось загрузить</div>';
-    }
-  }
-  let _milestoneSelected = null;
-  function openMilestoneAdd() {
-    _milestoneSelected = null;
-    const grid = document.getElementById('milestonePresetGrid');
-    if (grid) {
-      grid.innerHTML = MILESTONE_PRESETS.map((p, i) =>
-        '<div class="mm-preset" data-i="' + i + '" onclick="pickMilestonePreset(' + i + ')">' +
-          '<div class="em">' + p.em + '</div>' +
-          '<div>' + p.title + '</div>' +
-        '</div>'
-      ).join('');
-    }
-    const custom = document.getElementById('milestoneCustom');
-    const note = document.getElementById('milestoneNote');
-    if (custom) custom.value = '';
-    if (note) note.value = '';
-    document.getElementById('modal-milestone-add').classList.add('open');
-  }
-  function closeMilestoneAdd() {
-    document.getElementById('modal-milestone-add').classList.remove('open');
-  }
-  function pickMilestonePreset(i) {
-    _milestoneSelected = i;
-    document.querySelectorAll('#milestonePresetGrid .mm-preset').forEach(el => el.classList.remove('active'));
-    const el = document.querySelector('#milestonePresetGrid .mm-preset[data-i="' + i + '"]');
-    if (el) el.classList.add('active');
-  }
-  async function submitMilestone() {
-    const custom = (document.getElementById('milestoneCustom').value || '').trim();
-    const note = (document.getElementById('milestoneNote').value || '').trim();
-    let title = custom;
-    if (!title && _milestoneSelected != null) title = MILESTONE_PRESETS[_milestoneSelected].title;
-    if (!title) { alert('Выбери или впиши достижение'); return; }
-    try {
-      const r = await apiPost('/api/tablet/matvey/milestone', {title, note});
-      if (r && r.success) {
-        closeMilestoneAdd();
-        setTimeout(loadMilestones, 800);
-      } else {
-        alert('Не удалось: ' + (r && r.error || 'неизвестная ошибка'));
-      }
-    } catch(e) {
-      alert('Ошибка: ' + (e.message||e));
-    }
-  }
-
 
   // ============ ПЛЕЕР ============
   let _musicSource = 'spotify';
