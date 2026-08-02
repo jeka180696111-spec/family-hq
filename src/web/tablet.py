@@ -1049,13 +1049,32 @@ def register_tablet_routes(
             log.exception("tablet_photos_failed")
             return {"photos": [], "error": str(e)[:200]}
 
+    def _svg_placeholder(reason: str) -> "Response":
+        """Возвращаем читаемый плейсхолдер вместо сломанной иконки."""
+        from fastapi import Response
+        safe = (reason or "?")[:40].replace("<", "").replace(">", "")
+        svg = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 220">'
+            f'<rect width="180" height="220" fill="#1c1a17"/>'
+            f'<text x="90" y="105" font-family="Georgia,serif" font-size="34" '
+            f'fill="rgba(255,200,90,0.75)" text-anchor="middle">📷</text>'
+            f'<text x="90" y="135" font-family="ui-sans-serif" font-size="9" '
+            f'fill="rgba(255,220,150,0.7)" text-anchor="middle" '
+            f'letter-spacing="0.05em">Нет превью</text>'
+            f'<text x="90" y="155" font-family="ui-sans-serif" font-size="7" '
+            f'fill="rgba(255,220,150,0.45)" text-anchor="middle">{safe}</text>'
+            f'</svg>'
+        )
+        return Response(content=svg, media_type="image/svg+xml")
+
     @app.get("/api/tablet/matvey/photo/{photo_id}")
     async def matvey_photo_stream(photo_id: int, token: str = Query("")):
         _check_token(token, expected_token)
-        # Кэш скачанных из Drive файлов — переживает многократные загрузки
-        # ленты, чтобы не дёргать Drive API каждый раз.
         cache_dir = Path("/tmp/matvey-photo-cache")
-        cache_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            log.exception("photo_cache_mkdir_failed")
         try:
             from sqlalchemy import select
             from src.db.models import BabyPhoto
@@ -1064,20 +1083,17 @@ def register_tablet_routes(
                     select(BabyPhoto).where(BabyPhoto.id == photo_id)
                 )).first()
             if not row:
-                raise HTTPException(404, "not found")
+                return _svg_placeholder("not found")
             bp = row[0] if hasattr(row, "_mapping") else row
-            # 1. Пробуем локальный путь (обычно уже стёрт — это был tempfile)
             local = getattr(bp, "local_path", "")
             if local and Path(local).exists():
                 return FileResponse(local)
-            # 2. Кэш
             cached = cache_dir / f"{photo_id}.jpg"
             if cached.exists() and cached.stat().st_size > 0:
                 return FileResponse(str(cached), media_type="image/jpeg")
-            # 3. Скачиваем из Drive
             drive_id = getattr(bp, "drive_file_id", None)
             if not drive_id:
-                raise HTTPException(404, "no drive backup")
+                return _svg_placeholder("no drive backup")
             drive_client = _shared_clients.get("drive")
             if drive_client is None:
                 try:
@@ -1088,16 +1104,50 @@ def register_tablet_routes(
                 except Exception:
                     log.exception("tablet_photo_drive_init_failed")
             if drive_client is None:
-                raise HTTPException(503, "drive not configured")
-            ok = await drive_client.download(drive_id, str(cached))
-            if not ok or not cached.exists():
-                raise HTTPException(502, "drive download failed")
+                return _svg_placeholder("drive not configured")
+            try:
+                ok = await drive_client.download(drive_id, str(cached))
+            except Exception as e:
+                log.exception("tablet_photo_drive_download_raised")
+                return _svg_placeholder(f"drive err: {str(e)[:24]}")
+            if not ok or not cached.exists() or cached.stat().st_size == 0:
+                return _svg_placeholder("drive dl failed")
             return FileResponse(str(cached), media_type="image/jpeg")
-        except HTTPException:
-            raise
-        except Exception:
+        except Exception as e:
             log.exception("tablet_photo_stream_failed")
-            raise HTTPException(500, "stream failed")
+            return _svg_placeholder(f"err: {str(e)[:24]}")
+
+    @app.get("/api/tablet/matvey/photos-debug")
+    async def matvey_photos_debug(token: str = Query("")):
+        """Диагностика: показывает по каждому фото где что живо."""
+        _check_token(token, expected_token)
+        try:
+            from sqlalchemy import select
+            from src.db.models import BabyPhoto
+            async with memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(BabyPhoto).order_by(BabyPhoto.created_at.desc()).limit(30)
+                ))
+            drive_available = False
+            try:
+                from src.integrations.drive import DriveClient
+                drive_available = DriveClient.from_settings(settings) is not None
+            except Exception:
+                pass
+            out = []
+            cache_dir = Path("/tmp/matvey-photo-cache")
+            for r in rows:
+                out.append({
+                    "id": r.id,
+                    "age": r.age_label,
+                    "local_path": r.local_path,
+                    "local_exists": bool(r.local_path) and Path(r.local_path).exists(),
+                    "drive_file_id": r.drive_file_id,
+                    "cached": (cache_dir / f"{r.id}.jpg").exists(),
+                })
+            return {"drive_configured": drive_available, "photos": out}
+        except Exception as e:
+            return {"error": str(e)[:300]}
 
     @app.post("/api/tablet/action/baby-event")
     async def action_baby_event(payload: dict = Body(...), token: str = Query("")):
