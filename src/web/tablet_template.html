@@ -5953,10 +5953,8 @@ document.querySelectorAll('.shop-item').forEach(item => {
 
   function switchMusicSource(src) {
     _musicSource = src;
-    document.querySelectorAll('.music-source-tabs .src-tab').forEach(t =>
-      t.classList.toggle('active', t.dataset.src === src));
-    document.getElementById('musicSpotifyPanel').style.display = src === 'spotify' ? '' : 'none';
-    // YouTube удалён — оставлен только Spotify
+    // Табы источников и wrapper удалены — оставлен только Spotify.
+    // Функция сохранена для обратной совместимости вызовов.
   }
 
   async function loadMusic() {
