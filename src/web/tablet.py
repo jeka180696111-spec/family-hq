@@ -986,6 +986,87 @@ def register_tablet_routes(
             log.exception("tablet_baby_day_failed")
             return {"timeline": [], "stats": {}, "date": "", "error": str(e)[:200]}
 
+    @app.get("/api/tablet/matvey/milestones")
+    async def matvey_milestones(token: str = Query("")):
+        _check_token(token, expected_token)
+        try:
+            nanny = agents_ref.get("nanny") if agents_ref else None
+            sheets = getattr(nanny, "_sheets", None) if nanny else None
+            if not sheets:
+                return {"milestones": []}
+            return {"milestones": await sheets.list_milestones(limit=60)}
+        except Exception as e:
+            log.exception("tablet_milestones_failed")
+            return {"milestones": [], "error": str(e)[:200]}
+
+    @app.post("/api/tablet/matvey/milestone")
+    async def matvey_milestone_add(payload: dict = Body(...), token: str = Query("")):
+        _check_token(token, expected_token)
+        title = (payload.get("title") or "").strip()
+        note = (payload.get("note") or "").strip()
+        if not title:
+            raise HTTPException(400, "title required")
+        try:
+            nanny = agents_ref.get("nanny") if agents_ref else None
+            sheets = getattr(nanny, "_sheets", None) if nanny else None
+            if not sheets:
+                return {"success": False, "error": "sheets not configured"}
+            from src.utils.time import now_kyiv
+            res = await sheets.append_milestone(
+                milestone=title, time=now_kyiv(), details=note, author="Планшет",
+            )
+            return {"success": True, "row": res.get("row")}
+        except Exception as e:
+            log.exception("tablet_milestone_add_failed")
+            return {"success": False, "error": str(e)[:200]}
+
+    @app.get("/api/tablet/matvey/photos")
+    async def matvey_photos(token: str = Query(""), limit: int = 24):
+        _check_token(token, expected_token)
+        try:
+            from sqlalchemy import select
+            from src.db.models import BabyPhoto
+            async with memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(BabyPhoto).order_by(BabyPhoto.created_at.desc()).limit(limit)
+                ))
+            out = []
+            for r in rows:
+                out.append({
+                    "id": r.id,
+                    "age": r.age_label or "",
+                    "caption": r.caption or "",
+                    "created_at": r.created_at,
+                    "url": f"/api/tablet/matvey/photo/{r.id}?token={token}",
+                })
+            return {"photos": out}
+        except Exception as e:
+            log.exception("tablet_photos_failed")
+            return {"photos": [], "error": str(e)[:200]}
+
+    @app.get("/api/tablet/matvey/photo/{photo_id}")
+    async def matvey_photo_stream(photo_id: int, token: str = Query("")):
+        _check_token(token, expected_token)
+        try:
+            from sqlalchemy import select
+            from src.db.models import BabyPhoto
+            async with memory._engine.connect() as conn:
+                row = (await conn.execute(
+                    select(BabyPhoto).where(BabyPhoto.id == photo_id)
+                )).first()
+            if not row:
+                raise HTTPException(404, "not found")
+            bp = row[0] if hasattr(row, "_mapping") else row
+            path = Path(getattr(bp, "local_path", ""))
+            if not path.exists():
+                raise HTTPException(404, "file missing")
+            return FileResponse(str(path))
+        except HTTPException:
+            raise
+        except Exception:
+            log.exception("tablet_photo_stream_failed")
+            raise HTTPException(500, "stream failed")
+
     @app.post("/api/tablet/action/baby-event")
     async def action_baby_event(payload: dict = Body(...), token: str = Query("")):
         _check_token(token, expected_token)
