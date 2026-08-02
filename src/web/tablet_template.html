@@ -1520,6 +1520,55 @@
     50% { opacity: 1; }
   }
 
+  /* Большой iframe = реальный плеер (тот же что и в мини-кружке) */
+  .np-embed-wrap {
+    position: relative;
+    background:
+      radial-gradient(ellipse at top, rgba(255, 200, 90, 0.14) 0%, transparent 60%),
+      linear-gradient(180deg, rgba(255, 220, 180, 0.04) 0%, rgba(0, 0, 0, 0.15) 100%),
+      var(--card);
+    border: 1px solid rgba(255, 200, 90, 0.35);
+    border-radius: 20px;
+    padding: 16px;
+    box-shadow:
+      0 0 30px rgba(255, 200, 90, 0.15),
+      0 0 60px rgba(212, 160, 74, 0.06),
+      0 12px 30px rgba(0, 0, 0, 0.4),
+      inset 0 1px 0 rgba(255, 220, 150, 0.12);
+    min-height: 380px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .np-embed {
+    width: 100%; max-width: 720px;
+    height: 380px;
+    border: 0; border-radius: 14px;
+    display: none;
+  }
+  .np-embed.loaded { display: block; }
+  .np-embed-empty {
+    text-align: center; padding: 40px 20px;
+    display: flex; flex-direction: column;
+    align-items: center; gap: 10px;
+  }
+  .np-embed-wrap:has(.np-embed.loaded) .np-embed-empty { display: none; }
+  .np-embed-em {
+    font-family: Georgia, ui-serif, serif;
+    font-size: 80px; color: rgba(255, 200, 90, 0.35);
+    line-height: 1;
+  }
+  .np-embed-title {
+    font-family: Georgia, ui-serif, serif;
+    font-size: 22px; color: var(--text);
+    text-wrap: balance;
+  }
+  .np-embed-hint {
+    font-size: 12px; color: var(--text-mute);
+    letter-spacing: 0.02em; max-width: 320px;
+    line-height: 1.5;
+  }
+
   .np-main {
     display: grid;
     grid-template-columns: minmax(240px, 340px) 1fr;
@@ -4508,34 +4557,17 @@
         </div>
       </div>
 
-      <!-- Основной блок: обложка слева, инфо справа -->
-      <div class="np-main">
-        <div class="np-cover-wrap">
-          <div class="np-cover" id="npCover">
-            <span class="np-cover-em">♪</span>
-          </div>
-        </div>
-        <div class="np-info">
-          <div class="np-track" id="npTrack">Ничего не играет</div>
-          <div class="np-artist" id="npArtist">—</div>
-          <div class="np-album" id="npAlbum"></div>
-
-          <!-- Wave-скраббер -->
-          <div class="np-wave" id="npWave" onclick="npSeekFromClick(event)"></div>
-          <div class="np-time">
-            <span id="npTimeCur">0:00</span>
-            <span id="npTimeDur">0:00</span>
-          </div>
-
-          <div class="np-controls">
-            <button class="np-ctl" onclick="spPrev()" title="Предыдущий">⏮</button>
-            <button class="np-ctl np-play" id="npPlayBtn" onclick="npPlayPause()">▶</button>
-            <button class="np-ctl" onclick="spNext()" title="Следующий">⏭</button>
-            <div class="np-vol">
-              <span>🔉</span>
-              <input type="range" min="0" max="100" value="50" id="npVolSlider" oninput="npSetVolume(this.value)">
-            </div>
-          </div>
+      <!-- Основной блок: большой Spotify iframe = реальный плеер -->
+      <div class="np-embed-wrap">
+        <iframe id="npBigEmbed"
+                class="np-embed"
+                src=""
+                allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                loading="lazy"></iframe>
+        <div class="np-embed-empty" id="npEmbedEmpty">
+          <div class="np-embed-em">♪</div>
+          <div class="np-embed-title">Выбери плейлист или трек ниже</div>
+          <div class="np-embed-hint">Он заиграет здесь и в мини-плеере (зелёный кружок) одновременно</div>
         </div>
       </div>
 
@@ -6003,7 +6035,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
     // Всё ок — грузим плейлисты
     _showSpBox('spPlayerBox');
     spSwitchTab('playlists');
-    npStartPolling();
+    _npLoadLastTrackInBig();
     npLoadDevices();
   }
 
@@ -6364,7 +6396,10 @@ document.querySelectorAll('.shop-item').forEach(item => {
     return `https://open.spotify.com/embed/${type}/${id}?utm_source=generator&theme=${_spEmbedTheme()}`;
   }
 
-  // Воспроизведение — ТОЛЬКО через мини-плеер (одна сессия)
+  // Воспроизведение — Spotify iframe. Один и тот же URL грузим и в
+  // большой плеер (страница «Спотифай»), и в мини-кружок. Это два разных
+  // iframe, значит две сессии — но SDK Spotify их удерживает по одной
+  // на аккаунт (при play в одном другой автоматически ставится на паузу).
   function spPlay(type, id) {
     const url = _spEmbedUrl(type, id);
     const mini = document.getElementById('miniSpEmbed');
@@ -6373,10 +6408,29 @@ document.querySelectorAll('.shop-item').forEach(item => {
       document.getElementById('miniMusicCard').style.display = '';
       document.getElementById('miniMusicEmbed').style.display = '';
       document.getElementById('miniMusicEmpty').style.display = 'none';
-      try { localStorage.setItem('lastSpTrack', JSON.stringify({ type, id })); } catch(e) {}
     }
-    const hint = document.getElementById('spNowPlaying');
-    if (hint) hint.style.display = '';
+    const big = document.getElementById('npBigEmbed');
+    if (big) {
+      big.src = url;
+      big.classList.add('loaded');
+    }
+    try { localStorage.setItem('lastSpTrack', JSON.stringify({ type, id })); } catch(e) {}
+  }
+  // Загрузить последний трек в большой iframe при открытии страницы плеера
+  function _npLoadLastTrackInBig() {
+    const big = document.getElementById('npBigEmbed');
+    if (!big) return;
+    try {
+      const raw = localStorage.getItem('lastSpTrack');
+      if (!raw) return;
+      const { type, id } = JSON.parse(raw);
+      if (!type || !id) return;
+      // Не переставляем src если он уже указан на этот же трек — иначе
+      // сброс воспроизведения при каждом заходе на страницу
+      const want = _spEmbedUrl(type, id);
+      if (big.src !== want) big.src = want;
+      big.classList.add('loaded');
+    } catch(e) {}
   }
 
   // Восстанавливаем мини-плеер + его позицию при загрузке
