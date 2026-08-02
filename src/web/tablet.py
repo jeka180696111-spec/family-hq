@@ -386,10 +386,20 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
             )).first()
         if row:
             aa = row[0] if hasattr(row, "_mapping") else row
+            digest = None
+            raw = getattr(aa, "digest_json", None)
+            if raw:
+                try:
+                    import json as _json
+                    digest = _json.loads(raw)
+                except Exception:
+                    digest = None
             state["alert"] = {
                 "active": True,
                 "region": getattr(aa, "region", None),
                 "started_at": getattr(aa, "started_at", None),
+                "last_update_at": getattr(aa, "last_update_at", None),
+                "digest": digest,
             }
         else:
             state["alert"] = {"active": False}

@@ -44,12 +44,18 @@ _THREAT_PATTERNS = re.compile(
     r"\bшахед\w*|шахіб\w*|"
     r"\bкалібр\w*|калибр\w*|"
     r"\bкрилат[аи]?\s+ракет\w*|балістичн[аи]?\s+ракет\w*|балістика\b|"
+    r"\bракет\w*|"                                       # любая «ракета»
     r"\bзапуск\s+ракет\w*|загроза\s+удару|"
     r"\bвибух\w*|взрыв\w*|"
     r"\bобстріл\w*|обстрел\w*|"
     r"\bбпла\b|\bдрон\w*|\bмиг\b|\bтуp\w*|"
     r"\bпуск\w*|"
-    r"\bкаб\w*\s*ракет\w*"
+    r"\bкаб\w*|\bфаб\w*|\bумпб\w*|"                     # КАБ, ФАБ, УМПБ
+    r"\bбандероль\w*|бандерол\w*|"                      # сленг для КАБ
+    r"\bкинжал\w*|кинджал\w*|искандер\w*|іскандер\w*|"  # Кинжал, Искандер
+    r"\bх-\d+|\bх\d+|"                                   # Х-101, Х-59
+    r"\bкасетн\w*|"                                      # кассетные
+    r"\bгруп[аи]\s+дрон|рой\s+дрон"
     r")",
     re.IGNORECASE | re.UNICODE,
 )
@@ -417,12 +423,14 @@ class NewsIngestor:
         except Exception:
             log.exception("alert_start_save_tgid_failed")
 
-        # Первый пост в буфер + запуск debounce
-        if self._digest and text:
-            await self._digest.add_post(
-                region=region, channel_id=channel_id,
-                channel_title=meta.get("title") or meta.get("username"), text=text,
-            )
+        # Первый пост в буфер + запуск фонового тикера
+        if self._digest:
+            self._digest.start_ticker(region)
+            if text:
+                await self._digest.add_post(
+                    region=region, channel_id=channel_id,
+                    channel_title=meta.get("title") or meta.get("username"), text=text,
+                )
 
     async def _push_update(self, region: str, text: str, meta: dict, channel_id: int = 0) -> None:
         await self._touch_alert(region)

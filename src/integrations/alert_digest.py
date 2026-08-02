@@ -58,7 +58,11 @@ _DIGEST_PROMPT = """Ты военный аналитик мониторинга 
   ]
 }}
 
-Типы оружия используй короткие: "Шахед", "Х-101", "Х-59", "Калибр", "Кинжал", "Искандер", "Точка-У", "Ту-160", "МиГ-31".
+Типы оружия используй короткие: "Шахед", "Х-101", "Х-59", "Калибр", "Кинжал", "Искандер", "Точка-У",
+"Ту-160", "МиГ-31", "КАБ" (управляемые бомбы, в чатах их часто зовут "бандероли"), "ФАБ", "УМПБ",
+"крылатая ракета" (если тип не указан), "баллистика" (если явно баллистика).
+ЛЮБОЕ упоминание "бандероль" / "бандероли" = "КАБ".
+Не игнорируй ракеты и КАБы — если в постах хоть раз упомянуто, обязательно занеси в weapons.
 ETA пиши в формате «~HH:MM» (местное время Одессы), если явно указано минимум одно упоминание. Иначе — пропусти.
 Прилёты (`hits`) — включай ЛЮБОЕ упоминание из мониторингов, даже неподтверждённое. Ставь `confirmed: false` если только один источник или явно «уточняется».
 
@@ -236,9 +240,16 @@ def format_final_digest(digest: dict, region: str, started_at: str, duration_min
 # ─── Основной класс, живущий рядом с NewsIngestor ──────────────────
 
 class AlertDigestManager:
-    """Управляет буфером постов и debounce-обновлением сообщения-карточки."""
+    """Управляет буфером постов и периодическим обновлением сообщения-карточки.
 
-    DEBOUNCE_SEC = 60  # интервал между обновлениями сообщения
+    Раньше был чистый debounce — обновляем только когда прилетает пост. Проблема:
+    если каналы затихли, длительность не тикала. Теперь пока тревога активна
+    крутится фоновый таск, который дёргает refresh_digest раз в TICK_SEC.
+    """
+
+    TICK_SEC = 60          # heartbeat пока тревога активна (тикает длительность)
+    COALESCE_SEC = 3       # окно склейки: несколько постов подряд — один refresh
+    _last_text: dict[str, str] = {}  # чтобы не спамить "message not modified"
 
     def __init__(
         self,
@@ -255,11 +266,15 @@ class AlertDigestManager:
         self._claude = claude_client
         self._gemini = gemini_client
         self._model = model_cheap
-        # Отложенные задачи обновления digest — по региону
-        self._debounce_tasks: dict[str, asyncio.Task] = {}
+        # Фоновые тикеры — по региону
+        self._tick_tasks: dict[str, asyncio.Task] = {}
+        # Задачи-коалесеры на «свежий пост» — по региону
+        self._coalesce_tasks: dict[str, asyncio.Task] = {}
+        # Флаг «есть непереваренные посты» — не гоняем LLM впустую
+        self._dirty: dict[str, bool] = {}
 
     async def add_post(self, region: str, channel_id: int, channel_title: str | None, text: str) -> None:
-        """Сохранить пост в буфер и запланировать debounce-обновление."""
+        """Сохранить пост в буфер. Тикер сам подхватит на ближайшем такте."""
         try:
             async with self._memory._engine.begin() as conn:
                 await conn.execute(insert(AlertPost).values(
@@ -271,19 +286,64 @@ class AlertDigestManager:
                 ))
         except Exception:
             log.exception("alert_post_save_failed", region=region)
-
-        # Debounce — если задача уже висит, не создаём новую
-        existing = self._debounce_tasks.get(region)
+        self._dirty[region] = True
+        # Если тикер по каким-то причинам не запущен (напр. перезапуск процесса
+        # с уже активной тревогой) — стартуем.
+        self.start_ticker(region)
+        # Немедленный refresh с коротким окном склейки: если несколько каналов
+        # прислали одно и то же событие в течение 3с, дёрнем LLM один раз.
+        existing = self._coalesce_tasks.get(region)
         if existing and not existing.done():
             return
-        self._debounce_tasks[region] = asyncio.create_task(self._debounce_refresh(region))
+        self._coalesce_tasks[region] = asyncio.create_task(self._coalesce_refresh(region))
 
-    async def _debounce_refresh(self, region: str) -> None:
-        await asyncio.sleep(self.DEBOUNCE_SEC)
+    async def _coalesce_refresh(self, region: str) -> None:
         try:
+            await asyncio.sleep(self.COALESCE_SEC)
             await self.refresh_digest(region)
+        except Exception:
+            log.exception("digest_coalesce_refresh_failed", region=region)
         finally:
-            self._debounce_tasks.pop(region, None)
+            self._coalesce_tasks.pop(region, None)
+
+    def start_ticker(self, region: str) -> None:
+        """Запустить фоновый цикл обновления карточки. Идемпотентно."""
+        existing = self._tick_tasks.get(region)
+        if existing and not existing.done():
+            return
+        self._tick_tasks[region] = asyncio.create_task(self._tick_loop(region))
+        log.info("digest_ticker_started", region=region)
+
+    def stop_ticker(self, region: str) -> None:
+        t = self._tick_tasks.pop(region, None)
+        if t and not t.done():
+            t.cancel()
+        c = self._coalesce_tasks.pop(region, None)
+        if c and not c.done():
+            c.cancel()
+        self._dirty.pop(region, None)
+        self._last_text.pop(region, None)
+
+    async def _tick_loop(self, region: str) -> None:
+        try:
+            while True:
+                await asyncio.sleep(self.TICK_SEC)
+                # Проверяем, не закрылась ли тревога
+                async with self._memory._engine.connect() as conn:
+                    aa = (await conn.execute(
+                        select(ActiveAlert).where(ActiveAlert.region == region)
+                    )).first()
+                if not aa:
+                    log.info("digest_ticker_alert_gone", region=region)
+                    break
+                try:
+                    await self.refresh_digest(region)
+                except Exception:
+                    log.exception("digest_tick_refresh_failed", region=region)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._tick_tasks.pop(region, None)
 
     async def refresh_digest(self, region: str) -> None:
         """Собрать посты, дёрнуть LLM, отредактировать сообщение-карточку."""
@@ -343,12 +403,19 @@ class AlertDigestManager:
         except Exception:
             log.exception("digest_save_failed", region=region)
 
-        # 7. Редактируем сообщение
+        # 7. Редактируем сообщение — но пропускаем, если контент идентичен
+        prev = self._last_text.get(region)
+        if prev == text:
+            log.debug("digest_skip_same_text", region=region)
+            self._dirty[region] = False
+            return
         try:
             ok = await self._bots.edit_message(
                 agent_id="news", chat_id=self._chat_id,
                 message_id=aa.tg_message_id, text=text,
             )
+            self._last_text[region] = text
+            self._dirty[region] = False
             log.info("digest_refreshed", region=region, sources=len(posts), edit_ok=ok)
         except Exception:
             log.exception("digest_edit_failed", region=region)
@@ -384,9 +451,7 @@ class AlertDigestManager:
                 await conn.execute(delete(AlertPost).where(AlertPost.region == region))
         except Exception:
             log.exception("alert_posts_cleanup_failed", region=region)
-        t = self._debounce_tasks.pop(region, None)
-        if t and not t.done():
-            t.cancel()
+        self.stop_ticker(region)
 
     def initial_skeleton(self, region: str) -> str:
         """Скелет-карточка отправляется первой при alert_start."""
