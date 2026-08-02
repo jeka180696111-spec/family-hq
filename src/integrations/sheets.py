@@ -401,6 +401,53 @@ class SheetsClient:
         log.info("note_appended", row=row_index, preview=text[:60])
         return {"row": row_index, "sheet": _NOTES_WORKSHEET}
 
+    async def list_milestones(self, limit: int = 60) -> list[dict]:
+        """Прочитать «Достижения» (A=Дата, B=Возраст, C=Достижение, D=Примечание, E=Автор).
+
+        Возвращает список последних вех (новые сверху) — уже с извлечённым
+        эмодзи и очищенным названием, чтобы UI мог рисовать карточки как есть.
+        """
+        try:
+            ws = await self._open_worksheet(self._baby_sheet_id, _MILESTONES_WORKSHEET)
+            rows: list[list[str]] = await self._run_sync(ws.get_all_values)
+        except Exception:
+            log.exception("milestones_read_failed")
+            return []
+        out: list[dict] = []
+        for row in rows:
+            if not row or not row[0].strip():
+                continue
+            date_s = row[0].strip() if len(row) > 0 else ""
+            age_s = row[1].strip() if len(row) > 1 else ""
+            title = row[2].strip() if len(row) > 2 else ""
+            note = row[3].strip() if len(row) > 3 else ""
+            author = row[4].strip() if len(row) > 4 else ""
+            # Пропускаем заголовок «Дата | Возраст | Достижение …»
+            if date_s.lower() in ("дата", "date"):
+                continue
+            emoji = ""
+            clean_title = title
+            if title:
+                parts = title.split(" ", 1)
+                if parts and any(ord(ch) > 127 for ch in parts[0]) and len(parts[0]) <= 3:
+                    emoji = parts[0]
+                    clean_title = parts[1].strip() if len(parts) > 1 else ""
+            # Парсим дату для сортировки
+            iso_date = None
+            for fmt in ("%d.%m.%Y", "%Y-%m-%d"):
+                try:
+                    iso_date = datetime.strptime(date_s, fmt).date().isoformat()
+                    break
+                except ValueError:
+                    continue
+            out.append({
+                "date": date_s, "iso_date": iso_date, "age": age_s,
+                "emoji": emoji, "title": clean_title or title,
+                "note": note, "author": author,
+            })
+        out.sort(key=lambda r: r.get("iso_date") or "", reverse=True)
+        return out[:limit]
+
     async def append_milestone(
         self,
         milestone: str,

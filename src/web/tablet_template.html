@@ -856,6 +856,161 @@
     gap: 16px;
   }
 
+  /* Быстрые кнопки (кормление / сон / подгузник) */
+  .matvey-quick {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .mq-btn {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px;
+    padding: 16px 12px;
+    background:
+      radial-gradient(ellipse at top, rgba(255, 200, 90, 0.15) 0%, transparent 60%),
+      var(--card);
+    border: 1px solid rgba(255, 200, 90, 0.45);
+    border-radius: 16px;
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+    transition: transform 0.12s, box-shadow 0.15s, border-color 0.15s;
+    box-shadow:
+      0 0 18px rgba(255, 200, 90, 0.15),
+      inset 0 1px 0 rgba(255, 220, 150, 0.15);
+  }
+  .mq-btn:hover, .mq-btn:active {
+    transform: translateY(-2px);
+    border-color: rgba(255, 220, 130, 0.85);
+    box-shadow:
+      0 0 26px rgba(255, 200, 90, 0.35),
+      0 6px 16px rgba(0, 0, 0, 0.3);
+  }
+  .mq-em { font-size: 30px; line-height: 1; }
+  .mq-lb { font-size: 12px; letter-spacing: 0.06em; color: var(--text-dim); }
+  .mq-hint { font-size: 10px; color: var(--text-mute); }
+
+  /* Достижения — сетка мини-карточек */
+  .matvey-section-title {
+    font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--text-dim); margin: 22px 0 10px;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  }
+  .matvey-section-title .btn-add {
+    font-size: 11px;
+    padding: 5px 12px; border-radius: 12px;
+    background: rgba(255, 200, 90, 0.14);
+    border: 1px solid rgba(255, 200, 90, 0.45);
+    color: var(--amber); cursor: pointer;
+    letter-spacing: 0.04em;
+  }
+  .milestones-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 10px;
+  }
+  .milestone-card {
+    padding: 12px 10px;
+    background:
+      radial-gradient(ellipse at top, rgba(255, 200, 90, 0.14) 0%, transparent 60%),
+      var(--card);
+    border: 1px solid rgba(255, 200, 90, 0.42);
+    border-radius: 14px;
+    display: flex; flex-direction: column; align-items: center;
+    text-align: center; gap: 4px;
+    box-shadow:
+      0 0 14px rgba(255, 200, 90, 0.10),
+      inset 0 1px 0 rgba(255, 220, 150, 0.12);
+  }
+  .milestone-em { font-size: 26px; line-height: 1; }
+  .milestone-title { font-size: 12px; color: var(--text); font-weight: 500; letter-spacing: 0.02em; }
+  .milestone-meta {
+    font-size: 10px; color: var(--text-mute);
+    letter-spacing: 0.08em;
+  }
+  .milestone-note { font-size: 10px; color: var(--text-dim); font-style: italic; margin-top: 2px; }
+  .milestones-empty {
+    grid-column: 1 / -1;
+    padding: 20px; text-align: center;
+    color: var(--text-mute); font-style: italic; font-size: 13px;
+  }
+
+  /* Фото-карусель */
+  .photos-strip {
+    display: flex; gap: 10px;
+    overflow-x: auto; overflow-y: hidden;
+    padding: 6px 2px 12px;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+  }
+  .photos-strip::-webkit-scrollbar { display: none; }
+  .photo-tile {
+    flex: 0 0 auto;
+    width: 180px; height: 220px;
+    border-radius: 16px;
+    overflow: hidden;
+    position: relative;
+    scroll-snap-align: start;
+    border: 1px solid rgba(255, 200, 90, 0.35);
+    background: var(--card);
+    box-shadow:
+      0 0 16px rgba(255, 200, 90, 0.08),
+      0 6px 14px rgba(0, 0, 0, 0.35);
+    cursor: pointer;
+  }
+  .photo-tile img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  .photo-tile .photo-age {
+    position: absolute; left: 8px; bottom: 8px;
+    padding: 3px 8px;
+    background: rgba(0, 0, 0, 0.6);
+    color: rgba(255, 220, 150, 0.9);
+    border-radius: 10px;
+    font-size: 10px; letter-spacing: 0.06em;
+  }
+  .photos-empty {
+    padding: 30px; text-align: center;
+    color: var(--text-mute); font-style: italic; font-size: 13px;
+  }
+
+  /* Лайтбокс */
+  .photo-lightbox {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.92);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 500;
+    padding: 20px;
+    cursor: zoom-out;
+  }
+  .photo-lightbox img {
+    max-width: 100%; max-height: 100%;
+    border-radius: 16px;
+    box-shadow: 0 0 60px rgba(255, 200, 90, 0.15);
+  }
+
+  /* Модалка добавления достижения */
+  .milestone-modal { max-width: 480px; }
+  .mm-preset-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 8px; margin: 8px 0 14px;
+  }
+  .mm-preset {
+    padding: 10px 6px;
+    background: var(--card-hi);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    cursor: pointer;
+    font-size: 11px; color: var(--text-dim);
+    transition: border-color 0.15s;
+  }
+  .mm-preset:hover, .mm-preset.active {
+    border-color: var(--amber); color: var(--amber);
+  }
+  .mm-preset .em { font-size: 22px; line-height: 1; }
+
   /* ============ Вес / Рост ============ */
   .growth-card { cursor: pointer; }
   .growth-metric {
@@ -4029,6 +4184,26 @@
     <div class="matvey-page-head">
       <div class="matvey-page-title">Матвей <span id="matveyPageAge" class="matvey-page-age">—</span></div>
     </div>
+
+    <!-- Быстрые кнопки -->
+    <div class="matvey-quick">
+      <button class="mq-btn" onclick="quickBabyAction('feed')">
+        <div class="mq-em">🍼</div>
+        <div class="mq-lb">Кормление</div>
+        <div class="mq-hint" id="mqLastFeed">—</div>
+      </button>
+      <button class="mq-btn" onclick="quickBabyAction('sleep')">
+        <div class="mq-em" id="mqSleepEm">💤</div>
+        <div class="mq-lb" id="mqSleepLb">Уложить</div>
+        <div class="mq-hint" id="mqSleepHint">—</div>
+      </button>
+      <button class="mq-btn" onclick="quickBabyAction('diaper')">
+        <div class="mq-em">💩</div>
+        <div class="mq-lb">Подгузник</div>
+        <div class="mq-hint" id="mqLastDiaper">—</div>
+      </button>
+    </div>
+
     <div class="matvey-grid">
       <!-- Вес -->
       <div class="card growth-card" onclick="openGrowthLog('weight')">
@@ -4066,7 +4241,50 @@
         </div>
       </div>
     </div>
+
+    <!-- Фото Матвея -->
+    <div class="matvey-section-title">
+      Фото
+      <span style="font-size:10px;color:var(--text-mute)" id="photosMeta"></span>
+    </div>
+    <div class="photos-strip" id="photosStrip">
+      <div class="photos-empty">📸 Фото ещё нет</div>
+    </div>
+
+    <!-- Достижения -->
+    <div class="matvey-section-title">
+      Достижения
+      <button class="btn-add" onclick="openMilestoneAdd()">+ Отметить</button>
+    </div>
+    <div class="milestones-grid" id="milestonesGrid">
+      <div class="milestones-empty">⭐ Пока пусто — отметь первое достижение</div>
+    </div>
   </div><!-- /page-matvey -->
+
+  <!-- Модалка: добавить достижение -->
+  <div class="modal-backdrop" id="modal-milestone-add" onclick="if(event.target===this)closeMilestoneAdd()">
+    <div class="modal milestone-modal">
+      <div class="modal-head">
+        <div class="modal-title">⭐ Новое достижение</div>
+        <button class="modal-close" onclick="closeMilestoneAdd()">✕</button>
+      </div>
+      <div class="feeding-modal-body">
+        <div class="fm-q">Выбери из списка или впиши свой</div>
+        <div class="mm-preset-grid" id="milestonePresetGrid"></div>
+        <input type="text" class="fm-input" id="milestoneCustom" placeholder="Своё название…">
+        <input type="text" class="fm-input" id="milestoneNote" placeholder="Заметка (необязательно)" style="margin-top:8px">
+        <div class="fm-actions" style="margin-top:14px">
+          <button class="fm-cancel" onclick="closeMilestoneAdd()">Отмена</button>
+          <button class="fm-save" onclick="submitMilestone()">Сохранить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Лайтбокс для фото -->
+  <div class="photo-lightbox" id="photoLightbox" style="display:none" onclick="closePhotoLightbox()">
+    <img id="photoLightboxImg" src="" alt="">
+  </div>
 
   <!-- ============= PAGE: ПЛЕЕР ============= -->
   <div class="page-view page-music" id="pageMusic">
@@ -4443,6 +4661,9 @@
     if (page.id === 'feeding' && typeof loadFeeding === 'function') loadFeeding();
     if (page.id === 'plan' && typeof loadPlan === 'function') loadPlan();
     if (page.id === 'matvey' && typeof loadGrowth === 'function') loadGrowth();
+    if (page.id === 'matvey' && typeof loadMilestones === 'function') loadMilestones();
+    if (page.id === 'matvey' && typeof loadMatveyPhotos === 'function') loadMatveyPhotos();
+    if (page.id === 'matvey' && typeof refreshQuickButtons === 'function') refreshQuickButtons();
     if (page.id === 'music' && typeof loadMusic === 'function') loadMusic();
     // Мини-плеер всегда плавает, класс убирать не нужно
   }
@@ -5403,6 +5624,203 @@ document.querySelectorAll('.shop-item').forEach(item => {
   }
 
   // loadGrowth() вызывается при открытии страницы «Матвей крупно» (см. switchPage)
+
+
+  // ============ МАТВЕЙ: БЫСТРЫЕ КНОПКИ / ФОТО / ДОСТИЖЕНИЯ ============
+
+  function _fmtAgo(iso) {
+    if (!iso) return '—';
+    try {
+      const sec = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime())/1000));
+      if (sec < 60) return sec + 'с назад';
+      const m = Math.floor(sec/60);
+      if (m < 60) return m + 'м назад';
+      const h = Math.floor(m/60);
+      return h + 'ч ' + (m%60) + 'м назад';
+    } catch(e){ return '—'; }
+  }
+
+  function refreshQuickButtons() {
+    // Данные тянем из глобального state (last poll)
+    try {
+      const s = window.__lastState || {};
+      const baby = s.baby || {};
+      // Кормление
+      const feed = document.getElementById('mqLastFeed');
+      if (feed) feed.textContent = baby.last_feed_at ? _fmtAgo(baby.last_feed_at) : 'не отмечено';
+      // Сон
+      const sleepEm = document.getElementById('mqSleepEm');
+      const sleepLb = document.getElementById('mqSleepLb');
+      const sleepHint = document.getElementById('mqSleepHint');
+      if (baby.sleeping_since) {
+        if (sleepEm) sleepEm.textContent = '☀️';
+        if (sleepLb) sleepLb.textContent = 'Проснулся';
+        if (sleepHint) sleepHint.textContent = 'спит ' + _fmtAgo(baby.sleeping_since).replace(' назад','');
+      } else {
+        if (sleepEm) sleepEm.textContent = '💤';
+        if (sleepLb) sleepLb.textContent = 'Уложить';
+        if (sleepHint) sleepHint.textContent = baby.awake_since ? 'бодрствует ' + _fmtAgo(baby.awake_since).replace(' назад','') : '';
+      }
+      // Подгузник
+      const diaper = document.getElementById('mqLastDiaper');
+      if (diaper) diaper.textContent = baby.last_diaper_at ? _fmtAgo(baby.last_diaper_at) : 'не отмечено';
+    } catch(e){ console.warn('quick buttons refresh failed', e); }
+  }
+
+  async function quickBabyAction(action) {
+    if (!TOKEN) return;
+    try {
+      const s = window.__lastState || {};
+      const baby = s.baby || {};
+      let kind, event;
+      if (action === 'feed') {
+        // Простое меню
+        const choice = window.prompt('Тип кормления:\n1 — Грудь Л\n2 — Грудь П\n3 — Смесь\n4 — Прикорм\n(введи цифру или название)', '1');
+        if (!choice) return;
+        kind = 'food';
+        const map = {'1':'Грудь Л','2':'Грудь П','3':'Смесь','4':'Прикорм'};
+        event = map[choice.trim()] || choice.trim();
+      } else if (action === 'sleep') {
+        kind = 'sleep';
+        event = baby.sleeping_since ? 'Проснулся' : 'Уснул';
+      } else if (action === 'diaper') {
+        const choice = window.prompt('Подгузник:\n1 — Мокрый\n2 — Какал\n3 — Смешанный', '1');
+        if (!choice) return;
+        kind = 'diaper';
+        const map = {'1':'Мокрый','2':'Какал','3':'Смешанный'};
+        event = map[choice.trim()] || choice.trim();
+      } else return;
+      const r = await logBabyEvent(kind, event);
+      if (r && r.success) {
+        // Быстрая обратная связь + перезапрос state
+        try { navigator.vibrate && navigator.vibrate(60); } catch(e){}
+        setTimeout(() => { if (typeof refreshState === 'function') refreshState(); }, 400);
+      } else {
+        alert('Не удалось: ' + (r && r.error || 'неизвестная ошибка'));
+      }
+    } catch(e) {
+      alert('Ошибка: ' + (e.message||e));
+    }
+  }
+
+  // Фото
+  async function loadMatveyPhotos() {
+    if (!TOKEN) return;
+    const strip = document.getElementById('photosStrip');
+    const meta = document.getElementById('photosMeta');
+    if (!strip) return;
+    try {
+      const r = await apiGet('/api/tablet/matvey/photos');
+      const photos = (r && r.photos) || [];
+      if (meta) meta.textContent = photos.length ? photos.length + ' фото' : '';
+      if (!photos.length) {
+        strip.innerHTML = '<div class="photos-empty">📸 Фото ещё нет</div>';
+        return;
+      }
+      strip.innerHTML = photos.map(p =>
+        '<div class="photo-tile" onclick="openPhotoLightbox(\'' + (p.url || '').replace(/'/g,"\\'") + '\')">' +
+          '<img loading="lazy" src="' + p.url + '" alt="' + (p.caption || '') + '">' +
+          (p.age ? '<div class="photo-age">' + p.age + '</div>' : '') +
+        '</div>'
+      ).join('');
+    } catch(e) {
+      strip.innerHTML = '<div class="photos-empty">Не удалось загрузить</div>';
+    }
+  }
+  function openPhotoLightbox(url) {
+    const lb = document.getElementById('photoLightbox');
+    const img = document.getElementById('photoLightboxImg');
+    if (lb && img) { img.src = url; lb.style.display = 'flex'; }
+  }
+  function closePhotoLightbox() {
+    const lb = document.getElementById('photoLightbox');
+    if (lb) lb.style.display = 'none';
+  }
+
+  // Достижения
+  const MILESTONE_PRESETS = [
+    {em:'😊', title:'Улыбнулся'},
+    {em:'😄', title:'Засмеялся'},
+    {em:'🔄', title:'Перевернулся'},
+    {em:'🪑', title:'Сел сам'},
+    {em:'🐢', title:'Пополз'},
+    {em:'🧍', title:'Встал'},
+    {em:'🚶', title:'Пошёл'},
+    {em:'🦷', title:'Первый зуб'},
+    {em:'🗣️', title:'Первое слово'},
+    {em:'👋', title:'Помахал'},
+    {em:'🥄', title:'Держит ложку'},
+    {em:'▪', title:'Другое'},
+  ];
+  async function loadMilestones() {
+    if (!TOKEN) return;
+    const grid = document.getElementById('milestonesGrid');
+    if (!grid) return;
+    try {
+      const r = await apiGet('/api/tablet/matvey/milestones');
+      const items = (r && r.milestones) || [];
+      if (!items.length) {
+        grid.innerHTML = '<div class="milestones-empty">⭐ Пока пусто — отметь первое достижение</div>';
+        return;
+      }
+      grid.innerHTML = items.map(m =>
+        '<div class="milestone-card">' +
+          '<div class="milestone-em">' + (m.emoji || '⭐') + '</div>' +
+          '<div class="milestone-title">' + (m.title || '—') + '</div>' +
+          '<div class="milestone-meta">' + (m.age || '') + (m.date ? ' · ' + m.date : '') + '</div>' +
+          (m.note ? '<div class="milestone-note">' + m.note + '</div>' : '') +
+        '</div>'
+      ).join('');
+    } catch(e) {
+      grid.innerHTML = '<div class="milestones-empty">Не удалось загрузить</div>';
+    }
+  }
+  let _milestoneSelected = null;
+  function openMilestoneAdd() {
+    _milestoneSelected = null;
+    const grid = document.getElementById('milestonePresetGrid');
+    if (grid) {
+      grid.innerHTML = MILESTONE_PRESETS.map((p, i) =>
+        '<div class="mm-preset" data-i="' + i + '" onclick="pickMilestonePreset(' + i + ')">' +
+          '<div class="em">' + p.em + '</div>' +
+          '<div>' + p.title + '</div>' +
+        '</div>'
+      ).join('');
+    }
+    const custom = document.getElementById('milestoneCustom');
+    const note = document.getElementById('milestoneNote');
+    if (custom) custom.value = '';
+    if (note) note.value = '';
+    document.getElementById('modal-milestone-add').classList.add('open');
+  }
+  function closeMilestoneAdd() {
+    document.getElementById('modal-milestone-add').classList.remove('open');
+  }
+  function pickMilestonePreset(i) {
+    _milestoneSelected = i;
+    document.querySelectorAll('#milestonePresetGrid .mm-preset').forEach(el => el.classList.remove('active'));
+    const el = document.querySelector('#milestonePresetGrid .mm-preset[data-i="' + i + '"]');
+    if (el) el.classList.add('active');
+  }
+  async function submitMilestone() {
+    const custom = (document.getElementById('milestoneCustom').value || '').trim();
+    const note = (document.getElementById('milestoneNote').value || '').trim();
+    let title = custom;
+    if (!title && _milestoneSelected != null) title = MILESTONE_PRESETS[_milestoneSelected].title;
+    if (!title) { alert('Выбери или впиши достижение'); return; }
+    try {
+      const r = await apiPost('/api/tablet/matvey/milestone', {title, note});
+      if (r && r.success) {
+        closeMilestoneAdd();
+        setTimeout(loadMilestones, 800);
+      } else {
+        alert('Не удалось: ' + (r && r.error || 'неизвестная ошибка'));
+      }
+    } catch(e) {
+      alert('Ошибка: ' + (e.message||e));
+    }
+  }
+
 
   // ============ ПЛЕЕР ============
   let _musicSource = 'spotify';
@@ -7580,6 +7998,12 @@ document.querySelectorAll('.shop-item').forEach(item => {
       // Пересобрать сцены на главной чтобы там появилась актуальная
       // группа «Розетки» (Бойлер/ТВ/Гоша).
       updateScenes(s.scenes);
+      // Если открыта страница Матвея — обновить быстрые кнопки
+      try {
+        if (document.getElementById('pageMatvey')?.classList.contains('active')) {
+          if (typeof refreshQuickButtons === 'function') refreshQuickButtons();
+        }
+      } catch(e) {}
       updateEvents(s.today_events);
       updateShopping(s.shopping);
       updateParcels(s.parcels);
