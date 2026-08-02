@@ -1540,19 +1540,19 @@
     align-items: center;
     justify-content: center;
   }
-  .np-embed {
+  /* Когда мини-iframe переехал в большой слот — растягиваем */
+  #npEmbedSlot > iframe {
     width: 100%; max-width: 720px;
     height: 380px;
     border: 0; border-radius: 14px;
-    display: none;
+    display: block;
   }
-  .np-embed.loaded { display: block; }
+  #npEmbedSlot:has(> iframe) .np-embed-empty { display: none; }
   .np-embed-empty {
     text-align: center; padding: 40px 20px;
     display: flex; flex-direction: column;
     align-items: center; gap: 10px;
   }
-  .np-embed-wrap:has(.np-embed.loaded) .np-embed-empty { display: none; }
   .np-embed-em {
     font-family: Georgia, ui-serif, serif;
     font-size: 80px; color: rgba(255, 200, 90, 0.35);
@@ -4557,13 +4557,10 @@
         </div>
       </div>
 
-      <!-- Основной блок: большой Spotify iframe = реальный плеер -->
-      <div class="np-embed-wrap">
-        <iframe id="npBigEmbed"
-                class="np-embed"
-                src=""
-                allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                loading="lazy"></iframe>
+      <!-- Основной блок: слот в который переезжает мини-iframe пока
+           страница открыта. Один iframe = одна сессия — иначе play в
+           большом и мини не синхронятся. -->
+      <div class="np-embed-wrap" id="npEmbedSlot">
         <div class="np-embed-empty" id="npEmbedEmpty">
           <div class="np-embed-em">♪</div>
           <div class="np-embed-title">Выбери плейлист или трек ниже</div>
@@ -4899,7 +4896,8 @@
     if (page.id === 'matvey' && typeof loadMatveyPhotos === 'function') loadMatveyPhotos();
     if (page.id === 'matvey' && typeof refreshQuickButtons === 'function') refreshQuickButtons();
     if (page.id === 'music' && typeof loadMusic === 'function') loadMusic();
-    // Мини-плеер всегда плавает, класс убирать не нужно
+    // Уходим со страницы плеера — возвращаем iframe обратно в мини-кружок
+    if (page.id !== 'music' && typeof _npAttachEmbed === 'function') _npAttachEmbed(false);
   }
   function toggleMenu(e) {
     e?.stopPropagation();
@@ -6035,7 +6033,8 @@ document.querySelectorAll('.shop-item').forEach(item => {
     // Всё ок — грузим плейлисты
     _showSpBox('spPlayerBox');
     spSwitchTab('playlists');
-    _npLoadLastTrackInBig();
+    // Переносим единственный iframe в большой слот
+    _npAttachEmbed(true);
     npLoadDevices();
   }
 
@@ -6396,41 +6395,41 @@ document.querySelectorAll('.shop-item').forEach(item => {
     return `https://open.spotify.com/embed/${type}/${id}?utm_source=generator&theme=${_spEmbedTheme()}`;
   }
 
-  // Воспроизведение — Spotify iframe. Один и тот же URL грузим и в
-  // большой плеер (страница «Спотифай»), и в мини-кружок. Это два разных
-  // iframe, значит две сессии — но SDK Spotify их удерживает по одной
-  // на аккаунт (при play в одном другой автоматически ставится на паузу).
+  // Воспроизведение — Spotify iframe. Один физический iframe (miniSpEmbed)
+  // переезжает между мини-карточкой и большим слотом на странице плеера.
+  // Один iframe = одна Spotify-сессия = play/pause синхронны везде где
+  // iframe виден. При этом src меняем только у него.
   function spPlay(type, id) {
     const url = _spEmbedUrl(type, id);
     const mini = document.getElementById('miniSpEmbed');
     if (mini) {
       mini.src = url;
-      document.getElementById('miniMusicCard').style.display = '';
-      document.getElementById('miniMusicEmbed').style.display = '';
-      document.getElementById('miniMusicEmpty').style.display = 'none';
-    }
-    const big = document.getElementById('npBigEmbed');
-    if (big) {
-      big.src = url;
-      big.classList.add('loaded');
+      // Держим мини-карточку в DOM (для восстановления при уходе со
+      // страницы плеера). Видимость управляется _npAttachEmbed.
+      const empty = document.getElementById('miniMusicEmpty');
+      if (empty) empty.style.display = 'none';
     }
     try { localStorage.setItem('lastSpTrack', JSON.stringify({ type, id })); } catch(e) {}
+    _npAttachEmbed(true);
   }
-  // Загрузить последний трек в большой iframe при открытии страницы плеера
-  function _npLoadLastTrackInBig() {
-    const big = document.getElementById('npBigEmbed');
-    if (!big) return;
-    try {
-      const raw = localStorage.getItem('lastSpTrack');
-      if (!raw) return;
-      const { type, id } = JSON.parse(raw);
-      if (!type || !id) return;
-      // Не переставляем src если он уже указан на этот же трек — иначе
-      // сброс воспроизведения при каждом заходе на страницу
-      const want = _spEmbedUrl(type, id);
-      if (big.src !== want) big.src = want;
-      big.classList.add('loaded');
-    } catch(e) {}
+
+  // Перенос единственного iframe: true — в большой слот, false — обратно в мини
+  function _npAttachEmbed(toBig) {
+    const iframe = document.getElementById('miniSpEmbed');
+    if (!iframe) return;
+    const bigSlot = document.getElementById('npEmbedSlot');
+    const miniSlot = document.getElementById('miniMusicEmbed');
+    const miniCard = document.getElementById('miniMusicCard');
+    if (toBig) {
+      if (bigSlot && iframe.parentElement !== bigSlot) bigSlot.appendChild(iframe);
+      // Пока в большом плеере — прячем мини-кружок чтобы не путал
+      if (miniCard) miniCard.style.display = 'none';
+    } else {
+      if (miniSlot && iframe.parentElement !== miniSlot) miniSlot.appendChild(iframe);
+      if (miniCard && localStorage.getItem('miniHidden') !== '1') {
+        miniCard.style.display = '';
+      }
+    }
   }
 
   // Восстанавливаем мини-плеер + его позицию при загрузке
