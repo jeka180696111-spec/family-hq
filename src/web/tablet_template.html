@@ -5688,9 +5688,18 @@ document.querySelectorAll('.shop-item').forEach(item => {
     try {
       const r = await apiGet('/api/tablet/matvey/photos');
       const photos = (r && r.photos) || [];
-      if (meta) meta.textContent = photos.length ? photos.length + ' фото' : '';
+      const total = (r && r.total_in_db) || 0;
+      if (meta) {
+        if (photos.length && total > photos.length) {
+          meta.textContent = photos.length + ' из ' + total + ' фото (остальные без бэкапа)';
+        } else {
+          meta.textContent = photos.length ? photos.length + ' фото' : '';
+        }
+      }
       if (!photos.length) {
-        strip.innerHTML = '<div class="photos-empty">📸 Фото ещё нет</div>';
+        strip.innerHTML = total > 0
+          ? '<div class="photos-empty">📷 ' + total + ' фото в базе, но ни одно не заархивировано в Google Drive.<br>Отправь новые фото в чат — они попадут сюда через 5-10 сек.</div>'
+          : '<div class="photos-empty">📸 Фото ещё нет — отправь в чат Матвейке-боту</div>';
         return;
       }
       strip.innerHTML = photos.map(p =>

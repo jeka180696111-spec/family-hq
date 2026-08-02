@@ -1031,11 +1031,15 @@ def register_tablet_routes(
                     select(BabyPhoto).order_by(BabyPhoto.created_at.desc()).limit(limit)
                 ))
             out = []
+            total = len(rows)
             for r in rows:
-                # Пропускаем фото у которых нет ни локального файла, ни бэкапа
-                # в Drive — иначе UI покажет иконку сломанного изображения.
+                # Считаем «показывабельным» ТОЛЬКО фото с Drive-бэкапом или
+                # реально живым локальным файлом. local_path у большинства
+                # старых записей — это стёртый tempfile, поэтому Drive
+                # обязателен как источник правды.
+                drive_id = (r.drive_file_id or "").strip() if isinstance(r.drive_file_id, str) else r.drive_file_id
                 local_ok = bool(r.local_path) and Path(r.local_path).exists()
-                if not local_ok and not r.drive_file_id:
+                if not drive_id and not local_ok:
                     continue
                 out.append({
                     "id": r.id,
@@ -1044,7 +1048,7 @@ def register_tablet_routes(
                     "created_at": r.created_at,
                     "url": f"/api/tablet/matvey/photo/{r.id}?token={token}",
                 })
-            return {"photos": out}
+            return {"photos": out, "total_in_db": total, "shown": len(out)}
         except Exception as e:
             log.exception("tablet_photos_failed")
             return {"photos": [], "error": str(e)[:200]}
