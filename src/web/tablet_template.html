@@ -5978,9 +5978,17 @@ document.querySelectorAll('.shop-item').forEach(item => {
 
   async function _initSpotify() {
     _showSpBox('spLoadingBox');
+    // Таймаут 6с — если Spotify auth сервер не отвечает, не висим бесконечно
     let status;
-    try { status = await apiGet('/api/tablet/spotify/status'); }
-    catch(e) { status = { configured: false, reason: e.message || String(e) }; }
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 6000);
+      const r = await fetch('/api/tablet/spotify/status?token=' + encodeURIComponent(TOKEN), { signal: ctl.signal });
+      clearTimeout(t);
+      status = await r.json();
+    } catch(e) {
+      status = { configured: false, reason: e.name === 'AbortError' ? 'Сервер не отвечает > 6с — попробуй ещё раз' : (e.message || String(e)) };
+    }
 
     if (!status.configured) {
       const hint = document.getElementById('spSetupHint');
