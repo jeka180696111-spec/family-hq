@@ -1457,6 +1457,212 @@
     font-size: 13px;
   }
 
+  /* ═══ Now Playing (Плеер 2.0) ═══ */
+  .np-page {
+    display: flex; flex-direction: column;
+    gap: 22px;
+    max-width: 1200px; margin: 0 auto;
+  }
+  .np-topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+  }
+  .np-devices-row {
+    display: flex; gap: 8px; flex-wrap: wrap; flex: 1; min-width: 0;
+  }
+  .np-devices-empty {
+    font-size: 11px; color: var(--text-mute);
+    letter-spacing: 0.04em; font-style: italic;
+  }
+  .np-dev-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 20px;
+    background: rgba(255, 200, 90, 0.06);
+    border: 1px solid rgba(255, 200, 90, 0.24);
+    font-size: 11px; color: var(--text-dim);
+    letter-spacing: 0.03em; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .np-dev-chip:hover { border-color: var(--amber); color: var(--text); }
+  .np-dev-chip.active {
+    background: rgba(255, 200, 90, 0.20);
+    border-color: var(--amber);
+    color: var(--amber);
+    box-shadow: 0 0 14px rgba(255,200,90,0.20);
+  }
+  .np-dev-chip .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: rgba(240,230,208,0.25);
+  }
+  .np-dev-chip.active .dot {
+    background: #86ac6a; box-shadow: 0 0 6px #86ac6a;
+  }
+  .np-voice-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 14px; border-radius: 20px;
+    background: rgba(255, 200, 90, 0.10);
+    border: 1px solid rgba(255, 200, 90, 0.30);
+    font-size: 11px; color: var(--amber);
+    letter-spacing: 0.06em; cursor: pointer;
+  }
+  .np-voice-mic {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #86ac6a;
+    box-shadow: 0 0 6px #86ac6a;
+    animation: mic-pulse 1.4s ease-in-out infinite;
+  }
+  .np-voice-badge.off .np-voice-mic {
+    background: rgba(240,230,208,0.25); box-shadow: none; animation: none;
+  }
+  .np-voice-badge.off { color: var(--text-mute); }
+  @keyframes mic-pulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+  }
+
+  .np-main {
+    display: grid;
+    grid-template-columns: minmax(240px, 340px) 1fr;
+    gap: 26px;
+    align-items: start;
+  }
+  .np-cover-wrap {
+    aspect-ratio: 1;
+    max-width: 340px;
+  }
+  .np-cover {
+    width: 100%; height: 100%;
+    border-radius: 22px;
+    background:
+      radial-gradient(circle at 30% 20%, rgba(255, 200, 90, 0.35), transparent 60%),
+      radial-gradient(circle at 70% 80%, rgba(180, 80, 50, 0.35), transparent 60%),
+      linear-gradient(135deg, #2a1a10, #1a0e08);
+    box-shadow:
+      0 0 60px rgba(255, 200, 90, 0.20),
+      0 20px 50px rgba(0, 0, 0, 0.6),
+      inset 0 1px 0 rgba(255, 220, 150, 0.15);
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+    position: relative;
+    background-size: cover;
+    background-position: center;
+  }
+  .np-cover-em {
+    font-size: 90px; color: rgba(255, 220, 150, 0.4);
+    font-family: Georgia, ui-serif, serif;
+    display: block;
+  }
+  .np-cover.has-image .np-cover-em { display: none; }
+
+  .np-info {
+    display: flex; flex-direction: column;
+    gap: 6px; min-width: 0;
+  }
+  .np-track {
+    font-family: Georgia, ui-serif, serif;
+    font-size: clamp(24px, 3.5vw, 34px);
+    color: var(--text);
+    line-height: 1.15;
+    text-wrap: balance;
+    word-break: break-word;
+  }
+  .np-artist { font-size: 16px; color: var(--text-dim); }
+  .np-album {
+    font-size: 11px; color: var(--text-mute);
+    letter-spacing: 0.10em; text-transform: uppercase;
+    margin-top: 2px;
+  }
+
+  .np-wave {
+    height: 44px; margin: 20px 0 4px;
+    display: flex; align-items: center; gap: 3px;
+    cursor: pointer;
+    padding: 0 2px;
+  }
+  .np-wave span {
+    display: block; flex: 1;
+    background: rgba(255, 200, 90, 0.25);
+    border-radius: 2px; min-width: 3px;
+    transition: background 0.15s;
+  }
+  .np-wave span.past {
+    background: var(--amber);
+    box-shadow: 0 0 6px rgba(255, 200, 90, 0.4);
+  }
+  .np-wave span.cursor {
+    background: #f4c574;
+    box-shadow: 0 0 12px rgba(255, 220, 150, 0.7);
+  }
+  .np-time {
+    display: flex; justify-content: space-between;
+    font-family: ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 11px; color: var(--text-mute);
+    letter-spacing: 0.04em;
+  }
+  .np-controls {
+    display: flex; align-items: center;
+    gap: 22px; margin-top: 18px;
+    flex-wrap: wrap;
+  }
+  .np-ctl {
+    width: 44px; height: 44px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255, 200, 90, 0.08);
+    border: 1px solid rgba(255, 200, 90, 0.20);
+    color: var(--text); font-size: 18px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .np-ctl:hover { border-color: var(--amber); background: rgba(255, 200, 90, 0.15); }
+  .np-ctl.np-play {
+    width: 60px; height: 60px;
+    background: var(--amber); color: #1a1100;
+    font-size: 24px; border-color: var(--amber);
+    box-shadow: 0 0 24px rgba(255, 200, 90, 0.35), 0 6px 18px rgba(0,0,0,0.4);
+  }
+  .np-ctl.np-play:hover { filter: brightness(1.1); }
+  .np-vol {
+    display: flex; align-items: center; gap: 8px;
+    flex: 1; max-width: 260px; min-width: 140px;
+    color: var(--text-dim);
+  }
+  .np-vol input[type=range] {
+    flex: 1;
+    -webkit-appearance: none; appearance: none;
+    height: 4px; border-radius: 2px;
+    background: rgba(255, 200, 90, 0.15);
+    outline: none;
+  }
+  .np-vol input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--amber);
+    cursor: pointer;
+    box-shadow: 0 0 8px rgba(255, 200, 90, 0.5);
+  }
+  .np-vol input[type=range]::-moz-range-thumb {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--amber); border: 0; cursor: pointer;
+  }
+
+  .np-library {
+    margin-top: 8px;
+    padding-top: 20px;
+    border-top: 1px solid rgba(255, 200, 90, 0.12);
+  }
+
+  @media (max-width: 720px) {
+    .np-main {
+      grid-template-columns: 1fr;
+      gap: 18px;
+    }
+    .np-cover-wrap { max-width: 260px; margin: 0 auto; }
+    .np-info { text-align: center; }
+    .np-controls { justify-content: center; }
+    .np-vol { max-width: none; }
+  }
+
   /* ═══ Spotify UI ═══ */
   .sp-user-row {
     display: flex;
@@ -4265,53 +4471,82 @@
 
   <!-- ============= PAGE: ПЛЕЕР ============= -->
   <div class="page-view page-music" id="pageMusic">
-    <div class="music-head">
-      <div class="music-title">Плеер</div>
-      <!-- Табы источников удалены — оставлен только Spotify -->
+    <!-- Настройка / логин / загрузка — переиспользуем как было -->
+    <div class="music-setup" id="spSetupBox" style="display:none">
+      <div class="setup-em">🔑</div>
+      <div class="setup-title">Spotify не подключён</div>
+      <div class="setup-hint">
+        В Railway → Variables добавь:
+        <ol>
+          <li><b>SPOTIFY_CLIENT_ID</b></li>
+          <li><b>SPOTIFY_CLIENT_SECRET</b></li>
+          <li><b>SPOTIFY_REDIRECT_BASE</b> — публичный URL приложения</li>
+        </ol>
+      </div>
+    </div>
+    <div class="music-login" id="spLoginBox" style="display:none">
+      <div class="setup-em">🟢</div>
+      <div class="setup-title">Войди в Spotify</div>
+      <div class="setup-hint">Раз войдёшь — планшет запомнит и будет играть твои плейлисты.</div>
+      <button class="music-login-btn" onclick="spotifyLogin()" style="background:#1DB954;color:white">🟢 Войти в Spotify</button>
+    </div>
+    <div class="music-loading" id="spLoadingBox">
+      <div class="setup-em">⏳</div>
+      Проверяю Spotify…
     </div>
 
-    <!-- Spotify панель -->
-    <div class="music-panel" id="musicSpotifyPanel">
-      <!-- Не настроено — нет ключей на сервере -->
-      <div class="music-setup" id="spSetupBox" style="display:none">
-        <div class="setup-em">🔑</div>
-        <div class="setup-title">Spotify не подключён</div>
-        <div class="setup-hint" id="spSetupHint">
-          В Railway → Variables добавь:
-          <ol>
-            <li><b>SPOTIFY_CLIENT_ID</b></li>
-            <li><b>SPOTIFY_CLIENT_SECRET</b></li>
-            <li><b>SPOTIFY_REDIRECT_BASE</b> — публичный URL приложения</li>
-          </ol>
-          После — обнови эту страницу.
+    <!-- ============ NOW PLAYING (главная зона) ============ -->
+    <div class="np-page" id="spPlayerBox" style="display:none">
+      <!-- Верхняя полоска: устройства + голос -->
+      <div class="np-topbar">
+        <div class="np-devices-row" id="npDevices">
+          <div class="np-devices-empty">Нет доступных устройств Spotify Connect</div>
+        </div>
+        <div class="np-voice-badge" id="npVoiceBadge" onclick="toggleVoiceAgent && toggleVoiceAgent()" title="Голос">
+          <span class="np-voice-mic" id="npVoiceMic"></span>
+          <span id="npVoiceLabel">Альтрон</span>
         </div>
       </div>
 
-      <!-- Не авторизован -->
-      <div class="music-login" id="spLoginBox" style="display:none">
-        <div class="setup-em">🟢</div>
-        <div class="setup-title">Войди в Spotify</div>
-        <div class="setup-hint">Раз войдёшь — планшет запомнит и будет играть твои плейлисты.</div>
-        <button class="music-login-btn" onclick="spotifyLogin()" style="background:#1DB954;color:white">🟢 Войти в Spotify</button>
+      <!-- Основной блок: обложка слева, инфо справа -->
+      <div class="np-main">
+        <div class="np-cover-wrap">
+          <div class="np-cover" id="npCover">
+            <span class="np-cover-em">♪</span>
+          </div>
+        </div>
+        <div class="np-info">
+          <div class="np-track" id="npTrack">Ничего не играет</div>
+          <div class="np-artist" id="npArtist">—</div>
+          <div class="np-album" id="npAlbum"></div>
+
+          <!-- Wave-скраббер -->
+          <div class="np-wave" id="npWave" onclick="npSeekFromClick(event)"></div>
+          <div class="np-time">
+            <span id="npTimeCur">0:00</span>
+            <span id="npTimeDur">0:00</span>
+          </div>
+
+          <div class="np-controls">
+            <button class="np-ctl" onclick="spPrev()" title="Предыдущий">⏮</button>
+            <button class="np-ctl np-play" id="npPlayBtn" onclick="npPlayPause()">▶</button>
+            <button class="np-ctl" onclick="spNext()" title="Следующий">⏭</button>
+            <div class="np-vol">
+              <span>🔉</span>
+              <input type="range" min="0" max="100" value="50" id="npVolSlider" oninput="npSetVolume(this.value)">
+            </div>
+          </div>
+        </div>
       </div>
 
-      <!-- Загрузка -->
-      <div class="music-loading" id="spLoadingBox">
-        <div class="setup-em">⏳</div>
-        Проверяю Spotify…
-      </div>
-
-      <!-- Основной интерфейс -->
-      <div class="music-player" id="spPlayerBox" style="display:none">
-        <!-- Поиск -->
-        <div class="mp-search">
+      <!-- Библиотека: плейлисты + поиск -->
+      <div class="np-library">
+        <div class="mp-search" style="margin-bottom:12px">
           <input type="text" id="spSearchInput" class="mp-search-input"
                  placeholder="🔍 Найти песню, альбом, исполнителя, плейлист…"
                  onkeydown="if(event.key==='Enter') spSearch(this.value)">
           <button class="mp-search-btn" style="background:#1DB954;color:white" onclick="spSearch(document.getElementById('spSearchInput').value)">🔍</button>
         </div>
-
-        <!-- Табы Библиотека / Плейлисты / Поиск -->
         <div class="sp-lib-tabs">
           <button class="sp-tab active" data-tab="playlists" onclick="spSwitchTab('playlists')">📁 Мои плейлисты</button>
           <button class="sp-tab" data-tab="liked" onclick="spSwitchTab('liked')">💚 Мне нравится</button>
@@ -4319,20 +4554,11 @@
           <button class="sp-tab-icon" onclick="_spRefreshAll()" title="Обновить" style="flex:0">🔄</button>
           <button class="sp-tab-icon" onclick="spotifyLogout()" title="Выйти из Spotify" style="flex:0">⏻</button>
         </div>
-
-        <!-- Контент табов -->
         <div class="sp-content" id="spContent">
           <div class="sp-loading">Загружаю…</div>
         </div>
-
-        <!-- Индикатор что играет — сам плеер один, на главном экране -->
-        <div class="sp-embed-hint" id="spNowPlaying" style="display:none">
-          🎵 Сейчас играет — плеер на главном экране
-          <button class="sp-goto-mini" onclick="switchPage('overview')">Перейти →</button>
-        </div>
       </div>
     </div>
-
   </div><!-- /page-music -->
 
   <!-- Модалка: реакция на новый продукт (тап по «на очереди») -->
@@ -5771,7 +5997,164 @@ document.querySelectorAll('.shop-item').forEach(item => {
     // Всё ок — грузим плейлисты
     _showSpBox('spPlayerBox');
     spSwitchTab('playlists');
+    npStartPolling();
+    npLoadDevices();
   }
+
+  // ═══ Now Playing polling / controls ═══
+  let _npPollTimer = null;
+  let _npLastState = null;
+  let _npVolTouched = 0;
+  let _npWaveBars = 60;
+  function npStartPolling() {
+    if (_npPollTimer) return;
+    npPoll();
+    _npPollTimer = setInterval(npPoll, 4000);
+  }
+  function npStopPolling() {
+    if (_npPollTimer) { clearInterval(_npPollTimer); _npPollTimer = null; }
+  }
+  async function npPoll() {
+    if (!TOKEN) return;
+    // Обновляем только когда открыта страница плеера — экономия квоты
+    if (!document.getElementById('pageMusic')?.classList.contains('active')) {
+      npStopPolling();
+      return;
+    }
+    try {
+      const s = await apiGet('/api/tablet/spotify/now-playing');
+      npRender(s);
+    } catch(e) { /* silent */ }
+  }
+  function npRender(s) {
+    _npLastState = s;
+    const cover = document.getElementById('npCover');
+    const track = document.getElementById('npTrack');
+    const artist = document.getElementById('npArtist');
+    const album = document.getElementById('npAlbum');
+    const playBtn = document.getElementById('npPlayBtn');
+    const cur = document.getElementById('npTimeCur');
+    const dur = document.getElementById('npTimeDur');
+    if (!track) return;
+    if (!s || !s.track) {
+      track.textContent = 'Ничего не играет';
+      artist.textContent = '—';
+      album.textContent = '';
+      cover.classList.remove('has-image');
+      cover.style.backgroundImage = '';
+      if (playBtn) playBtn.textContent = '▶';
+      cur.textContent = '0:00'; dur.textContent = '0:00';
+      _npRenderWave(0, 0);
+      return;
+    }
+    track.textContent = s.track;
+    artist.textContent = (s.artists || []).join(', ');
+    album.textContent = s.album || '';
+    if (s.cover_url) {
+      cover.classList.add('has-image');
+      cover.style.backgroundImage = 'url(' + s.cover_url + ')';
+    } else {
+      cover.classList.remove('has-image');
+      cover.style.backgroundImage = '';
+    }
+    if (playBtn) playBtn.textContent = s.playing ? '⏸' : '▶';
+    cur.textContent = _fmtMs(s.progress_ms);
+    dur.textContent = _fmtMs(s.duration_ms);
+    _npRenderWave(s.progress_ms, s.duration_ms);
+    // Громкость — не перебиваем пока юзер держит слайдер
+    const vol = document.getElementById('npVolSlider');
+    if (vol && s.device_volume != null && (Date.now() - _npVolTouched > 3000)) {
+      vol.value = s.device_volume;
+    }
+  }
+  function _fmtMs(ms) {
+    if (!ms || ms < 0) return '0:00';
+    const s = Math.floor(ms / 1000);
+    return Math.floor(s/60) + ':' + String(s%60).padStart(2, '0');
+  }
+  function _npRenderWave(progress, duration) {
+    const wave = document.getElementById('npWave');
+    if (!wave) return;
+    const pct = duration > 0 ? Math.min(1, progress / duration) : 0;
+    // Псевдо-случайные, но стабильные высоты — по индексу
+    let html = '';
+    for (let i = 0; i < _npWaveBars; i++) {
+      // Простое хэш-подобное распределение — детерминированное
+      const h = 6 + Math.abs(Math.sin(i * 1.31 + 2.7) * 24) + Math.abs(Math.sin(i * 0.71) * 8);
+      const p = i / _npWaveBars;
+      let cls = '';
+      if (p < pct - 0.02) cls = 'past';
+      else if (Math.abs(p - pct) < 0.02) cls = 'cursor';
+      html += '<span class="' + cls + '" style="height:' + Math.round(h) + 'px"></span>';
+    }
+    wave.innerHTML = html;
+  }
+  async function npSeekFromClick(evt) {
+    if (!_npLastState || !_npLastState.duration_ms) return;
+    const wave = document.getElementById('npWave');
+    const rect = wave.getBoundingClientRect();
+    const x = evt.clientX - rect.left;
+    const pct = Math.max(0, Math.min(1, x / rect.width));
+    const pos = Math.floor(pct * _npLastState.duration_ms);
+    try {
+      await apiPost('/api/tablet/spotify/seek', {position_ms: pos});
+      setTimeout(npPoll, 400);
+    } catch(e) {}
+  }
+  async function npPlayPause() {
+    try {
+      const s = _npLastState;
+      const url = s && s.playing ? '/api/tablet/spotify/pause' : '/api/tablet/spotify/play';
+      await apiPost(url, {});
+      setTimeout(npPoll, 400);
+    } catch(e) {}
+  }
+  async function spPrev() { try { await apiPost('/api/tablet/spotify/previous', {}); setTimeout(npPoll, 400); } catch(e){} }
+  async function spNext() { try { await apiPost('/api/tablet/spotify/next', {}); setTimeout(npPoll, 400); } catch(e){} }
+  async function npSetVolume(v) {
+    _npVolTouched = Date.now();
+    try { await apiPost('/api/tablet/spotify/volume', {volume_percent: Number(v)}); } catch(e){}
+  }
+  async function npLoadDevices() {
+    if (!TOKEN) return;
+    try {
+      const r = await apiGet('/api/tablet/spotify/devices');
+      const devs = (r && r.devices) || [];
+      const row = document.getElementById('npDevices');
+      if (!row) return;
+      if (!devs.length) {
+        row.innerHTML = '<div class="np-devices-empty">Открой Spotify на любой колонке / телефоне — устройство появится здесь</div>';
+        return;
+      }
+      row.innerHTML = devs.map(d => {
+        const em = /speaker|cast|sonos|homepod|echo/i.test(d.type) ? '🎛' :
+                   /computer|laptop|mac|pc/i.test(d.type) ? '💻' :
+                   /smartphone|phone|iphone|android/i.test(d.type) ? '📱' :
+                   /tv/i.test(d.type) ? '📺' : '🔊';
+        return `<div class="np-dev-chip ${d.is_active ? 'active' : ''}" onclick="npTransfer('${d.id}')">
+          <span class="dot"></span>${em} ${_esc(d.name)}
+        </div>`;
+      }).join('');
+    } catch(e) {}
+  }
+  function _esc(s) { return (s||'').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'})[c]); }
+  async function npTransfer(deviceId) {
+    try {
+      await apiPost('/api/tablet/spotify/transfer', {device_id: deviceId, play: true});
+      setTimeout(() => { npLoadDevices(); npPoll(); }, 800);
+    } catch(e){}
+  }
+  // Подстроить бейдж голоса под реальное состояние голосового ассистента
+  function npSyncVoiceBadge() {
+    const badge = document.getElementById('npVoiceBadge');
+    const label = document.getElementById('npVoiceLabel');
+    if (!badge) return;
+    const on = (localStorage.getItem('voiceAgent') || 'off') === 'on';
+    badge.classList.toggle('off', !on);
+    if (label) label.textContent = on ? 'Альтрон слушает' : 'Альтрон выкл';
+  }
+  setInterval(npSyncVoiceBadge, 2000);
+  setTimeout(npSyncVoiceBadge, 300);
 
   function _spRefreshAll() {
     _spPlaylistsCache = null;
