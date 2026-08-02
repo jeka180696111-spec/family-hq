@@ -1032,6 +1032,11 @@ def register_tablet_routes(
                 ))
             out = []
             for r in rows:
+                # Пропускаем фото у которых нет ни локального файла, ни бэкапа
+                # в Drive — иначе UI покажет иконку сломанного изображения.
+                local_ok = bool(r.local_path) and Path(r.local_path).exists()
+                if not local_ok and not r.drive_file_id:
+                    continue
                 out.append({
                     "id": r.id,
                     "age": r.age_label or "",
@@ -1047,6 +1052,10 @@ def register_tablet_routes(
     @app.get("/api/tablet/matvey/photo/{photo_id}")
     async def matvey_photo_stream(photo_id: int, token: str = Query("")):
         _check_token(token, expected_token)
+        # Кэш скачанных из Drive файлов — переживает многократные загрузки
+        # ленты, чтобы не дёргать Drive API каждый раз.
+        cache_dir = Path("/tmp/matvey-photo-cache")
+        cache_dir.mkdir(parents=True, exist_ok=True)
         try:
             from sqlalchemy import select
             from src.db.models import BabyPhoto
@@ -1057,10 +1066,33 @@ def register_tablet_routes(
             if not row:
                 raise HTTPException(404, "not found")
             bp = row[0] if hasattr(row, "_mapping") else row
-            path = Path(getattr(bp, "local_path", ""))
-            if not path.exists():
-                raise HTTPException(404, "file missing")
-            return FileResponse(str(path))
+            # 1. Пробуем локальный путь (обычно уже стёрт — это был tempfile)
+            local = getattr(bp, "local_path", "")
+            if local and Path(local).exists():
+                return FileResponse(local)
+            # 2. Кэш
+            cached = cache_dir / f"{photo_id}.jpg"
+            if cached.exists() and cached.stat().st_size > 0:
+                return FileResponse(str(cached), media_type="image/jpeg")
+            # 3. Скачиваем из Drive
+            drive_id = getattr(bp, "drive_file_id", None)
+            if not drive_id:
+                raise HTTPException(404, "no drive backup")
+            drive_client = _shared_clients.get("drive")
+            if drive_client is None:
+                try:
+                    from src.integrations.drive import DriveClient
+                    drive_client = DriveClient.from_settings(settings)
+                    if drive_client is not None:
+                        _shared_clients["drive"] = drive_client
+                except Exception:
+                    log.exception("tablet_photo_drive_init_failed")
+            if drive_client is None:
+                raise HTTPException(503, "drive not configured")
+            ok = await drive_client.download(drive_id, str(cached))
+            if not ok or not cached.exists():
+                raise HTTPException(502, "drive download failed")
+            return FileResponse(str(cached), media_type="image/jpeg")
         except HTTPException:
             raise
         except Exception:
