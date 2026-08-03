@@ -45,14 +45,39 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html { font-size: 15px; }
   body {
-    background: var(--body-bg);
+    background:
+      radial-gradient(ellipse 900px 500px at 20% 15%, rgba(255, 200, 90, 0.10), transparent 60%),
+      radial-gradient(ellipse 700px 700px at 85% 40%, rgba(255, 170, 60, 0.08), transparent 65%),
+      radial-gradient(ellipse 1200px 600px at 50% 90%, rgba(212, 130, 40, 0.09), transparent 70%),
+      var(--body-bg);
     color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     font-variant-numeric: tabular-nums;
     min-height: 100vh;
     padding: 20px;
+    background-attachment: fixed;
     transition: background 0.3s, color 0.3s;
+  }
+  :root[data-theme="light"] body {
+    background:
+      radial-gradient(ellipse 900px 500px at 20% 15%, rgba(255, 180, 70, 0.16), transparent 60%),
+      radial-gradient(ellipse 700px 700px at 85% 40%, rgba(255, 150, 40, 0.14), transparent 65%),
+      radial-gradient(ellipse 1200px 600px at 50% 90%, rgba(212, 130, 40, 0.14), transparent 70%),
+      var(--body-bg);
+    background-attachment: fixed;
+  }
+  .tablet {
+    /* Полупрозрачный контейнер чтобы фоновая подсветка body просвечивала */
+    background: linear-gradient(180deg, rgba(30, 25, 20, 0.55), rgba(15, 12, 10, 0.80)) !important;
+    box-shadow:
+      0 0 40px rgba(255, 200, 90, 0.08),
+      0 12px 40px rgba(0, 0, 0, 0.5),
+      inset 0 1px 0 rgba(255, 220, 150, 0.08);
+    backdrop-filter: blur(2px);
+  }
+  :root[data-theme="light"] .tablet {
+    background: linear-gradient(180deg, rgba(245, 236, 213, 0.75), rgba(235, 220, 190, 0.85)) !important;
   }
   @media (max-width: 600px) {
     body { padding: 6px; }
