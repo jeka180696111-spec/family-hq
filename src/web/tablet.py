@@ -1927,6 +1927,54 @@ def register_tablet_routes(
             await conn.execute(delete(OAuthToken).where(OAuthToken.provider == "smartthings"))
         return {"success": True}
 
+    @app.post("/api/tablet/smartthings/webhook")
+    async def smartthings_webhook(payload: dict = Body(...)):
+        """Приёмник lifecycle-событий SmartApp (CONFIRMATION, PING, INSTALL, EVENT).
+
+        Без токена — SmartThings ходит сюда со своей стороны без наших ключей.
+        Обрабатываем минимум: CONFIRMATION (для регистрации) + PING (health).
+        Остальное просто ACK-ем.
+        """
+        import httpx
+        lifecycle = (payload or {}).get("lifecycle") or ""
+        log.info("smartthings_webhook", lifecycle=lifecycle)
+
+        if lifecycle == "CONFIRMATION":
+            # SmartThings шлёт {"confirmationData": {"confirmationUrl": "..."}}
+            url = ((payload.get("confirmationData") or {}).get("confirmationUrl") or "")
+            if url:
+                try:
+                    async with httpx.AsyncClient(timeout=10) as c:
+                        r = await c.get(url)
+                    log.info("smartthings_confirmation_visited", status=r.status_code)
+                except Exception:
+                    log.exception("smartthings_confirmation_failed")
+            return {"targetUrl": f"{_smartthings_redirect_uri().replace('/callback','/webhook')}"}
+
+        if lifecycle == "PING":
+            challenge = ((payload.get("pingData") or {}).get("challenge") or "")
+            return {"pingData": {"challenge": challenge}}
+
+        if lifecycle == "CONFIGURATION":
+            # SmartApp UI — минимальный ответ, у нас нет UI-конфига
+            phase = ((payload.get("configurationData") or {}).get("phase") or "").upper()
+            if phase == "INITIALIZE":
+                return {"configurationData": {"initialize": {
+                    "name": "Family HQ", "description": "Home dashboard",
+                    "id": "family-hq", "permissions": ["r:devices:*", "x:devices:*", "r:locations:*"],
+                    "firstPageId": "1",
+                }}}
+            return {"configurationData": {"page": {
+                "pageId": "1", "name": "Family HQ", "nextPageId": None,
+                "previousPageId": None, "complete": True, "sections": [],
+            }}}
+
+        if lifecycle in ("INSTALL", "UPDATE", "UNINSTALL", "EVENT", "EXECUTE"):
+            key = lifecycle.lower() + "Data"
+            return {key: {}}
+
+        return {}
+
     async def _spotify_get(path: str, params: dict | None = None):
         """Возвращает (data, error). data — dict если ок, error — dict {status, message} если нет.
 
