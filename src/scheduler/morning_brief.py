@@ -664,7 +664,7 @@ async def _section_home_status(memory: Any) -> str:
         # Vacuum (SmartThings)
         try:
             from src.integrations.smartthings import SmartThingsClient
-            st = SmartThingsClient.from_settings(settings)
+            st = SmartThingsClient.from_settings(settings, memory=memory)
             if st:
                 vac = await st.vacuum_status()
                 if vac and vac.get("found"):

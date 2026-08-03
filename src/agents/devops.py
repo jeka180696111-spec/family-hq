@@ -4561,7 +4561,7 @@ class DevOpsAgent(BaseAgent):
     async def _vacuum_status(self, name: str) -> dict:
         from src.config import get_settings
         from src.integrations.smartthings import SmartThingsClient
-        client = SmartThingsClient.from_settings(get_settings())
+        client = SmartThingsClient.from_settings(get_settings(), memory=self._memory)
         if not client:
             return {
                 "error": "SmartThings не настроен",
@@ -4589,7 +4589,7 @@ class DevOpsAgent(BaseAgent):
     async def _vacuum_start(self, name: str, mode: str) -> dict:
         from src.config import get_settings
         from src.integrations.smartthings import SmartThingsClient
-        client = SmartThingsClient.from_settings(get_settings())
+        client = SmartThingsClient.from_settings(get_settings(), memory=self._memory)
         if not client:
             return {"error": "SmartThings не настроен"}
         try:
@@ -4605,7 +4605,7 @@ class DevOpsAgent(BaseAgent):
     async def _vacuum_stop(self, name: str) -> dict:
         from src.config import get_settings
         from src.integrations.smartthings import SmartThingsClient
-        client = SmartThingsClient.from_settings(get_settings())
+        client = SmartThingsClient.from_settings(get_settings(), memory=self._memory)
         if not client:
             return {"error": "SmartThings не настроен"}
         try:
