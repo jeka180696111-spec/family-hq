@@ -90,7 +90,17 @@ class Settings(BaseSettings):
     battery_reserve_pct: int = Field(default=20)
 
     # SmartThings (Samsung POWERbot, other ST-connected devices)
+    # PAT — устаревшее, живёт 24 часа. Оставлен как fallback.
     smartthings_token: str = Field(default="")
+    # OAuth2 — новый способ, refresh_token живёт ~30 дней, юзер логинится
+    # один раз через /api/tablet/smartthings/login, сервер сам обновляет
+    # access_token по refresh_token. Регистрация SmartApp на
+    # developer.smartthings.com даёт эти два значения.
+    smartthings_client_id: str = Field(default="")
+    smartthings_client_secret: str = Field(default="")
+    # Публичный URL приложения — используется для redirect_uri OAuth-flow.
+    # Обычно совпадает с spotify_redirect_base.
+    smartthings_redirect_base: str = Field(default="")
 
     # Apple Music (MusicKit) — плеер на планшете
     # Team ID (10 симв.), Key ID (10 симв.), приватный ключ .p8 файла

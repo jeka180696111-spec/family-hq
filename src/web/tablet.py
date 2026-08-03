@@ -243,7 +243,7 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
     # SmartThings — робот-пылесос (Гоша / robot / любое имя)
     try:
         from src.integrations.smartthings import SmartThingsClient
-        st = _cached_client("smartthings", lambda: SmartThingsClient.from_settings(settings))
+        st = _cached_client("smartthings", lambda: SmartThingsClient.from_settings(settings, memory=memory))
         if st:
             devices_st = await asyncio.wait_for(st.list_devices(), timeout=5.0)
             log.info("tablet_smartthings_devices",
@@ -670,7 +670,7 @@ def register_tablet_routes(
             raise HTTPException(400, "cmd must be one of start/stop/pause/home")
         try:
             from src.integrations.smartthings import SmartThingsClient
-            st = SmartThingsClient.from_settings(settings)
+            st = SmartThingsClient.from_settings(settings, memory=memory)
             if not st:
                 return {"success": False, "error": "smartthings not configured"}
             devices_st = await st.list_devices()
@@ -1798,6 +1798,133 @@ def register_tablet_routes(
         from src.db.models import OAuthToken
         async with memory._engine.begin() as conn:
             await conn.execute(delete(OAuthToken).where(OAuthToken.provider == "spotify"))
+        return {"success": True}
+
+    # ═══════════════════════════════════════════════════════════════
+    #                    SmartThings OAuth2 flow
+    # PAT живёт 24ч — недобно. OAuth даёт refresh_token на ~30 дней,
+    # мы сами перевыпускаем access_token в фоне через SmartThingsClient.
+    # ═══════════════════════════════════════════════════════════════
+
+    _SMARTTHINGS_SCOPES = " ".join([
+        "r:devices:*", "x:devices:*", "r:locations:*",
+    ])
+
+    def _smartthings_redirect_uri() -> str:
+        base = (getattr(settings, "smartthings_redirect_base", "")
+                or getattr(settings, "spotify_redirect_base", "") or "").rstrip("/")
+        return f"{base}/api/tablet/smartthings/callback"
+
+    @app.get("/api/tablet/smartthings/status")
+    async def smartthings_status(token: str = Query("")):
+        _check_token(token, expected_token)
+        cid = getattr(settings, "smartthings_client_id", "")
+        base = getattr(settings, "smartthings_redirect_base", "") or getattr(settings, "spotify_redirect_base", "")
+        pat = getattr(settings, "smartthings_token", "")
+        if not (cid and base):
+            return {
+                "configured": False, "mode": "pat" if pat else "none",
+                "reason": "SMARTTHINGS_CLIENT_ID/SECRET/REDIRECT_BASE не заданы. "
+                          "Работает PAT-режим (истекает 24ч)." if pat else
+                          "SmartThings не настроен ни через OAuth ни через PAT.",
+            }
+        # Проверяем есть ли OAuth-токен в БД
+        from sqlalchemy import select
+        from src.db.models import OAuthToken
+        async with memory._engine.connect() as conn:
+            row = (await conn.execute(
+                select(OAuthToken).where(OAuthToken.provider == "smartthings")
+            )).first()
+        return {"configured": True, "mode": "oauth", "authorized": bool(row)}
+
+    @app.get("/api/tablet/smartthings/login")
+    async def smartthings_login(token: str = Query("")):
+        _check_token(token, expected_token)
+        import urllib.parse, secrets as _secrets
+        cid = getattr(settings, "smartthings_client_id", "")
+        if not cid:
+            raise HTTPException(400, "SmartThings OAuth не настроен: нет CLIENT_ID")
+        params = {
+            "client_id": cid,
+            "response_type": "code",
+            "redirect_uri": _smartthings_redirect_uri(),
+            "scope": _SMARTTHINGS_SCOPES,
+            "state": _secrets.token_urlsafe(16),
+        }
+        url = "https://api.smartthings.com/oauth/authorize?" + urllib.parse.urlencode(params)
+        return RedirectResponse(url)
+
+    @app.get("/api/tablet/smartthings/callback")
+    async def smartthings_callback(code: str = Query(""), state: str = Query(""), error: str = Query("")):
+        import base64, httpx, time as _time
+        from src.utils.time import now_kyiv
+        if error:
+            return HTMLResponse(f"<h2>SmartThings ошибка: {error}</h2>", status_code=400)
+        if not code:
+            return HTMLResponse("<h2>Нет code от SmartThings</h2>", status_code=400)
+        cid = getattr(settings, "smartthings_client_id", "")
+        csec = getattr(settings, "smartthings_client_secret", "")
+        basic = base64.b64encode(f"{cid}:{csec}".encode()).decode()
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.post(
+                "https://api.smartthings.com/oauth/token",
+                data={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": _smartthings_redirect_uri(),
+                },
+                headers={
+                    "Authorization": "Basic " + basic,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Accept": "application/json",
+                },
+            )
+            if r.status_code != 200:
+                return HTMLResponse(
+                    f"<h2>SmartThings отказал: {r.status_code}</h2><pre>{r.text}</pre>",
+                    status_code=400,
+                )
+            data = r.json()
+        exp = int(_time.time()) + int(data.get("expires_in", 86400))
+        from sqlalchemy import insert as _insert
+        from sqlalchemy.dialects.sqlite import insert as _sqlite_insert
+        from src.db.models import OAuthToken
+        async with memory._engine.begin() as conn:
+            stmt = _sqlite_insert(OAuthToken).values(
+                provider="smartthings",
+                access_token=data["access_token"],
+                refresh_token=data.get("refresh_token"),
+                expires_at=exp,
+                scope=data.get("scope"),
+                updated_at=now_kyiv().isoformat(),
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["provider"],
+                set_={
+                    "access_token": data["access_token"],
+                    "refresh_token": data.get("refresh_token"),
+                    "expires_at": exp,
+                    "scope": data.get("scope"),
+                    "updated_at": now_kyiv().isoformat(),
+                },
+            )
+            await conn.execute(stmt)
+        return HTMLResponse("""
+            <html><body style="font-family:sans-serif;background:#1a1614;color:#ede6dc;text-align:center;padding:60px">
+            <h1>✅ SmartThings подключён!</h1>
+            <p>Гоша готов к работе. Токен сам обновится через ~30 дней.</p>
+            <p>Можешь закрыть эту вкладку.</p>
+            <script>setTimeout(()=>window.close(), 2000);</script>
+            </body></html>
+        """)
+
+    @app.get("/api/tablet/smartthings/logout")
+    async def smartthings_logout(token: str = Query("")):
+        _check_token(token, expected_token)
+        from sqlalchemy import delete
+        from src.db.models import OAuthToken
+        async with memory._engine.begin() as conn:
+            await conn.execute(delete(OAuthToken).where(OAuthToken.provider == "smartthings"))
         return {"success": True}
 
     async def _spotify_get(path: str, params: dict | None = None):

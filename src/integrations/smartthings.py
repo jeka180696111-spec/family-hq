@@ -1,18 +1,20 @@
 """Samsung SmartThings integration — robot vacuums (POWERbot), and any
 other SmartThings-connected device.
 
-Setup:
-  1. https://account.smartthings.com/tokens — create Personal Access Token
-  2. Grant scopes: 'r:devices:*' and 'x:devices:*' (read + control)
-  3. Add SMARTTHINGS_TOKEN to Railway env
+Два способа авторизации:
 
-If your POWERbot-E doesn't show up in SmartThings:
-  - Open the SmartThings app on phone
-  - Add device → Samsung → Vacuums → follow pairing
-  - Once it's there, this integration sees it.
+A) OAuth2 (рекомендуется) — регистрируешь SmartApp на
+   developer.smartthings.com, получаешь client_id + client_secret,
+   пользователь один раз логинится через /api/tablet/smartthings/login,
+   мы храним access_token + refresh_token в OAuthToken, обновляем
+   access перед каждым вызовом. Refresh живёт ~30 дней.
+
+B) Personal Access Token (fallback) — устарел, живёт 24 часа. Оставлен
+   на случай если OAuth не настроен.
 """
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import aiohttp
@@ -21,22 +23,102 @@ import structlog
 log = structlog.get_logger()
 
 _BASE = "https://api.smartthings.com/v1"
+_TOKEN_URL = "https://api.smartthings.com/oauth/token"
+_AUTHORIZE_URL = "https://api.smartthings.com/oauth/authorize"
 
 
 class SmartThingsClient:
-    def __init__(self, token: str) -> None:
+    def __init__(
+        self,
+        token: str = "",
+        *,
+        memory: Any = None,
+        client_id: str = "",
+        client_secret: str = "",
+    ) -> None:
+        # PAT для fallback режима
         self.token = token
+        # OAuth поля — если заданы, клиент сам управляет access_token из БД
+        self._memory = memory
+        self._client_id = client_id
+        self._client_secret = client_secret
 
     @classmethod
-    def from_settings(cls, settings: Any) -> "SmartThingsClient | None":
-        tok = getattr(settings, "smartthings_token", "")
-        if not tok:
-            return None
-        return cls(tok)
+    def from_settings(cls, settings: Any, memory: Any = None) -> "SmartThingsClient | None":
+        cid = getattr(settings, "smartthings_client_id", "")
+        csec = getattr(settings, "smartthings_client_secret", "")
+        pat = getattr(settings, "smartthings_token", "")
+        # OAuth-режим: нужна пара client_id/secret + memory для хранения токенов
+        if cid and csec and memory is not None:
+            return cls(memory=memory, client_id=cid, client_secret=csec)
+        # Fallback на PAT если OAuth не сконфигурен
+        if pat:
+            return cls(token=pat)
+        return None
+
+    async def _get_access_token(self) -> str:
+        """OAuth: читаем из БД, при необходимости обновляем через refresh_token."""
+        if self.token and not (self._client_id and self._memory):
+            return self.token  # PAT-режим
+        if self._memory is None:
+            raise RuntimeError("SmartThings OAuth: memory not configured")
+        # Читаем из БД
+        from sqlalchemy import select
+        from src.db.models import OAuthToken
+        async with self._memory._engine.connect() as conn:
+            row = (await conn.execute(
+                select(OAuthToken).where(OAuthToken.provider == "smartthings")
+            )).first()
+        if not row:
+            raise RuntimeError("SmartThings: пользователь не залогинился. Открой /api/tablet/smartthings/login")
+        tok = row[0] if hasattr(row, "_mapping") else row
+        # Если не истёк с запасом 60с — используем как есть
+        if tok.expires_at and tok.expires_at > int(time.time()) + 60:
+            return tok.access_token
+        # Обновляем
+        return await self._refresh(tok.refresh_token)
+
+    async def _refresh(self, refresh_token: str) -> str:
+        """Обновить access_token через refresh_token. Пишем свежие оба в БД."""
+        import base64
+        basic = base64.b64encode(f"{self._client_id}:{self._client_secret}".encode()).decode()
+        data = {"grant_type": "refresh_token", "refresh_token": refresh_token}
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                _TOKEN_URL, data=data,
+                headers={
+                    "Authorization": "Basic " + basic,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Accept": "application/json",
+                },
+            ) as r:
+                body = await r.text()
+                if r.status != 200:
+                    raise RuntimeError(f"SmartThings refresh failed HTTP {r.status}: {body[:300]}")
+                import json as _json
+                payload = _json.loads(body)
+        new_access = payload["access_token"]
+        new_refresh = payload.get("refresh_token", refresh_token)
+        exp_in = int(payload.get("expires_in", 86400))
+        # Сохраняем
+        from sqlalchemy import update
+        from src.db.models import OAuthToken
+        from src.utils.time import now_kyiv
+        async with self._memory._engine.begin() as conn:
+            await conn.execute(
+                update(OAuthToken).where(OAuthToken.provider == "smartthings").values(
+                    access_token=new_access, refresh_token=new_refresh,
+                    expires_at=int(time.time()) + exp_in,
+                    updated_at=now_kyiv().isoformat(),
+                )
+            )
+        log.info("smartthings_token_refreshed", expires_in=exp_in)
+        return new_access
 
     async def _request(self, method: str, path: str, json_body: dict | None = None) -> dict:
+        access = await self._get_access_token()
         async with aiohttp.ClientSession() as session:
-            headers = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
+            headers = {"Authorization": f"Bearer {access}", "Content-Type": "application/json"}
             kwargs: dict = {"headers": headers}
             if json_body is not None:
                 kwargs["json"] = json_body
