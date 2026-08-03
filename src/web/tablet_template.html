@@ -2063,15 +2063,19 @@
   /* SVG-план — всегда тёмный, независимо от темы. + внутреннее свечение */
   .floorplan {
     background:
-      radial-gradient(ellipse at center, rgba(255, 200, 90, 0.10) 0%, transparent 55%),
-      radial-gradient(ellipse at center, #22201c 0%, #1a1614 60%, #0f0d0b 100%);
+      radial-gradient(ellipse at 30% 30%, rgba(255, 200, 90, 0.22) 0%, transparent 50%),
+      radial-gradient(ellipse at 70% 75%, rgba(255, 170, 60, 0.18) 0%, transparent 55%),
+      radial-gradient(ellipse at center, rgba(255, 200, 90, 0.10) 0%, transparent 65%),
+      radial-gradient(ellipse at center, #2a251d 0%, #1e1815 55%, #100c08 100%);
     border-radius: 14px;
     padding: 10px;
-    border: 1px solid rgba(255, 200, 90, 0.28);
+    border: 1px solid rgba(255, 200, 90, 0.45);
     box-shadow:
-      inset 0 0 40px rgba(255, 200, 90, 0.08),
-      inset 0 0 90px rgba(212, 160, 74, 0.05),
-      0 0 22px rgba(255, 200, 90, 0.10);
+      inset 0 0 60px rgba(255, 200, 90, 0.15),
+      inset 0 0 120px rgba(212, 160, 74, 0.10),
+      inset 0 1px 0 rgba(255, 220, 150, 0.18),
+      0 0 30px rgba(255, 200, 90, 0.18),
+      0 0 60px rgba(212, 160, 74, 0.08);
     box-shadow:
       inset 0 0 40px rgba(255, 200, 90, 0.06),
       inset 0 1px 0 rgba(255, 220, 150, 0.10);
