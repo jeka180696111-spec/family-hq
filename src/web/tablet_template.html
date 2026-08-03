@@ -222,11 +222,13 @@
       var(--card-hi);
     border: 1px solid rgba(255, 200, 90, 0.35);
     border-radius: 14px;
-    overflow: hidden;
+    /* overflow: visible нужен чтобы всплывающий popup над плашкой не обрезался */
+    overflow: visible;
     box-shadow:
       0 0 12px rgba(255, 200, 90, 0.10),
       inset 0 1px 0 rgba(255, 220, 150, 0.10);
     transition: box-shadow 0.2s, border-color 0.2s;
+    position: relative;
   }
   .bnav-music.playing {
     border-color: rgba(255, 210, 110, 0.75);
