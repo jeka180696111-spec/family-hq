@@ -8385,6 +8385,15 @@ document.querySelectorAll('.shop-item').forEach(item => {
         const t = document.getElementById('alertBannerText');
         if (t) t.textContent = `🚨 ВОЗДУШНАЯ ТРЕВОГА · ${region}`;
         renderAlertDigest(s.alert);
+        // Автораскрытие панели при активной тревоге — юзер не должен
+        // догадываться что нужно тапать по красной полоске.
+        // Один раз при появлении тревоги (по alertKey) — потом уважаем
+        // ручное закрытие пользователем.
+        if (window.__lastAlertKey !== alertKey) {
+          document.body.classList.add('alert-digest-open');
+          const panel = document.getElementById('alertDigestPanel');
+          if (panel) panel.hidden = false;
+        }
       } else {
         document.body.classList.remove('alert-digest-open');
       }
