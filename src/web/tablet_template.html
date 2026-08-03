@@ -212,6 +212,63 @@
   .bnav-ic { font-size: 20px; line-height: 1; }
   .bnav-lb { letter-spacing: 0.04em; }
 
+  /* Мини-плеер, встроенный в нав вместо простой кнопки «Спотифай».
+     Левая часть — открывает страницу плеера, правая — play/pause. */
+  .bnav-music {
+    flex: 1.4;
+    display: flex; align-items: stretch;
+    background:
+      radial-gradient(ellipse at top, rgba(255, 200, 90, 0.14) 0%, transparent 60%),
+      var(--card-hi);
+    border: 1px solid rgba(255, 200, 90, 0.35);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow:
+      0 0 12px rgba(255, 200, 90, 0.10),
+      inset 0 1px 0 rgba(255, 220, 150, 0.10);
+    transition: box-shadow 0.2s, border-color 0.2s;
+  }
+  .bnav-music.playing {
+    border-color: rgba(255, 210, 110, 0.75);
+    box-shadow:
+      0 0 22px rgba(255, 200, 90, 0.30),
+      0 0 44px rgba(212, 160, 74, 0.15),
+      inset 0 1px 0 rgba(255, 220, 150, 0.18);
+    animation: bnavMusicPulse 3.2s ease-in-out infinite;
+  }
+  @keyframes bnavMusicPulse {
+    0%, 100% { box-shadow: 0 0 18px rgba(255,200,90,0.20), 0 0 36px rgba(212,160,74,0.10), inset 0 1px 0 rgba(255,220,150,0.15); }
+    50% { box-shadow: 0 0 28px rgba(255,200,90,0.40), 0 0 60px rgba(212,160,74,0.20), inset 0 1px 0 rgba(255,220,150,0.22); }
+  }
+  .bnav-music-open {
+    flex: 1;
+    background: transparent !important;
+    border: 0;
+    border-right: 1px solid rgba(255, 200, 90, 0.20);
+    border-radius: 0 !important;
+    color: var(--text-dim);
+    padding: 8px 4px;
+    cursor: pointer;
+    font-family: inherit; font-size: 11px;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .bnav-music.playing .bnav-music-open { color: var(--amber); }
+  .bnav-music-toggle {
+    flex: 0 0 44px;
+    background: transparent;
+    border: 0;
+    color: var(--amber);
+    font-size: 18px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  .bnav-music-toggle:hover { background: rgba(255, 200, 90, 0.15); }
+  .bnav-music.playing .bnav-music-toggle {
+    color: #f4c574;
+    text-shadow: 0 0 8px rgba(255, 200, 90, 0.6);
+  }
+
   /* Разделитель между экранами и action-кнопками */
   .bnav-sep {
     width: 1px;
@@ -4163,26 +4220,16 @@
   </header>
 
   <!-- MINI SPOTIFY PLAYER — плавает всегда, можно перетаскивать за верхнюю плашку -->
-  <div class="mini-music-card floating" id="miniMusicCard">
-    <div class="mini-music-title" id="miniDragHandle" title="Тяни чтобы передвинуть">
-      <span class="mini-drag-grip">⋮⋮</span>
-      <span>🟢 Играет</span>
-      <button class="mini-open-btn" onclick="switchPage('music')">
-        <span>🎵</span><span class="mini-open-label">Открыть плейлисты</span><span class="mini-open-arrow">→</span>
-      </button>
-      <button class="mini-hide-btn" onclick="hideMini()" title="Скрыть">✕</button>
-    </div>
-    <div class="mini-music-embed" id="miniMusicEmbed" style="display:none">
-      <iframe id="miniSpEmbed" src="" width="100%" height="152" frameborder="0"
+  <!-- Хост iframe пока страница плеера не открыта. Спрятан off-screen, но
+       audio продолжает играть. Когда пользователь открывает плеер —
+       iframe переезжает в большой слот через _npAttachEmbed. -->
+  <div class="mini-music-card" id="miniMusicCard" style="position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;overflow:hidden;pointer-events:none;">
+    <div class="mini-music-embed" id="miniMusicEmbed">
+      <iframe id="miniSpEmbed" src="" width="1" height="1" frameborder="0"
               allowtransparency="true" allow="autoplay; encrypted-media; picture-in-picture"
               loading="lazy"></iframe>
     </div>
-    <button class="mini-music-empty" id="miniMusicEmpty" onclick="switchPage('music')">
-      🎵 <span>Выбери что играть</span>
-    </button>
   </div>
-  <!-- Кнопка возврата плеера (появляется когда скрыт) -->
-  <button class="mini-show-btn" id="miniShowBtn" onclick="showMini()" style="display:none" title="Показать плеер">🟢</button>
 
   <div class="page-view page-overview active" id="pageOverview">
 
@@ -4802,9 +4849,15 @@
     <button class="bnav-btn" data-page="matvey" onclick="switchPage('matvey')">
       <span class="bnav-ic">👶</span><span class="bnav-lb">Матвей</span>
     </button>
-    <button class="bnav-btn" data-page="music" onclick="switchPage('music')">
-      <span class="bnav-ic">🎵</span><span class="bnav-lb">Спотифай</span>
-    </button>
+    <div class="bnav-music" id="bnavMusic">
+      <button class="bnav-btn bnav-music-open" data-page="music" onclick="switchPage('music')" title="Открыть плеер">
+        <span class="bnav-ic" id="bnavMusicIcon">🎵</span>
+        <span class="bnav-lb" id="bnavMusicLabel">Спотифай</span>
+      </button>
+      <button class="bnav-music-toggle" id="bnavMusicToggle" onclick="event.stopPropagation();bnavToggleMusic()" title="Play / Pause">
+        <span id="bnavMusicToggleIcon">▶</span>
+      </button>
+    </div>
     <button class="bnav-btn" data-page="detail" onclick="switchPage('detail')">
       <span class="bnav-ic">🔍</span><span class="bnav-lb">Ещё</span>
     </button>
@@ -6466,24 +6519,63 @@ document.querySelectorAll('.shop-item').forEach(item => {
     _npAttachEmbed(true);
   }
 
-  // Перенос единственного iframe: true — в большой слот, false — обратно в мини
+  // Перенос единственного iframe: true — в большой слот, false — обратно
+  // в невидимый мини-хост (iframe продолжает играть off-screen).
   function _npAttachEmbed(toBig) {
     const iframe = document.getElementById('miniSpEmbed');
     if (!iframe) return;
     const bigSlot = document.getElementById('npEmbedSlot');
     const miniSlot = document.getElementById('miniMusicEmbed');
-    const miniCard = document.getElementById('miniMusicCard');
     if (toBig) {
+      // Возвращаем нормальные размеры для отображения
+      iframe.width = '100%'; iframe.height = '380';
       if (bigSlot && iframe.parentElement !== bigSlot) bigSlot.appendChild(iframe);
-      // Пока в большом плеере — прячем мини-кружок чтобы не путал
-      if (miniCard) miniCard.style.display = 'none';
     } else {
+      // Схлопываем в 1×1 (audio продолжает играть) и убираем со страницы
+      iframe.width = '1'; iframe.height = '1';
       if (miniSlot && iframe.parentElement !== miniSlot) miniSlot.appendChild(iframe);
-      if (miniCard && localStorage.getItem('miniHidden') !== '1') {
-        miniCard.style.display = '';
-      }
     }
   }
+
+  // Play/pause через Spotify iframe postMessage API
+  let _bnavPlaying = false;
+  function bnavToggleMusic() {
+    const iframe = document.getElementById('miniSpEmbed');
+    if (!iframe || !iframe.src) {
+      // Ничего не выбрано — открываем плеер
+      switchPage('music');
+      return;
+    }
+    try {
+      // Spotify IFrame API: команда togglePlay
+      iframe.contentWindow.postMessage(
+        JSON.stringify({command: 'toggle'}), 'https://open.spotify.com'
+      );
+    } catch(e) { console.warn('bnav toggle failed', e); }
+  }
+
+  // Слушаем событие playback_update от Spotify iframe чтобы синхронизировать
+  // визуальное состояние play/pause и pulsing-glow.
+  window.addEventListener('message', (evt) => {
+    try {
+      if (evt.origin !== 'https://open.spotify.com') return;
+      const data = typeof evt.data === 'string' ? JSON.parse(evt.data) : evt.data;
+      if (!data || !data.type) return;
+      if (data.type === 'playback_update' || data.type === 'ready') {
+        const payload = data.payload || {};
+        const isPaused = payload.isPaused;
+        if (isPaused != null) {
+          _bnavPlaying = !isPaused;
+          const box = document.getElementById('bnavMusic');
+          const icon = document.getElementById('bnavMusicToggleIcon');
+          const label = document.getElementById('bnavMusicLabel');
+          if (box) box.classList.toggle('playing', _bnavPlaying);
+          if (icon) icon.textContent = _bnavPlaying ? '⏸' : '▶';
+          if (label) label.textContent = _bnavPlaying ? 'Играет' : 'Спотифай';
+        }
+      }
+    } catch(e) {}
+  });
 
   // Восстанавливаем мини-плеер + его позицию при загрузке
   (function _restoreMini() {
