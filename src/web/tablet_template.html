@@ -268,6 +268,66 @@
     color: #f4c574;
     text-shadow: 0 0 8px rgba(255, 200, 90, 0.6);
   }
+  .bnav-music { position: relative; }
+  .bnav-music-popup {
+    position: absolute;
+    bottom: calc(100% + 12px);
+    right: 0;
+    width: min(400px, 92vw);
+    background:
+      radial-gradient(ellipse at top, rgba(255, 200, 90, 0.15) 0%, transparent 60%),
+      linear-gradient(180deg, rgba(30, 25, 20, 0.98), rgba(15, 12, 10, 0.98));
+    border: 1px solid rgba(255, 200, 90, 0.55);
+    border-radius: 16px;
+    box-shadow:
+      0 0 30px rgba(255, 200, 90, 0.25),
+      0 12px 40px rgba(0, 0, 0, 0.6);
+    padding: 10px;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(8px);
+    transition: opacity 0.18s, transform 0.18s;
+    z-index: 220;
+  }
+  .bnav-music-popup.open {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+  :root[data-theme="light"] .bnav-music-popup {
+    background:
+      radial-gradient(ellipse at top, rgba(255, 180, 70, 0.18) 0%, transparent 60%),
+      linear-gradient(180deg, #f5ecd5, #ede1c3);
+  }
+  .bnav-music-popup-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 4px 6px 8px;
+    color: var(--text-dim);
+    font-size: 11px; letter-spacing: 0.08em;
+    border-bottom: 1px solid rgba(255, 200, 90, 0.15);
+    margin-bottom: 8px;
+  }
+  .bnav-music-popup-close {
+    background: rgba(255, 200, 90, 0.10);
+    border: 1px solid rgba(255, 200, 90, 0.30);
+    color: var(--amber);
+    width: 22px; height: 22px; border-radius: 50%;
+    cursor: pointer; font-size: 12px;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .bnav-music-popup-close:hover { background: rgba(255, 200, 90, 0.20); }
+  .bnav-music-popup-slot {
+    min-height: 160px;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .bnav-music-popup-slot iframe {
+    width: 100% !important;
+    height: 160px !important;
+    border: 0;
+    border-radius: 12px;
+    display: block;
+  }
 
   /* Разделитель между экранами и action-кнопками */
   .bnav-sep {
@@ -4854,9 +4914,17 @@
         <span class="bnav-ic" id="bnavMusicIcon">🎵</span>
         <span class="bnav-lb" id="bnavMusicLabel">Спотифай</span>
       </button>
-      <button class="bnav-music-toggle" id="bnavMusicToggle" onclick="event.stopPropagation();bnavToggleMusic()" title="Play / Pause">
+      <button class="bnav-music-toggle" id="bnavMusicToggle" onclick="event.stopPropagation();bnavToggleMusic()" title="Открыть мини-плеер">
         <span id="bnavMusicToggleIcon">▶</span>
       </button>
+      <!-- Всплывающее окошко с полноценным Spotify iframe -->
+      <div class="bnav-music-popup" id="bnavMusicPopup" onclick="event.stopPropagation()">
+        <div class="bnav-music-popup-head">
+          <span>🎵 Мини-плеер</span>
+          <button class="bnav-music-popup-close" onclick="bnavClosePopup()" title="Закрыть">✕</button>
+        </div>
+        <div class="bnav-music-popup-slot" id="bnavMusicPopupSlot"></div>
+      </div>
     </div>
     <button class="bnav-btn" data-page="detail" onclick="switchPage('detail')">
       <span class="bnav-ic">🔍</span><span class="bnav-lb">Ещё</span>
@@ -6526,33 +6594,79 @@ document.querySelectorAll('.shop-item').forEach(item => {
     if (!iframe) return;
     const bigSlot = document.getElementById('npEmbedSlot');
     const miniSlot = document.getElementById('miniMusicEmbed');
+    // Закрываем bnav-popup если открыт (iframe нужен для большого слота)
+    if (toBig && typeof bnavClosePopup === 'function' && _bnavPopupOpen === true) {
+      // Просто скрыть UI попапа, iframe возьмём в bigSlot ниже
+      const popup = document.getElementById('bnavMusicPopup');
+      if (popup) popup.classList.remove('open');
+      _bnavPopupOpen = false;
+      const box = document.getElementById('bnavMusic');
+      if (box) box.classList.remove('playing');
+    }
     if (toBig) {
-      // Возвращаем нормальные размеры для отображения
       iframe.width = '100%'; iframe.height = '380';
       if (bigSlot && iframe.parentElement !== bigSlot) bigSlot.appendChild(iframe);
     } else {
-      // Схлопываем в 1×1 (audio продолжает играть) и убираем со страницы
       iframe.width = '1'; iframe.height = '1';
       if (miniSlot && iframe.parentElement !== miniSlot) miniSlot.appendChild(iframe);
     }
   }
 
-  // Play/pause через Spotify iframe postMessage API
-  let _bnavPlaying = false;
+  // Тап по ▶ в нав-плашке — показать/скрыть всплывающее окошко с полным
+  // Spotify iframe (родные контролы работают там). Iframe перемещаем
+  // между off-screen хостом и popup-слотом.
+  let _bnavPopupOpen = false;
   function bnavToggleMusic() {
+    const popup = document.getElementById('bnavMusicPopup');
     const iframe = document.getElementById('miniSpEmbed');
-    if (!iframe || !iframe.src) {
-      // Ничего не выбрано — открываем плеер
-      switchPage('music');
-      return;
+    if (!popup || !iframe) return;
+    // Если ничего не загружено — открываем полную страницу плеера
+    if (!iframe.src || iframe.src === 'about:blank') {
+      switchPage('music'); return;
     }
-    try {
-      // Spotify IFrame API: команда togglePlay
-      iframe.contentWindow.postMessage(
-        JSON.stringify({command: 'toggle'}), 'https://open.spotify.com'
-      );
-    } catch(e) { console.warn('bnav toggle failed', e); }
+    if (_bnavPopupOpen) {
+      bnavClosePopup();
+    } else {
+      const slot = document.getElementById('bnavMusicPopupSlot');
+      if (slot && iframe.parentElement !== slot) {
+        iframe.width = '100%'; iframe.height = '160';
+        slot.appendChild(iframe);
+      }
+      popup.classList.add('open');
+      _bnavPopupOpen = true;
+      const box = document.getElementById('bnavMusic');
+      const icon = document.getElementById('bnavMusicToggleIcon');
+      if (box) box.classList.add('playing');
+      if (icon) icon.textContent = '⏸';
+    }
   }
+  function bnavClosePopup() {
+    const popup = document.getElementById('bnavMusicPopup');
+    const iframe = document.getElementById('miniSpEmbed');
+    if (!popup) return;
+    popup.classList.remove('open');
+    _bnavPopupOpen = false;
+    // Возвращаем iframe в offscreen-хост чтобы освободить popup и не рвать
+    // audio (iframe продолжает играть при малом размере)
+    const host = document.getElementById('miniMusicEmbed');
+    if (iframe && host && iframe.parentElement !== host) {
+      iframe.width = '1'; iframe.height = '1';
+      host.appendChild(iframe);
+    }
+    const box = document.getElementById('bnavMusic');
+    const icon = document.getElementById('bnavMusicToggleIcon');
+    if (box) box.classList.remove('playing');
+    if (icon) icon.textContent = '▶';
+  }
+  // Клик снаружи popup закрывает
+  document.addEventListener('click', (e) => {
+    if (!_bnavPopupOpen) return;
+    const popup = document.getElementById('bnavMusicPopup');
+    const bnav = document.getElementById('bnavMusic');
+    if (popup && !popup.contains(e.target) && bnav && !bnav.contains(e.target)) {
+      bnavClosePopup();
+    }
+  });
 
   // Слушаем событие playback_update от Spotify iframe чтобы синхронизировать
   // визуальное состояние play/pause и pulsing-glow.
