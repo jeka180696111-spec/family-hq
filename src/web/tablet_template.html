@@ -3242,35 +3242,58 @@
     transition: opacity 2s ease;
   }
 
-  /* Рамка тревоги — свечение от края внутрь, пульсирует.
-     Внешняя кайма яркая, дальше от края растекается и гаснет.
-     Реализовано через box-shadow inset разной интенсивности + пульс. */
+  /* Неоновая рамка тревоги — яркая красная «трубка» по периметру
+     с внутренним ореолом и лёгким flicker'ом. Ощущение реального неона. */
   .alert-frame {
     position: fixed;
     inset: 0;
     pointer-events: none;
     z-index: 200;
     display: none;
-    /* Яркая кромка + короткий ореол (не более ~50px внутрь), центр чистый */
+    /* Многослойное свечение: тонкая ярко-белая сердцевина + красный ореол
+       разной глубины (5/20/60/120px) — создаёт эффект неоновой лампы */
+    border: 2px solid rgba(255, 255, 255, 0.85);
     box-shadow:
-      inset 0  0  0   3px  rgba(255,  40,  40, 0.9),
-      inset 0  0  18px 0   rgba(255,  40,  40, 0.6),
-      inset 0  0  50px 4px rgba(255,  55,  55, 0.25);
-    animation: alert-glow 1.8s ease-in-out infinite;
+      /* Внутрь — плотный красный ореол сходящий в центр */
+      inset 0 0 12px 0   rgba(255, 60, 60, 0.95),
+      inset 0 0 30px 0   rgba(255, 30, 30, 0.65),
+      inset 0 0 80px 8px rgba(255, 40, 40, 0.30),
+      /* Наружу — размытое свечение (само сияние неоновой трубки) */
+      0 0 8px  rgba(255, 50, 50, 0.95),
+      0 0 22px rgba(255, 40, 40, 0.75),
+      0 0 50px rgba(255, 30, 30, 0.45);
+    animation: alert-neon-flicker 3.2s ease-in-out infinite;
   }
   body.alerted .alert-frame { display: block; }
-  @keyframes alert-glow {
+  @keyframes alert-neon-flicker {
     0%, 100% {
+      border-color: rgba(255, 255, 255, 0.85);
       box-shadow:
-        inset 0 0  0   3px  rgba(255, 40, 40, 0.75),
-        inset 0 0  15px 0   rgba(255, 40, 40, 0.45),
-        inset 0 0  40px 3px rgba(255, 55, 55, 0.15);
+        inset 0 0 12px 0   rgba(255, 60, 60, 0.95),
+        inset 0 0 30px 0   rgba(255, 30, 30, 0.65),
+        inset 0 0 80px 8px rgba(255, 40, 40, 0.30),
+        0 0 8px  rgba(255, 50, 50, 0.95),
+        0 0 22px rgba(255, 40, 40, 0.75),
+        0 0 50px rgba(255, 30, 30, 0.45);
+    }
+    45% {
+      border-color: rgba(255, 220, 220, 1);
+      box-shadow:
+        inset 0 0 18px 0    rgba(255, 90, 90, 1),
+        inset 0 0 45px 2px  rgba(255, 50, 50, 0.85),
+        inset 0 0 110px 12px rgba(255, 60, 60, 0.42),
+        0 0 14px rgba(255, 80, 80, 1),
+        0 0 34px rgba(255, 50, 50, 0.9),
+        0 0 70px rgba(255, 40, 40, 0.6);
+    }
+    /* Резкий flicker — как в неоновой лампе с плохим контактом */
+    48%, 52% {
+      border-color: rgba(255, 180, 180, 0.6);
+      opacity: 0.7;
     }
     50% {
-      box-shadow:
-        inset 0 0  0   3px  rgba(255, 60, 60, 1.0),
-        inset 0 0  22px 0   rgba(255, 60, 60, 0.7),
-        inset 0 0  60px 6px rgba(255, 80, 80, 0.3);
+      border-color: rgba(255, 255, 255, 1);
+      opacity: 1;
     }
   }
   .alert-banner-top {
@@ -3431,21 +3454,46 @@
     pointer-events: none;
     z-index: 199;
     display: none;
-    animation: tired-glow 2.6s ease-in-out infinite;
+    /* Голубая неоновая трубка — как cyan neon в баре */
+    border: 2px solid rgba(220, 240, 255, 0.85);
+    box-shadow:
+      inset 0 0 12px 0   rgba(100, 180, 255, 0.90),
+      inset 0 0 30px 0   rgba(66,  135, 245, 0.60),
+      inset 0 0 80px 8px rgba(80,  150, 255, 0.25),
+      0 0 8px  rgba(120, 190, 255, 0.90),
+      0 0 22px rgba(80,  150, 255, 0.70),
+      0 0 50px rgba(60,  130, 245, 0.40);
+    animation: tired-neon-flicker 3.8s ease-in-out infinite;
   }
   body.tired .tired-frame { display: block; }
-  @keyframes tired-glow {
+  @keyframes tired-neon-flicker {
     0%, 100% {
+      border-color: rgba(220, 240, 255, 0.85);
       box-shadow:
-        inset 0 0  0   3px  rgba( 66, 135, 245, 0.6),
-        inset 0 0  15px 0   rgba( 66, 135, 245, 0.4),
-        inset 0 0  40px 3px rgba( 99, 164, 255, 0.15);
+        inset 0 0 12px 0   rgba(100, 180, 255, 0.90),
+        inset 0 0 30px 0   rgba(66,  135, 245, 0.60),
+        inset 0 0 80px 8px rgba(80,  150, 255, 0.25),
+        0 0 8px  rgba(120, 190, 255, 0.90),
+        0 0 22px rgba(80,  150, 255, 0.70),
+        0 0 50px rgba(60,  130, 245, 0.40);
+    }
+    45% {
+      border-color: rgba(240, 250, 255, 1);
+      box-shadow:
+        inset 0 0 18px 0    rgba(140, 210, 255, 1),
+        inset 0 0 45px 2px  rgba(90,  160, 255, 0.85),
+        inset 0 0 110px 12px rgba(100, 170, 255, 0.38),
+        0 0 14px rgba(160, 220, 255, 1),
+        0 0 34px rgba(100, 170, 255, 0.85),
+        0 0 70px rgba(80,  150, 255, 0.55);
+    }
+    48%, 52% {
+      border-color: rgba(200, 225, 255, 0.6);
+      opacity: 0.75;
     }
     50% {
-      box-shadow:
-        inset 0 0  0   3px  rgba( 99, 164, 255, 0.9),
-        inset 0 0  22px 0   rgba( 99, 164, 255, 0.7),
-        inset 0 0  60px 6px rgba(120, 175, 255, 0.28);
+      border-color: rgba(240, 250, 255, 1);
+      opacity: 1;
     }
   }
   .tired-banner-top {
