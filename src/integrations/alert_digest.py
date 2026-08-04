@@ -161,7 +161,8 @@ async def _call_llm(prompt: str, posts_text: str, *, claude_client: Any, gemini_
 
 # ─── Форматирование digest → Telegram HTML ─────────────────────────
 
-def format_digest(digest: dict, region: str, started_at: str, sources_count: int) -> str:
+def format_digest(digest: dict, region: str, started_at: str, sources_count: int,
+                  top_chans: list | None = None) -> str:
     """Из JSON digest'a собираем красивое сообщение с иконками."""
     try:
         from datetime import datetime
@@ -236,7 +237,11 @@ def format_digest(digest: dict, region: str, started_at: str, sources_count: int
             lines.append(row)
 
     lines.append("─" * 20)
-    lines.append(f"📡 {sources_count} источник(ов)")
+    footer = f"📡 {sources_count} источник(ов) · обн. {now_kyiv().strftime('%H:%M:%S')}"
+    if top_chans:
+        chans_str = ", ".join(f"{name} ({cnt})" for name, cnt in top_chans[:3])
+        footer += f"\n<i>Топ: {chans_str}</i>"
+    lines.append(footer)
     return "\n".join(lines)
 
 
@@ -282,8 +287,8 @@ class AlertDigestManager:
     крутится фоновый таск, который дёргает refresh_digest раз в TICK_SEC.
     """
 
-    TICK_SEC = 60          # heartbeat пока тревога активна (тикает длительность)
-    COALESCE_SEC = 3       # окно склейки: несколько постов подряд — один refresh
+    TICK_SEC = 30          # heartbeat пока тревога активна (тикает длительность)
+    COALESCE_SEC = 1       # окно склейки: несколько постов подряд — один refresh
     _last_text: dict[str, str] = {}  # чтобы не спамить "message not modified"
 
     def __init__(
@@ -428,9 +433,12 @@ class AlertDigestManager:
             log.warning("digest_json_invalid", region=region, raw_preview=raw[:200])
             return
 
-        # 5. Отформатировать
+        # 5. Отформатировать (передаём разбивку по каналам для футера)
         primary_region = digest.get("primary_region") or region
-        text = format_digest(digest, primary_region, aa.started_at, len(posts))
+        from collections import Counter
+        chan_counter = Counter(p.channel_title or f"ch#{p.channel_id}" for p in posts)
+        top_chans = chan_counter.most_common(3)
+        text = format_digest(digest, primary_region, aa.started_at, len(posts), top_chans=top_chans)
 
         # 6. Обновить БД
         try:

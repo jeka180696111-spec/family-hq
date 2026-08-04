@@ -554,9 +554,19 @@ class NewsIngestor:
                 duration_min = int((now_kyiv() - started).total_seconds() / 60)
             except Exception:
                 duration_min = 0
-            async with self._memory._engine.begin() as conn:
-                await conn.execute(delete(ActiveAlert).where(ActiveAlert.region == r.region))
-            if self._bots and self._chat_id:
+            # Финальный digest (со структурой прилётов и оружия) + очистка
+            # буфера AlertPost и остановка ticker'a. Если digest не сконфигурен
+            # — фолбэк на плоское сообщение.
+            if self._digest:
+                try:
+                    await self._digest.send_final(r.region, duration_min)
+                except Exception:
+                    log.exception("auto_close_final_failed", region=r.region)
+                try:
+                    await self._digest.cleanup_after_alert(r.region)
+                except Exception:
+                    pass
+            elif self._bots and self._chat_id:
                 msg = (
                     f"✅ <b>ОТБОЙ — {r.region}</b>\n"
                     f"Длилась: {duration_min} мин (авто-закрытие по тайм-ауту)"
@@ -565,6 +575,8 @@ class NewsIngestor:
                     await self._bots.send_message(agent_id="news", chat_id=self._chat_id, text=msg)
                 except Exception:
                     log.exception("auto_close_push_failed", region=r.region)
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(delete(ActiveAlert).where(ActiveAlert.region == r.region))
             closed += 1
             log.info("alert_auto_closed", region=r.region, duration_min=duration_min)
         return closed
