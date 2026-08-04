@@ -5475,7 +5475,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
         weapons.map(w => {
           let s = w.type || '?';
           if (w.count != null) s += ' × ' + w.count;
-          if (w.origin) s += ' <span class="adp-hit-unconfirmed">(' + w.origin + ')</span>';
+          if (w.origin) s += ' <span class="adp-hit-unconfirmed">🚀 из ' + w.origin + '</span>';
           return '<li>' + s + '</li>';
         }).join('') + '</ul></div>');
     }

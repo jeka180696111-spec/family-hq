@@ -79,10 +79,12 @@ _DIGEST_PROMPT = """Ты военный аналитик мониторинга 
 {{
   "primary_region": "Одесская обл",
   "weapons": [
-    {{"type": "Шахед", "count": 20, "origin": "море, Крым"}},
-    {{"type": "КАБ", "count": 3, "origin": "с моря"}},
+    {{"type": "Шахед", "count": 20, "origin": "море и Крым"}},
+    {{"type": "КАБ", "count": 3, "origin": "море"}},
+    {{"type": "Оникс", "count": 2, "origin": "Крым"}},
     {{"type": "Крылатая ракета", "count": 2, "origin": null}}
   ],
+  "// origin": "ЭТО ТОЧКА СТАРТА (откуда пустили), НЕ цель! Пример: если ТУ-95 из Энгельса → origin: 'Энгельс'. Не пиши направление полёта.",
   "targets": ["Юг Одесской обл", "Овидиополь", "порт Одессы"],
   "eta": [
     {{"weapon": "Шахед", "arrival_time": "~21:47"}},
@@ -184,7 +186,8 @@ def format_digest(digest: dict, region: str, started_at: str, sources_count: int
             if wcount is not None:
                 row += f" × {wcount}"
             if worigin:
-                row += f"  ({worigin})"
+                # ← стрелка = откуда запуск (не путать с направлением полёта)
+                row += f"  🚀 из {worigin}"
             lines.append(row)
 
     targets = digest.get("targets") or []
