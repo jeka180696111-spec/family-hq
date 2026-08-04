@@ -381,25 +381,35 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
         from sqlalchemy import select
         from src.db.models import ActiveAlert
         async with memory._engine.connect() as conn:
+            # Explicit column select — надёжнее чем ORM entity через Row
             row = (await conn.execute(
-                select(ActiveAlert).order_by(ActiveAlert.started_at.desc()).limit(1)
+                select(
+                    ActiveAlert.region,
+                    ActiveAlert.started_at,
+                    ActiveAlert.last_update_at,
+                    ActiveAlert.digest_json,
+                ).order_by(ActiveAlert.started_at.desc()).limit(1)
             )).first()
         if row:
-            aa = row[0] if hasattr(row, "_mapping") else row
             digest = None
-            raw = getattr(aa, "digest_json", None)
+            raw = row.digest_json
             if raw:
                 try:
                     import json as _json
                     digest = _json.loads(raw)
                 except Exception:
+                    log.exception("tablet_alert_digest_parse_failed")
                     digest = None
             state["alert"] = {
                 "active": True,
-                "region": getattr(aa, "region", None),
-                "started_at": getattr(aa, "started_at", None),
-                "last_update_at": getattr(aa, "last_update_at", None),
+                "region": row.region,
+                "started_at": row.started_at,
+                "last_update_at": row.last_update_at,
                 "digest": digest,
+                "digest_debug": {
+                    "has_raw": bool(raw),
+                    "raw_len": len(raw) if raw else 0,
+                },
             }
         else:
             state["alert"] = {"active": False}
