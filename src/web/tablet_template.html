@@ -8453,6 +8453,10 @@ document.querySelectorAll('.shop-item').forEach(item => {
       Object.keys(groups).forEach(g => groups[g].sort((a, b) => (rank.get(a.name) ?? 1e9) - (rank.get(b.name) ?? 1e9)));
     }
     const activeMap = loadActiveScenes();
+    // Реальное состояние комнат из Tuya. Если ВСЕ лампы в группе выключены —
+    // подсвечиваем «выкл» независимо от того что юзер тыкал последним.
+    // Так если свет крутнули через Tuya-приложение — тут тоже обновится.
+    const realOffGroups = _computeAllOffGroups(window.__lastDevices || [], Object.keys(groups));
 
     const iconFor = (name) => {
       const n = name.toLowerCase();
@@ -8486,7 +8490,15 @@ document.querySelectorAll('.shop-item').forEach(item => {
         const sub = parseSub(nm);
         const cleanName = sub ? nm.replace(sub, '').trim() : nm;
         const subHtml = sub ? `<div class="sc-sub">${sub}</div>` : '';
-        const activeCls = (activeMap[gname] === sc.name) ? ' active' : '';
+        const isOffScene = /выкл|off|вимк/i.test(sc.name);
+        // Активна если: (реально все лампы off И это off-сцена) ИЛИ (юзер её недавно тыкнул И это НЕ off-состояние)
+        let isActive;
+        if (realOffGroups[gname]) {
+          isActive = isOffScene;
+        } else {
+          isActive = activeMap[gname] === sc.name && !isOffScene;
+        }
+        const activeCls = isActive ? ' active' : '';
         return `<button class="scene-btn${activeCls}" data-scene-name="${sc.name.replace(/"/g,'&quot;').replace(/</g,'&lt;')}" onclick="runSceneBtn(this)"><div class="sc-icon">${iconFor(sc.name)}</div><div class="sc-name">${cleanName}</div>${subHtml}</button>`;
       }).join('');
       return `<div class="scene-group"><div class="scene-group-title">${gname}${items.length >= 4 ? ' <button class="scene-more" onclick="openModal(\'scenes\')">Ещё</button>' : ''}</div><div class="scene-row" style="grid-template-columns:repeat(${cols},1fr)">${btnsHtml}</div></div>`;
@@ -8566,6 +8578,26 @@ document.querySelectorAll('.shop-item').forEach(item => {
   };
   // Активные сцены сохраняем по группам — иначе refreshState (каждые 15с)
   // перерисовывает карточку и «активная» сбрасывается.
+  // По каждой группе сцен (Спальня/Кухня/…): все ли лампочки в ней выключены?
+  // Если да — вернём true, и updateScenes подсветит «выкл» независимо от того
+  // что пользователь тыкал (в т.ч. если крутнули свет из Tuya приложения).
+  function _computeAllOffGroups(devices, groupNames) {
+    const isLight = (name) => {
+      const n = (name || '').toLowerCase();
+      return n.includes('свет') || n.includes('лампа') || n.includes('light');
+    };
+    const out = {};
+    for (const g of groupNames) {
+      const gLower = g.toLowerCase();
+      const roomLights = devices.filter(d =>
+        d && d.online !== false && (d.name || '').toLowerCase().includes(gLower) && isLight(d.name)
+      );
+      if (!roomLights.length) { out[g] = false; continue; }  // нет данных → не переопределяем
+      out[g] = roomLights.every(d => d.on === false);
+    }
+    return out;
+  }
+
   function loadActiveScenes() {
     try { return JSON.parse(localStorage.getItem('activeScenes') || '{}'); }
     catch(e) { return {}; }
