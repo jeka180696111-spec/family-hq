@@ -377,8 +377,15 @@ class NewsIngestor:
         except Exception:
             duration_min = 0
 
-        # Финальное сообщение через digest-манагер (использует накопленные данные)
+        # Финальное сообщение через digest-манагер. КРИТИЧНО: перед send_final
+        # делаем финальный refresh_digest — иначе если пост о взрывах пришёл
+        # прямо перед отбоем, LLM его не успел переварить и в итоге напишет
+        # «Прилётов не зафиксировано» при видимом ударе.
         if self._digest:
+            try:
+                await self._digest.refresh_digest(region)
+            except Exception:
+                log.exception("digest_final_refresh_failed")
             try:
                 await self._digest.send_final(region, duration_min)
             except Exception:
@@ -558,6 +565,10 @@ class NewsIngestor:
             # буфера AlertPost и остановка ticker'a. Если digest не сконфигурен
             # — фолбэк на плоское сообщение.
             if self._digest:
+                try:
+                    await self._digest.refresh_digest(r.region)
+                except Exception:
+                    log.exception("auto_close_final_refresh_failed", region=r.region)
                 try:
                     await self._digest.send_final(r.region, duration_min)
                 except Exception:
