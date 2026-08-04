@@ -8678,11 +8678,16 @@ document.querySelectorAll('.shop-item').forEach(item => {
         const t = document.getElementById('alertBannerText');
         if (t) t.textContent = `🚨 ВОЗДУШНАЯ ТРЕВОГА · ${region}`;
         renderAlertDigest(s.alert);
-        // Автораскрытие панели при активной тревоге — юзер не должен
-        // догадываться что нужно тапать по красной полоске.
-        // Один раз при появлении тревоги (по alertKey) — потом уважаем
-        // ручное закрытие пользователем.
-        if (window.__lastAlertKey !== alertKey) {
+        // Автораскрытие панели — ТОЛЬКО когда LLM переварил и есть детали.
+        // Пустой скелет («собираю данные…») не разворачиваем, чтоб не
+        // прятать пол-экрана попусту. При появлении реального digest —
+        // раскрываем один раз (потом уважаем ручное закрытие).
+        const hasData = !!(s.alert.digest && (
+          (s.alert.digest.weapons || []).length ||
+          (s.alert.digest.hits || []).length ||
+          (s.alert.digest.targets || []).length
+        ));
+        if (hasData && window.__lastAlertKey !== alertKey) {
           document.body.classList.add('alert-digest-open');
           const panel = document.getElementById('alertDigestPanel');
           if (panel) panel.hidden = false;
@@ -9834,13 +9839,19 @@ document.querySelectorAll('.shop-item').forEach(item => {
     }
 
     async function _manualCommand() {
+      // Явный тап на 🎤 — открываем панель (даже на iOS) и начинаем запись
+      const panel = document.getElementById('voicePanel');
+      if (panel) panel.classList.add('open');
       if (state === S.OFF) start();
       _startCommand();
     }
 
     function start() {
       const panel = document.getElementById('voicePanel');
-      if (panel) panel.classList.add('open');
+      // На iOS Safari wake word не работает — панель просто виснет с сообщением
+      // «ручной микрофон». Не открываем её автоматом при старте, откроется
+      // только при явном тапе на 🎤 в нижней плашке (см. _manualCommand).
+      if (panel && !_isIOSSafari()) panel.classList.add('open');
       _startWake();
       try { localStorage.setItem('voiceAgent', 'on'); } catch(e){}
     }
