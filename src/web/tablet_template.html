@@ -3291,6 +3291,67 @@
     animation: alert-slide 0.4s ease;
   }
   body.alerted .alert-banner-top { display: block; cursor: pointer; }
+
+  /* Отдельная критичная карточка «ПРИЛЁТЫ» — над digest'ом */
+  .hits-banner {
+    position: fixed;
+    top: 74px; left: 50%; transform: translateX(-50%);
+    max-width: 640px; width: calc(100vw - 32px);
+    z-index: 211;
+    background:
+      radial-gradient(ellipse at top, rgba(255, 80, 60, 0.35) 0%, transparent 65%),
+      linear-gradient(180deg, rgba(60, 20, 15, 0.98) 0%, rgba(30, 8, 6, 0.98) 100%);
+    border: 2px solid rgba(255, 100, 80, 0.85);
+    border-radius: 18px;
+    padding: 14px 18px 16px;
+    box-shadow:
+      0 0 40px rgba(255, 80, 60, 0.55),
+      0 0 90px rgba(217, 45, 45, 0.35),
+      0 12px 40px rgba(0, 0, 0, 0.7);
+    color: var(--text);
+    animation: hits-pulse 2s ease-in-out infinite, alert-slide 0.3s ease;
+  }
+  @keyframes hits-pulse {
+    0%, 100% { box-shadow: 0 0 40px rgba(255,80,60,0.55), 0 0 90px rgba(217,45,45,0.35), 0 12px 40px rgba(0,0,0,0.7); }
+    50% { box-shadow: 0 0 60px rgba(255,100,80,0.75), 0 0 130px rgba(217,45,45,0.55), 0 12px 40px rgba(0,0,0,0.7); }
+  }
+  .hits-banner-head {
+    display: flex; align-items: center; gap: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(255, 100, 80, 0.35);
+    margin-bottom: 10px;
+  }
+  .hits-banner-icon { font-size: 22px; }
+  .hits-banner-title {
+    flex: 1;
+    font-family: ui-serif, Georgia, serif;
+    font-size: 18px; letter-spacing: 0.10em;
+    color: #ffb0a0;
+    text-transform: uppercase;
+  }
+  .hits-banner-close {
+    background: rgba(255, 100, 80, 0.20);
+    border: 1px solid rgba(255, 100, 80, 0.50);
+    color: #ffb0a0;
+    width: 26px; height: 26px; border-radius: 50%;
+    cursor: pointer; font-size: 13px;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .hits-banner-list {
+    margin: 0; padding: 0; list-style: none;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .hits-banner-list li {
+    font-size: 15px; line-height: 1.4;
+    padding-left: 18px; position: relative;
+    color: var(--text);
+  }
+  .hits-banner-list li::before {
+    content: "💥"; position: absolute; left: 0; top: 1px; font-size: 12px;
+  }
+  .hits-banner-list li .hits-unc {
+    font-size: 12px; color: var(--text-mute); font-style: italic; margin-left: 6px;
+  }
   .alert-chevron {
     display: inline-block; margin-left: 10px; font-size: 12px;
     transition: transform 0.2s;
@@ -4195,6 +4256,14 @@
   <span class="dot"></span>
   <span id="alertBannerText">🚨 ВОЗДУШНАЯ ТРЕВОГА · Одесса</span>
   <span class="alert-chevron" id="alertChevron">▾</span>
+</div>
+<div class="hits-banner" id="hitsBanner" hidden>
+  <div class="hits-banner-head">
+    <span class="hits-banner-icon">💥</span>
+    <span class="hits-banner-title">ПРИЛЁТЫ</span>
+    <button class="hits-banner-close" onclick="document.getElementById('hitsBanner').hidden=true;window.__hitsDismissedKey=window.__lastHitsKey" title="Скрыть">✕</button>
+  </div>
+  <ul class="hits-banner-list" id="hitsBannerList"></ul>
 </div>
 <div class="alert-digest-panel" id="alertDigestPanel" hidden>
   <div class="adp-head">
@@ -5335,8 +5404,14 @@ document.querySelectorAll('.shop-item').forEach(item => {
     catch(e){ return '?'; }
   }
   function _fmtDurationMin(iso) {
-    try { return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000)); }
-    catch(e){ return 0; }
+    try {
+      const ts = new Date(iso).getTime();
+      if (!ts || isNaN(ts)) return 0;
+      const min = Math.floor((Date.now() - ts) / 60000);
+      // Клампим до 24 часов — если больше, значит started_at битый (эпоха 1970 и т.п.)
+      if (min < 0 || min > 24 * 60) return 0;
+      return min;
+    } catch(e){ return 0; }
   }
   function _fmtUpdated(iso) {
     if (!iso) return '';
@@ -5346,12 +5421,45 @@ document.querySelectorAll('.shop-item').forEach(item => {
       const m = Math.floor(sec/60); return m + ' мин назад';
     } catch(e){ return ''; }
   }
+  // Отдельная критичная карточка ПРИЛЁТЫ — показывается только когда
+  // LLM реально нашёл прилёты. Есть кнопка X — юзер может скрыть,
+  // до появления новых прилётов.
+  function renderHitsBanner(alert) {
+    const banner = document.getElementById('hitsBanner');
+    const list = document.getElementById('hitsBannerList');
+    if (!banner || !list) return;
+    const hits = (alert && alert.digest && alert.digest.hits) || [];
+    if (!hits.length) {
+      banner.hidden = true;
+      return;
+    }
+    // Ключ для дедупа dismissed (пока набор прилётов не изменился — не показываем снова)
+    const key = hits.map(h => (h.location||'') + '|' + (h.detail||'')).join('||');
+    window.__lastHitsKey = key;
+    if (window.__hitsDismissedKey === key) {
+      banner.hidden = true;
+      return;
+    }
+    list.innerHTML = hits.map(h => {
+      let s = h.location || '?';
+      if (h.detail) s += ' — ' + h.detail;
+      if (!h.confirmed) s += ' <span class="hits-unc">(не подтверждено)</span>';
+      return '<li>' + s + '</li>';
+    }).join('');
+    banner.hidden = false;
+  }
+
   function renderAlertDigest(alert) {
     if (!alert || !alert.active) return;
     const sub = document.getElementById('adpSub');
     if (sub) {
       const dur = _fmtDurationMin(alert.started_at);
-      sub.textContent = `с ${_fmtStartedHM(alert.started_at)} · ${dur} мин · ${alert.region || '—'}`;
+      const hm = _fmtStartedHM(alert.started_at);
+      const parts = [];
+      if (hm && hm !== '?') parts.push('с ' + hm);
+      if (dur > 0) parts.push(dur + ' мин');
+      parts.push(alert.region || '—');
+      sub.textContent = parts.join(' · ');
     }
     const body = document.getElementById('adpBody');
     if (!body) return;
@@ -8678,6 +8786,7 @@ document.querySelectorAll('.shop-item').forEach(item => {
         const t = document.getElementById('alertBannerText');
         if (t) t.textContent = `🚨 ВОЗДУШНАЯ ТРЕВОГА · ${region}`;
         renderAlertDigest(s.alert);
+        renderHitsBanner(s.alert);
         // Автораскрытие панели — ТОЛЬКО когда LLM переварил и есть детали.
         // Пустой скелет («собираю данные…») не разворачиваем, чтоб не
         // прятать пол-экрана попусту. При появлении реального digest —
@@ -8699,10 +8808,13 @@ document.querySelectorAll('.shop-item').forEach(item => {
       window.__lastAlertKey = alertKey;
       window.__lastAlertActive = isAlert;
 
-      // Если тревоги нет — скрываем panel Дозорного насильно
+      // Если тревоги нет — скрываем panel Дозорного и hits-баннер насильно
       if (!showAlert) {
         const panel = document.getElementById('alertDigestPanel');
         if (panel) panel.hidden = true;
+        const hb = document.getElementById('hitsBanner');
+        if (hb) hb.hidden = true;
+        window.__hitsDismissedKey = null;
       }
 
       // «Пора укладывать» — синяя рамка.
