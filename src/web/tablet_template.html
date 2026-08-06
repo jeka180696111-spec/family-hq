@@ -3956,42 +3956,40 @@
     border: 1px solid rgba(255, 200, 90, 0.35);
     box-shadow: 0 0 14px rgba(255, 200, 90, 0.15);
   }
-  .parcel-head {
-    display: flex; align-items: center; gap: 8px;
-    padding: 10px 12px;
-    cursor: pointer;
-    user-select: none;
-    font-size: 12px;
-  }
-  .parcel-em { font-size: 16px; line-height: 1; flex: 0 0 auto; }
-  .parcel-ttn {
-    font-family: ui-monospace, monospace;
-    font-variant-numeric: tabular-nums;
-    color: var(--text); font-size: 12px;
-    letter-spacing: 0.02em;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    flex: 0 1 auto;
-  }
-  .parcel-status {
-    flex: 1; text-align: right;
-    color: var(--text-dim); font-size: 11px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .parcel-item.pickup-ready .parcel-status {
-    color: var(--amber); font-weight: 500;
-  }
-  .parcel-chevron {
-    font-size: 10px; color: var(--text-mute);
-    transition: transform 0.2s;
-    flex: 0 0 auto;
-  }
-  .parcel-item:not(.collapsed) .parcel-chevron { transform: rotate(180deg); }
+  /* Полная версия (1-2 посылки) */
+  .parcel-item:not(.parcel-compact) { padding: 10px 12px; }
   .parcel-title { font-size: 14px; color: var(--text); font-weight: 500; line-height: 1.3; }
   .parcel-detail {
     font-size: 12px; color: var(--text-dim); line-height: 1.6;
     padding: 0 12px 10px;
   }
-  .parcel-item.collapsed .parcel-detail { display: none; }
+  /* Компактная 2-строчная (3+ посылок) */
+  .parcel-head-2l {
+    display: flex; flex-direction: column; gap: 3px;
+    padding: 8px 12px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .parcel-row-ttn {
+    font-family: ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    color: var(--text); font-size: 13px;
+    letter-spacing: 0.03em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .parcel-row-status {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: var(--text-dim);
+    letter-spacing: 0.04em;
+  }
+  .parcel-em { font-size: 14px; line-height: 1; }
+  .parcel-status-text {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .parcel-item.pickup-ready .parcel-status-text {
+    color: var(--amber); font-weight: 500;
+  }
+  .parcel-item.parcel-compact.collapsed .parcel-detail { display: none; }
 
   /* --- Shopping --- */
   .shop-list { display: flex; flex-direction: column; gap: 5px; }
@@ -8462,19 +8460,19 @@ document.querySelectorAll('.shop-item').forEach(item => {
       return;
     }
     card.style.display = '';
+    // 1-2 посылки — показываем полностью, 3+ — компактные строки (клик = раскрыть)
+    const compact = items.length >= 3;
     list.innerHTML = items.map((p, i) => {
       const esc = s => (s || '').toString().replace(/</g, '&lt;');
       const status = (p.status || '').toLowerCase();
       const emoji = /отримано|видано|получено|delivered/.test(status) ? '✅'
                   : /прибул|відділенн|отделен|pickup/.test(status) ? '🎯'
                   : /дороз|дороге|transit/.test(status) ? '🚚' : '📦';
-      // Короткий статус для компактной шапки
       let shortStatus = 'В пути';
       if (/отримано|видано|получено|delivered/.test(status)) shortStatus = 'Получена';
       else if (/прибул|відділенн|отделен|pickup/.test(status)) shortStatus = 'Готова к выдаче';
       else if (/дороз|дороге|transit/.test(status)) shortStatus = 'В дороге';
-      else if (p.status) shortStatus = p.status.split(/[·,–—.]/)[0].trim().slice(0, 24);
-      // Полные детали для раскрывающегося блока
+      else if (p.status) shortStatus = p.status.split(/[·,–—.]/)[0].trim().slice(0, 32);
       const lines = [];
       if (p.status) lines.push(`${emoji} ${esc(p.status)}`);
       if (p.city_from || p.city_to) lines.push(`📍 ${esc(p.city_from) || '?'} → ${esc(p.city_to) || '?'}`);
@@ -8485,20 +8483,28 @@ document.querySelectorAll('.shop-item').forEach(item => {
       if (wc.length) lines.push(wc.join(' · '));
       if (p.scheduled_at) lines.push(`🕐 Прибытие: ${esc(_parcelDateFmt(p.scheduled_at))}`);
       if (p.member) lines.push(`👤 ${esc(p.member)}`);
-      // TTN форматируем группами по 4 для читаемости
       const ttnFmt = (p.ttn || '').replace(/(\d{4})(?=\d)/g, '$1 ');
       const isReady = /прибул|відділенн|отделен|pickup/.test(status);
-      return `<div class="parcel-item collapsed${isReady ? ' pickup-ready' : ''}" id="parcel-${i}">
-        <div class="parcel-head" onclick="_toggleParcel(${i})">
-          <span class="parcel-em">${emoji}</span>
-          <span class="parcel-ttn">${esc(ttnFmt) || esc(p.title)}</span>
-          <span class="parcel-status">${esc(shortStatus)}</span>
-          <span class="parcel-chevron">▾</span>
-        </div>
-        <div class="parcel-detail">
-          <div class="parcel-title" style="margin-bottom:6px">${esc(p.title)}</div>
-          ${lines.join('<br>')}
-        </div>
+      if (compact) {
+        // Компактная 2-строчная версия: TTN сверху, статус (эмодзи+текст) снизу
+        return `<div class="parcel-item parcel-compact collapsed${isReady ? ' pickup-ready' : ''}" id="parcel-${i}">
+          <div class="parcel-head-2l" onclick="_toggleParcel(${i})">
+            <div class="parcel-row-ttn">${esc(ttnFmt) || esc(p.title)}</div>
+            <div class="parcel-row-status">
+              <span class="parcel-em">${emoji}</span>
+              <span class="parcel-status-text">${esc(shortStatus)}</span>
+            </div>
+          </div>
+          <div class="parcel-detail">
+            <div class="parcel-title" style="margin-bottom:6px">${esc(p.title)}</div>
+            ${lines.join('<br>')}
+          </div>
+        </div>`;
+      }
+      // Полная версия (1-2 посылки)
+      return `<div class="parcel-item${isReady ? ' pickup-ready' : ''}">
+        <div class="parcel-title">📦 ${esc(p.title)}</div>
+        <div class="parcel-detail" style="padding:5px 0 0 0">${lines.join('<br>')}</div>
       </div>`;
     }).join('');
   }
