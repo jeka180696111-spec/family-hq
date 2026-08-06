@@ -81,9 +81,15 @@ async def poll_parcels(memory: Any, bot_manager: Any, chat_id: int,
         if not client:
             return
 
+        # Забираем все посылки не старше 45 дней (включая помеченные
+        # delivered_at) — ретро-fix ниже разметит ошибочно скрытые:
+        # раньше писали actual_delivery=время-прибытия-на-отделение в
+        # delivered_at, из-за чего посылки на почте прятались.
+        from datetime import timedelta as _td
+        cutoff = (now_kyiv() - _td(days=45)).isoformat()
         async with memory._engine.connect() as conn:
             actives = list(await conn.execute(
-                select(Parcel).where(Parcel.delivered_at.is_(None))
+                select(Parcel).where(Parcel.created_at >= cutoff)
             ))
 
         for p in actives:
