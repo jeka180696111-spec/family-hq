@@ -1163,6 +1163,19 @@ def register_tablet_routes(
         except Exception as e:
             return {"error": str(e)[:300]}
 
+    @app.post("/api/tablet/parcels/refresh")
+    async def parcels_refresh(token: str = Query("")):
+        """Ручной триггер обновления статусов посылок из НП. Обходит
+        30-минутный тик скедулера."""
+        _check_token(token, expected_token)
+        try:
+            from src.scheduler.parcels import poll_parcels
+            await poll_parcels(memory, bot_manager, settings.hq_chat_id, None)
+            return {"success": True}
+        except Exception as e:
+            log.exception("parcels_manual_refresh_failed")
+            return {"success": False, "error": str(e)[:200]}
+
     @app.post("/api/tablet/action/baby-event")
     async def action_baby_event(payload: dict = Body(...), token: str = Query("")):
         _check_token(token, expected_token)

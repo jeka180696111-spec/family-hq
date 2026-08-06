@@ -173,9 +173,10 @@ async def poll_parcels(memory: Any, bot_manager: Any, chat_id: int,
 def register_parcel_poll_job(scheduler, memory, bot_manager, chat_id: int,
                              calendar_client: Any = None) -> None:
     scheduler.add_job(
-        poll_parcels, "interval", minutes=30,
+        poll_parcels, "interval", minutes=10,
         args=[memory, bot_manager, chat_id, calendar_client],
         id="parcel_poll", replace_existing=True,
+        next_run_time=now_kyiv(),  # первый прогон сразу при старте
     )
     log.info("parcel_poll_registered")
 
