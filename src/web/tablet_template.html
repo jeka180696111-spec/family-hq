@@ -8197,7 +8197,14 @@ document.querySelectorAll('.shop-item').forEach(item => {
       if (el) el.style.width = inv.soc + '%';
       setText('battSoc', Math.round(inv.soc) + '%');
     }
-    setText('battGrid', gridActive ? 'Есть' : 'НЕТ');
+    // Красим статус: зелёный если есть, красный если нет
+    const gridEl = document.querySelector('[data-t="battGrid"]');
+    if (gridEl) {
+      gridEl.textContent = gridActive ? 'Есть' : 'НЕТ';
+      gridEl.style.color = gridActive ? 'var(--sage)' : 'var(--coral)';
+      gridEl.style.fontWeight = gridActive ? '' : '700';
+      gridEl.style.textShadow = gridActive ? '' : '0 0 8px rgba(224, 123, 95, 0.5)';
+    }
 
     // Крупная цифра — ВСЕГДА цветной кружок SoC%.
     if (inv.soc != null) {
