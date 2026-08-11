@@ -292,16 +292,26 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
             grid_export = rt.get("grid_export_w") or 0
             charge_w = rt.get("battery_charge_w") or 0
             discharge_w = rt.get("battery_discharge_w") or 0
+            # Сеть считаем активной ТОЛЬКО если через неё реально течёт
+            # мощность в любую сторону (import либо export). Если батарея
+            # разряжается на нагрузку и через сеть ничего не идёт —
+            # сеть точно off-grid (была проблема: гид status="on-grid"
+            # мог оставаться после отключения света, UI писал «Есть»).
+            grid_active_flow = (grid_import > 20 or grid_export > 20)
+            # Если явно off-grid статус — тоже нет. Если статус ничего не
+            # говорит, полагаемся на flow.
+            status_lc = str(rt.get("status") or "").lower()
+            if status_lc in ("off-grid", "offgrid", "island"):
+                grid_active = False
+            else:
+                grid_active = grid_active_flow
             state["inverter"] = {
                 "online": rt.get("online"),
                 # SOC: LuxCloud возвращает battery_pct; старые названия
                 # оставляем для обратной совместимости
                 "soc": rt.get("battery_pct") if rt.get("battery_pct") is not None else (rt.get("soc") or rt.get("battery_soc")),
                 "load_w": rt.get("home_consumption_w") or rt.get("load_w") or rt.get("home_w"),
-                # Сеть считаем активной если через неё что-то течёт (import
-                # либо export), либо status инвертора не «off-grid».
-                "grid_active": (grid_import > 20 or grid_export > 20 or
-                                str(rt.get("status") or "").lower() not in ("off-grid", "offgrid", "island")),
+                "grid_active": grid_active,
                 "solar_w": rt.get("pv_total_w") or rt.get("solar_w") or rt.get("pv_w"),
                 "grid_import_w": grid_import,
                 "grid_export_w": grid_export,

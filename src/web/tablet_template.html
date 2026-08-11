@@ -8182,7 +8182,10 @@ document.querySelectorAll('.shop-item').forEach(item => {
     if (!inv) return;
     const card = document.querySelector('[data-t="battRuntime"]')?.closest('.card');
     const cardTitle = card?.querySelector('.card-title');
-    const gridActive = inv.grid_active !== false;
+    // Раньше было `!== false` → undefined трактовалось как «Есть», что
+    // маскировало отключение света если бэкенд ещё не рассчитал flag.
+    // Теперь: явное true, иначе Нет.
+    const gridActive = inv.grid_active === true;
     if (card) card.style.display = '';
     const etaBlock = document.querySelector('.battery-eta');
     if (etaBlock) etaBlock.style.display = 'none';
