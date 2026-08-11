@@ -292,19 +292,24 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
             grid_export = rt.get("grid_export_w") or 0
             charge_w = rt.get("battery_charge_w") or 0
             discharge_w = rt.get("battery_discharge_w") or 0
-            # Сеть считаем активной ТОЛЬКО если через неё реально течёт
-            # мощность в любую сторону (import либо export). Если батарея
-            # разряжается на нагрузку и через сеть ничего не идёт —
-            # сеть точно off-grid (была проблема: гид status="on-grid"
-            # мог оставаться после отключения света, UI писал «Есть»).
-            grid_active_flow = (grid_import > 20 or grid_export > 20)
-            # Если явно off-grid статус — тоже нет. Если статус ничего не
-            # говорит, полагаемся на flow.
+            # Определяем есть ли сеть по трём индикаторам:
+            #   1) Батарея разряжается на нагрузку И через сеть ноль → сеть ВЫКЛ
+            #      (единственный железный признак отсутствия света)
+            #   2) Через сеть реально что-то течёт (import/export >20 Вт) → сеть ЕСТЬ
+            #   3) status инвертора явно «off-grid/island» → сеть ВЫКЛ
+            #   4) Ни один из трёх не сработал (батарея не разряжается,
+            #      через сеть ничего не идёт, статус on-grid) —
+            #      значит сеть просто «в резерве», а инвертор её не грузит
+            #      потому что батарея заряжена и нет нагрузки. Считаем ЕСТЬ.
             status_lc = str(rt.get("status") or "").lower()
-            if status_lc in ("off-grid", "offgrid", "island"):
+            if discharge_w > 20 and grid_import <= 20 and grid_export <= 20:
+                grid_active = False
+            elif grid_import > 20 or grid_export > 20:
+                grid_active = True
+            elif status_lc in ("off-grid", "offgrid", "island"):
                 grid_active = False
             else:
-                grid_active = grid_active_flow
+                grid_active = True
             state["inverter"] = {
                 "online": rt.get("online"),
                 # SOC: LuxCloud возвращает battery_pct; старые названия
