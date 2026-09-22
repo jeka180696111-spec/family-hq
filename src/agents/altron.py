@@ -34,7 +34,8 @@ _SYSTEM_PROMPT = """Ты Альтрон — семейный ассистент 
 
 Что умеешь (используй tools):
 - Погода, время
-- Состояние Матвея (спит / бодрствует / когда кормили)
+- Состояние Матвея — сейчас (get_baby_state) и полный дневник за N дней (get_baby_diary)
+- Достижения Матвея (get_milestones + record_milestone)
 - События календаря
 - Активная воздушная тревога + digest (что летит, куда, прилёты)
 - Инвертор (заряд батареи, есть ли свет)
@@ -43,6 +44,17 @@ _SYSTEM_PROMPT = """Ты Альтрон — семейный ассистент 
 - ВКЛ/ВЫКЛ розетки (бойлер, телевизор, пылесос) через control_socket
 - ЗАПИСЫВАТЬ события Матвея через record_baby_event: кормление, сон, подгузник,
   температура, симптомы, лекарства, заметки
+- ЗАПИСЫВАТЬ достижения через record_milestone (перевернулся, сел, пошёл, первый зуб)
+- ЗАПИСЫВАТЬ визиты к врачу и прививки через record_doctor_visit
+
+ВАЖНО про Матвея — источники данных:
+- get_baby_state → быстрый статус (спит/бодрствует, последнее кормление,
+  подгузник). Может быть пустым если Нянька давно не обновляла — тогда
+  сразу зови get_baby_diary.
+- get_baby_diary → полная история из Google Sheets. Всегда есть данные если
+  за день что-то записывали. Используй когда пользователь спрашивает
+  «что делает?», «что было сегодня?», «когда ел?», «когда какал?».
+- Никогда не отвечай «данных нет» если ты не вызвал get_baby_diary!
 
 Важно про запись событий:
 - «Матвей поел» → record_baby_event(kind=food, event=«Кормление»)
@@ -53,6 +65,9 @@ _SYSTEM_PROMPT = """Ты Альтрон — семейный ассистент 
 - «съел смесь 150мл» → kind=food, event=«Смесь», amount=150, unit=мл
 - «температура 37.2» → kind=symptom, event=«Температура», amount=37.2, unit=°C
 - «дали парацетамол 2.5мл» → kind=medicine, event=«Парацетамол», amount=2.5, unit=мл
+- «перевернулся первый раз» → record_milestone(milestone=«Перевернулся»)
+- «сегодня был у педиатра» → record_doctor_visit(type=«Осмотр», name=«Педиатр»)
+- «сделали АКДС» → record_doctor_visit(type=«Прививка», name=«АКДС»)
 - После успешной записи коротко подтверди: «Записал. Матвей поел в 12:35.»
 
 Важно про управление:
@@ -217,6 +232,95 @@ class AltronAgent:
                     "required": ["kind", "event"],
                 },
             },
+            {
+                "name": "record_milestone",
+                "description": (
+                    "Записать достижение (веху) Матвея — первая улыбка, перевернулся, "
+                    "сел, пополз, встал, пошёл, первое слово, первый зуб и т.п. "
+                    "Уходит в лист «Достижения»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "milestone": {
+                            "type": "string",
+                            "description": "Название достижения: «Перевернулся», «Сел сам», «Пополз», «Встал», «Пошёл», «Первый зуб», «Первое слово», «Улыбнулся», «Засмеялся»",
+                        },
+                        "details": {
+                            "type": "string",
+                            "description": "Опционально: подробности (напр. «сказал мама», «сам сел на попу»)",
+                        },
+                    },
+                    "required": ["milestone"],
+                },
+            },
+            {
+                "name": "record_doctor_visit",
+                "description": (
+                    "Записать визит к врачу или медицинскую процедуру: прививка, "
+                    "осмотр, анализ, УЗИ, консультация. Уходит в лист «Врач»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "enum": ["Прививка", "Осмотр", "Анализ", "УЗИ", "Консультация", "Другое"],
+                            "description": "Тип визита",
+                        },
+                        "name": {
+                            "type": "string",
+                            "description": "Конкретика: «АКДС», «Педиатр плановый», «Общий анализ крови», «УЗИ мозга»",
+                        },
+                        "next_due": {
+                            "type": "string",
+                            "description": "Опционально: когда следующий (например «через месяц», «в 9 мес», «12.04.2026»)",
+                        },
+                        "details": {
+                            "type": "string",
+                            "description": "Опционально: заметки врача, реакция ребёнка",
+                        },
+                    },
+                    "required": ["type", "name"],
+                },
+            },
+            {
+                "name": "get_milestones",
+                "description": "Прочитать список достижений Матвея (за всё время, новые сверху).",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {
+                            "type": "integer",
+                            "description": "Сколько последних (по умолчанию 15)",
+                        },
+                    },
+                    "required": [],
+                },
+            },
+            {
+                "name": "get_baby_diary",
+                "description": (
+                    "Прочитать дневник Матвея из Google Sheets — все события за N последних дней "
+                    "(кормления, сон, подгузники, прогулки, лекарства). Используй когда пользователь "
+                    "спрашивает «что Матвей делает?», «что было сегодня?», «когда он последний раз ел?»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "days": {
+                            "type": "integer",
+                            "description": "За сколько дней (по умолчанию 1 = сегодня)",
+                        },
+                        "kind": {
+                            "type": "string",
+                            "enum": ["all", "sleep", "food", "diaper", "walk", "medicine", "symptom"],
+                            "description": "Фильтр по типу событий (по умолчанию all)",
+                        },
+                    },
+                    "required": [],
+                },
+            },
         ]
 
     async def _exec_tool(self, name: str, args: dict) -> dict:
@@ -247,6 +351,25 @@ class AltronAgent:
                     amount=args.get("amount"),
                     unit=args.get("unit"),
                     details=args.get("details") or "",
+                )
+            if name == "record_milestone":
+                return await self._tool_record_milestone(
+                    milestone=args.get("milestone") or "",
+                    details=args.get("details") or "",
+                )
+            if name == "record_doctor_visit":
+                return await self._tool_record_doctor_visit(
+                    type_=args.get("type") or "Другое",
+                    name_=args.get("name") or "",
+                    next_due=args.get("next_due") or "",
+                    details=args.get("details") or "",
+                )
+            if name == "get_milestones":
+                return await self._tool_get_milestones(limit=int(args.get("limit") or 15))
+            if name == "get_baby_diary":
+                return await self._tool_get_baby_diary(
+                    days=int(args.get("days") or 1),
+                    kind=args.get("kind") or "all",
                 )
             return {"error": f"unknown tool: {name}"}
         except Exception as e:
@@ -509,6 +632,93 @@ class AltronAgent:
         except Exception as e:
             log.exception("altron_record_baby_failed", kind=kind, event=event)
             return {"error": str(e)[:200]}
+
+    async def _tool_record_milestone(self, milestone: str, details: str = "") -> dict:
+        """Записать веху Матвея в лист «Достижения»."""
+        if not milestone.strip():
+            return {"error": "milestone is empty"}
+        try:
+            from src.integrations.sheets import SheetsClient
+            from src.utils.time import now_kyiv
+            sa = self._settings.google_service_account_json
+            if not (sa and self._settings.sheet_baby_id):
+                return {"error": "Sheets не настроены"}
+            sc = SheetsClient(sa, self._settings.sheet_baby_id, "")
+            res = await sc.append_milestone(
+                milestone=milestone, time=now_kyiv(),
+                details=details, author="Альтрон",
+            )
+            return {"success": True, "milestone": milestone, "row": res.get("row")}
+        except Exception as e:
+            log.exception("altron_milestone_failed", milestone=milestone)
+            return {"error": str(e)[:200]}
+
+    async def _tool_record_doctor_visit(
+        self, type_: str, name_: str, next_due: str = "", details: str = "",
+    ) -> dict:
+        """Записать визит к врачу / прививку / анализ в лист «Врач»."""
+        if not name_.strip():
+            return {"error": "name is empty"}
+        try:
+            from src.integrations.sheets import SheetsClient
+            from src.utils.time import now_kyiv
+            sa = self._settings.google_service_account_json
+            if not (sa and self._settings.sheet_baby_id):
+                return {"error": "Sheets не настроены"}
+            sc = SheetsClient(sa, self._settings.sheet_baby_id, "")
+            res = await sc.append_doctor(
+                type_=type_, name=name_, time=now_kyiv(),
+                next_due=next_due, details=details,
+            )
+            return {
+                "success": True,
+                "type": type_, "name": name_,
+                "row": res.get("row"),
+                "dedup": res.get("dedup", False),
+            }
+        except Exception as e:
+            log.exception("altron_doctor_failed", type=type_, name=name_)
+            return {"error": str(e)[:200]}
+
+    async def _tool_get_milestones(self, limit: int = 15) -> dict:
+        try:
+            from src.integrations.sheets import SheetsClient
+            sa = self._settings.google_service_account_json
+            if not (sa and self._settings.sheet_baby_id):
+                return {"milestones": []}
+            sc = SheetsClient(sa, self._settings.sheet_baby_id, "")
+            items = await sc.list_milestones(limit=limit)
+            return {"milestones": items}
+        except Exception as e:
+            log.exception("altron_get_milestones_failed")
+            return {"error": str(e)[:200], "milestones": []}
+
+    async def _tool_get_baby_diary(self, days: int = 1, kind: str = "all") -> dict:
+        """Прочитать записи дневника Матвея за N дней. Использует существующий
+        SheetsClient.get_baby_diary."""
+        try:
+            from src.integrations.sheets import SheetsClient
+            sa = self._settings.google_service_account_json
+            if not (sa and self._settings.sheet_baby_id):
+                return {"events": [], "note": "Sheets не настроены"}
+            sc = SheetsClient(sa, self._settings.sheet_baby_id, "")
+            kind_arg = None if (kind or "all").lower() in ("all", "*", "") else kind
+            rows = await sc.get_baby_diary(days=max(1, days), kind=kind_arg)
+            events = []
+            for r in rows[-100:]:  # последние 100
+                d = getattr(r, "data", {}) or {}
+                events.append({
+                    "date": d.get("date", ""),
+                    "time": d.get("time", ""),
+                    "kind": d.get("kind", ""),
+                    "event": d.get("event", ""),
+                    "amount": d.get("amount", ""),
+                    "notes": d.get("notes", ""),
+                })
+            return {"events": events, "total": len(events)}
+        except Exception as e:
+            log.exception("altron_get_diary_failed")
+            return {"error": str(e)[:200], "events": []}
 
     # ─── Main entry: handle user message ────────────────────────────
 
