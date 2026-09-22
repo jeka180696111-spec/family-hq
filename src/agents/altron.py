@@ -53,6 +53,8 @@ _SYSTEM_PROMPT = """Ты Альтрон — семейный ассистент 
 - СПИСОК ПОКУПОК: get_shopping_list, add_shopping_item, mark_shopping_done
 - ПОСЫЛКИ: get_parcels, add_parcel (отслеживать по TTN), refresh_parcel (обновить статус),
   mark_parcel_received (забрал)
+- ДОЗОРНЫЙ / НОВОСТИ: get_recent_news (последние посты), get_active_alert (тревога сейчас),
+  list_news_channels, add_news_channel, remove_news_channel
 
 ВАЖНО про Матвея — источники данных:
 - get_baby_state → быстрый статус (спит/бодрствует, последнее кормление,
@@ -525,6 +527,68 @@ class AltronAgent:
                     "required": ["ttn"],
                 },
             },
+            {
+                "name": "get_recent_news",
+                "description": (
+                    "Прочитать последние N постов из мониторинга новостей (тревожные каналы). "
+                    "Используй когда пользователь спрашивает «что нового?», «что за посты сегодня?», "
+                    "«что происходит?». Не путать с get_active_alert (это про активную тревогу)."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "description": "Сколько постов (по умолчанию 15)"},
+                        "alerts_only": {"type": "boolean", "description": "Только тревожные посты"},
+                    },
+                    "required": [],
+                },
+            },
+            {
+                "name": "list_news_channels",
+                "description": "Список каналов которые сейчас мониторит Дозорный (для тревог).",
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "add_news_channel",
+                "description": (
+                    "Добавить Telegram-канал в мониторинг Дозорного. Триггеры: "
+                    "«добавь канал @xxx», «мониторь odessa_inform», «подпишись на»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "username": {
+                            "type": "string",
+                            "description": "@username канала или https://t.me/xxx или ссылка",
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "Опционально: имя для отображения",
+                        },
+                        "category": {
+                            "type": "string",
+                            "enum": ["critical", "important", "background"],
+                            "description": "critical=тревоги/удары, important=важные новости, background=фон",
+                        },
+                        "region": {
+                            "type": "string",
+                            "description": "Опционально: регион (Одесская область, Николаев, и т.д.)",
+                        },
+                    },
+                    "required": ["username"],
+                },
+            },
+            {
+                "name": "remove_news_channel",
+                "description": "Убрать канал из мониторинга. Fuzzy по username или title.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "@username или часть имени"},
+                    },
+                    "required": ["query"],
+                },
+            },
         ]
 
     async def _exec_tool(self, name: str, args: dict) -> dict:
@@ -615,6 +679,22 @@ class AltronAgent:
                 return await self._tool_refresh_parcel(ttn=args.get("ttn") or "")
             if name == "mark_parcel_received":
                 return await self._tool_mark_parcel_received(ttn=args.get("ttn") or "")
+            if name == "get_recent_news":
+                return await self._tool_get_recent_news(
+                    limit=int(args.get("limit") or 15),
+                    alerts_only=bool(args.get("alerts_only") or False),
+                )
+            if name == "list_news_channels":
+                return await self._tool_list_news_channels()
+            if name == "add_news_channel":
+                return await self._tool_add_news_channel(
+                    username=args.get("username") or "",
+                    title=args.get("title") or "",
+                    category=args.get("category") or "important",
+                    region=args.get("region") or "",
+                )
+            if name == "remove_news_channel":
+                return await self._tool_remove_news_channel(query=args.get("query") or "")
             return {"error": f"unknown tool: {name}"}
         except Exception as e:
             log.exception("altron_tool_failed", tool=name)
@@ -1334,6 +1414,143 @@ class AltronAgent:
             return {"success": True, "ttn": target.ttn, "title": target.title}
         except Exception as e:
             log.exception("altron_mark_parcel_received_failed", ttn=ttn)
+            return {"error": str(e)[:200]}
+
+    async def _tool_get_recent_news(self, limit: int = 15, alerts_only: bool = False) -> dict:
+        """Прочитать последние посты из мониторинга."""
+        try:
+            from sqlalchemy import select
+            from src.db.models import NewsPost, NewsChannel
+            async with self._memory._engine.connect() as conn:
+                q = select(NewsPost)
+                if alerts_only:
+                    q = q.where(NewsPost.is_alert == 1)
+                q = q.order_by(NewsPost.date.desc()).limit(max(1, min(50, limit)))
+                rows = list(await conn.execute(q))
+                # Загружаем каналы для читаемых имён
+                chans_rows = list(await conn.execute(select(NewsChannel)))
+                chans = {}
+                for cr in chans_rows:
+                    obj = cr[0] if hasattr(cr, "_mapping") else cr
+                    chans[obj.channel_id] = obj.title or (obj.username or f"ch{obj.channel_id}")
+            posts = []
+            for r in rows:
+                obj = r[0] if hasattr(r, "_mapping") else r
+                posts.append({
+                    "channel": chans.get(obj.channel_id, f"ch{obj.channel_id}"),
+                    "date": obj.date,
+                    "is_alert": bool(obj.is_alert),
+                    "region": obj.alert_region or "",
+                    "text": (obj.text or "")[:400],
+                })
+            return {"posts": posts, "total": len(posts)}
+        except Exception as e:
+            log.exception("altron_get_news_failed")
+            return {"error": str(e)[:200], "posts": []}
+
+    async def _tool_list_news_channels(self) -> dict:
+        try:
+            from sqlalchemy import select
+            from src.db.models import NewsChannel
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(NewsChannel).where(NewsChannel.active == 1)
+                ))
+            channels = []
+            for r in rows:
+                obj = r[0] if hasattr(r, "_mapping") else r
+                channels.append({
+                    "channel_id": obj.channel_id,
+                    "username": obj.username or "",
+                    "title": obj.title or "",
+                    "category": obj.category or "",
+                    "region": obj.region or "",
+                    "mode": obj.mode or "silent",
+                })
+            return {"channels": channels, "total": len(channels)}
+        except Exception as e:
+            log.exception("altron_list_channels_failed")
+            return {"error": str(e)[:200], "channels": []}
+
+    async def _tool_add_news_channel(
+        self, username: str, title: str = "",
+        category: str = "important", region: str = "",
+    ) -> dict:
+        """Добавить канал в мониторинг Дозорного. Резолвим channel_id через Telethon userbot."""
+        import re
+        clean = re.sub(r"https?://t\.me/|@", "", (username or "").strip()).strip("/ ")
+        if not clean:
+            return {"error": "username required"}
+        try:
+            from sqlalchemy import insert, select
+            from sqlalchemy import update as sql_update
+            from sqlalchemy.dialects.sqlite import insert as _sqlite_insert
+            from src.db.models import NewsChannel
+            from src.utils.time import iso_now
+            # channel_id узнать без Telethon сложно; сохраняем через хэш имени
+            # как временный ключ. NewsIngestor подхватит правильный id при
+            # следующем сообщении. Если username есть — этого хватит.
+            fake_id = abs(hash(clean.lower())) % (10 ** 9)
+            async with self._memory._engine.begin() as conn:
+                stmt = _sqlite_insert(NewsChannel).values(
+                    channel_id=fake_id, username=clean, title=title or clean,
+                    category=category, region=region or None,
+                    mode="silent", added_at=iso_now(), active=1,
+                )
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["channel_id"],
+                    set_={
+                        "username": clean, "title": title or clean,
+                        "category": category, "region": region or None, "active": 1,
+                    },
+                )
+                await conn.execute(stmt)
+            return {
+                "success": True,
+                "note": "Канал добавлен. Полный id подтянется автоматом после первого сообщения из него.",
+                "username": clean,
+                "category": category,
+            }
+        except Exception as e:
+            log.exception("altron_add_channel_failed", username=username)
+            return {"error": str(e)[:200]}
+
+    async def _tool_remove_news_channel(self, query: str) -> dict:
+        if not query.strip():
+            return {"error": "query required"}
+        try:
+            import re
+            from sqlalchemy import select
+            from sqlalchemy import update as sql_update
+            from src.db.models import NewsChannel
+            q_norm = re.sub(r"https?://t\.me/|@", "", query.strip()).lower()
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(NewsChannel).where(NewsChannel.active == 1)
+                ))
+            target = None
+            for r in rows:
+                obj = r[0] if hasattr(r, "_mapping") else r
+                username_n = (obj.username or "").lower()
+                title_n = (obj.title or "").lower()
+                if q_norm in username_n or q_norm in title_n:
+                    target = obj
+                    break
+            if not target:
+                names = [((r[0].username or r[0].title) if hasattr(r, "_mapping") else (r.username or r.title)) for r in rows]
+                return {
+                    "success": False,
+                    "reason": f"не нашёл канал по «{query}»",
+                    "available": names[:20],
+                }
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(
+                    sql_update(NewsChannel).where(NewsChannel.channel_id == target.channel_id)
+                    .values(active=0)
+                )
+            return {"success": True, "removed": target.title or target.username}
+        except Exception as e:
+            log.exception("altron_remove_channel_failed", query=query)
             return {"error": str(e)[:200]}
 
     # ─── Main entry: handle user message ────────────────────────────
