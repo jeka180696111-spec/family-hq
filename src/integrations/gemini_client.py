@@ -259,6 +259,59 @@ class GeminiClient:
                         continue
         raise RuntimeError(f"Gemini vision: {last_err[:200]}")
 
+    # ─── Audio transcription ─────────────────────────────────────────
+
+    async def transcribe_audio(
+        self, audio_path: str, mime: str = "audio/ogg", max_tokens: int = 800,
+    ) -> str:
+        """Транскрибация аудио (Telegram voice message = .ogg + opus)."""
+        import base64, os as _os
+        if not _os.path.exists(audio_path):
+            raise RuntimeError(f"transcribe: file missing {audio_path}")
+        with open(audio_path, "rb") as f:
+            raw = f.read()
+        b64 = base64.b64encode(raw).decode("ascii")
+        contents = [{
+            "role": "user",
+            "parts": [
+                {"inline_data": {"mime_type": mime, "data": b64}},
+                {"text": "Transcribe this voice message exactly as spoken. Return only the transcript in the original language (Russian/Ukrainian), no commentary."},
+            ],
+        }]
+        body: dict[str, Any] = {
+            "contents": contents,
+            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.1},
+        }
+        audio_models = (
+            "gemini-flash-lite-latest",
+            "gemini-2.5-flash-lite",
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+        )
+        last_err = "no models attempted"
+        async with aiohttp.ClientSession() as session:
+            for key_idx, key in enumerate(self.api_keys):
+                for m in audio_models:
+                    url = (
+                        f"https://generativelanguage.googleapis.com/v1beta/"
+                        f"models/{m}:generateContent?key={key}"
+                    )
+                    try:
+                        async with session.post(url, json=body) as resp:
+                            if resp.status >= 400:
+                                err = await resp.text()
+                                last_err = f"key#{key_idx} {m}: HTTP {resp.status}: {err[:120]}"
+                                continue
+                            data = await resp.json()
+                        try:
+                            return data["candidates"][0]["content"]["parts"][0]["text"]
+                        except (KeyError, IndexError):
+                            return ""
+                    except Exception as e:
+                        last_err = f"key#{key_idx} {m}: {e}"
+                        continue
+        raise RuntimeError(f"Gemini transcribe: {last_err[:200]}")
+
     # ─── Tool calling (Claude-compatible adapter) ─────────────────────
 
     @staticmethod

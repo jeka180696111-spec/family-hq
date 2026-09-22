@@ -104,10 +104,80 @@ class AltronBot:
                 except Exception:
                     pass
 
+        async def _voice_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            if not update.effective_chat or update.effective_chat.id != allowed_chat:
+                return
+            msg = update.message
+            if not msg or not (msg.voice or msg.audio):
+                return
+            voice = msg.voice or msg.audio
+            user = msg.from_user.first_name if msg.from_user else "?"
+            log.info("altron_voice_incoming", duration=voice.duration, user=user)
+
+            stop_typing = asyncio.Event()
+
+            async def _keep_typing():
+                try:
+                    while not stop_typing.is_set():
+                        try:
+                            await context.bot.send_chat_action(msg.chat_id, ChatAction.TYPING)
+                        except Exception:
+                            pass
+                        try:
+                            await asyncio.wait_for(stop_typing.wait(), timeout=4.0)
+                        except asyncio.TimeoutError:
+                            continue
+                except Exception:
+                    pass
+
+            typing_task = asyncio.create_task(_keep_typing())
+            try:
+                # Скачиваем voice
+                import tempfile, os as _os
+                tg_file = await voice.get_file()
+                fd, path = tempfile.mkstemp(suffix=".ogg")
+                _os.close(fd)
+                try:
+                    await tg_file.download_to_drive(path)
+                    # Транскрибируем через Gemini
+                    gemini = getattr(agent, "_gemini", None)
+                    if gemini is None or not hasattr(gemini, "transcribe_audio"):
+                        await msg.reply_text("⚠️ Транскрипция голоса не настроена.")
+                        return
+                    transcript = await gemini.transcribe_audio(path, mime="audio/ogg")
+                    transcript = (transcript or "").strip()
+                    if not transcript:
+                        await msg.reply_text("🤷 Не разобрал голос.")
+                        return
+                    log.info("altron_voice_transcribed", text=transcript[:80])
+                    # Показываем что услышали и обрабатываем как обычный текст
+                    await msg.reply_text(f"🎤 «{transcript}»")
+                    reply = await agent.handle(transcript, user_name=user, chat_id=msg.chat_id)
+                    if reply:
+                        await msg.reply_text(reply)
+                finally:
+                    try:
+                        _os.unlink(path)
+                    except Exception:
+                        pass
+            except Exception as e:
+                log.exception("altron_voice_failed")
+                try:
+                    await msg.reply_text(f"⚠️ С голосом упал: {str(e)[:150]}")
+                except Exception:
+                    pass
+            finally:
+                stop_typing.set()
+                try:
+                    await typing_task
+                except Exception:
+                    pass
+
         app = Application.builder().token(self._token).build()
         app.add_handler(CommandHandler("start", _start_cmd))
         app.add_handler(CommandHandler("ping", _ping_cmd))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _text_msg))
+        app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, _voice_msg))
         self._app = app
 
         async def _run():
