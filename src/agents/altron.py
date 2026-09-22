@@ -46,6 +46,8 @@ _SYSTEM_PROMPT = """Ты Альтрон — семейный ассистент 
   температура, симптомы, лекарства, заметки
 - ЗАПИСЫВАТЬ достижения через record_milestone (перевернулся, сел, пошёл, первый зуб)
 - ЗАПИСЫВАТЬ визиты к врачу и прививки через record_doctor_visit
+- Всё про ПРИКОРМ: get_feeding_summary (что уже пробовал по категориям + что рекомендовано
+  по возрасту), record_feeding (записать пробу с реакцией)
 
 ВАЖНО про Матвея — источники данных:
 - get_baby_state → быстрый статус (спит/бодрствует, последнее кормление,
@@ -68,6 +70,10 @@ _SYSTEM_PROMPT = """Ты Альтрон — семейный ассистент 
 - «перевернулся первый раз» → record_milestone(milestone=«Перевернулся»)
 - «сегодня был у педиатра» → record_doctor_visit(type=«Осмотр», name=«Педиатр»)
 - «сделали АКДС» → record_doctor_visit(type=«Прививка», name=«АКДС»)
+- «попробовал банан» → record_feeding(product=«Банан»)
+- «дали тыкву, кушал с аппетитом» → record_feeding(product=«Тыква», reaction=«Хорошая»)
+- «съел 2 ложки пюре кабачка» → record_feeding(product=«Кабачок», portion=«2 ч.л.»)
+- «что уже ел?» / «что можно попробовать?» → get_feeding_summary
 - После успешной записи коротко подтверди: «Записал. Матвей поел в 12:35.»
 
 Важно про управление:
@@ -321,6 +327,52 @@ class AltronAgent:
                     "required": [],
                 },
             },
+            {
+                "name": "get_feeding_summary",
+                "description": (
+                    "Прикорм Матвея: что уже пробовал (сгруппировано по категориям — крупы, "
+                    "овощи, фрукты, мясо, рыба, молочка, ягоды, другое) с реакциями, "
+                    "и что рекомендуется попробовать по возрасту. Используй когда спрашивают "
+                    "«что уже ел?», «что попробовать?», «нам что можно?», «есть ли банан?»."
+                ),
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "record_feeding",
+                "description": (
+                    "Записать пробу нового продукта прикорма с реакцией — в лист «Прикорм» Google Sheets. "
+                    "Триггеры: «попробовал банан», «дали тыкву, кушал с аппетитом», "
+                    "«впервые ел брокколи», «съел 2 ложки пюре кабачка»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "product": {
+                            "type": "string",
+                            "description": "Что ел: «Банан», «Тыква», «Гречневая каша», «Кабачок»",
+                        },
+                        "portion": {
+                            "type": "string",
+                            "description": "Опционально: сколько (напр. «1 ч.л.», «30 г», «половина банки»)",
+                        },
+                        "reaction": {
+                            "type": "string",
+                            "enum": ["Отличная", "Хорошая", "Нейтральная", "Отказался", "Сыпь", "Аллергия", ""],
+                            "description": "Реакция ребёнка. Пусто если не указано.",
+                        },
+                        "type": {
+                            "type": "string",
+                            "enum": ["Прикорм", "Перекус", "Рецепт", "Напиток", "Десерт", "Другое"],
+                            "description": "Тип еды. По умолчанию «Прикорм»",
+                        },
+                        "details": {
+                            "type": "string",
+                            "description": "Опционально: заметки (напр. «съел с аппетитом», «выплюнул»)",
+                        },
+                    },
+                    "required": ["product"],
+                },
+            },
         ]
 
     async def _exec_tool(self, name: str, args: dict) -> dict:
@@ -370,6 +422,16 @@ class AltronAgent:
                 return await self._tool_get_baby_diary(
                     days=int(args.get("days") or 1),
                     kind=args.get("kind") or "all",
+                )
+            if name == "get_feeding_summary":
+                return await self._tool_get_feeding_summary()
+            if name == "record_feeding":
+                return await self._tool_record_feeding(
+                    product=args.get("product") or "",
+                    portion=args.get("portion") or "",
+                    reaction=args.get("reaction") or "",
+                    type_=args.get("type") or "Прикорм",
+                    details=args.get("details") or "",
                 )
             return {"error": f"unknown tool: {name}"}
         except Exception as e:
@@ -719,6 +781,105 @@ class AltronAgent:
         except Exception as e:
             log.exception("altron_get_diary_failed")
             return {"error": str(e)[:200], "events": []}
+
+    async def _tool_get_feeding_summary(self) -> dict:
+        """Полная сводка по прикорму: что пробовал (по категориям) + что рекомендуется по возрасту."""
+        try:
+            from src.integrations.sheets import SheetsClient
+            from src.utils.food_catalog import (
+                CATEGORIES, guess_emoji, guess_category, to_try_now, _normalize,
+            )
+            from src.utils.baby import MATVEY_BIRTH_DATE
+            from datetime import date
+
+            sa = self._settings.google_service_account_json
+            if not (sa and self._settings.sheet_baby_id):
+                return {"error": "Sheets не настроены"}
+            sc = SheetsClient(sa, self._settings.sheet_baby_id, "")
+            rows = await sc.get_feeding(limit=1000)
+
+            age_months = round((date.today() - MATVEY_BIRTH_DATE).days / 30.4375, 1)
+
+            # Агрегируем: уникальные продукты, взяв самую свежую реакцию
+            aggr: dict[str, dict] = {}
+            for r in rows:
+                p = (r.get("product") or "").strip()
+                if not p:
+                    continue
+                type_ = (r.get("type") or "").lower()
+                if any(x in type_ for x in ("груд", "смес", "молок")):
+                    continue
+                key = _normalize(p)
+                if not key:
+                    continue
+                cur = aggr.get(key)
+                item = {
+                    "name": p,
+                    "category": guess_category(p),
+                    "emoji": guess_emoji(p),
+                    "last_reaction": r.get("reaction", "") or "",
+                    "last_date": r.get("date", ""),
+                    "count": (cur["count"] + 1) if cur else 1,
+                }
+                aggr[key] = item
+
+            # Раскладываем по категориям
+            tried_by_cat: dict = {}
+            for cat_slug, cat_em in CATEGORIES:
+                tried_by_cat[cat_slug] = {"emoji": cat_em, "items": []}
+            for item in aggr.values():
+                cat = item["category"]
+                if cat not in tried_by_cat:
+                    tried_by_cat[cat] = {"emoji": "🥄", "items": []}
+                tried_by_cat[cat]["items"].append({
+                    "name": item["name"],
+                    "reaction": item["last_reaction"],
+                    "count": item["count"],
+                })
+            for cat in tried_by_cat.values():
+                cat["items"].sort(key=lambda x: x["name"].lower())
+
+            to_try = to_try_now(age_months, set(aggr.keys()))
+
+            return {
+                "age_months": age_months,
+                "tried_by_category": tried_by_cat,
+                "total_products_tried": len(aggr),
+                "recommended_next": [t.get("name") if isinstance(t, dict) else t for t in (to_try or [])][:12],
+            }
+        except Exception as e:
+            log.exception("altron_feeding_summary_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_record_feeding(
+        self, product: str, portion: str = "", reaction: str = "",
+        type_: str = "Прикорм", details: str = "",
+    ) -> dict:
+        """Записать пробу продукта в лист «Прикорм»."""
+        if not product.strip():
+            return {"error": "product is empty"}
+        try:
+            from src.integrations.sheets import SheetsClient
+            from src.utils.time import now_kyiv
+            sa = self._settings.google_service_account_json
+            if not (sa and self._settings.sheet_baby_id):
+                return {"error": "Sheets не настроены"}
+            sc = SheetsClient(sa, self._settings.sheet_baby_id, "")
+            res = await sc.append_feeding(
+                type_=type_ or "Прикорм", product=product, time=now_kyiv(),
+                portion=portion, reaction=reaction, details=details,
+                author="Альтрон",
+            )
+            return {
+                "success": True,
+                "product": product,
+                "reaction": reaction,
+                "row": res.get("row"),
+                "dedup": res.get("skipped", False),
+            }
+        except Exception as e:
+            log.exception("altron_record_feeding_failed", product=product)
+            return {"error": str(e)[:200]}
 
     # ─── Main entry: handle user message ────────────────────────────
 
