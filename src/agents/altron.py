@@ -61,6 +61,7 @@ _WRITE_TOOLS = frozenset({
     "activate_blackout_mode",
     "log_health_event", "log_parent_sleep",
     "write_cooking_note",
+    "log_fuel",
 })
 
 
@@ -710,6 +711,55 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "plan_route",
+                "description": (
+                    "Построить маршрут через Google Maps: расстояние, время в пути с пробками, "
+                    "оценка топлива и стоимости бензина. Триггеры: «сколько ехать до X», "
+                    "«маршрут до Киева», «как ехать в Затоку»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "origin": {"type": "string", "description": "Откуда (адрес или «Одесса»)"},
+                        "destination": {"type": "string", "description": "Куда"},
+                    },
+                    "required": ["destination"],
+                },
+            },
+            {
+                "name": "log_fuel",
+                "description": (
+                    "Записать заправку в FuelLog. Триггеры: «залил 40 литров», "
+                    "«заправился на 2000», «заправка WOG A95 50л 55.50»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "liters": {"type": "number", "description": "Сколько литров"},
+                        "total_uah": {"type": "number", "description": "Опционально: общая сумма в грн"},
+                        "price_per_l": {"type": "number", "description": "Опционально: цена за литр"},
+                        "station": {"type": "string", "description": "Опционально: WOG/OKKO/Укрнафта"},
+                        "fuel_kind": {"type": "string", "description": "Опционально: A95/A92/дизель"},
+                        "odometer_km": {"type": "number", "description": "Опционально: пробег"},
+                    },
+                    "required": ["liters"],
+                },
+            },
+            {
+                "name": "get_vehicle_stats",
+                "description": (
+                    "Статистика авто: последние заправки, средний расход, потрачено грн. "
+                    "Триггеры: «сколько потратил на бензин?», «средний расход», «статистика авто»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "days": {"type": "integer", "description": "За сколько дней (по умолчанию 30)"},
+                    },
+                    "required": [],
+                },
+            },
+            {
                 "name": "search_recipe",
                 "description": (
                     "Найти рецепт в интернете (DuckDuckGo) — вернёт 5 ссылок с описаниями. "
@@ -1019,6 +1069,22 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "plan_route":
+                return await self._tool_plan_route(
+                    origin=args.get("origin") or "Одесса",
+                    destination=args.get("destination") or "",
+                )
+            if name == "log_fuel":
+                return await self._tool_log_fuel(
+                    liters=float(args.get("liters") or 0),
+                    total_uah=args.get("total_uah"),
+                    price_per_l=args.get("price_per_l"),
+                    station=args.get("station") or "",
+                    fuel_kind=args.get("fuel_kind") or "",
+                    odometer_km=args.get("odometer_km"),
+                )
+            if name == "get_vehicle_stats":
+                return await self._tool_get_vehicle_stats(days=int(args.get("days") or 30))
             if name == "search_recipe":
                 return await self._tool_search_recipe(args.get("query") or "")
             if name == "food_delivery":
@@ -2061,6 +2127,123 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_plan_route(self, origin: str, destination: str) -> dict:
+        """Google Maps directions + грубая оценка топлива."""
+        if not destination.strip():
+            return {"error": "destination is empty"}
+        try:
+            from src.integrations.gmaps import GMapsClient
+            gmaps = GMapsClient.from_settings(self._settings)
+            if not gmaps:
+                return {"error": "GMAPS_API_KEY не настроен"}
+            route = await gmaps.directions(origin or "Одесса", destination)
+            distance = route.get("distance_km", 0)
+            dur = route.get("duration_traffic_min") or route.get("duration_min") or 0
+            # Приблизительный расход: 9.5 л/100 (highway assumption)
+            fuel_l = round(distance / 100 * 9.5, 1)
+            fuel_uah = round(fuel_l * 56.0)  # рефа A95
+            return {
+                "origin": origin,
+                "destination": destination,
+                "distance_km": distance,
+                "duration_min": dur,
+                "duration_h_m": f"{dur // 60}ч {dur % 60}м" if dur else "?",
+                "fuel_l_estimate": fuel_l,
+                "fuel_uah_estimate": fuel_uah,
+                "summary": route.get("summary", ""),
+            }
+        except Exception as e:
+            log.exception("altron_plan_route_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_log_fuel(
+        self, liters: float,
+        total_uah: Any = None, price_per_l: Any = None,
+        station: str = "", fuel_kind: str = "",
+        odometer_km: Any = None,
+    ) -> dict:
+        """Запись заправки в FuelLog. Автосоздаёт vehicle если нет."""
+        if liters <= 0:
+            return {"error": "liters должно быть > 0"}
+        try:
+            from sqlalchemy import insert, select
+            from src.db.models import FuelLog, Vehicle
+            from src.utils.time import iso_now
+            async with self._memory._engine.begin() as conn:
+                v = (await conn.execute(select(Vehicle).limit(1))).first()
+                if not v:
+                    now = iso_now()
+                    await conn.execute(insert(Vehicle).values(
+                        name="Авто", make="—", model="—", year=2020,
+                        fuel_type="бензин", tank_l=60.0,
+                        avg_city_l_100=11.5, avg_highway_l_100=9.5,
+                        odometer_km=0.0, tank_remaining_l=0.0,
+                        created_at=now, updated_at=now,
+                    ))
+                    v = (await conn.execute(select(Vehicle).limit(1))).first()
+                total_val = float(total_uah) if total_uah is not None else None
+                ppl_val = float(price_per_l) if price_per_l is not None else None
+                if total_val and not ppl_val and liters:
+                    ppl_val = round(total_val / liters, 2)
+                if ppl_val and not total_val:
+                    total_val = round(ppl_val * liters, 2)
+                await conn.execute(insert(FuelLog).values(
+                    vehicle_id=v.id,
+                    station=station or None,
+                    liters=liters,
+                    price_per_l=ppl_val,
+                    total_uah=total_val,
+                    odometer_km=float(odometer_km) if odometer_km is not None else None,
+                    fuel_kind=fuel_kind or None,
+                    created_at=iso_now(),
+                ))
+            return {
+                "success": True,
+                "liters": liters, "total_uah": total_val, "price_per_l": ppl_val,
+                "station": station, "fuel_kind": fuel_kind,
+            }
+        except Exception as e:
+            log.exception("altron_log_fuel_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_get_vehicle_stats(self, days: int = 30) -> dict:
+        """Сумма заправок, средний расход, число."""
+        try:
+            from sqlalchemy import select
+            from src.db.models import FuelLog
+            from datetime import timedelta
+            since = (now_kyiv() - timedelta(days=days)).isoformat()
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(FuelLog)
+                    .where(FuelLog.created_at >= since)
+                    .order_by(FuelLog.created_at.desc())
+                ))
+            total_l = sum((r.liters or 0) for r in rows)
+            total_uah = sum((r.total_uah or 0) for r in rows)
+            odo_vals = [r.odometer_km for r in rows if r.odometer_km]
+            km_run = (max(odo_vals) - min(odo_vals)) if len(odo_vals) >= 2 else None
+            avg_l_100 = round(total_l / km_run * 100, 1) if km_run else None
+            return {
+                "days": days,
+                "refuels_count": len(rows),
+                "total_liters": round(total_l, 1),
+                "total_uah": round(total_uah),
+                "km_run": km_run,
+                "avg_l_per_100km": avg_l_100,
+                "recent": [
+                    {
+                        "date": r.created_at[:10] if r.created_at else "",
+                        "station": r.station, "liters": r.liters,
+                        "total_uah": r.total_uah, "price_per_l": r.price_per_l,
+                    }
+                    for r in rows[:5]
+                ],
+            }
+        except Exception as e:
+            log.exception("altron_vehicle_stats_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_search_recipe(self, query: str) -> dict:
