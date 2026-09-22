@@ -48,6 +48,9 @@ _SYSTEM_PROMPT = """Ты Альтрон — семейный ассистент 
 - ЗАПИСЫВАТЬ визиты к врачу и прививки через record_doctor_visit
 - Всё про ПРИКОРМ: get_feeding_summary (что уже пробовал по категориям + что рекомендовано
   по возрасту), record_feeding (записать пробу с реакцией)
+- КАЛЕНДАРЬ: get_calendar_today (что впереди), create_calendar_event (поставить встречу),
+  delete_calendar_event (отменить)
+- СПИСОК ПОКУПОК: get_shopping_list, add_shopping_item, mark_shopping_done
 
 ВАЖНО про Матвея — источники данных:
 - get_baby_state → быстрый статус (спит/бодрствует, последнее кормление,
@@ -74,6 +77,11 @@ _SYSTEM_PROMPT = """Ты Альтрон — семейный ассистент 
 - «дали тыкву, кушал с аппетитом» → record_feeding(product=«Тыква», reaction=«Хорошая»)
 - «съел 2 ложки пюре кабачка» → record_feeding(product=«Кабачок», portion=«2 ч.л.»)
 - «что уже ел?» / «что можно попробовать?» → get_feeding_summary
+- «завтра в 10 к педиатру» → create_calendar_event(title=«Педиатр», start_iso=«завтра 10:00 +03:00»)
+- «купи молоко и хлеб» → два вызова add_shopping_item
+- «купил хлеб» → mark_shopping_done(item=«хлеб»)
+- «что в списке?» → get_shopping_list
+- «отмени встречу с врачом» → сперва get_calendar_today чтобы узнать event_id, потом delete_calendar_event
 - После успешной записи коротко подтверди: «Записал. Матвей поел в 12:35.»
 
 Важно про управление:
@@ -373,6 +381,88 @@ class AltronAgent:
                     "required": ["product"],
                 },
             },
+            {
+                "name": "create_calendar_event",
+                "description": (
+                    "Создать событие в Google Календаре семьи. Триггеры: «поставь встречу», "
+                    "«запиши в календарь», «завтра в 10 к педиатру», «в среду годовщина»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "title": {
+                            "type": "string",
+                            "description": "Название события",
+                        },
+                        "start_iso": {
+                            "type": "string",
+                            "description": "Начало в ISO-8601 с часовым поясом (напр. 2026-09-25T10:00:00+03:00). Всегда используй время Одессы (+03:00).",
+                        },
+                        "duration_min": {
+                            "type": "integer",
+                            "description": "Длительность в минутах. По умолчанию 60.",
+                        },
+                        "location": {
+                            "type": "string",
+                            "description": "Опционально: где",
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "Опционально: заметки",
+                        },
+                    },
+                    "required": ["title", "start_iso"],
+                },
+            },
+            {
+                "name": "delete_calendar_event",
+                "description": "Удалить событие календаря по id (id берётся из get_calendar_today).",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "event_id": {"type": "string", "description": "Google Calendar event id"},
+                    },
+                    "required": ["event_id"],
+                },
+            },
+            {
+                "name": "get_shopping_list",
+                "description": "Прочитать текущий список покупок (только невыполненные пункты).",
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "add_shopping_item",
+                "description": (
+                    "Добавить пункт в список покупок. Триггеры: «купи молоко», "
+                    "«добавь в список: хлеб, гречка», «нужен памперс»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "item": {"type": "string", "description": "Что купить"},
+                        "quantity": {"type": "string", "description": "Опционально: сколько"},
+                        "place": {
+                            "type": "string",
+                            "description": "Опционально: где купить (АТБ, Сільпо, аптека)",
+                        },
+                    },
+                    "required": ["item"],
+                },
+            },
+            {
+                "name": "mark_shopping_done",
+                "description": (
+                    "Отметить пункт списка покупок как купленный. Триггеры: «купил молоко», "
+                    "«взял хлеб», «вычеркни памперсы»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "item": {"type": "string", "description": "Что было куплено (по имени)"},
+                    },
+                    "required": ["item"],
+                },
+            },
         ]
 
     async def _exec_tool(self, name: str, args: dict) -> dict:
@@ -433,6 +523,26 @@ class AltronAgent:
                     type_=args.get("type") or "Прикорм",
                     details=args.get("details") or "",
                 )
+            if name == "create_calendar_event":
+                return await self._tool_create_calendar_event(
+                    title=args.get("title") or "",
+                    start_iso=args.get("start_iso") or "",
+                    duration_min=int(args.get("duration_min") or 60),
+                    location=args.get("location") or "",
+                    description=args.get("description") or "",
+                )
+            if name == "delete_calendar_event":
+                return await self._tool_delete_calendar_event(event_id=args.get("event_id") or "")
+            if name == "get_shopping_list":
+                return await self._tool_get_shopping_list()
+            if name == "add_shopping_item":
+                return await self._tool_add_shopping_item(
+                    item=args.get("item") or "",
+                    quantity=args.get("quantity") or "",
+                    place=args.get("place") or "",
+                )
+            if name == "mark_shopping_done":
+                return await self._tool_mark_shopping_done(item=args.get("item") or "")
             return {"error": f"unknown tool: {name}"}
         except Exception as e:
             log.exception("altron_tool_failed", tool=name)
@@ -879,6 +989,130 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_record_feeding_failed", product=product)
+            return {"error": str(e)[:200]}
+
+    async def _tool_create_calendar_event(
+        self, title: str, start_iso: str, duration_min: int = 60,
+        location: str = "", description: str = "",
+    ) -> dict:
+        if not title.strip() or not start_iso.strip():
+            return {"error": "title and start_iso required"}
+        try:
+            from datetime import datetime, timedelta
+            from src.integrations.gcalendar import CalendarClient
+            if not self._settings.google_service_account_json or not self._settings.calendar_id:
+                return {"error": "Календарь не настроен"}
+            # Парсим start_iso; если без TZ — считаем что это время Одессы (+03:00)
+            start = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+            if start.tzinfo is None:
+                from datetime import timezone
+                start = start.replace(tzinfo=timezone(timedelta(hours=3)))
+            end = start + timedelta(minutes=max(15, duration_min))
+            cal = CalendarClient(self._settings.google_service_account_json, self._settings.calendar_id)
+            ev = await cal.create_event(
+                title=title, start=start, end=end,
+                description=description, location=location,
+            )
+            return {
+                "success": True,
+                "event_id": getattr(ev, "event_id", None) or getattr(ev, "id", None),
+                "title": getattr(ev, "title", title),
+                "start_iso": start.isoformat(),
+            }
+        except Exception as e:
+            log.exception("altron_calendar_create_failed", title=title)
+            return {"error": str(e)[:200]}
+
+    async def _tool_delete_calendar_event(self, event_id: str) -> dict:
+        if not event_id.strip():
+            return {"error": "event_id required"}
+        try:
+            from src.integrations.gcalendar import CalendarClient
+            if not self._settings.google_service_account_json or not self._settings.calendar_id:
+                return {"error": "Календарь не настроен"}
+            cal = CalendarClient(self._settings.google_service_account_json, self._settings.calendar_id)
+            ok = await cal.delete_event(event_id)
+            return {"success": bool(ok)}
+        except Exception as e:
+            log.exception("altron_calendar_delete_failed", event_id=event_id)
+            return {"error": str(e)[:200]}
+
+    async def _tool_get_shopping_list(self) -> dict:
+        try:
+            from sqlalchemy import select
+            from src.db.models import ShoppingItem
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(ShoppingItem).where(ShoppingItem.done_at.is_(None))
+                    .order_by(ShoppingItem.added_at.desc()).limit(50)
+                ))
+            items = []
+            for r in rows:
+                obj = r[0] if hasattr(r, "_mapping") else r
+                items.append({
+                    "id": getattr(obj, "id", None),
+                    "item": getattr(obj, "item", ""),
+                    "quantity": getattr(obj, "quantity", "") or "",
+                    "place": getattr(obj, "place", "") or "",
+                    "added_by": getattr(obj, "added_by", "") or "",
+                    "added_at": getattr(obj, "added_at", "") or "",
+                })
+            return {"items": items, "total": len(items)}
+        except Exception as e:
+            log.exception("altron_shopping_read_failed")
+            return {"error": str(e)[:200], "items": []}
+
+    async def _tool_add_shopping_item(self, item: str, quantity: str = "", place: str = "") -> dict:
+        if not item.strip():
+            return {"error": "item required"}
+        try:
+            from sqlalchemy import insert
+            from src.db.models import ShoppingItem
+            from src.utils.time import iso_now
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(insert(ShoppingItem).values(
+                    item=item.strip(), quantity=quantity or None,
+                    place=place or None, added_by="Альтрон",
+                    added_at=iso_now(),
+                ))
+            return {"success": True, "item": item}
+        except Exception as e:
+            log.exception("altron_shopping_add_failed", item=item)
+            return {"error": str(e)[:200]}
+
+    async def _tool_mark_shopping_done(self, item: str) -> dict:
+        if not item.strip():
+            return {"error": "item required"}
+        try:
+            from sqlalchemy import select, update
+            from src.db.models import ShoppingItem
+            from src.utils.time import iso_now
+            item_norm = item.strip().lower()
+            async with self._memory._engine.begin() as conn:
+                rows = list(await conn.execute(
+                    select(ShoppingItem).where(ShoppingItem.done_at.is_(None))
+                ))
+                # Fuzzy: подстрочный матч
+                target = None
+                for r in rows:
+                    obj = r[0] if hasattr(r, "_mapping") else r
+                    if item_norm in (obj.item or "").lower() or (obj.item or "").lower() in item_norm:
+                        target = obj
+                        break
+                if not target:
+                    names = [(r[0].item if hasattr(r, "_mapping") else r.item) for r in rows]
+                    return {
+                        "success": False,
+                        "reason": f"не нашёл «{item}» в списке",
+                        "available": names[:20],
+                    }
+                await conn.execute(
+                    update(ShoppingItem).where(ShoppingItem.id == target.id)
+                    .values(done_at=iso_now())
+                )
+            return {"success": True, "item": target.item}
+        except Exception as e:
+            log.exception("altron_shopping_done_failed", item=item)
             return {"error": str(e)[:200]}
 
     # ─── Main entry: handle user message ────────────────────────────
