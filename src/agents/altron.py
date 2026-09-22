@@ -65,6 +65,10 @@ _SYSTEM_PROMPT = """Ты Альтрон — семейный ассистент 
 - DEVOPS: get_system_status («как система?», «всё работает?»),
   list_open_prs («какие PR открыты?»), get_railway_status («деплой прошёл?»,
   «Railway живой?»).
+- ЗДОРОВЬЕ СЕМЬИ (не только Матвея!): log_health_event (симптом/лекарство/
+  визит/прививка для matvey|eugene|marina), get_health_history (за N дней),
+  log_parent_sleep (Марина/Евгений — во сколько лёг, встал, качество),
+  parent_sleep_stats (среднее время сна за неделю).
 
 ВАЖНО про Матвея — источники данных:
 - get_baby_state → быстрый статус (спит/бодрствует, последнее кормление,
@@ -676,6 +680,96 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "log_health_event",
+                "description": (
+                    "Записать событие здоровья для любого члена семьи (matvey/eugene/marina). "
+                    "Триггеры: «у Матвея температура 37.5», «Марина приняла нурофен», "
+                    "«у меня давление 130/80», «сделали прививку», «Евгений заболел»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "member": {
+                            "type": "string",
+                            "enum": ["matvey", "eugene", "marina"],
+                            "description": "Кому",
+                        },
+                        "kind": {
+                            "type": "string",
+                            "enum": ["symptom", "medication", "visit", "vaccine"],
+                            "description": "symptom=симптом (темпер., боль), medication=лекарство, visit=приём врача, vaccine=прививка",
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "Что именно: «температура», «нурофен 200мг», «педиатр», «АКДС»",
+                        },
+                        "value": {
+                            "type": "string",
+                            "description": "Опционально: значение (37.5, 130/80, 5мл)",
+                        },
+                    },
+                    "required": ["member", "kind", "description"],
+                },
+            },
+            {
+                "name": "get_health_history",
+                "description": (
+                    "История здоровья члена семьи за последние N дней. "
+                    "Триггеры: «что было по здоровью?», «когда Матвей болел?», "
+                    "«последняя прививка», «сколько раз Марина принимала нурофен?»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "member": {
+                            "type": "string",
+                            "enum": ["matvey", "eugene", "marina"],
+                        },
+                        "days": {
+                            "type": "integer",
+                            "description": "За сколько дней (по умолчанию 30)",
+                        },
+                    },
+                    "required": ["member"],
+                },
+            },
+            {
+                "name": "log_parent_sleep",
+                "description": (
+                    "Записать сон родителя (Евгения/Марины). "
+                    "Триггеры: «лёг в 23», «Марина проспала 7 часов», «плохо спал, просыпался»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "member": {"type": "string", "enum": ["eugene", "marina"]},
+                        "bedtime": {"type": "string", "description": "HH:MM когда лёг"},
+                        "wake_time": {"type": "string", "description": "HH:MM когда встал"},
+                        "quality": {
+                            "type": "string",
+                            "enum": ["ok", "awakened", "bad"],
+                            "description": "ok=норм, awakened=просыпался, bad=плохо",
+                        },
+                    },
+                    "required": ["member"],
+                },
+            },
+            {
+                "name": "parent_sleep_stats",
+                "description": (
+                    "Статистика сна родителя за N дней (среднее время сна, качество). "
+                    "Триггеры: «как сплю?», «сколько Марина спала за неделю?»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "member": {"type": "string", "enum": ["eugene", "marina"]},
+                        "days": {"type": "integer", "description": "По умолчанию 7"},
+                    },
+                    "required": ["member"],
+                },
+            },
+            {
                 "name": "get_system_status",
                 "description": (
                     "Здоровье Family HQ: сколько каналов Дозорный мониторит, "
@@ -853,6 +947,30 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "log_health_event":
+                return await self._tool_log_health_event(
+                    member=args.get("member") or "",
+                    kind=args.get("kind") or "",
+                    description=args.get("description") or "",
+                    value=args.get("value") or "",
+                )
+            if name == "get_health_history":
+                return await self._tool_get_health_history(
+                    member=args.get("member") or "",
+                    days=int(args.get("days") or 30),
+                )
+            if name == "log_parent_sleep":
+                return await self._tool_log_parent_sleep(
+                    member=args.get("member") or "",
+                    bedtime=args.get("bedtime") or "",
+                    wake_time=args.get("wake_time") or "",
+                    quality=args.get("quality") or "",
+                )
+            if name == "parent_sleep_stats":
+                return await self._tool_parent_sleep_stats(
+                    member=args.get("member") or "",
+                    days=int(args.get("days") or 7),
+                )
             if name == "get_system_status":
                 return await self._tool_get_system_status()
             if name == "list_open_prs":
@@ -1865,6 +1983,138 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_log_health_event(
+        self, member: str, kind: str, description: str, value: str = "",
+    ) -> dict:
+        """Запись в HealthRecord."""
+        if not member or not kind or not description:
+            return {"error": "member/kind/description обязательны"}
+        try:
+            from sqlalchemy import insert
+            from src.db.models import HealthRecord
+            from src.utils.time import iso_now
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(
+                    insert(HealthRecord).values(
+                        member_id=member,
+                        kind=kind,
+                        description=description,
+                        value=value or None,
+                        date=iso_now(),
+                    )
+                )
+            return {"success": True, "member": member, "kind": kind, "description": description}
+        except Exception as e:
+            log.exception("altron_log_health_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_get_health_history(self, member: str, days: int = 30) -> dict:
+        """История здоровья за N дней."""
+        if not member:
+            return {"error": "member обязателен"}
+        try:
+            from sqlalchemy import select
+            from src.db.models import HealthRecord
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(HealthRecord)
+                    .where(HealthRecord.member_id == member)
+                    .order_by(HealthRecord.date.desc())
+                    .limit(50)
+                ))
+            return {
+                "member": member,
+                "count": len(rows),
+                "records": [
+                    {"kind": r.kind, "description": r.description, "value": r.value, "date": r.date}
+                    for r in rows
+                ],
+            }
+        except Exception as e:
+            log.exception("altron_get_health_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_log_parent_sleep(
+        self, member: str, bedtime: str = "", wake_time: str = "", quality: str = "",
+    ) -> dict:
+        """Запись сна родителя."""
+        if member not in ("eugene", "marina"):
+            return {"error": "member должен быть eugene/marina"}
+        try:
+            from sqlalchemy import insert
+            from src.db.models import ParentSleep
+            from src.utils.time import now_kyiv
+            today = now_kyiv().date().isoformat()
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(
+                    insert(ParentSleep).values(
+                        member=member,
+                        bedtime=bedtime or None,
+                        wake_time=wake_time or None,
+                        quality=quality or None,
+                        date=today,
+                    )
+                )
+            return {
+                "success": True, "member": member, "date": today,
+                "bedtime": bedtime, "wake_time": wake_time, "quality": quality,
+            }
+        except Exception as e:
+            log.exception("altron_log_sleep_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_parent_sleep_stats(self, member: str, days: int = 7) -> dict:
+        """Статистика сна за N дней."""
+        if member not in ("eugene", "marina"):
+            return {"error": "member должен быть eugene/marina"}
+        try:
+            from sqlalchemy import select
+            from src.db.models import ParentSleep
+            from src.utils.time import now_kyiv
+            from datetime import timedelta
+            since = (now_kyiv().date() - timedelta(days=days)).isoformat()
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(ParentSleep)
+                    .where(ParentSleep.member == member)
+                    .where(ParentSleep.date >= since)
+                    .order_by(ParentSleep.date.desc())
+                ))
+
+            total_hours = 0.0
+            counted = 0
+            quality_counts: dict[str, int] = {}
+            for r in rows:
+                if r.bedtime and r.wake_time:
+                    try:
+                        bh, bm = [int(x) for x in r.bedtime.split(":")[:2]]
+                        wh, wm = [int(x) for x in r.wake_time.split(":")[:2]]
+                        b_min = bh * 60 + bm
+                        w_min = wh * 60 + wm
+                        # если утро < вечера — перекинулось через полночь
+                        diff = (w_min - b_min) if w_min > b_min else (w_min + 24 * 60 - b_min)
+                        total_hours += diff / 60
+                        counted += 1
+                    except Exception:
+                        pass
+                if r.quality:
+                    quality_counts[r.quality] = quality_counts.get(r.quality, 0) + 1
+            avg_hours = round(total_hours / counted, 1) if counted else None
+            return {
+                "member": member,
+                "days": days,
+                "records_count": len(rows),
+                "avg_hours": avg_hours,
+                "quality_breakdown": quality_counts,
+                "last_records": [
+                    {"date": r.date, "bedtime": r.bedtime, "wake_time": r.wake_time, "quality": r.quality}
+                    for r in rows[:7]
+                ],
+            }
+        except Exception as e:
+            log.exception("altron_sleep_stats_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_get_system_status(self) -> dict:
