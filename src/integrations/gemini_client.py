@@ -385,7 +385,7 @@ class GeminiClient:
         contents = self._translate_messages_with_tools(messages or [])
         body: dict[str, Any] = {
             "contents": contents,
-            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.7},
+            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.4},
         }
         if system:
             body["systemInstruction"] = {"parts": [{"text": system}]}
@@ -440,6 +440,13 @@ class GeminiClient:
                                 )
                                 if not st["first_err"]:
                                     st["first_err"] = f"HTTP {resp.status} on {m}: {err_text[:400]}"
+                                # 400 = bad body (наш schema/содержимое сломано).
+                                # Другие модели ту же ошибку тоже вернут —
+                                # прерываем перебор чтобы не тратить секунды.
+                                if resp.status == 400:
+                                    raise RuntimeError(
+                                        f"Gemini tool-use bad request on {m}: {err_text[:400]}"
+                                    )
                                 continue
                             data = await resp.json()
                         self._working_model = m

@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -2367,7 +2368,7 @@ class AltronAgent:
 
         # Учёт какие tool+args уже вызывались — чтобы не крутить один и тот же
         called_signatures: set[str] = set()
-        MAX_ITER = 5
+        MAX_ITER = 3  # 5 → 3: чтобы Альтрон не думал 30 сек над простыми вопросами
 
         for iteration in range(MAX_ITER):
             # На последней итерации выключаем tools и заставляем ответить текстом
@@ -2377,7 +2378,7 @@ class AltronAgent:
                     system=_SYSTEM_PROMPT,
                     messages=messages,
                     tools=[] if force_final else tools,
-                    max_tokens=800,
+                    max_tokens=500,
                 )
             except Exception as e:
                 log.exception("altron_llm_failed", iteration=iteration)
@@ -2433,22 +2434,27 @@ class AltronAgent:
                     log.exception("altron_forced_final_failed")
                 return "Что-то залип. Спроси иначе?"
 
-            # Выполняем новые вызовы, добавляем результаты
+            # Выполняем новые вызовы параллельно — если Gemini вернул сразу
+            # несколько tools, ждём их одновременно.
             messages.append({"role": "assistant", "content": content_blocks})
-            tool_results = []
-            for tc in tool_calls:
+
+            async def _run_one(tc):
                 sig = f"{tc.name}:{json.dumps(tc.input or {}, sort_keys=True)}"
                 if sig in called_signatures and tc in duplicate_calls:
-                    # Дублирующему возвращаем прошлый результат-ссылку
-                    result = {"note": "already called this tool, use previous result"}
-                else:
-                    result = await self._exec_tool(tc.name, tc.input or {})
-                    log.info("altron_tool_ran", name=tc.name, keys=list(result.keys())[:5])
-                tool_results.append({
+                    return tc, {"note": "already called this tool, use previous result"}
+                res = await self._exec_tool(tc.name, tc.input or {})
+                log.info("altron_tool_ran", name=tc.name, keys=list(res.keys())[:5])
+                return tc, res
+
+            paired = await asyncio.gather(*[_run_one(tc) for tc in tool_calls])
+            tool_results = [
+                {
                     "type": "tool_result",
                     "tool_use_id": tc.id,
-                    "content": json.dumps(result, ensure_ascii=False, default=str),
-                })
+                    "content": json.dumps(res, ensure_ascii=False, default=str),
+                }
+                for tc, res in paired
+            ]
             messages.append({"role": "user", "content": tool_results})
 
         return "Слишком долго думаю. Попробуй перефразировать?"
