@@ -39,6 +39,18 @@ _SYSTEM_PROMPT = """Ты Альтрон — семейный ассистент 
 - Активная воздушная тревога + digest (что летит, куда, прилёты)
 - Инвертор (заряд батареи, есть ли свет)
 - Посылки Новой Почты
+- УПРАВЛЯТЬ светом и сценами дома через run_scene (например «сцена ярко спальня»)
+- ВКЛ/ВЫКЛ розетки (бойлер, телевизор, пылесос) через control_socket
+
+Важно про управление:
+- Если фраза похожа на команду («включи», «выключи», «запусти», «включай»,
+  «дай света», «сделай темнее», «на базу», «пусти пылесос») — сразу вызывай нужный tool
+  без переспрашивания.
+- Если после вызова run_scene вернулось success:false с available_scenes —
+  честно скажи «не нашёл, есть такие:» и перечисли варианты.
+- Не задавай уточнений которые сам мог бы решить (напр. «спальня» и так очевидно).
+- После успешной команды коротко подтверди («Готово. Свет в спальне яркий.») —
+  без бюрократии.
 
 Голосом называй родителей по именам, ребёнка — Матвейкой или Матвеем.
 """
@@ -116,6 +128,47 @@ class AltronAgent:
                 "description": "Посылки Новой Почты: те что в пути и те что прибыли на почту и ждут выдачи. Возвращает TTN, статус, куда идёт.",
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
+            {
+                "name": "run_scene",
+                "description": (
+                    "Запустить сцену умного дома Tuya. Используй когда пользователь просит: "
+                    "«включи свет ярко в спальне», «выключи всё в детской», «сцена ночь на кухне», "
+                    "«кондиционер 24». Аргумент `query` — свободный текст с названием сцены "
+                    "и/или комнаты, я сам найду ближайшую сцену по совпадению."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Название сцены + комната (напр. «спальня ярко», «кондер 24», «детская ночь»).",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "name": "control_socket",
+                "description": (
+                    "Включить или выключить розетку по имени: бойлер, телевизор, пылесос-Гоша и т.п. "
+                    "Только для устройств-выключателей, НЕ для света (для света используй run_scene)."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "device": {
+                            "type": "string",
+                            "description": "Имя розетки: «бойлер», «телевизор», «гоша», «пылесос», «зарядка».",
+                        },
+                        "action": {
+                            "type": "string",
+                            "enum": ["on", "off", "toggle"],
+                            "description": "on=включить, off=выключить, toggle=переключить.",
+                        },
+                    },
+                    "required": ["device", "action"],
+                },
+            },
         ]
 
     async def _exec_tool(self, name: str, args: dict) -> dict:
@@ -133,6 +186,12 @@ class AltronAgent:
                 return await self._tool_inverter()
             if name == "get_parcels":
                 return await self._tool_parcels()
+            if name == "run_scene":
+                return await self._tool_run_scene(args.get("query") or "")
+            if name == "control_socket":
+                return await self._tool_control_socket(
+                    args.get("device") or "", args.get("action") or "toggle",
+                )
             return {"error": f"unknown tool: {name}"}
         except Exception as e:
             log.exception("altron_tool_failed", tool=name)
@@ -277,6 +336,53 @@ class AltronAgent:
                 "scheduled_at": r.scheduled_at or "",
             })
         return {"parcels": out}
+
+    async def _tool_run_scene(self, query: str) -> dict:
+        """Найти сцену Tuya по free-text и запустить."""
+        if not query.strip():
+            return {"error": "query is empty"}
+        try:
+            from src.integrations.tuya import TuyaClient
+            tuya = TuyaClient.from_settings(self._settings)
+            if not tuya:
+                return {"error": "Tuya не настроен"}
+            scene = await tuya.find_scene(query)
+            if not scene:
+                # Список кандидатов чтобы Альтрон мог переспросить
+                all_scenes = await tuya.list_scenes()
+                names = [s.get("name") for s in all_scenes if s.get("name") and not s.get("is_automation")]
+                return {
+                    "success": False,
+                    "reason": f"не нашёл сцену по «{query}»",
+                    "available_scenes": names[:20],
+                }
+            result = await tuya.run_scene(scene.get("id"))
+            return {
+                "success": True,
+                "scene_name": scene.get("name"),
+                "scene_id": scene.get("id"),
+                "tuya_response": result,
+            }
+        except Exception as e:
+            log.exception("altron_scene_failed", query=query)
+            return {"error": str(e)[:200]}
+
+    async def _tool_control_socket(self, device: str, action: str) -> dict:
+        """Включить/выключить розетку по имени. Переиспользуем tuya.control."""
+        if not device.strip():
+            return {"error": "device is empty"}
+        if action not in ("on", "off", "toggle"):
+            action = "toggle"
+        try:
+            from src.integrations.tuya import TuyaClient
+            tuya = TuyaClient.from_settings(self._settings)
+            if not tuya:
+                return {"error": "Tuya не настроен"}
+            result = await tuya.control(device, action)
+            return result
+        except Exception as e:
+            log.exception("altron_socket_failed", device=device, action=action)
+            return {"error": str(e)[:200]}
 
     # ─── Main entry: handle user message ────────────────────────────
 
