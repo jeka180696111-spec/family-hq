@@ -714,6 +714,41 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "prepare_doctor_visit",
+                "description": (
+                    "Собрать справку перед визитом к врачу: симптомы, лекарства, прививки, "
+                    "приёмы врача за N последних дней. Даёт готовый чек-лист к визиту. "
+                    "Триггеры: «завтра к педиатру», «подготовь к приёму», «что рассказать врачу»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "member": {
+                            "type": "string",
+                            "enum": ["matvey", "eugene", "marina"],
+                        },
+                        "days_back": {"type": "integer", "description": "За сколько дней (по умолчанию 30)"},
+                    },
+                    "required": ["member"],
+                },
+            },
+            {
+                "name": "get_medication_dose",
+                "description": (
+                    "Справочная информация по дозировкам детских препаратов "
+                    "(парацетамол, ибупрофен, эффералган, нурофен) с расчётом по весу. "
+                    "Триггеры: «сколько нурофена дать?», «доза парацетамола Матвею»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "medication": {"type": "string", "description": "Название препарата"},
+                        "weight_kg": {"type": "number", "description": "Вес в кг"},
+                    },
+                    "required": ["medication"],
+                },
+            },
+            {
                 "name": "wiki_set",
                 "description": (
                     "Сохранить произвольную семейную заметку в вики (member=wiki, key=заголовок, value=текст). "
@@ -1179,6 +1214,16 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "prepare_doctor_visit":
+                return await self._tool_prepare_doctor_visit(
+                    member=args.get("member") or "matvey",
+                    days_back=int(args.get("days_back") or 30),
+                )
+            if name == "get_medication_dose":
+                return await self._tool_get_medication_dose(
+                    medication=args.get("medication") or "",
+                    weight_kg=args.get("weight_kg"),
+                )
             if name == "wiki_set":
                 return await self._tool_wiki_set(
                     title=args.get("title") or "", text_=args.get("text") or "",
@@ -2262,6 +2307,112 @@ class AltronAgent:
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
             return {"error": str(e)[:200]}
+
+    async def _tool_prepare_doctor_visit(self, member: str, days_back: int = 30) -> dict:
+        """Свежие HealthRecord + doctor визиты по человеку."""
+        try:
+            from sqlalchemy import select
+            from src.db.models import HealthRecord
+            from datetime import timedelta
+            cutoff = (now_kyiv() - timedelta(days=days_back)).isoformat()
+            async with self._memory._engine.connect() as conn:
+                recs = list(await conn.execute(
+                    select(HealthRecord)
+                    .where(HealthRecord.member_id == member)
+                    .where(HealthRecord.date >= cutoff)
+                    .order_by(HealthRecord.date.desc())
+                    .limit(80)
+                ))
+            grouped: dict[str, list] = {"symptom": [], "medication": [], "visit": [], "vaccine": []}
+            for r in recs:
+                grouped.setdefault(r.kind, []).append({
+                    "date": r.date[:10] if r.date else "",
+                    "description": r.description,
+                    "value": r.value,
+                })
+            return {
+                "member": member,
+                "days_back": days_back,
+                "total_events": len(recs),
+                "symptoms": grouped.get("symptom", []),
+                "medications": grouped.get("medication", []),
+                "visits": grouped.get("visit", []),
+                "vaccines": grouped.get("vaccine", []),
+                "checklist_hint": (
+                    "Спроси врача о: 1) актуальных симптомах, 2) реакциях на лекарства, "
+                    "3) плане прививок, 4) новых симптомах для наблюдения"
+                ),
+            }
+        except Exception as e:
+            log.exception("altron_doctor_prep_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_get_medication_dose(self, medication: str, weight_kg: Any = None) -> dict:
+        """Справочные дозы часто используемых детских препаратов."""
+        if not medication.strip():
+            return {"error": "medication is empty"}
+        med = medication.lower().strip()
+        # Основные детские жаропонижающие с типовыми дозировками
+        dosage_data = {
+            "парацетамол": {
+                "mg_per_kg": "10-15",
+                "max_daily_mg_per_kg": "60",
+                "interval_h": "4-6",
+                "note": "Не более 4 раз в сутки",
+            },
+            "ибупрофен": {
+                "mg_per_kg": "5-10",
+                "max_daily_mg_per_kg": "30",
+                "interval_h": "6-8",
+                "note": "Не давать до 3 мес",
+            },
+            "нурофен": {
+                "mg_per_kg": "5-10",
+                "max_daily_mg_per_kg": "30",
+                "interval_h": "6-8",
+                "note": "Ибупрофен 100мг/5мл. Не давать до 3 мес",
+            },
+            "эффералган": {
+                "mg_per_kg": "10-15",
+                "max_daily_mg_per_kg": "60",
+                "interval_h": "4-6",
+                "note": "Парацетамол сироп 30мг/мл",
+            },
+        }
+        found_key = None
+        for k in dosage_data:
+            if k in med:
+                found_key = k
+                break
+        if not found_key:
+            return {
+                "medication": medication,
+                "note": "Нет справочных данных. Следуй инструкции к препарату или проконсультируйся с педиатром.",
+            }
+        info = dosage_data[found_key]
+        result = {"medication": found_key, **info}
+        if weight_kg:
+            try:
+                w = float(weight_kg)
+                low, high = info["mg_per_kg"].split("-")
+                dose_low = round(w * float(low))
+                dose_high = round(w * float(high))
+                max_daily = round(w * float(info["max_daily_mg_per_kg"]))
+                result["for_weight_kg"] = w
+                result["single_dose_mg"] = f"{dose_low}-{dose_high}"
+                result["max_daily_mg"] = max_daily
+                if found_key == "нурофен":
+                    ml_low = round(dose_low / 20, 1)
+                    ml_high = round(dose_high / 20, 1)
+                    result["single_dose_ml"] = f"{ml_low}-{ml_high} мл (100мг/5мл)"
+                elif found_key == "эффералган":
+                    ml_low = round(dose_low / 30, 1)
+                    ml_high = round(dose_high / 30, 1)
+                    result["single_dose_ml"] = f"{ml_low}-{ml_high} мл (30мг/мл)"
+            except Exception:
+                pass
+        result["disclaimer"] = "Справочная информация. Итоговая доза — по инструкции и с педиатром."
+        return result
 
     async def _tool_wiki_set(self, title: str, text_: str) -> dict:
         """Заметка вики — храним в FamilyFact(member=wiki, key=title, value=text)."""
