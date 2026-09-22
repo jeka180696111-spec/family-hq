@@ -1646,6 +1646,30 @@ async def run(dry_run: bool = False) -> None:
     await news_ingestor.load_tracked_channels()
     userbot.add_news_handler(news_ingestor.handle)
 
+    # ═══════════════════════════════════════════════════════════════
+    # Альтрон v2 (эксперимент): отдельный бот в изолированном чате.
+    # Стартует ТОЛЬКО если заданы ALTRON_BOT_TOKEN и ALTRON_CHAT_ID.
+    # Никак не пересекается со старыми агентами.
+    # ═══════════════════════════════════════════════════════════════
+    if settings.altron_bot_token and settings.altron_chat_id:
+        try:
+            from src.agents.altron import AltronAgent
+            from src.integrations.altron_bot import AltronBot
+            altron_agent = AltronAgent(
+                memory=memory,
+                gemini_client=_news_gemini,
+                settings=settings,
+            )
+            altron_bot = AltronBot(
+                token=settings.altron_bot_token,
+                chat_id=settings.altron_chat_id,
+                agent=altron_agent,
+            )
+            await altron_bot.start()
+            log.info("altron_v2_started", chat_id=settings.altron_chat_id)
+        except Exception:
+            log.exception("altron_v2_startup_failed")
+
 
     # Auto-close stale alerts every 5 min
     scheduler.add_job(

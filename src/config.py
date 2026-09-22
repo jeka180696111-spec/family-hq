@@ -183,6 +183,15 @@ class Settings(BaseSettings):
     # Falls back to devops bot if empty (для миграции).
     butler_bot_token: str = Field(default="")
 
+    # ═══════════════════════════════════════════════════════════════
+    # Альтрон — экспериментальный единый ассистент (v2).
+    # Живёт в ОТДЕЛЬНОМ Telegram-чате, полностью изолирован от старых
+    # агентов. Использует Gemini как LLM, единый набор tools вместо
+    # 8 отдельных ботов. Тестируется параллельно, старые агенты работают.
+    # ═══════════════════════════════════════════════════════════════
+    altron_bot_token: str = Field(default="")
+    altron_chat_id: int = Field(default=0)
+
     # Публичный URL приложения на Railway (без слеша в конце).
     # Используется для генерации ссылок на дашборд.
     public_url: str = Field(default="https://family-hq-production-34a6.up.railway.app")
