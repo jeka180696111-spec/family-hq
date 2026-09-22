@@ -60,6 +60,7 @@ _WRITE_TOOLS = frozenset({
     "remember_parking", "remember_fact",
     "activate_blackout_mode",
     "log_health_event", "log_parent_sleep",
+    "write_cooking_note",
 })
 
 
@@ -709,6 +710,48 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "search_recipe",
+                "description": (
+                    "Найти рецепт в интернете (DuckDuckGo) — вернёт 5 ссылок с описаниями. "
+                    "Триггеры: «как приготовить X», «рецепт борща», «идея на ужин», «что приготовить из курицы»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Что ищем: «борщ украинский рецепт», «паста карбонара»"},
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "name": "food_delivery",
+                "description": (
+                    "Сгенерировать прямые ссылки на Glovo, Bolt Food, Rocket для доставки еды в Одессе. "
+                    "Триггеры: «закажи пиццу», «доставка суши», «есть хочу», «glovo»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Что заказать: «пицца Margherita», «суши Philadelphia», «борщ»"},
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "name": "write_cooking_note",
+                "description": (
+                    "Сохранить кулинарную заметку/рецепт в лист «Заметки» Google Sheets. "
+                    "Триггеры: «запиши рецепт», «сохрани заметку про плов», «запомни как готовили»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "Текст заметки"},
+                    },
+                    "required": ["text"],
+                },
+            },
+            {
                 "name": "log_health_event",
                 "description": (
                     "Записать событие здоровья для любого члена семьи (matvey/eugene/marina). "
@@ -976,6 +1019,12 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "search_recipe":
+                return await self._tool_search_recipe(args.get("query") or "")
+            if name == "food_delivery":
+                return await self._tool_food_delivery(args.get("query") or "")
+            if name == "write_cooking_note":
+                return await self._tool_write_cooking_note(args.get("text") or "")
             if name == "log_health_event":
                 return await self._tool_log_health_event(
                     member=args.get("member") or "",
@@ -2012,6 +2061,50 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_search_recipe(self, query: str) -> dict:
+        if not query.strip():
+            return {"error": "query is empty"}
+        try:
+            from src.integrations.web_search import WebSearchClient
+            client = WebSearchClient()
+            results = await client.search(query, max_results=5)
+            return {
+                "query": query,
+                "count": len(results),
+                "results": [
+                    {"title": r.title, "url": r.url, "snippet": r.snippet[:200]}
+                    for r in results
+                ],
+            }
+        except Exception as e:
+            log.exception("altron_search_recipe_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_food_delivery(self, query: str) -> dict:
+        if not query.strip():
+            return {"error": "query is empty"}
+        try:
+            from src.integrations.food_delivery import build_deeplinks
+            links = build_deeplinks(query, city="Odessa")
+            return {"query": query, "links": links}
+        except Exception as e:
+            log.exception("altron_food_delivery_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_write_cooking_note(self, text: str) -> dict:
+        if not text.strip():
+            return {"error": "text is empty"}
+        try:
+            from src.integrations.sheets import SheetsClient
+            sheets = SheetsClient.from_settings(self._settings)
+            if not sheets:
+                return {"error": "Google Sheets не настроен"}
+            res = await sheets.append_note(text=text, time=now_kyiv(), author="Альтрон")
+            return {"success": True, "text": text[:80], "sheet_result": res}
+        except Exception as e:
+            log.exception("altron_cook_note_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_log_health_event(
