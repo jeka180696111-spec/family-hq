@@ -62,6 +62,7 @@ _WRITE_TOOLS = frozenset({
     "log_health_event", "log_parent_sleep",
     "write_cooking_note",
     "log_fuel",
+    "toggle_automation", "delete_automation",
 })
 
 
@@ -711,6 +712,43 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "list_automations",
+                "description": (
+                    "Список правил автоматизации умного дома (IF-THEN). "
+                    "Триггеры: «какие автоматизации?», «покажи правила», «что работает автоматом»."
+                ),
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "toggle_automation",
+                "description": (
+                    "Включить/выключить правило автоматизации по имени. "
+                    "Триггеры: «выключи правило X», «включи автоматизацию Y»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Имя правила"},
+                        "enabled": {"type": "boolean", "description": "true=вкл, false=выкл"},
+                    },
+                    "required": ["name", "enabled"],
+                },
+            },
+            {
+                "name": "delete_automation",
+                "description": (
+                    "Удалить правило автоматизации по имени. "
+                    "Триггеры: «удали правило X», «убери автоматизацию»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                    },
+                    "required": ["name"],
+                },
+            },
+            {
                 "name": "plan_route",
                 "description": (
                     "Построить маршрут через Google Maps: расстояние, время в пути с пробками, "
@@ -1069,6 +1107,15 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "list_automations":
+                return await self._tool_list_automations()
+            if name == "toggle_automation":
+                return await self._tool_toggle_automation(
+                    name_=args.get("name") or "",
+                    enabled=bool(args.get("enabled")),
+                )
+            if name == "delete_automation":
+                return await self._tool_delete_automation(name_=args.get("name") or "")
             if name == "plan_route":
                 return await self._tool_plan_route(
                     origin=args.get("origin") or "Одесса",
@@ -2127,6 +2174,74 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_list_automations(self) -> dict:
+        """Список AutomationRule."""
+        try:
+            from sqlalchemy import select
+            from src.db.models import AutomationRule
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(AutomationRule).order_by(AutomationRule.name)
+                ))
+            return {
+                "count": len(rows),
+                "rules": [
+                    {
+                        "name": r.name,
+                        "description": r.description or "",
+                        "enabled": bool(r.enabled),
+                        "fired_count": r.fired_count,
+                        "last_fired_at": r.last_fired_at,
+                    }
+                    for r in rows
+                ],
+            }
+        except Exception as e:
+            log.exception("altron_list_automations_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_toggle_automation(self, name_: str, enabled: bool) -> dict:
+        if not name_.strip():
+            return {"error": "name is empty"}
+        try:
+            from sqlalchemy import select, update
+            from src.db.models import AutomationRule
+            async with self._memory._engine.begin() as conn:
+                r = (await conn.execute(
+                    select(AutomationRule).where(AutomationRule.name == name_)
+                )).first()
+                if not r:
+                    return {"error": f"Правило «{name_}» не найдено"}
+                await conn.execute(
+                    update(AutomationRule)
+                    .where(AutomationRule.name == name_)
+                    .values(enabled=1 if enabled else 0)
+                )
+            return {"success": True, "name": name_, "enabled": enabled}
+        except Exception as e:
+            log.exception("altron_toggle_automation_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_delete_automation(self, name_: str) -> dict:
+        if not name_.strip():
+            return {"error": "name is empty"}
+        try:
+            from sqlalchemy import delete, select
+            from src.db.models import AutomationRule
+            async with self._memory._engine.begin() as conn:
+                r = (await conn.execute(
+                    select(AutomationRule).where(AutomationRule.name == name_)
+                )).first()
+                if not r:
+                    return {"error": f"Правило «{name_}» не найдено"}
+                await conn.execute(
+                    delete(AutomationRule).where(AutomationRule.name == name_)
+                )
+            return {"success": True, "name": name_, "deleted": True}
+        except Exception as e:
+            log.exception("altron_delete_automation_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_plan_route(self, origin: str, destination: str) -> dict:
