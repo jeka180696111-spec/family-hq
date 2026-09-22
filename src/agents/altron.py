@@ -50,6 +50,19 @@ _SYSTEM_PROMPT = """Ты Альтрон — семейный ИИ штаба Е�
 """
 
 
+_WRITE_TOOLS = frozenset({
+    "run_scene", "control_socket",
+    "record_baby_event", "record_milestone", "record_doctor_visit", "record_feeding",
+    "create_calendar_event", "delete_calendar_event",
+    "add_shopping_item", "mark_shopping_done",
+    "add_parcel", "refresh_parcel", "mark_parcel_received",
+    "add_news_channel", "remove_news_channel",
+    "remember_parking", "remember_fact",
+    "activate_blackout_mode",
+    "log_health_event", "log_parent_sleep",
+})
+
+
 class AltronAgent:
     """Единый ассистент. Отвечает на сообщения из ALTRON_CHAT_ID.
 
@@ -71,6 +84,43 @@ class AltronAgent:
         # для Этапа 2 нормально. Позже переедет в БД.
         self._history: dict[int, list[dict]] = {}
         self._HISTORY_LIMIT = 20  # сообщений (user + assistant), суммарно
+
+    @staticmethod
+    def _synth_from_results(results: list[dict]) -> str:
+        """Собрать финальный ответ прямо из свежих результатов write-tools —
+        чтобы не гонять ещё один turn Gemini после успешной команды."""
+        parts: list[str] = []
+        for res in results:
+            if not isinstance(res, dict):
+                continue
+            if res.get("success") is True:
+                nm = (
+                    res.get("scene_name")
+                    or res.get("device")
+                    or res.get("title")
+                    or res.get("milestone")
+                    or res.get("product")
+                    or res.get("event")
+                )
+                parts.append(f"Готово: {nm}." if nm else "Готово.")
+            elif res.get("reason"):
+                variants = res.get("available_scenes") or res.get("available") or []
+                if variants:
+                    parts.append(
+                        f"Не нашёл: {res['reason']}. Есть: "
+                        + ", ".join(str(v) for v in variants[:8]) + "."
+                    )
+                else:
+                    parts.append(f"Не получилось: {res['reason']}")
+            elif res.get("error"):
+                parts.append(f"Не смог: {str(res['error'])[:120]}")
+            elif res.get("note"):
+                parts.append(str(res["note"])[:200])
+            else:
+                # Успех без явного success:True (напр. record_baby_event
+                # возвращает {"row_id": ..., "when": ...})
+                parts.append("Готово.")
+        return " ".join(parts).strip()
 
     @staticmethod
     def _synth_from_tool_results(messages: list[dict]) -> str:
@@ -2442,5 +2492,16 @@ class AltronAgent:
                 for tc, res in paired
             ]
             messages.append({"role": "user", "content": tool_results})
+
+            # FAST PATH: если ВСЕ вызовы были write/action-tools И все успешны
+            # (или все явно неуспешны с понятным reason) — отвечаем сразу
+            # из результатов, не гоняя ещё один turn через Gemini. Пользователь
+            # видит команду выполненной И ответ одновременно.
+            if paired and all(tc.name in _WRITE_TOOLS for tc, _ in paired):
+                synth = self._synth_from_results([res for _, res in paired])
+                if synth:
+                    self._append_history(chat_id, user_msg["role"], user_msg["content"])
+                    self._append_history(chat_id, "assistant", synth)
+                    return synth
 
         return "Слишком долго думаю. Попробуй перефразировать?"
