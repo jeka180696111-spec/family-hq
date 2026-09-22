@@ -69,7 +69,7 @@ class AltronBot:
             log.info("altron_incoming", text=text[:60], user=user)
             try:
                 await context.bot.send_chat_action(msg.chat_id, ChatAction.TYPING)
-                reply = await agent.handle(text, user_name=user)
+                reply = await agent.handle(text, user_name=user, chat_id=msg.chat_id)
                 if reply:
                     await msg.reply_text(reply)
             except Exception as e:
