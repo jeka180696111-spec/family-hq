@@ -262,22 +262,79 @@ class GeminiClient:
     # ─── Tool calling (Claude-compatible adapter) ─────────────────────
 
     @staticmethod
+    def _sanitize_schema(schema: Any) -> Any:
+        """Strip JSON Schema features Gemini rejects: additionalProperties,
+        $schema, $id, empty-string enum values, and unknown keywords."""
+        if not isinstance(schema, dict):
+            return schema
+        allowed = {
+            "type", "properties", "required", "description", "items",
+            "enum", "format", "minimum", "maximum", "nullable",
+            "example", "default", "anyOf", "oneOf",
+        }
+        out: dict[str, Any] = {}
+        for k, v in schema.items():
+            if k not in allowed:
+                continue
+            if k == "enum" and isinstance(v, list):
+                v = [x for x in v if x not in ("", None)]
+                if not v:
+                    continue
+            if k == "properties" and isinstance(v, dict):
+                v = {pk: GeminiClient._sanitize_schema(pv) for pk, pv in v.items()}
+            elif k == "items":
+                v = GeminiClient._sanitize_schema(v)
+            elif k in ("anyOf", "oneOf") and isinstance(v, list):
+                v = [GeminiClient._sanitize_schema(x) for x in v]
+            out[k] = v
+        return out
+
+    @staticmethod
     def _translate_tools(claude_tools: list[dict]) -> list[dict]:
         """Convert Claude tool defs (`name`/`description`/`input_schema`)
         to Gemini function declarations."""
         decls = []
         for t in claude_tools or []:
+            schema = t.get("input_schema") or {"type": "object", "properties": {}}
             decls.append({
                 "name": t.get("name", ""),
                 "description": (t.get("description") or "")[:1024],
-                "parameters": t.get("input_schema") or {"type": "object", "properties": {}},
+                "parameters": GeminiClient._sanitize_schema(schema),
             })
         return [{"functionDeclarations": decls}] if decls else []
 
     @staticmethod
     def _translate_messages_with_tools(messages: list[dict]) -> list[dict]:
         """Translate Claude-style message history (which may include
-        tool_result blocks) to Gemini contents."""
+        tool_result blocks) to Gemini contents.
+
+        Handles both dict-form blocks and duck-typed _TextBlock/_ToolUseBlock
+        instances that AltronAgent stores back into history verbatim.
+        Also maps tool_use_id → tool name so functionResponse can carry the
+        function name Gemini expects.
+        """
+        def _btype(b: Any) -> str:
+            if isinstance(b, dict):
+                return b.get("type", "")
+            return getattr(b, "type", "")
+
+        def _bget(b: Any, key: str, default=None):
+            if isinstance(b, dict):
+                return b.get(key, default)
+            return getattr(b, key, default)
+
+        id_to_name: dict[str, str] = {}
+        for m in messages or []:
+            content = m.get("content", "")
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                if _btype(block) == "tool_use":
+                    tid = _bget(block, "id", "") or ""
+                    tname = _bget(block, "name", "") or ""
+                    if tid and tname:
+                        id_to_name[tid] = tname
+
         contents: list[dict] = []
         for m in messages or []:
             role = m.get("role", "user")
@@ -286,27 +343,27 @@ class GeminiClient:
             if isinstance(content, str):
                 contents.append({"role": gem_role, "parts": [{"text": content}]})
                 continue
-            parts = []
+            parts: list[dict] = []
             for block in (content if isinstance(content, list) else []):
-                if not isinstance(block, dict):
-                    continue
-                btype = block.get("type")
+                btype = _btype(block)
                 if btype == "text":
-                    parts.append({"text": block.get("text", "")})
+                    parts.append({"text": _bget(block, "text", "") or ""})
                 elif btype == "tool_use":
                     parts.append({"functionCall": {
-                        "name": block.get("name", ""),
-                        "args": block.get("input", {}) or {},
+                        "name": _bget(block, "name", "") or "",
+                        "args": _bget(block, "input", {}) or {},
                     }})
                 elif btype == "tool_result":
-                    # Anthropic returns tool result with role=user in next turn
-                    val = block.get("content", "")
+                    val = _bget(block, "content", "")
                     if isinstance(val, list):
                         val = " ".join(
-                            b.get("text", "") for b in val if isinstance(b, dict)
+                            (b.get("text", "") if isinstance(b, dict) else "")
+                            for b in val
                         )
+                    tuid = _bget(block, "tool_use_id", "") or ""
+                    fname = id_to_name.get(tuid) or (tuid[:60] if tuid else "tool")
                     parts.append({"functionResponse": {
-                        "name": block.get("tool_use_id", "tool")[:60],
+                        "name": fname,
                         "response": {"result": str(val)},
                     }})
             if parts:
@@ -376,9 +433,13 @@ class GeminiClient:
                                 continue
                             if resp.status >= 400:
                                 st["other"] += 1
+                                err_text = await resp.text()
+                                log.warning(
+                                    "gemini_tools_http_error",
+                                    model=m, status=resp.status, body=err_text[:600],
+                                )
                                 if not st["first_err"]:
-                                    err_text = await resp.text()
-                                    st["first_err"] = f"HTTP {resp.status} on {m}: {err_text[:120]}"
+                                    st["first_err"] = f"HTTP {resp.status} on {m}: {err_text[:400]}"
                                 continue
                             data = await resp.json()
                         self._working_model = m
