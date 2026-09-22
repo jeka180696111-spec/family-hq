@@ -51,6 +51,8 @@ _SYSTEM_PROMPT = """Ты Альтрон — семейный ассистент 
 - КАЛЕНДАРЬ: get_calendar_today (что впереди), create_calendar_event (поставить встречу),
   delete_calendar_event (отменить)
 - СПИСОК ПОКУПОК: get_shopping_list, add_shopping_item, mark_shopping_done
+- ПОСЫЛКИ: get_parcels, add_parcel (отслеживать по TTN), refresh_parcel (обновить статус),
+  mark_parcel_received (забрал)
 
 ВАЖНО про Матвея — источники данных:
 - get_baby_state → быстрый статус (спит/бодрствует, последнее кормление,
@@ -463,6 +465,66 @@ class AltronAgent:
                     "required": ["item"],
                 },
             },
+            {
+                "name": "add_parcel",
+                "description": (
+                    "Добавить посылку Новой Почты в отслеживание по TTN (14 цифр). "
+                    "Триггеры: «отследи посылку 20 4515 0027 4857», «жду посылку», "
+                    "«вот ТТН». Автоматически подтянет статус и город."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "ttn": {
+                            "type": "string",
+                            "description": "14-значный ТТН Новой Почты (пробелы и дефисы ок, вырежу)",
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "Опционально: короткое имя (напр. «памперсы», «наушники»)",
+                        },
+                        "member": {
+                            "type": "string",
+                            "description": "Опционально: кому (Евгений/Марина/семье)",
+                        },
+                    },
+                    "required": ["ttn"],
+                },
+            },
+            {
+                "name": "refresh_parcel",
+                "description": (
+                    "Принудительно обновить статус конкретной посылки в НП. "
+                    "По TTN если задан, иначе — все активные."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "ttn": {
+                            "type": "string",
+                            "description": "Опционально: ТТН конкретной посылки",
+                        },
+                    },
+                    "required": [],
+                },
+            },
+            {
+                "name": "mark_parcel_received",
+                "description": (
+                    "Отметить посылку как забранную (после самовывоза с отделения). "
+                    "Триггеры: «забрал посылку», «получил заказ», «вычеркни памперсы из посылок»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "ttn": {
+                            "type": "string",
+                            "description": "ТТН или fuzzy-часть имени посылки",
+                        },
+                    },
+                    "required": ["ttn"],
+                },
+            },
         ]
 
     async def _exec_tool(self, name: str, args: dict) -> dict:
@@ -543,6 +605,16 @@ class AltronAgent:
                 )
             if name == "mark_shopping_done":
                 return await self._tool_mark_shopping_done(item=args.get("item") or "")
+            if name == "add_parcel":
+                return await self._tool_add_parcel(
+                    ttn=args.get("ttn") or "",
+                    title=args.get("title") or "",
+                    member=args.get("member") or "family",
+                )
+            if name == "refresh_parcel":
+                return await self._tool_refresh_parcel(ttn=args.get("ttn") or "")
+            if name == "mark_parcel_received":
+                return await self._tool_mark_parcel_received(ttn=args.get("ttn") or "")
             return {"error": f"unknown tool: {name}"}
         except Exception as e:
             log.exception("altron_tool_failed", tool=name)
@@ -1113,6 +1185,155 @@ class AltronAgent:
             return {"success": True, "item": target.item}
         except Exception as e:
             log.exception("altron_shopping_done_failed", item=item)
+            return {"error": str(e)[:200]}
+
+    async def _tool_add_parcel(self, ttn: str, title: str = "", member: str = "family") -> dict:
+        """Добавить посылку по TTN. Подтягиваем статус из НП и сохраняем в Parcel."""
+        import re
+        clean = re.sub(r"[\s\-]", "", ttn or "")
+        if not clean or not clean.isdigit():
+            return {"error": "TTN должен состоять из цифр"}
+        try:
+            from sqlalchemy import insert, select
+            from sqlalchemy import update as sql_update
+            from src.db.models import Parcel
+            from src.integrations.nova_poshta import NovaPoshtaClient
+            from src.utils.time import iso_now
+            client = NovaPoshtaClient.from_settings(self._settings)
+            if not client:
+                return {"error": "Новая Почта не настроена (NOVA_POSHTA_API_KEY)"}
+            status = await client.track(clean)
+            async with self._memory._engine.begin() as conn:
+                existing = (await conn.execute(
+                    select(Parcel).where(Parcel.ttn == clean)
+                )).first()
+                now = iso_now()
+                values = {
+                    "status": status.get("status"),
+                    "status_code": str(status.get("status_code") or ""),
+                    "city_from": status.get("city_from") or None,
+                    "city_to": status.get("city_to") or None,
+                    "warehouse": status.get("warehouse") or None,
+                    "weight_kg": status.get("weight_kg"),
+                    "cost_uah": status.get("total_uah"),
+                    "scheduled_at": status.get("scheduled_at") or None,
+                    "last_checked_at": now,
+                }
+                if any(k in (status.get("status") or "").lower()
+                       for k in ("отримано", "получено", "delivered", "видано")):
+                    values["delivered_at"] = now
+                if existing:
+                    if title:
+                        values["title"] = title
+                    if member:
+                        values["member"] = member
+                    await conn.execute(sql_update(Parcel).where(Parcel.ttn == clean).values(**values))
+                else:
+                    values.update({
+                        "ttn": clean,
+                        "title": title or clean,
+                        "member": member or "family",
+                        "created_at": now,
+                    })
+                    await conn.execute(insert(Parcel).values(**values))
+            return {
+                "success": True,
+                "ttn": clean,
+                "status": status.get("status"),
+                "city_to": status.get("city_to"),
+                "warehouse": status.get("warehouse"),
+                "scheduled_at": status.get("scheduled_at"),
+            }
+        except Exception as e:
+            log.exception("altron_add_parcel_failed", ttn=clean)
+            return {"error": str(e)[:200]}
+
+    async def _tool_refresh_parcel(self, ttn: str = "") -> dict:
+        """Принудительно опросить НП: одну по TTN или все активные."""
+        try:
+            from sqlalchemy import select
+            from sqlalchemy import update as sql_update
+            from src.db.models import Parcel
+            from src.integrations.nova_poshta import NovaPoshtaClient
+            from src.utils.time import iso_now
+            client = NovaPoshtaClient.from_settings(self._settings)
+            if not client:
+                return {"error": "Новая Почта не настроена"}
+            async with self._memory._engine.connect() as conn:
+                if ttn.strip():
+                    import re
+                    clean = re.sub(r"[\s\-]", "", ttn)
+                    rows = list(await conn.execute(select(Parcel).where(Parcel.ttn == clean)))
+                else:
+                    rows = list(await conn.execute(
+                        select(Parcel).where(Parcel.delivered_at.is_(None))
+                    ))
+            updated = 0
+            for r in rows:
+                obj = r[0] if hasattr(r, "_mapping") else r
+                try:
+                    status = await client.track(obj.ttn)
+                    values = {
+                        "status": status.get("status"),
+                        "warehouse": status.get("warehouse") or None,
+                        "last_checked_at": iso_now(),
+                    }
+                    if any(k in (status.get("status") or "").lower()
+                           for k in ("отримано", "получено", "delivered", "видано")):
+                        values["delivered_at"] = iso_now()
+                    async with self._memory._engine.begin() as w:
+                        await w.execute(sql_update(Parcel).where(Parcel.ttn == obj.ttn).values(**values))
+                    updated += 1
+                except Exception:
+                    log.exception("altron_refresh_parcel_one_failed", ttn=obj.ttn)
+            return {"success": True, "updated": updated}
+        except Exception as e:
+            log.exception("altron_refresh_parcel_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_mark_parcel_received(self, ttn: str) -> dict:
+        """Отметить посылку как забранную. TTN может быть подстрокой имени."""
+        if not ttn.strip():
+            return {"error": "ttn required"}
+        try:
+            import re
+            from sqlalchemy import select
+            from sqlalchemy import update as sql_update
+            from src.db.models import Parcel
+            from src.utils.time import iso_now
+            clean = re.sub(r"[\s\-]", "", ttn)
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(Parcel).where(Parcel.delivered_at.is_(None))
+                ))
+            target = None
+            for r in rows:
+                obj = r[0] if hasattr(r, "_mapping") else r
+                if clean.isdigit() and clean in (obj.ttn or ""):
+                    target = obj
+                    break
+                title_norm = (obj.title or "").lower()
+                if ttn.lower() in title_norm or title_norm in ttn.lower():
+                    target = obj
+                    break
+            if not target:
+                names = []
+                for r in rows:
+                    obj = r[0] if hasattr(r, "_mapping") else r
+                    names.append(f"{obj.title or obj.ttn}")
+                return {
+                    "success": False,
+                    "reason": f"не нашёл активную посылку по «{ttn}»",
+                    "available": names[:20],
+                }
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(
+                    sql_update(Parcel).where(Parcel.ttn == target.ttn)
+                    .values(delivered_at=iso_now())
+                )
+            return {"success": True, "ttn": target.ttn, "title": target.title}
+        except Exception as e:
+            log.exception("altron_mark_parcel_received_failed", ttn=ttn)
             return {"error": str(e)[:200]}
 
     # ─── Main entry: handle user message ────────────────────────────
