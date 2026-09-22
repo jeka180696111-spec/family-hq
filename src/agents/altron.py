@@ -41,6 +41,19 @@ _SYSTEM_PROMPT = """Ты Альтрон — семейный ассистент 
 - Посылки Новой Почты
 - УПРАВЛЯТЬ светом и сценами дома через run_scene (например «сцена ярко спальня»)
 - ВКЛ/ВЫКЛ розетки (бойлер, телевизор, пылесос) через control_socket
+- ЗАПИСЫВАТЬ события Матвея через record_baby_event: кормление, сон, подгузник,
+  температура, симптомы, лекарства, заметки
+
+Важно про запись событий:
+- «Матвей поел» → record_baby_event(kind=food, event=«Кормление»)
+- «покакал» → record_baby_event(kind=diaper, event=«Какал»)
+- «поменяли памперс» → record_baby_event(kind=diaper, event=«Мокрый»)
+- «уложили спать» / «уснул» → record_baby_event(kind=sleep, event=«Уснул»)
+- «проснулся» → record_baby_event(kind=sleep, event=«Проснулся»)
+- «съел смесь 150мл» → kind=food, event=«Смесь», amount=150, unit=мл
+- «температура 37.2» → kind=symptom, event=«Температура», amount=37.2, unit=°C
+- «дали парацетамол 2.5мл» → kind=medicine, event=«Парацетамол», amount=2.5, unit=мл
+- После успешной записи коротко подтверди: «Записал. Матвей поел в 12:35.»
 
 Важно про управление:
 - Если фраза похожа на команду («включи», «выключи», «запусти», «включай»,
@@ -169,6 +182,41 @@ class AltronAgent:
                     "required": ["device", "action"],
                 },
             },
+            {
+                "name": "record_baby_event",
+                "description": (
+                    "Записать событие Матвея (в дневник Google Sheets + BabyState для UI). "
+                    "Триггеры: «Матвей поел», «поменяли памперс», «уложили спать», "
+                    "«проснулся», «съел смесь 150мл», «покакал», «замерили температуру 37.2»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "kind": {
+                            "type": "string",
+                            "enum": ["food", "sleep", "diaper", "symptom", "medicine", "note"],
+                            "description": "food=кормление, sleep=сон/пробуждение, diaper=подгузник, symptom=симптом/температура, medicine=лекарство, note=заметка",
+                        },
+                        "event": {
+                            "type": "string",
+                            "description": "Короткое описание события: «Уснул», «Проснулся», «Грудь Л», «Грудь П», «Смесь», «Мокрый», «Какал», «Смешанный», «Температура», «Прикорм»",
+                        },
+                        "amount": {
+                            "type": "number",
+                            "description": "Опционально: количество (мл смеси, градусы температуры, дозировка лекарства)",
+                        },
+                        "unit": {
+                            "type": "string",
+                            "description": "Опционально: единица измерения (мл, °C, мг)",
+                        },
+                        "details": {
+                            "type": "string",
+                            "description": "Опционально: дополнительная заметка",
+                        },
+                    },
+                    "required": ["kind", "event"],
+                },
+            },
         ]
 
     async def _exec_tool(self, name: str, args: dict) -> dict:
@@ -191,6 +239,14 @@ class AltronAgent:
             if name == "control_socket":
                 return await self._tool_control_socket(
                     args.get("device") or "", args.get("action") or "toggle",
+                )
+            if name == "record_baby_event":
+                return await self._tool_record_baby_event(
+                    kind=args.get("kind") or "note",
+                    event=args.get("event") or "",
+                    amount=args.get("amount"),
+                    unit=args.get("unit"),
+                    details=args.get("details") or "",
                 )
             return {"error": f"unknown tool: {name}"}
         except Exception as e:
@@ -382,6 +438,76 @@ class AltronAgent:
             return result
         except Exception as e:
             log.exception("altron_socket_failed", device=device, action=action)
+            return {"error": str(e)[:200]}
+
+    async def _tool_record_baby_event(
+        self, kind: str, event: str, amount: Any = None,
+        unit: Any = None, details: str = "",
+    ) -> dict:
+        """Записать событие Матвея: в дневник Sheets + в BabyState для UI."""
+        if not event.strip():
+            return {"error": "event is empty"}
+        try:
+            from datetime import datetime
+            from sqlalchemy import select, update
+            from src.db.models import BabyState
+            from src.utils.time import iso_now, now_kyiv
+
+            now = now_kyiv()
+            ts_iso = now.isoformat()
+
+            # 1) Запись в Google Sheets (если есть Sheets-клиент)
+            sheets_row = None
+            try:
+                from src.integrations.sheets import SheetsClient
+                sa = self._settings.google_service_account_json
+                if sa and self._settings.sheet_baby_id:
+                    sc = SheetsClient(sa, self._settings.sheet_baby_id, "")
+                    sheets_row = await sc.append_baby_diary(
+                        kind=kind, event=event, time=now,
+                        amount=float(amount) if amount is not None else None,
+                        unit=str(unit) if unit else None,
+                        details=details, author="Альтрон",
+                    )
+            except Exception:
+                log.exception("altron_sheets_write_failed")
+
+            # 2) Обновление BabyState (то же что делает Нянька)
+            event_l = event.lower()
+            kind_l = kind.lower()
+            values: dict = {"updated_at": iso_now()}
+            if kind_l == "sleep":
+                if any(w in event_l for w in ("уснул", "уснула", "усн", "лёг", "лег", "спит", "начал спать")):
+                    values["sleeping_since"] = ts_iso
+                    values["awake_since"] = None
+                elif any(w in event_l for w in ("проснул", "встал", "разбудил", "просып")):
+                    values["awake_since"] = ts_iso
+                    values["sleeping_since"] = None
+            elif kind_l == "food":
+                values["last_feed_at"] = ts_iso
+            elif kind_l == "diaper":
+                values["last_diaper_at"] = ts_iso
+
+            if len(values) > 1:  # что-то помимо updated_at
+                async with self._memory._engine.begin() as conn:
+                    row = (await conn.execute(select(BabyState).where(BabyState.id == 1))).first()
+                    if row:
+                        await conn.execute(update(BabyState).where(BabyState.id == 1).values(**values))
+                    else:
+                        # Создаём если ещё нет
+                        from sqlalchemy import insert
+                        await conn.execute(insert(BabyState).values(id=1, **values))
+
+            return {
+                "success": True,
+                "kind": kind,
+                "event": event,
+                "recorded_at": ts_iso,
+                "sheets_row": sheets_row.data if sheets_row else None,
+                "baby_state_updated": len(values) > 1,
+            }
+        except Exception as e:
+            log.exception("altron_record_baby_failed", kind=kind, event=event)
             return {"error": str(e)[:200]}
 
     # ─── Main entry: handle user message ────────────────────────────
