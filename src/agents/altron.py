@@ -62,6 +62,9 @@ _SYSTEM_PROMPT = """Ты Альтрон — семейный ассистент 
 - ПЛАН КВАРТИРЫ: get_home_map («что у нас в спальне?», «какие сцены есть?»,
   «покажи все устройства», «карта дома»). Передавай room=«спальня» и т.п.
   чтобы сузить.
+- DEVOPS: get_system_status («как система?», «всё работает?»),
+  list_open_prs («какие PR открыты?»), get_railway_status («деплой прошёл?»,
+  «Railway живой?»).
 
 ВАЖНО про Матвея — источники данных:
 - get_baby_state → быстрый статус (спит/бодрствует, последнее кормление,
@@ -673,6 +676,32 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "get_system_status",
+                "description": (
+                    "Здоровье Family HQ: сколько каналов Дозорный мониторит, "
+                    "когда был последний пост, активные тревоги, что настроено "
+                    "(Sheets/Calendar/GitHub/Railway/Tuya), какая модель LLM. "
+                    "Триггеры: «как система?», «всё работает?», «статус HQ», «здоровье»."
+                ),
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "list_open_prs",
+                "description": (
+                    "Открытые pull request-ы в репо family-hq на GitHub. "
+                    "Триггеры: «какие PR открыты?», «что в работе?», «показать PR»."
+                ),
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "get_railway_status",
+                "description": (
+                    "Статус сервисов на Railway (задеплоено ли, крашится ли). "
+                    "Триггеры: «Railway живой?», «деплой прошёл?», «что с прод?»."
+                ),
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
                 "name": "get_home_map",
                 "description": (
                     "Карта квартиры: устройства и сцены Tuya сгруппированные по комнатам "
@@ -824,6 +853,12 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "get_system_status":
+                return await self._tool_get_system_status()
+            if name == "list_open_prs":
+                return await self._tool_list_open_prs()
+            if name == "get_railway_status":
+                return await self._tool_get_railway_status()
             if name == "get_home_map":
                 return await self._tool_get_home_map(room=args.get("room") or "")
             if name == "activate_blackout_mode":
@@ -1830,6 +1865,119 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_get_system_status(self) -> dict:
+        """Здоровье Family HQ — каналы, посты, тревоги, интеграции, модель."""
+        try:
+            from sqlalchemy import select
+            from src.db.models import ActiveAlert, NewsChannel, NewsPost
+            from src.utils.time import now_kyiv
+            from datetime import datetime as _dt
+
+            async with self._memory._engine.connect() as conn:
+                channels = list(await conn.execute(select(NewsChannel)))
+                alerts = list(await conn.execute(select(ActiveAlert)))
+                last_post = (await conn.execute(
+                    select(NewsPost.date).order_by(NewsPost.date.desc()).limit(1)
+                )).first()
+
+            ch_by_cat: dict[str, int] = {}
+            inactive = 0
+            for c in channels:
+                ch_by_cat[c.category] = ch_by_cat.get(c.category, 0) + 1
+                if not c.active:
+                    inactive += 1
+
+            last_post_iso = last_post[0] if last_post else None
+            last_post_lag_min = None
+            if last_post_iso:
+                try:
+                    lag = now_kyiv() - _dt.fromisoformat(last_post_iso)
+                    last_post_lag_min = int(lag.total_seconds() / 60)
+                except Exception:
+                    pass
+
+            s = self._settings
+            return {
+                "news_channels": {
+                    "total": len(channels),
+                    "by_category": ch_by_cat,
+                    "inactive": inactive,
+                },
+                "news_posts": {
+                    "last_saved_at": last_post_iso,
+                    "minutes_ago": last_post_lag_min,
+                    "stale": (last_post_lag_min or 0) > 120 if last_post_lag_min is not None else None,
+                },
+                "active_alerts": [
+                    {"region": a.region, "started": a.started_at, "last_update": a.last_update_at}
+                    for a in alerts
+                ],
+                "integrations": {
+                    "google_sheets": bool(getattr(s, "sheet_baby_id", "") and getattr(s, "google_service_account_b64", "")),
+                    "google_calendar": bool(getattr(s, "calendar_id", "") and getattr(s, "google_service_account_b64", "")),
+                    "github": bool(getattr(s, "github_token", "")),
+                    "railway": bool(getattr(s, "railway_api_token", "") and getattr(s, "railway_project_id", "")),
+                    "tuya": bool(getattr(s, "tuya_access_id", "")),
+                    "nova_poshta": bool(getattr(s, "nova_poshta_api_key", "")),
+                },
+                "model": {
+                    "main": getattr(s, "model_main", ""),
+                    "gemini_configured": bool(getattr(s, "gemini_api_key", "")),
+                },
+            }
+        except Exception as e:
+            log.exception("altron_system_status_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_list_open_prs(self) -> dict:
+        """Открытые PR-ы на GitHub."""
+        try:
+            token = getattr(self._settings, "github_token", "")
+            repo = getattr(self._settings, "github_repo", "")
+            if not token or not repo:
+                return {"error": "GitHub не настроен (нет token или repo)"}
+            from src.integrations.github_api import GitHubClient
+            gh = GitHubClient(token=token, repo=repo)
+            prs = await gh.list_open_prs()
+            return {
+                "count": len(prs),
+                "prs": [
+                    {
+                        "number": p.number,
+                        "title": p.title,
+                        "branch": p.branch,
+                        "url": p.html_url,
+                    }
+                    for p in prs
+                ],
+            }
+        except Exception as e:
+            log.exception("altron_list_prs_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_get_railway_status(self) -> dict:
+        """Статус сервисов на Railway."""
+        try:
+            token = getattr(self._settings, "railway_api_token", "")
+            project_id = getattr(self._settings, "railway_project_id", "")
+            if not token or not project_id:
+                return {"error": "Railway не настроен"}
+            from src.integrations.railway_api import RailwayClient
+            rw = RailwayClient(api_token=token, project_id=project_id)
+            services = await rw.get_project_services()
+            return {
+                "services": [
+                    {
+                        "name": s.get("name", ""),
+                        "status": s.get("status", "UNKNOWN"),
+                    }
+                    for s in services
+                ],
+            }
+        except Exception as e:
+            log.exception("altron_railway_status_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_get_home_map(self, room: str = "") -> dict:
