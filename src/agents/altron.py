@@ -59,6 +59,9 @@ _SYSTEM_PROMPT = """Ты Альтрон — семейный ассистент 
 - ДОЛГОВРЕМЕННАЯ ПАМЯТЬ: remember_fact (аллергии, вкусы, размеры), get_facts
 - АВТОНОМИЯ: get_inverter_forecast («на сколько хватит?»), activate_blackout_mode
   (выключить лишнее в блэкаут — ТОЛЬКО с явного согласия юзера!)
+- ПЛАН КВАРТИРЫ: get_home_map («что у нас в спальне?», «какие сцены есть?»,
+  «покажи все устройства», «карта дома»). Передавай room=«спальня» и т.п.
+  чтобы сузить.
 
 ВАЖНО про Матвея — источники данных:
 - get_baby_state → быстрый статус (спит/бодрствует, последнее кормление,
@@ -670,6 +673,26 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "get_home_map",
+                "description": (
+                    "Карта квартиры: устройства и сцены Tuya сгруппированные по комнатам "
+                    "(спальня, детская, кухня, гостиная, ванная, коридор, балкон). "
+                    "Показывает какие розетки/лампы/датчики в какой комнате, онлайн ли, "
+                    "и какие сцены к комнате привязаны. Триггеры: «что у нас в спальне?», "
+                    "«какие есть сцены?», «покажи все устройства», «карта дома»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "room": {
+                            "type": "string",
+                            "description": "Опционально: фильтр по комнате (спальня/детская/кухня/гостиная/ванная/коридор/балкон)",
+                        },
+                    },
+                    "required": [],
+                },
+            },
+            {
                 "name": "activate_blackout_mode",
                 "description": (
                     "Активировать аварийный режим: включить сцены минимального потребления "
@@ -801,6 +824,8 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "get_home_map":
+                return await self._tool_get_home_map(room=args.get("room") or "")
             if name == "activate_blackout_mode":
                 return await self._tool_activate_blackout_mode()
             return {"error": f"unknown tool: {name}"}
@@ -1805,6 +1830,83 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_get_home_map(self, room: str = "") -> dict:
+        """Устройства + сцены Tuya сгруппированные по комнатам."""
+        try:
+            from src.integrations.tuya import TuyaClient
+            tuya = TuyaClient.from_settings(self._settings)
+            if not tuya:
+                return {"error": "Tuya не настроен"}
+
+            room_keywords = {
+                "спальня": ("спальн", "bedroom"),
+                "детская": ("детск", "малыш", "кроватк", "матве"),
+                "кухня": ("кухн", "kitchen"),
+                "гостиная": ("гостин", "зал", "living"),
+                "ванная": ("ванн", "душ", "bathroom"),
+                "туалет": ("туалет", "wc"),
+                "коридор": ("коридор", "прихож", "hall"),
+                "балкон": ("балкон", "лоджи", "balcony"),
+                "офис": ("офис", "кабинет", "office"),
+            }
+
+            def _room_of(name: str) -> str:
+                n = (name or "").lower()
+                for r, kws in room_keywords.items():
+                    if any(k in n for k in kws):
+                        return r
+                return "другое"
+
+            devices = await tuya.list_devices()
+            scenes = await tuya.list_scenes()
+
+            rooms: dict[str, dict[str, list]] = {}
+            for d in devices:
+                r = _room_of(d.get("name", ""))
+                rooms.setdefault(r, {"devices": [], "scenes": []})
+                rooms[r]["devices"].append({
+                    "name": d.get("name", ""),
+                    "category": d.get("category", ""),
+                    "online": d.get("online", False),
+                })
+            for s in scenes:
+                if s.get("is_automation"):
+                    continue
+                sname = s.get("name") or ""
+                r = _room_of(sname)
+                rooms.setdefault(r, {"devices": [], "scenes": []})
+                rooms[r]["scenes"].append(sname)
+
+            if room:
+                needle = room.lower().strip()
+                matched = None
+                for r in rooms:
+                    if needle in r or any(needle in k for k in room_keywords.get(r, ())):
+                        matched = r
+                        break
+                if matched:
+                    return {"room": matched, **rooms[matched]}
+                return {"error": f"Не нашёл комнату «{room}»", "rooms_available": list(rooms.keys())}
+
+            summary = {
+                r: {
+                    "devices_count": len(v["devices"]),
+                    "online_count": sum(1 for x in v["devices"] if x["online"]),
+                    "scenes_count": len(v["scenes"]),
+                    "devices": [x["name"] for x in v["devices"]],
+                    "scenes": v["scenes"],
+                }
+                for r, v in sorted(rooms.items())
+            }
+            return {
+                "rooms": summary,
+                "total_devices": len(devices),
+                "total_scenes": sum(len(v["scenes"]) for v in rooms.values()),
+            }
+        except Exception as e:
+            log.exception("altron_home_map_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_activate_blackout_mode(self) -> dict:
