@@ -55,6 +55,8 @@ _SYSTEM_PROMPT = """Ты Альтрон — семейный ассистент 
   mark_parcel_received (забрал)
 - ДОЗОРНЫЙ / НОВОСТИ: get_recent_news (последние посты), get_active_alert (тревога сейчас),
   list_news_channels, add_news_channel, remove_news_channel
+- НАВИГАТОР: remember_parking (запомнить где машина), get_parking (спросить)
+- ДОЛГОВРЕМЕННАЯ ПАМЯТЬ: remember_fact (аллергии, вкусы, размеры), get_facts
 
 ВАЖНО про Матвея — источники данных:
 - get_baby_state → быстрый статус (спит/бодрствует, последнее кормление,
@@ -589,6 +591,73 @@ class AltronAgent:
                     "required": ["query"],
                 },
             },
+            {
+                "name": "remember_parking",
+                "description": (
+                    "Запомнить где припарковался. Триггеры: «запомни где машина», "
+                    "«припарковался на Дерибасовской», «поставил у ТРЦ Ривьера»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "location": {
+                            "type": "string",
+                            "description": "Место (адрес, ориентир, координаты — как сказал)",
+                        },
+                        "notes": {
+                            "type": "string",
+                            "description": "Опционально: уровень паркинга, номер места, оплатил и т.п.",
+                        },
+                    },
+                    "required": ["location"],
+                },
+            },
+            {
+                "name": "get_parking",
+                "description": "Где припаркована машина в последний раз (что записал remember_parking).",
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "remember_fact",
+                "description": (
+                    "Запомнить факт о члене семьи. Триггеры: «запомни, у Матвея аллергия на банан», "
+                    "«Марина любит ромашковый чай», «у меня размер обуви 43». Используется всеми "
+                    "будущими ответами Альтрона как контекст."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "member": {
+                            "type": "string",
+                            "enum": ["eugene", "marina", "matvey", "family"],
+                            "description": "О ком факт. eugene=Евгений, marina=Марина, matvey=Матвей, family=про семью",
+                        },
+                        "key": {
+                            "type": "string",
+                            "description": "Категория: «аллергия», «любит», «не любит», «размер», «предпочтение», «привычка»",
+                        },
+                        "value": {"type": "string", "description": "Значение факта"},
+                    },
+                    "required": ["member", "key", "value"],
+                },
+            },
+            {
+                "name": "get_facts",
+                "description": (
+                    "Прочитать все факты семьи (что кто любит, аллергии, размеры, привычки). "
+                    "Используй перед ответами про еду, покупки, подарки."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "member": {
+                            "type": "string",
+                            "description": "Опционально: фильтр по человеку (eugene/marina/matvey/family)",
+                        },
+                    },
+                    "required": [],
+                },
+            },
         ]
 
     async def _exec_tool(self, name: str, args: dict) -> dict:
@@ -695,6 +764,21 @@ class AltronAgent:
                 )
             if name == "remove_news_channel":
                 return await self._tool_remove_news_channel(query=args.get("query") or "")
+            if name == "remember_parking":
+                return await self._tool_remember_parking(
+                    location=args.get("location") or "",
+                    notes=args.get("notes") or "",
+                )
+            if name == "get_parking":
+                return await self._tool_get_parking()
+            if name == "remember_fact":
+                return await self._tool_remember_fact(
+                    member=args.get("member") or "family",
+                    key=args.get("key") or "",
+                    value=args.get("value") or "",
+                )
+            if name == "get_facts":
+                return await self._tool_get_facts(member=args.get("member") or "")
             return {"error": f"unknown tool: {name}"}
         except Exception as e:
             log.exception("altron_tool_failed", tool=name)
@@ -1552,6 +1636,94 @@ class AltronAgent:
         except Exception as e:
             log.exception("altron_remove_channel_failed", query=query)
             return {"error": str(e)[:200]}
+
+    async def _tool_remember_parking(self, location: str, notes: str = "") -> dict:
+        """Запомнить где припарковался — через FamilyFact (member=family, key=парковка)."""
+        if not location.strip():
+            return {"error": "location required"}
+        return await self._upsert_fact("family", "парковка", location + ((" · " + notes) if notes else ""))
+
+    async def _tool_get_parking(self) -> dict:
+        try:
+            from sqlalchemy import select
+            from src.db.models import FamilyFact
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(FamilyFact).where(FamilyFact.key == "парковка")
+                    .order_by(FamilyFact.updated_at.desc()).limit(1)
+                ))
+            if not rows:
+                return {"parked": False, "note": "не помню где машина"}
+            obj = rows[0][0] if hasattr(rows[0], "_mapping") else rows[0]
+            return {
+                "parked": True,
+                "location": obj.value,
+                "when": obj.updated_at,
+            }
+        except Exception as e:
+            log.exception("altron_get_parking_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_remember_fact(self, member: str, key: str, value: str) -> dict:
+        if not (member and key and value):
+            return {"error": "member, key, value required"}
+        return await self._upsert_fact(member.lower(), key, value)
+
+    async def _upsert_fact(self, member: str, key: str, value: str) -> dict:
+        try:
+            from sqlalchemy import select, insert
+            from sqlalchemy import update as sql_update
+            from src.db.models import FamilyFact
+            from src.utils.time import iso_now
+            now = iso_now()
+            async with self._memory._engine.begin() as conn:
+                existing = list(await conn.execute(
+                    select(FamilyFact).where(
+                        FamilyFact.member == member,
+                        FamilyFact.key == key,
+                    )
+                ))
+                if existing:
+                    obj = existing[0][0] if hasattr(existing[0], "_mapping") else existing[0]
+                    await conn.execute(
+                        sql_update(FamilyFact).where(FamilyFact.id == obj.id)
+                        .values(value=value, source="altron", updated_at=now)
+                    )
+                    fact_id = obj.id
+                else:
+                    res = await conn.execute(insert(FamilyFact).values(
+                        member=member, key=key, value=value,
+                        source="altron", created_at=now, updated_at=now,
+                    ))
+                    fact_id = res.inserted_primary_key[0] if res.inserted_primary_key else None
+            return {"success": True, "id": fact_id, "member": member, "key": key, "value": value}
+        except Exception as e:
+            log.exception("altron_upsert_fact_failed", member=member, key=key)
+            return {"error": str(e)[:200]}
+
+    async def _tool_get_facts(self, member: str = "") -> dict:
+        try:
+            from sqlalchemy import select
+            from src.db.models import FamilyFact
+            async with self._memory._engine.connect() as conn:
+                q = select(FamilyFact)
+                if member.strip():
+                    q = q.where(FamilyFact.member == member.strip().lower())
+                q = q.order_by(FamilyFact.member, FamilyFact.key)
+                rows = list(await conn.execute(q))
+            facts = []
+            for r in rows:
+                obj = r[0] if hasattr(r, "_mapping") else r
+                facts.append({
+                    "member": obj.member,
+                    "key": obj.key,
+                    "value": obj.value,
+                    "updated_at": obj.updated_at,
+                })
+            return {"facts": facts, "total": len(facts)}
+        except Exception as e:
+            log.exception("altron_get_facts_failed")
+            return {"error": str(e)[:200], "facts": []}
 
     # ─── Main entry: handle user message ────────────────────────────
 
