@@ -173,11 +173,84 @@ class AltronBot:
                 except Exception:
                     pass
 
+        async def _photo_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            if not update.effective_chat or update.effective_chat.id != allowed_chat:
+                return
+            msg = update.message
+            photos = msg.photo if msg else None
+            if not photos:
+                return
+            user = msg.from_user.first_name if msg.from_user else "?"
+            caption = (msg.caption or "").strip()
+            log.info("altron_photo_incoming", user=user, caption=caption[:60])
+
+            stop_typing = asyncio.Event()
+
+            async def _keep_typing():
+                try:
+                    while not stop_typing.is_set():
+                        try:
+                            await context.bot.send_chat_action(msg.chat_id, ChatAction.TYPING)
+                        except Exception:
+                            pass
+                        try:
+                            await asyncio.wait_for(stop_typing.wait(), timeout=4.0)
+                        except asyncio.TimeoutError:
+                            continue
+                except Exception:
+                    pass
+
+            typing_task = asyncio.create_task(_keep_typing())
+            try:
+                import tempfile, os as _os
+                # Берём самый большой размер (последний в массиве)
+                tg_file = await photos[-1].get_file()
+                fd, path = tempfile.mkstemp(suffix=".jpg")
+                _os.close(fd)
+                try:
+                    await tg_file.download_to_drive(path)
+                    gemini = getattr(agent, "_gemini", None)
+                    if gemini is None or not hasattr(gemini, "vision_complete"):
+                        await msg.reply_text("⚠️ Vision не настроен.")
+                        return
+                    prompt = caption or (
+                        "Опиши что на фото на русском, коротко. "
+                        "Если это чек/анализ/рецепт — извлеки все цифры и названия. "
+                        "Если медицинский документ — перечисли показатели."
+                    )
+                    system = (
+                        "Ты Альтрон — семейный ассистент. Отвечай коротко, по-русски, без канцелярита. "
+                        "Извлекай факты, не выдумывай."
+                    )
+                    reply = await gemini.vision_complete(
+                        image_path=path, prompt=prompt, system=system, max_tokens=800,
+                    )
+                    reply = (reply or "").strip() or "Не смог разобрать фото."
+                    await msg.reply_text(reply)
+                finally:
+                    try:
+                        _os.unlink(path)
+                    except Exception:
+                        pass
+            except Exception as e:
+                log.exception("altron_photo_failed")
+                try:
+                    await msg.reply_text(f"⚠️ С фото упал: {str(e)[:150]}")
+                except Exception:
+                    pass
+            finally:
+                stop_typing.set()
+                try:
+                    await typing_task
+                except Exception:
+                    pass
+
         app = Application.builder().token(self._token).build()
         app.add_handler(CommandHandler("start", _start_cmd))
         app.add_handler(CommandHandler("ping", _ping_cmd))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _text_msg))
         app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, _voice_msg))
+        app.add_handler(MessageHandler(filters.PHOTO, _photo_msg))
         self._app = app
 
         async def _run():
