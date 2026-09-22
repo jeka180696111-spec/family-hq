@@ -57,6 +57,8 @@ _SYSTEM_PROMPT = """Ты Альтрон — семейный ассистент 
   list_news_channels, add_news_channel, remove_news_channel
 - НАВИГАТОР: remember_parking (запомнить где машина), get_parking (спросить)
 - ДОЛГОВРЕМЕННАЯ ПАМЯТЬ: remember_fact (аллергии, вкусы, размеры), get_facts
+- АВТОНОМИЯ: get_inverter_forecast («на сколько хватит?»), activate_blackout_mode
+  (выключить лишнее в блэкаут — ТОЛЬКО с явного согласия юзера!)
 
 ВАЖНО про Матвея — источники данных:
 - get_baby_state → быстрый статус (спит/бодрствует, последнее кормление,
@@ -658,6 +660,24 @@ class AltronAgent:
                     "required": [],
                 },
             },
+            {
+                "name": "get_inverter_forecast",
+                "description": (
+                    "Прогноз автономии инвертора: сколько батареи хватит при текущем потреблении "
+                    "до резервного уровня (обычно 20%). Учитывает солнце и заряд/разряд. "
+                    "Триггеры: «на сколько хватит батареи?», «сколько ещё продержимся?»."
+                ),
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "activate_blackout_mode",
+                "description": (
+                    "Активировать аварийный режим: включить сцены минимального потребления "
+                    "(выключить бойлер, ТВ, лишний свет). Триггеры: «свет вырубили», "
+                    "«режим экономии», «блэкаут». Требует явного согласия пользователя."
+                ),
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
         ]
 
     async def _exec_tool(self, name: str, args: dict) -> dict:
@@ -779,6 +799,10 @@ class AltronAgent:
                 )
             if name == "get_facts":
                 return await self._tool_get_facts(member=args.get("member") or "")
+            if name == "get_inverter_forecast":
+                return await self._tool_get_inverter_forecast()
+            if name == "activate_blackout_mode":
+                return await self._tool_activate_blackout_mode()
             return {"error": f"unknown tool: {name}"}
         except Exception as e:
             log.exception("altron_tool_failed", tool=name)
@@ -1724,6 +1748,102 @@ class AltronAgent:
         except Exception as e:
             log.exception("altron_get_facts_failed")
             return {"error": str(e)[:200], "facts": []}
+
+    async def _tool_get_inverter_forecast(self) -> dict:
+        """Прогноз автономии: время до достижения резервного SOC."""
+        try:
+            from src.integrations.luxcloud import LuxCloudClient
+            lux = LuxCloudClient.from_settings(self._settings)
+            if not lux:
+                return {"error": "инвертор не настроен"}
+            rt = await lux.runtime()
+            soc = rt.get("battery_pct") or rt.get("soc")
+            load_w = rt.get("home_consumption_w") or rt.get("load_w") or 0
+            discharge_w = rt.get("battery_discharge_w") or 0
+            charge_w = rt.get("battery_charge_w") or 0
+            solar_w = rt.get("pv_total_w") or 0
+            capacity_wh = getattr(self._settings, "battery_capacity_wh", 5184)
+            reserve_pct = getattr(self._settings, "battery_reserve_pct", 20)
+            if soc is None:
+                return {"error": "SoC не получен от инвертора"}
+
+            usable_wh = capacity_wh * (max(0, soc - reserve_pct) / 100.0)
+            net_discharge_w = max(0, discharge_w - charge_w)
+
+            # Если сеть работает и батарея не разряжается — сети хватит бесконечно
+            grid_import = rt.get("grid_import_w") or 0
+            if grid_import > 20 and discharge_w < 50:
+                return {
+                    "soc_pct": soc,
+                    "on_grid": True,
+                    "note": "работает от сети, батарея не тратится",
+                    "load_w": load_w,
+                    "solar_w": solar_w,
+                }
+
+            if net_discharge_w < 20:
+                return {
+                    "soc_pct": soc,
+                    "on_grid": False,
+                    "note": "почти не разряжается — солнце покрывает нагрузку",
+                    "load_w": load_w,
+                    "solar_w": solar_w,
+                }
+
+            hours_left = usable_wh / net_discharge_w if net_discharge_w else 0
+            h = int(hours_left)
+            m = int((hours_left - h) * 60)
+            return {
+                "soc_pct": soc,
+                "reserve_pct": reserve_pct,
+                "load_w": load_w,
+                "net_discharge_w": net_discharge_w,
+                "solar_w": solar_w,
+                "usable_wh": round(usable_wh),
+                "hours_left": round(hours_left, 2),
+                "human": f"{h}ч {m:02d}м до резерва {reserve_pct}%",
+            }
+        except Exception as e:
+            log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_activate_blackout_mode(self) -> dict:
+        """Аварийный режим: гонит сцены выключения + отрубает тяжёлые розетки."""
+        results: list[dict] = []
+        try:
+            from src.integrations.tuya import TuyaClient
+            tuya = TuyaClient.from_settings(self._settings)
+            if not tuya:
+                return {"error": "Tuya не настроен"}
+
+            # 1. Пробуем найти сцену «блэкаут» / «свет выкл везде» / «эконом»
+            candidates = ["Блэкаут", "Свет выкл везде", "Эконом", "Выкл везде", "Вырубили свет", "Отключили свет"]
+            scene_hit = None
+            for q in candidates:
+                sc = await tuya.find_scene(q)
+                if sc:
+                    await tuya.run_scene(sc.get("id"))
+                    scene_hit = sc.get("name")
+                    results.append({"scene": sc.get("name"), "success": True})
+                    break
+
+            # 2. Выключаем большие розетки: бойлер, ТВ
+            for dev_name in ("бойлер", "телевизор"):
+                try:
+                    r = await tuya.control(dev_name, "off")
+                    results.append({"device": dev_name, "result": r})
+                except Exception as e:
+                    results.append({"device": dev_name, "error": str(e)[:100]})
+
+            return {
+                "success": True,
+                "scene_used": scene_hit,
+                "actions": results,
+                "note": "Аварийный режим активирован. Бойлер и ТВ отключены. Проверь холодильник и модем чтоб не разряжали батарею.",
+            }
+        except Exception as e:
+            log.exception("altron_blackout_failed")
+            return {"error": str(e)[:200], "actions": results}
 
     # ─── Main entry: handle user message ────────────────────────────
 
