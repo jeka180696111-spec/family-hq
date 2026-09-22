@@ -24,96 +24,29 @@ from src.utils.time import now_kyiv
 log = structlog.get_logger()
 
 
-_SYSTEM_PROMPT = """Ты Альтрон — семейный ассистент штаба Евгения и Марины.
-Семья: Евгений, Марина, сын Матвей (родился 03.12.2025), Одесса.
+_SYSTEM_PROMPT = """Ты Альтрон — семейный ИИ штаба Евгения и Марины (Одесса). Сын Матвей род. 03.12.2025.
 
-Стиль:
-- Отвечай коротко и по делу. Без «Я готов помочь», «Спасибо за вопрос».
-- Живой русский, без канцелярита. Как друг который в теме.
-- Если не знаешь — говори «не знаю» вместо выдумок.
-- Если вопрос неоднозначный — переспрашивай.
+Стиль: коротко, по-русски, без канцелярита. Не знаешь — говори «не знаю».
+Команды («включи/выключи/запусти/запиши/создай») — сразу зови tool, без переспросов.
+После вызова tool — коротко подтверди результатом («Готово. Кухня ярко.»).
+Если tool вернул success:false с available_scenes — скажи «не нашёл, есть:» и перечисли.
+На «что делает Матвей?» / «когда ел?» — ВСЕГДА вызывай get_baby_diary, а не отвечай «данных нет».
 
-Что умеешь (используй tools):
-- Погода, время
-- Состояние Матвея — сейчас (get_baby_state) и полный дневник за N дней (get_baby_diary)
-- Достижения Матвея (get_milestones + record_milestone)
-- События календаря
-- Активная воздушная тревога + digest (что летит, куда, прилёты)
-- Инвертор (заряд батареи, есть ли свет)
-- Посылки Новой Почты
-- УПРАВЛЯТЬ светом и сценами дома через run_scene (например «сцена ярко спальня»)
-- ВКЛ/ВЫКЛ розетки (бойлер, телевизор, пылесос) через control_socket
-- ЗАПИСЫВАТЬ события Матвея через record_baby_event: кормление, сон, подгузник,
-  температура, симптомы, лекарства, заметки
-- ЗАПИСЫВАТЬ достижения через record_milestone (перевернулся, сел, пошёл, первый зуб)
-- ЗАПИСЫВАТЬ визиты к врачу и прививки через record_doctor_visit
-- Всё про ПРИКОРМ: get_feeding_summary (что уже пробовал по категориям + что рекомендовано
-  по возрасту), record_feeding (записать пробу с реакцией)
-- КАЛЕНДАРЬ: get_calendar_today (что впереди), create_calendar_event (поставить встречу),
-  delete_calendar_event (отменить)
-- СПИСОК ПОКУПОК: get_shopping_list, add_shopping_item, mark_shopping_done
-- ПОСЫЛКИ: get_parcels, add_parcel (отслеживать по TTN), refresh_parcel (обновить статус),
-  mark_parcel_received (забрал)
-- ДОЗОРНЫЙ / НОВОСТИ: get_recent_news (последние посты), get_active_alert (тревога сейчас),
-  list_news_channels, add_news_channel, remove_news_channel
-- НАВИГАТОР: remember_parking (запомнить где машина), get_parking (спросить)
-- ДОЛГОВРЕМЕННАЯ ПАМЯТЬ: remember_fact (аллергии, вкусы, размеры), get_facts
-- АВТОНОМИЯ: get_inverter_forecast («на сколько хватит?»), activate_blackout_mode
-  (выключить лишнее в блэкаут — ТОЛЬКО с явного согласия юзера!)
-- ПЛАН КВАРТИРЫ: get_home_map («что у нас в спальне?», «какие сцены есть?»,
-  «покажи все устройства», «карта дома»). Передавай room=«спальня» и т.п.
-  чтобы сузить.
-- DEVOPS: get_system_status («как система?», «всё работает?»),
-  list_open_prs («какие PR открыты?»), get_railway_status («деплой прошёл?»,
-  «Railway живой?»).
-- ЗДОРОВЬЕ СЕМЬИ (не только Матвея!): log_health_event (симптом/лекарство/
-  визит/прививка для matvey|eugene|marina), get_health_history (за N дней),
-  log_parent_sleep (Марина/Евгений — во сколько лёг, встал, качество),
-  parent_sleep_stats (среднее время сна за неделю).
-
-ВАЖНО про Матвея — источники данных:
-- get_baby_state → быстрый статус (спит/бодрствует, последнее кормление,
-  подгузник). Может быть пустым если Нянька давно не обновляла — тогда
-  сразу зови get_baby_diary.
-- get_baby_diary → полная история из Google Sheets. Всегда есть данные если
-  за день что-то записывали. Используй когда пользователь спрашивает
-  «что делает?», «что было сегодня?», «когда ел?», «когда какал?».
-- Никогда не отвечай «данных нет» если ты не вызвал get_baby_diary!
-
-Важно про запись событий:
-- «Матвей поел» → record_baby_event(kind=food, event=«Кормление»)
-- «покакал» → record_baby_event(kind=diaper, event=«Какал»)
-- «поменяли памперс» → record_baby_event(kind=diaper, event=«Мокрый»)
-- «уложили спать» / «уснул» → record_baby_event(kind=sleep, event=«Уснул»)
-- «проснулся» → record_baby_event(kind=sleep, event=«Проснулся»)
-- «съел смесь 150мл» → kind=food, event=«Смесь», amount=150, unit=мл
-- «температура 37.2» → kind=symptom, event=«Температура», amount=37.2, unit=°C
-- «дали парацетамол 2.5мл» → kind=medicine, event=«Парацетамол», amount=2.5, unit=мл
-- «перевернулся первый раз» → record_milestone(milestone=«Перевернулся»)
-- «сегодня был у педиатра» → record_doctor_visit(type=«Осмотр», name=«Педиатр»)
-- «сделали АКДС» → record_doctor_visit(type=«Прививка», name=«АКДС»)
+Быстрые маппинги (используй по смыслу, не заучивай):
+- «Матвей поел/покакал/уснул/проснулся» → record_baby_event(kind, event)
+- «температура 37.2» → record_baby_event(kind=symptom, event=Температура, amount=37.2)
 - «попробовал банан» → record_feeding(product=«Банан»)
-- «дали тыкву, кушал с аппетитом» → record_feeding(product=«Тыква», reaction=«Хорошая»)
-- «съел 2 ложки пюре кабачка» → record_feeding(product=«Кабачок», portion=«2 ч.л.»)
-- «что уже ел?» / «что можно попробовать?» → get_feeding_summary
-- «завтра в 10 к педиатру» → create_calendar_event(title=«Педиатр», start_iso=«завтра 10:00 +03:00»)
-- «купи молоко и хлеб» → два вызова add_shopping_item
-- «купил хлеб» → mark_shopping_done(item=«хлеб»)
-- «что в списке?» → get_shopping_list
-- «отмени встречу с врачом» → сперва get_calendar_today чтобы узнать event_id, потом delete_calendar_event
-- После успешной записи коротко подтверди: «Записал. Матвей поел в 12:35.»
+- «перевернулся» / «сел» → record_milestone
+- «АКДС» / «педиатр» → record_doctor_visit
+- «завтра в 10 к врачу» → create_calendar_event
+- «купи X» / «купил X» → add_shopping_item / mark_shopping_done
+- «свет ярко в кухне» → run_scene(query=«кухня ярко»)
+- «выключи свет в кухне» → run_scene(query=«кухня выкл»)
+- «бойлер выкл» → control_socket
+- «какие PR?» → list_open_prs; «как система?» → get_system_status
+- «где машина?» / «припарковался...» → get_parking / remember_parking
 
-Важно про управление:
-- Если фраза похожа на команду («включи», «выключи», «запусти», «включай»,
-  «дай света», «сделай темнее», «на базу», «пусти пылесос») — сразу вызывай нужный tool
-  без переспрашивания.
-- Если после вызова run_scene вернулось success:false с available_scenes —
-  честно скажи «не нашёл, есть такие:» и перечисли варианты.
-- Не задавай уточнений которые сам мог бы решить (напр. «спальня» и так очевидно).
-- После успешной команды коротко подтверди («Готово. Свет в спальне яркий.») —
-  без бюрократии.
-
-Голосом называй родителей по именам, ребёнка — Матвейкой или Матвеем.
+ВСЁ доступно как tools — используй список в API. Не выдумывай возможностей которых нет.
 """
 
 
@@ -138,6 +71,51 @@ class AltronAgent:
         # для Этапа 2 нормально. Позже переедет в БД.
         self._history: dict[int, list[dict]] = {}
         self._HISTORY_LIMIT = 20  # сообщений (user + assistant), суммарно
+
+    @staticmethod
+    def _synth_from_tool_results(messages: list[dict]) -> str:
+        """Собрать вменяемый ответ из последних tool_results в messages —
+        когда Gemini на force_final вернул пустой text. Ищем success/error/note
+        поля и склеиваем короткий человеческий отчёт.
+        """
+        # Найти последний user turn с tool_result-блоками
+        last_results: list[dict] = []
+        for m in reversed(messages):
+            content = m.get("content") if isinstance(m, dict) else None
+            if not isinstance(content, list):
+                continue
+            block_types = {b.get("type") for b in content if isinstance(b, dict)}
+            if "tool_result" in block_types:
+                for b in content:
+                    if isinstance(b, dict) and b.get("type") == "tool_result":
+                        raw = b.get("content", "")
+                        try:
+                            last_results.append(json.loads(raw))
+                        except Exception:
+                            last_results.append({"note": str(raw)[:200]})
+                break
+        if not last_results:
+            return ""
+        parts: list[str] = []
+        for res in last_results:
+            if not isinstance(res, dict):
+                continue
+            if res.get("success") is True:
+                nm = res.get("scene_name") or res.get("device") or res.get("title") or "Готово"
+                parts.append(f"Готово: {nm}.")
+            elif res.get("error"):
+                parts.append(f"Не смог: {str(res['error'])[:120]}")
+            elif res.get("reason"):
+                variants = res.get("available_scenes") or res.get("available") or []
+                if variants:
+                    parts.append(
+                        f"Не нашёл: {res['reason']}. Есть: {', '.join(str(v) for v in variants[:8])}."
+                    )
+                else:
+                    parts.append(f"Не получилось: {res['reason']}")
+            elif res.get("note"):
+                parts.append(str(res["note"])[:200])
+        return " ".join(parts).strip()
 
     def _append_history(self, chat_id: int, role: str, content: Any) -> None:
         h = self._history.setdefault(chat_id, [])
@@ -2391,10 +2369,13 @@ class AltronAgent:
             # Финальный ответ — модель не запросила tool
             if not tool_calls:
                 text_out = " ".join(getattr(b, "text", "") for b in text_blocks).strip()
-                # Сохраняем в историю (user + assistant текст)
+                # Пустой ответ на force_final — синтезируем из последних
+                # tool_results вместо унылого «не смог сформулировать».
+                if not text_out:
+                    text_out = self._synth_from_tool_results(messages)
                 self._append_history(chat_id, user_msg["role"], user_msg["content"])
                 self._append_history(chat_id, "assistant", text_out or "…")
-                return text_out or "Не смог сформулировать ответ. Спроси ещё раз?"
+                return text_out or "Готово."
 
             # Есть tool_use — проверяем на цикл
             new_calls = []
@@ -2432,6 +2413,11 @@ class AltronAgent:
                         return ftext
                 except Exception:
                     log.exception("altron_forced_final_failed")
+                synth = self._synth_from_tool_results(messages)
+                if synth:
+                    self._append_history(chat_id, user_msg["role"], user_msg["content"])
+                    self._append_history(chat_id, "assistant", synth)
+                    return synth
                 return "Что-то залип. Спроси иначе?"
 
             # Выполняем новые вызовы параллельно — если Gemini вернул сразу
