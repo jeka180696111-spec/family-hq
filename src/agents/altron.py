@@ -63,6 +63,7 @@ _WRITE_TOOLS = frozenset({
     "write_cooking_note",
     "log_fuel",
     "toggle_automation", "delete_automation",
+    "set_reminder",
 })
 
 
@@ -712,6 +713,25 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "set_reminder",
+                "description": (
+                    "Поставить напоминание в Google Календаре с всплывающим уведомлением. "
+                    "Триггеры: «напомни завтра в 8 дать капли», «через час позвонить маме», "
+                    "«поставь напоминание на 15:00»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "Что напомнить"},
+                        "when_iso": {
+                            "type": "string",
+                            "description": "Когда в ISO-8601 с TZ (+03:00 для Одессы). Напр. 2026-09-25T08:00:00+03:00",
+                        },
+                    },
+                    "required": ["text", "when_iso"],
+                },
+            },
+            {
                 "name": "list_automations",
                 "description": (
                     "Список правил автоматизации умного дома (IF-THEN). "
@@ -1107,6 +1127,11 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "set_reminder":
+                return await self._tool_set_reminder(
+                    text_=args.get("text") or "",
+                    when_iso=args.get("when_iso") or "",
+                )
             if name == "list_automations":
                 return await self._tool_list_automations()
             if name == "toggle_automation":
@@ -2174,6 +2199,38 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_set_reminder(self, text_: str, when_iso: str) -> dict:
+        """Напоминание = 15-минутное событие с префиксом 🔔 в Google Календаре."""
+        if not text_.strip() or not when_iso.strip():
+            return {"error": "text и when_iso обязательны"}
+        try:
+            from datetime import datetime, timedelta
+            from src.integrations.gcalendar import CalendarClient
+            import base64, json as _json
+            sa_b64 = getattr(self._settings, "google_service_account_b64", "")
+            cal_id = getattr(self._settings, "calendar_id", "")
+            if not sa_b64 or not cal_id:
+                return {"error": "Google Calendar не настроен"}
+            sa_info = _json.loads(base64.b64decode(sa_b64).decode())
+            cal = CalendarClient(service_account_info=sa_info, calendar_id=cal_id)
+            start = datetime.fromisoformat(when_iso)
+            end = start + timedelta(minutes=15)
+            event = await cal.create_event(
+                title=f"🔔 {text_}",
+                start=start, end=end,
+                description="Напоминание Альтрона",
+                color_id="5",  # Banana / жёлтый
+            )
+            return {
+                "success": True,
+                "text": text_,
+                "when": event.start.isoformat(),
+                "event_id": event.event_id,
+            }
+        except Exception as e:
+            log.exception("altron_set_reminder_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_list_automations(self) -> dict:
