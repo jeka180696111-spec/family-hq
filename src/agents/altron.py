@@ -64,6 +64,7 @@ _WRITE_TOOLS = frozenset({
     "log_fuel",
     "toggle_automation", "delete_automation",
     "set_reminder",
+    "wiki_set", "wiki_delete",
 })
 
 
@@ -713,6 +714,57 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "wiki_set",
+                "description": (
+                    "Сохранить произвольную семейную заметку в вики (member=wiki, key=заголовок, value=текст). "
+                    "Триггеры: «запиши в вики», «сохрани заметку про X», «запомни: пароль от роутера — Y»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string", "description": "Короткий заголовок"},
+                        "text": {"type": "string", "description": "Содержимое заметки"},
+                    },
+                    "required": ["title", "text"],
+                },
+            },
+            {
+                "name": "wiki_list",
+                "description": (
+                    "Список всех заметок семейной вики (заголовки). "
+                    "Триггеры: «покажи вики», «что в вики?», «список заметок»."
+                ),
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "wiki_search",
+                "description": (
+                    "Найти заметки в вики по подстроке (в заголовке или тексте). "
+                    "Триггеры: «найди в вики Y», «есть заметка про пароль?»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Что искать"},
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "name": "wiki_delete",
+                "description": (
+                    "Удалить заметку из вики по заголовку. "
+                    "Триггеры: «удали заметку X», «убери из вики»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                    },
+                    "required": ["title"],
+                },
+            },
+            {
                 "name": "set_reminder",
                 "description": (
                     "Поставить напоминание в Google Календаре с всплывающим уведомлением. "
@@ -1127,6 +1179,16 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "wiki_set":
+                return await self._tool_wiki_set(
+                    title=args.get("title") or "", text_=args.get("text") or "",
+                )
+            if name == "wiki_list":
+                return await self._tool_wiki_list()
+            if name == "wiki_search":
+                return await self._tool_wiki_search(query=args.get("query") or "")
+            if name == "wiki_delete":
+                return await self._tool_wiki_delete(title=args.get("title") or "")
             if name == "set_reminder":
                 return await self._tool_set_reminder(
                     text_=args.get("text") or "",
@@ -2199,6 +2261,100 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_wiki_set(self, title: str, text_: str) -> dict:
+        """Заметка вики — храним в FamilyFact(member=wiki, key=title, value=text)."""
+        if not title.strip() or not text_.strip():
+            return {"error": "title и text обязательны"}
+        try:
+            from sqlalchemy import insert, select, update
+            from src.db.models import FamilyFact
+            from src.utils.time import iso_now
+            now_ = iso_now()
+            async with self._memory._engine.begin() as conn:
+                existing = (await conn.execute(
+                    select(FamilyFact)
+                    .where(FamilyFact.member == "wiki")
+                    .where(FamilyFact.key == title)
+                )).first()
+                if existing:
+                    await conn.execute(
+                        update(FamilyFact)
+                        .where(FamilyFact.id == existing.id)
+                        .values(value=text_, updated_at=now_)
+                    )
+                else:
+                    await conn.execute(insert(FamilyFact).values(
+                        member="wiki", key=title, value=text_,
+                        source="altron", created_at=now_, updated_at=now_,
+                    ))
+            return {"success": True, "title": title, "updated": bool(existing)}
+        except Exception as e:
+            log.exception("altron_wiki_set_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_wiki_list(self) -> dict:
+        try:
+            from sqlalchemy import select
+            from src.db.models import FamilyFact
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(FamilyFact)
+                    .where(FamilyFact.member == "wiki")
+                    .order_by(FamilyFact.updated_at.desc())
+                ))
+            return {
+                "count": len(rows),
+                "titles": [r.key for r in rows],
+            }
+        except Exception as e:
+            log.exception("altron_wiki_list_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_wiki_search(self, query: str) -> dict:
+        if not query.strip():
+            return {"error": "query is empty"}
+        try:
+            from sqlalchemy import select
+            from src.db.models import FamilyFact
+            q = query.lower()
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(FamilyFact).where(FamilyFact.member == "wiki")
+                ))
+            hits = [
+                {"title": r.key, "text": r.value, "updated": r.updated_at}
+                for r in rows
+                if q in (r.key or "").lower() or q in (r.value or "").lower()
+            ]
+            return {"query": query, "count": len(hits), "results": hits[:10]}
+        except Exception as e:
+            log.exception("altron_wiki_search_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_wiki_delete(self, title: str) -> dict:
+        if not title.strip():
+            return {"error": "title is empty"}
+        try:
+            from sqlalchemy import delete, select
+            from src.db.models import FamilyFact
+            async with self._memory._engine.begin() as conn:
+                existing = (await conn.execute(
+                    select(FamilyFact)
+                    .where(FamilyFact.member == "wiki")
+                    .where(FamilyFact.key == title)
+                )).first()
+                if not existing:
+                    return {"error": f"Заметка «{title}» не найдена"}
+                await conn.execute(
+                    delete(FamilyFact)
+                    .where(FamilyFact.member == "wiki")
+                    .where(FamilyFact.key == title)
+                )
+            return {"success": True, "title": title, "deleted": True}
+        except Exception as e:
+            log.exception("altron_wiki_delete_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_set_reminder(self, text_: str, when_iso: str) -> dict:
