@@ -67,8 +67,27 @@ class AltronBot:
             text = msg.text
             user = msg.from_user.first_name if msg.from_user else "?"
             log.info("altron_incoming", text=text[:60], user=user)
+
+            # Держим индикатор «печатает…» пока агент думает.
+            # Telegram гасит его через ~5 сек, поэтому шлём в цикле.
+            stop_typing = asyncio.Event()
+
+            async def _keep_typing():
+                try:
+                    while not stop_typing.is_set():
+                        try:
+                            await context.bot.send_chat_action(msg.chat_id, ChatAction.TYPING)
+                        except Exception:
+                            pass
+                        try:
+                            await asyncio.wait_for(stop_typing.wait(), timeout=4.0)
+                        except asyncio.TimeoutError:
+                            continue
+                except Exception:
+                    pass
+
+            typing_task = asyncio.create_task(_keep_typing())
             try:
-                await context.bot.send_chat_action(msg.chat_id, ChatAction.TYPING)
                 reply = await agent.handle(text, user_name=user, chat_id=msg.chat_id)
                 if reply:
                     await msg.reply_text(reply)
@@ -76,6 +95,12 @@ class AltronBot:
                 log.exception("altron_reply_failed")
                 try:
                     await msg.reply_text(f"⚠️ Упал: {str(e)[:150]}")
+                except Exception:
+                    pass
+            finally:
+                stop_typing.set()
+                try:
+                    await typing_task
                 except Exception:
                     pass
 
