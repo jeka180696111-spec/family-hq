@@ -382,12 +382,21 @@ class AltronBot:
                 except Exception:
                     pass
 
-    async def _send(self, text: str, parse_mode: str = "HTML") -> None:
+    async def _send(
+        self, text: str, parse_mode: str = "HTML", silent: bool = False,
+    ) -> None:
+        """Отправить сообщение в чат Альтрона.
+
+        silent=True — доставка без звука (для сводок, брифов, отбоя,
+        восстановления сервисов).
+        silent=False (default) — со звуком (важные уведомления).
+        """
         if not self._app or not self._app.bot:
             return
         try:
             await self._app.bot.send_message(
                 chat_id=self._chat_id, text=text, parse_mode=parse_mode,
+                disable_notification=silent,
             )
         except Exception:
             log.exception("altron_bot_send_failed")
@@ -521,6 +530,7 @@ class AltronBot:
             )
             await self._app.bot.send_message(
                 chat_id=self._chat_id, text=text, parse_mode="HTML",
+                disable_notification=True,  # отбой — silent, спокойная новость
             )
             log.info("altron_direct_alert_end", region=region, duration_min=duration_min)
         except Exception:
@@ -805,19 +815,20 @@ class AltronBot:
                     now_ts = time.time()
 
                     if prev:
-                        # Заснул
+                        # Заснул — silent, инфо
                         if curr["sleeping_since"] and curr["sleeping_since"] != prev.get("sleeping_since"):
                             if now_ts - recent.get("asleep", 0) > SUPPRESS_WINDOW_SEC:
                                 await self._send(
                                     f"😴 <b>Матвей уснул в {_time_of(curr['sleeping_since'])}.</b>\n"
-                                    "Свет в детской теперь не нужен. Скажи «выключи свет в детской» — сделаю."
+                                    "Свет в детской теперь не нужен. Скажи «выключи свет в детской» — сделаю.",
+                                    silent=True,
                                 )
                         # Проснулся
                         if curr["awake_since"] and curr["awake_since"] != prev.get("awake_since"):
                             from src.utils.time import now_kyiv
                             wake_hm = _time_of(curr["awake_since"])
                             hour = now_kyiv().hour
-                            # Ночное пробуждение — включаем ночник даже если запись сделал юзер
+                            # Ночное пробуждение — silent (не будим уснувших взрослых)
                             if hour < 7:
                                 ok = await self._try_run_scene(
                                     ["Спальня ночь", "Детская ночь", "Ночник"]
@@ -825,19 +836,20 @@ class AltronBot:
                                 if now_ts - recent.get("awake", 0) > SUPPRESS_WINDOW_SEC:
                                     if ok:
                                         await self._send(
-                                            f"🌙 <b>Матвей проснулся в {wake_hm}</b>\nВключил ночник ({ok})."
+                                            f"🌙 <b>Матвей проснулся в {wake_hm}</b>\nВключил ночник ({ok}).",
+                                            silent=True,
                                         )
                                     else:
                                         await self._send(
                                             f"🌙 <b>Матвей проснулся в {wake_hm}</b>\n"
-                                            "Хотел включить ночник, но сцены «Спальня ночь» не нашёл."
+                                            "Хотел включить ночник, но сцены «Спальня ночь» не нашёл.",
+                                            silent=True,
                                         )
                                 elif ok:
-                                    # Юзер уже знает про пробуждение, но сцену всё равно включили — коротко
-                                    await self._send(f"🌙 Заодно включил ночник ({ok}).")
+                                    await self._send(f"🌙 Заодно включил ночник ({ok}).", silent=True)
                             else:
                                 if now_ts - recent.get("awake", 0) > SUPPRESS_WINDOW_SEC:
-                                    await self._send(f"👶 <b>Матвей проснулся в {wake_hm}</b>")
+                                    await self._send(f"👶 <b>Матвей проснулся в {wake_hm}</b>", silent=True)
                     self._baby_last = curr
             except asyncio.CancelledError:
                 raise
@@ -938,7 +950,8 @@ class AltronBot:
                             ))
                         else:
                             await self._send(
-                                f"✅ <b>СВЕТ ДАЛИ.</b> Идёт зарядка батареи ({battery_pct}%)."
+                                f"✅ <b>СВЕТ ДАЛИ.</b> Идёт зарядка батареи ({battery_pct}%).",
+                                silent=True,
                             )
                         self._grid_last_on = on_grid
                         last_transition_ts = now_ts
@@ -974,7 +987,8 @@ class AltronBot:
                         )
                     elif (not prev) and ok:
                         await self._send(
-                            f"✅ <b>SELF-CHECK: {name} восстановлен</b>"
+                            f"✅ <b>SELF-CHECK: {name} восстановлен</b>",
+                            silent=True,
                         )
                     self._selfcheck_state[name] = ok
             except asyncio.CancelledError:
@@ -1102,7 +1116,7 @@ class AltronBot:
                 else:
                     text = await self._build_evening_brief()
                 if text:
-                    await self._send(text)
+                    await self._send(text, silent=True)
             except asyncio.CancelledError:
                 raise
             except Exception:
