@@ -1664,6 +1664,7 @@ async def run(dry_run: bool = False) -> None:
                 token=settings.altron_bot_token,
                 chat_id=settings.altron_chat_id,
                 agent=altron_agent,
+                memory=memory,
             )
             await altron_bot.start()
             log.info("altron_v2_started", chat_id=settings.altron_chat_id)
