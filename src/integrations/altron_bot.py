@@ -91,6 +91,10 @@ class AltronBot:
         self._grid_watch_task: asyncio.Task | None = None
         self._direct_ingest_task: asyncio.Task | None = None
         self._brief_task: asyncio.Task | None = None
+        self._selfcheck_task: asyncio.Task | None = None
+        # {check_name: bool prev_state_ok}  — чтобы уведомлять только на
+        # переходах здоровья: broken→ok, ok→broken.
+        self._selfcheck_state: dict[str, bool] = {}
         # region -> {"started_at": str, "digest_hash": str, "message_id": int|None, "last_sent_at": float}
         self._alert_state: dict[str, dict] = {}
         # Отдельный state для собственного (direct-ingest) режима.
@@ -361,13 +365,14 @@ class AltronBot:
             self._baby_watch_task = asyncio.create_task(self._watch_baby())
             self._grid_watch_task = asyncio.create_task(self._watch_grid())
             self._brief_task = asyncio.create_task(self._run_daily_briefs())
+            self._selfcheck_task = asyncio.create_task(self._run_self_check())
             log.info("altron_watchers_started")
 
     async def stop(self) -> None:
         for t in (
             self._grid_watch_task, self._baby_watch_task,
             self._alert_watch_task, self._direct_ingest_task,
-            self._brief_task,
+            self._brief_task, self._selfcheck_task,
             self._task,
         ):
             if t and not t.done():
@@ -901,6 +906,113 @@ class AltronBot:
                 await asyncio.sleep(60)
             except asyncio.CancelledError:
                 raise
+
+    # ─── Self-check (Sheets / Tuya / Gemini) ─────────────────────
+
+    async def _run_self_check(self) -> None:
+        """Раз в час проверяем ключевые интеграции. Шлём уведомление
+        ТОЛЬКО на переходах — раз объявили что Sheets упал, не спамим
+        каждый час пока не поправят. И наоборот: как только починили,
+        одно «✅ восстановлено» и молчок."""
+        CHECK_INTERVAL_SEC = 3600  # 1 час
+        await asyncio.sleep(120)  # первые 2 мин после старта — молчим
+        while True:
+            try:
+                results = await self._check_all()
+                for name, (ok, detail) in results.items():
+                    prev = self._selfcheck_state.get(name)
+                    if prev is None:
+                        self._selfcheck_state[name] = ok
+                        continue
+                    if prev and not ok:
+                        await self._send(
+                            f"⚠️ <b>SELF-CHECK: {name} упал</b>\n{detail}"
+                        )
+                    elif (not prev) and ok:
+                        await self._send(
+                            f"✅ <b>SELF-CHECK: {name} восстановлен</b>"
+                        )
+                    self._selfcheck_state[name] = ok
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("altron_self_check_loop_err")
+            try:
+                await asyncio.sleep(CHECK_INTERVAL_SEC)
+            except asyncio.CancelledError:
+                raise
+
+    async def _check_all(self) -> dict[str, tuple[bool, str]]:
+        """Все проверки параллельно, каждая max ~5 сек."""
+        results: dict[str, tuple[bool, str]] = {}
+        checks = [
+            ("Google Sheets", self._check_sheets()),
+            ("Tuya", self._check_tuya()),
+            ("Gemini", self._check_gemini()),
+            ("Инвертор", self._check_inverter()),
+        ]
+        outcomes = await asyncio.gather(*(c for _, c in checks), return_exceptions=True)
+        for (name, _), r in zip(checks, outcomes):
+            if isinstance(r, Exception):
+                results[name] = (False, f"{type(r).__name__}: {str(r)[:120]}")
+            else:
+                results[name] = r
+        return results
+
+    async def _check_sheets(self) -> tuple[bool, str]:
+        try:
+            from src.config import get_settings
+            settings = get_settings()
+            sa = getattr(settings, "google_service_account_json", "")
+            sheet_id = getattr(settings, "sheet_baby_id", "")
+            if not sa or not sheet_id:
+                return (True, "не настроено — пропускаем")
+            from src.integrations.sheets import SheetsClient
+            sc = SheetsClient(sa, sheet_id, "")
+            # get_worksheet_titles легковесно
+            await sc._ensure_client()
+            return (True, "ok")
+        except Exception as e:
+            return (False, str(e)[:150])
+
+    async def _check_tuya(self) -> tuple[bool, str]:
+        try:
+            from src.config import get_settings
+            from src.integrations.tuya import TuyaClient
+            tuya = TuyaClient.from_settings(get_settings())
+            if tuya is None:
+                return (True, "не настроено — пропускаем")
+            devices = await tuya.list_devices()
+            return (True, f"{len(devices)} устройств")
+        except Exception as e:
+            return (False, str(e)[:150])
+
+    async def _check_gemini(self) -> tuple[bool, str]:
+        gemini = getattr(self._agent, "_gemini", None)
+        if gemini is None:
+            return (True, "не настроено — пропускаем")
+        try:
+            reply = await gemini.complete(
+                system="Ты Альтрон. Верни ровно строку 'ok'.",
+                messages=[{"role": "user", "content": "self-check"}],
+                max_tokens=8,
+            )
+            return (True, (reply or "").strip()[:40])
+        except Exception as e:
+            return (False, str(e)[:150])
+
+    async def _check_inverter(self) -> tuple[bool, str]:
+        try:
+            from src.config import get_settings
+            from src.integrations.luxcloud import LuxCloudClient
+            lux = LuxCloudClient.from_settings(get_settings())
+            if lux is None:
+                return (True, "не настроено — пропускаем")
+            state = await lux.runtime()
+            soc = state.get("battery_pct")
+            return (True, f"SOC {soc}%" if soc is not None else "ok")
+        except Exception as e:
+            return (False, str(e)[:150])
 
     # ─── Daily briefs (утро / вечер) ─────────────────────────────
 
