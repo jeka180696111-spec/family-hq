@@ -30,7 +30,14 @@ _SYSTEM_PROMPT = """Ты Альтрон — семейный ИИ штаба Е�
 Команды («включи/выключи/запусти/запиши/создай») — сразу зови tool, без переспросов.
 После вызова tool — коротко подтверди результатом («Готово. Кухня ярко.»).
 Если tool вернул success:false с available_scenes — скажи «не нашёл, есть:» и перечисли.
-На «что делает Матвей?» / «когда ел?» — ВСЕГДА вызывай get_baby_diary, а не отвечай «данных нет».
+
+ОЧЕНЬ ВАЖНО отличать ВОПРОСЫ от КОМАНД про Матвея:
+- «сколько уже не спит?», «когда проснулся?», «давно спит?», «спит ли сейчас?»,
+  «что делает?» — это ВОПРОСЫ, зови ТОЛЬКО get_baby_state (read).
+  НИКОГДА не зови record_baby_event на вопрос!
+- «когда ел?», «что было сегодня?» — get_baby_diary или get_baby_state.
+- record_baby_event ЗОВИ ТОЛЬКО когда пользователь СООБЩАЕТ факт:
+  «уснул», «проснулся», «поел», «покакал» + опц. время (at="07:30").
 
 Быстрые маппинги (используй по смыслу, не заучивай):
 - «Матвей поел/покакал/уснул/проснулся» → record_baby_event(kind, event)
@@ -1398,7 +1405,10 @@ class AltronAgent:
             row = (await conn.execute(select(BabyState))).first()
 
         if not row:
-            return {"state": "unknown", "hint": "BabyState пуст — вызови get_baby_diary."}
+            return {
+                "state": "unknown",
+                "hint": "BabyState пуст. Вызови get_baby_diary(days=1) — там свежие события за сегодня.",
+            }
 
         bs = row[0] if hasattr(row, "_mapping") else row
         sleeping_since = getattr(bs, "sleeping_since", None)
@@ -1675,16 +1685,26 @@ class AltronAgent:
                 log.exception("altron_sheets_write_failed")
 
             # 2) Обновление BabyState (то же что делает Нянька)
-            event_l = event.lower()
+            import re as _re
+            event_l = event.lower().strip()
             kind_l = kind.lower()
             values: dict = {"updated_at": iso_now()}
-            if kind_l == "sleep":
-                if any(w in event_l for w in ("уснул", "уснула", "усн", "лёг", "лег", "спит", "начал спать")):
+            # Отсекаем негации типа «не спит», «не уснул», «не проснулся» —
+            # это ВОПРОСЫ/описания, а не переходы состояния.
+            has_negation = bool(_re.search(r"\bне\s+", event_l)) or event_l.startswith("не ")
+            if kind_l == "sleep" and not has_negation:
+                # Только чёткие глаголы засыпания (по границам слов).
+                asleep_re = _re.compile(r"\b(уснул|уснула|засн[ыу]|зас[ы]пает|лёг\s+спать|лег\s+спать)\b")
+                # Только чёткие глаголы пробуждения.
+                awake_re = _re.compile(r"\b(проснул|проснулся|проснулась|разбудил|встал|подъём|подъем)\b")
+                if asleep_re.search(event_l):
                     values["sleeping_since"] = ts_iso
                     values["awake_since"] = None
-                elif any(w in event_l for w in ("проснул", "встал", "разбудил", "просып")):
+                elif awake_re.search(event_l):
                     values["awake_since"] = ts_iso
                     values["sleeping_since"] = None
+                # Всё остальное («шевелится», «плачет», «не спит») — пишем
+                # только в дневник, состояние не переворачиваем.
             elif kind_l == "food":
                 values["last_feed_at"] = ts_iso
             elif kind_l == "diaper":
