@@ -1666,6 +1666,8 @@ async def run(dry_run: bool = False) -> None:
                 agent=altron_agent,
                 memory=memory,
             )
+            # Мост чтобы tool speak_reply мог позвать _send_voice бота
+            altron_agent._voice_bot = altron_bot
             await altron_bot.start()
             log.info("altron_v2_started", chat_id=settings.altron_chat_id)
         except Exception:

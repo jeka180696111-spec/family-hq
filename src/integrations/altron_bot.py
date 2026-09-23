@@ -402,29 +402,25 @@ class AltronBot:
             log.exception("altron_bot_send_failed")
 
     async def _send_voice(self, spoken_text: str, caption: str = "") -> None:
-        """Голосовое сопровождение для критичных событий. Использует gTTS
-        (Google Translate TTS, mp3). Тихо падает если gTTS не установлен
-        или Telegram отверг файл — текст к этому моменту уже отправлен."""
+        """Голосовое сообщение мужским голосом через Microsoft Edge TTS.
+        Вызывается ТОЛЬКО из tool speak_reply (по явной просьбе юзера).
+        Тихо падает если edge-tts не установлен или сеть недоступна."""
         if not self._app or not self._app.bot:
             return
         if not spoken_text or not spoken_text.strip():
             return
         try:
-            from gtts import gTTS
+            import edge_tts
         except ImportError:
-            log.debug("altron_tts_gtts_not_installed")
+            log.debug("altron_tts_edge_not_installed")
             return
         try:
             import tempfile, os as _os
             fd, path = tempfile.mkstemp(suffix=".mp3")
             _os.close(fd)
-
-            def _synthesize():
-                tts = gTTS(text=spoken_text[:500], lang="ru", slow=False)
-                tts.save(path)
-
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, _synthesize)
+            # ru-RU-DmitryNeural — мужской российский голос
+            communicate = edge_tts.Communicate(spoken_text[:800], "ru-RU-DmitryNeural")
+            await communicate.save(path)
             try:
                 with open(path, "rb") as f:
                     await self._app.bot.send_voice(
@@ -458,7 +454,7 @@ class AltronBot:
             log.exception("altron_direct_ingest_crashed")
 
     async def _direct_on_start(self, region: str, post: dict, sources: list[str]) -> None:
-        """Callback: пришёл первый alert-пост. Отправляем карточку + голос."""
+        """Callback: пришёл первый alert-пост. Отправляем карточку."""
         import time
         try:
             started_at = post["ts"].astimezone().isoformat()
@@ -472,10 +468,6 @@ class AltronBot:
         except Exception:
             log.exception("altron_direct_start_send_failed")
             return
-        # Голосовое дублирование для тревоги — критичное событие
-        asyncio.create_task(self._send_voice(
-            f"Внимание. Воздушная тревога в {region}.",
-        ))
         self._direct_alert_state[region] = {
             "message_id": msg.message_id,
             "started_at": started_at,
@@ -880,89 +872,187 @@ class AltronBot:
     # ─── Grid (electricity) watcher ────────────────────────────────
 
     async def _watch_grid(self) -> None:
-        """Опрос инвертора раз в 60с с гистерезисом — чтобы скачки напряжения
-        и брошенный на секунду импорт из сети не выглядели как «СВЕТ ВЫРУБИЛИ».
+        """Опрос инвертора. Логика скопирована из штабного grid_watcher —
+        то что уже проверено на этих же скачках напряжения:
 
-        Гистерезис:
-        - Импорт из сети считается ЕСТЬ если grid_import_w > 40 Вт
-          (5 Вт брали ложные срабатывания на потери в трансформаторе).
-        - Транзиция включается только когда состояние стабильно 3 замера
-          подряд (~3 мин). Один-два «дёрг» отфильтровываются.
-        - После только что объявленной транзиции ставим кулдаун 10 мин —
-          в это окно противоположный сигнал НЕ фиксируем (антифлаппинг).
+        1) PRIMARY — LuxCloud event log (recent_events). Инвертор сам
+           пишет «Grid Lost / Grid Restored» / W016 / W017. Это тот же
+           источник что SMS от инвертора — очень надёжно, никакой
+           путаницы со скачками.
+        2) FALLBACK — если events endpoint пустой, смотрим:
+           - battery_charge_w > 100 → сеть есть.
+           - battery_discharge_w > 50 и battery_charge_w < 5 подряд 3
+             тика (90с) → сеть пропала.
+           grid_import_w НЕ используем — он гуляет от скачков.
+        3) Антифлаппинг: закрыть outage можно быстро, но открывать
+           только с подтверждением (3 тика).
         """
         from src.config import get_settings
         from src.integrations.luxcloud import LuxCloudClient
         import time
 
-        # локальный стейт-машина
-        pending_state: bool | None = None   # какое состояние набирает голоса
-        pending_count = 0                    # сколько подряд одинаковых замеров
-        last_transition_ts: float = 0.0      # антифлаппинг-кулдаун
-        NEED_STABLE = 3        # три подряд одинаковых замера (~3 мин)
-        COOLDOWN_SEC = 600     # 10 минут игнорируем обратный сигнал
-        GRID_ON_THRESHOLD_W = 40  # выше = реально импорт из сети
+        POLL_SEC = 30
+        NEED_STABLE_OFF = 3    # 3 тика × 30с = 90с прежде чем сказать «нет света»
+        COOLDOWN_SEC = 300     # 5 мин после транзиции — обратный сигнал игнор
+
+        discharge_streak = 0
+        last_transition_ts = 0.0
+        last_event_time: str | None = None
+        lux = None
 
         await asyncio.sleep(30)
         while True:
             try:
-                settings = get_settings()
-                lux = LuxCloudClient.from_settings(settings)
+                if lux is None:
+                    lux = LuxCloudClient.from_settings(get_settings())
                 if lux is None:
                     await asyncio.sleep(300)
                     continue
-                state = await lux.runtime()
-                grid_import = state.get("grid_import_w", 0) or 0
-                battery_pct = state.get("battery_pct", 0)
-                on_grid = grid_import > GRID_ON_THRESHOLD_W
 
-                # Первый замер — просто запоминаем без объявлений
-                if self._grid_last_on is None:
-                    self._grid_last_on = on_grid
-                    pending_state = on_grid
-                    pending_count = 1
+                data = await lux.runtime()
+                events = []
+                try:
+                    events = await lux.recent_events(hours=2)
+                except Exception:
+                    events = []
+
+                battery_pct = data.get("battery_pct", 0) or 0
+                try:
+                    battery_charge_w = float(data.get("battery_charge_w") or 0)
+                except (TypeError, ValueError):
+                    battery_charge_w = 0.0
+                try:
+                    battery_discharge_w = float(data.get("battery_discharge_w") or 0)
+                except (TypeError, ValueError):
+                    battery_discharge_w = 0.0
+                raw = data.get("raw", {}) or {}
+                status_now = str(data.get("status") or raw.get("status") or "").lower()
+                has_grid_loss_alarm = any(
+                    code in status_now for code in ("w016", "w017", "f016", "f017")
+                )
+
+                now_ts = time.time()
+                in_cooldown = (now_ts - last_transition_ts) < COOLDOWN_SEC
+
+                # 1) EVENT LOG — источник истины
+                event_state, event_time = self._grid_state_from_events(events, last_event_time)
+                if event_time:
+                    last_event_time = event_time
+
+                if event_state is True and self._grid_last_on is not True and not in_cooldown:
+                    if self._grid_last_on is False:
+                        await self._send(
+                            f"✅ <b>СВЕТ ДАЛИ.</b> Идёт зарядка батареи ({battery_pct}%).",
+                            silent=True,
+                        )
+                    self._grid_last_on = True
+                    last_transition_ts = now_ts
+                    discharge_streak = 0
+                elif event_state is False and self._grid_last_on is not False and not in_cooldown:
+                    if self._grid_last_on is True:
+                        await self._send(
+                            "⚡ <b>СВЕТ ВЫРУБИЛИ.</b> Питание с батареи.\n"
+                            f"🔋 Заряд: <b>{battery_pct}%</b> · нагрузка: "
+                            f"{data.get('home_consumption_w', 0)} Вт\n\n"
+                            "Совет: выключи бойлер, ТВ, зарядки. Скажи "
+                            "«активируй блэкаут» — сам выключу лишнее."
+                        )
+                    self._grid_last_on = False
+                    last_transition_ts = now_ts
+                    discharge_streak = 0
                 else:
-                    # Копим стабильность нового состояния
-                    if pending_state == on_grid:
-                        pending_count += 1
-                    else:
-                        pending_state = on_grid
-                        pending_count = 1
-
-                    now_ts = time.time()
-                    in_cooldown = (now_ts - last_transition_ts) < COOLDOWN_SEC
-
-                    if (
-                        on_grid != self._grid_last_on
-                        and pending_count >= NEED_STABLE
-                        and not in_cooldown
-                    ):
-                        if not on_grid:
-                            await self._send(
-                                "⚡ <b>СВЕТ ВЫРУБИЛИ.</b> Питание с батареи.\n"
-                                f"🔋 Заряд: <b>{battery_pct}%</b> · нагрузка: "
-                                f"{state.get('home_consumption_w', 0)} Вт\n\n"
-                                "Совет: выключи бойлер, ТВ, зарядки. Скажи "
-                                "«активируй блэкаут» — сам выключу лишнее."
-                            )
-                            asyncio.create_task(self._send_voice(
-                                f"Внимание. Свет отключен. Батарея {battery_pct} процентов.",
-                            ))
+                    # 2) FALLBACK — только если events молчат
+                    if self._grid_last_on is None:
+                        # прайминг — считаем ток есть если батарея заряжается
+                        self._grid_last_on = battery_charge_w > 30 and not has_grid_loss_alarm
+                    elif self._grid_last_on is True:
+                        # ловим OFF: нагрузка идёт с батареи, ничего не заряжает
+                        off_signal = has_grid_loss_alarm or (
+                            battery_discharge_w > 50 and battery_charge_w < 5
+                        )
+                        if off_signal:
+                            discharge_streak += 1
+                            if discharge_streak >= NEED_STABLE_OFF and not in_cooldown:
+                                await self._send(
+                                    "⚡ <b>СВЕТ ВЫРУБИЛИ.</b> Питание с батареи.\n"
+                                    f"🔋 Заряд: <b>{battery_pct}%</b> · нагрузка: "
+                                    f"{data.get('home_consumption_w', 0)} Вт\n\n"
+                                    "Совет: выключи бойлер, ТВ, зарядки. Скажи "
+                                    "«активируй блэкаут» — сам выключу лишнее."
+                                )
+                                self._grid_last_on = False
+                                last_transition_ts = now_ts
+                                discharge_streak = 0
                         else:
+                            discharge_streak = 0
+                    else:  # self._grid_last_on is False
+                        # ловим ON: заряд восстановился ИЛИ статус normal + слабый заряд
+                        back = (
+                            battery_charge_w > 100
+                            or (status_now == "normal" and battery_charge_w > 30)
+                        )
+                        if back and not in_cooldown:
                             await self._send(
                                 f"✅ <b>СВЕТ ДАЛИ.</b> Идёт зарядка батареи ({battery_pct}%).",
                                 silent=True,
                             )
-                        self._grid_last_on = on_grid
-                        last_transition_ts = now_ts
+                            self._grid_last_on = True
+                            last_transition_ts = now_ts
+                            discharge_streak = 0
             except asyncio.CancelledError:
                 raise
             except Exception:
                 log.exception("altron_grid_watch_err")
             try:
-                await asyncio.sleep(60)
+                await asyncio.sleep(POLL_SEC)
             except asyncio.CancelledError:
                 raise
+
+    @staticmethod
+    def _grid_state_from_events(
+        events: list[dict], last_event_time: str | None,
+    ) -> tuple[bool | None, str | None]:
+        """Разбор LuxCloud event log — та же логика что в HQ grid_watcher.
+        Возвращает (True/False/None, время события) — состояние сети из
+        самого свежего relevant-события, None если ничего нового."""
+        LOSS_KW = (
+            "grid lost", "grid loss", "ac loss", "grid disconnect", "off grid",
+            "off-grid", "no ac", "no grid", "grid down", "grid fault", "utility loss",
+            "пропала", "нет сети", "нет подключения", "сеть пропала",
+            "нет напряжения", "отключение сети", "нет переменного тока",
+            "сеть отсутствует",
+            "відсутн", "немає мережі", "немає підключення",
+            "мережа відсутня", "відключення мережі",
+            "w016", "w017", "f016", "f017",
+        )
+        OK_KW = (
+            "grid connect", "grid restore", "grid restored", "ac connect", "ac connected",
+            "grid ok", "grid available", "power on", "on grid", "on-grid", "recovered",
+            "восстанов", "сеть восстановлена", "напряжение восстановлено",
+            "сеть появилась", "появилось напряжение",
+            "поновлен", "мережа відновлена", "мережа з'явилась",
+        )
+        for ev in events:
+            blob = " ".join(str(v).lower() for v in (
+                ev.get("name") or "", ev.get("type") or "",
+                ev.get("code") or "", ev.get("status") or "",
+            ))
+            raw_status = str((ev.get("raw") or {}).get("status", "")).lower()
+            full = f"{blob} {raw_status}"
+            ev_time = ev.get("time")
+            if any(kw in full for kw in LOSS_KW):
+                if "recovered" in full or "восстанов" in full:
+                    if ev_time and ev_time == last_event_time:
+                        return None, ev_time
+                    return True, ev_time
+                if ev_time and ev_time == last_event_time:
+                    return None, ev_time
+                return False, ev_time
+            if any(kw in full for kw in OK_KW):
+                if ev_time and ev_time == last_event_time:
+                    return None, ev_time
+                return True, ev_time
+        return None, last_event_time
 
     # ─── Self-check (Sheets / Tuya / Gemini) ─────────────────────
 

@@ -118,6 +118,7 @@ _WRITE_TOOLS = frozenset({
     "toggle_automation", "delete_automation",
     "set_reminder",
     "wiki_set", "wiki_delete",
+    "speak_reply",
 })
 
 # Только эти инструменты уходят по fast-path (мгновенный ответ без второго
@@ -851,6 +852,22 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "speak_reply",
+                "description": (
+                    "Отправить ответ ГОЛОСОМ (мужской голос) — только когда пользователь "
+                    "явно просит: «скажи голосом», «озвучь», «прочитай вслух», «ответь голосом». "
+                    "НЕ используй по своей инициативе. Текст-параметр — то что должно "
+                    "прозвучать (короткое, до 500 симв)."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "Что произнести"},
+                    },
+                    "required": ["text"],
+                },
+            },
+            {
                 "name": "web_search",
                 "description": (
                     "Общий поиск в интернете (DuckDuckGo). Возвращает 5 ссылок. "
@@ -1402,6 +1419,8 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "speak_reply":
+                return await self._tool_speak_reply(args.get("text") or "")
             if name == "web_search":
                 return await self._tool_web_search(args.get("query") or "")
             if name == "search_telegram_posts":
@@ -2615,6 +2634,21 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_speak_reply(self, text_: str) -> dict:
+        """Отправить голосом (мужской). Требует bot bridge — установлен
+        в main.py после создания AltronBot."""
+        if not text_.strip():
+            return {"error": "text is empty"}
+        bridge = getattr(self, "_voice_bot", None)
+        if bridge is None:
+            return {"error": "voice bridge не подключён"}
+        try:
+            await bridge._send_voice(text_)
+            return {"success": True, "spoken": text_[:80]}
+        except Exception as e:
+            log.exception("altron_speak_reply_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_web_search(self, query: str) -> dict:
