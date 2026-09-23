@@ -110,10 +110,11 @@ class AltronBot:
                         has_token=bool(self._token), chat_id=self._chat_id)
             return
         try:
-            from telegram import Update
+            from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
             from telegram.constants import ChatAction
             from telegram.ext import (
                 Application, MessageHandler, CommandHandler, filters, ContextTypes,
+                CallbackQueryHandler,
             )
         except ImportError:
             log.error("altron_ptb_missing")
@@ -329,6 +330,63 @@ class AltronBot:
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _text_msg))
         app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, _voice_msg))
         app.add_handler(MessageHandler(filters.PHOTO, _photo_msg))
+
+        async def _callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            """Обработать нажатие inline-кнопки. Данные кнопки — либо просто
+            текст ответа (для follow-up вопросов), либо строка вида «tool:name:json»
+            (для мгновенных действий типа «активируй блэкаут»)."""
+            q = update.callback_query
+            if not q or not q.message or q.message.chat_id != allowed_chat:
+                return
+            try:
+                await q.answer()
+            except Exception:
+                pass
+            data = q.data or ""
+            user = q.from_user.first_name if q.from_user else "?"
+            log.info("altron_callback", data=data[:60], user=user)
+            # Убираем клавиатуру у исходного сообщения — чтоб не переспрашивать
+            try:
+                await q.edit_message_reply_markup(reply_markup=None)
+            except Exception:
+                pass
+            stop_typing = asyncio.Event()
+
+            async def _keep_typing():
+                try:
+                    while not stop_typing.is_set():
+                        try:
+                            await context.bot.send_chat_action(allowed_chat, ChatAction.TYPING)
+                        except Exception:
+                            pass
+                        try:
+                            await asyncio.wait_for(stop_typing.wait(), timeout=4.0)
+                        except asyncio.TimeoutError:
+                            continue
+                except Exception:
+                    pass
+
+            typing_task = asyncio.create_task(_keep_typing())
+            try:
+                # Просто прогоняем через agent.handle как обычный текст.
+                # Юзер тапнул «Да» → отправляем «Да» ассистенту.
+                reply = await agent.handle(data, user_name=user, chat_id=allowed_chat)
+                if reply:
+                    await context.bot.send_message(chat_id=allowed_chat, text=reply)
+            except Exception as e:
+                log.exception("altron_callback_failed")
+                try:
+                    await context.bot.send_message(chat_id=allowed_chat, text=f"⚠️ Упал: {str(e)[:150]}")
+                except Exception:
+                    pass
+            finally:
+                stop_typing.set()
+                try:
+                    await typing_task
+                except Exception:
+                    pass
+
+        app.add_handler(CallbackQueryHandler(_callback_query))
         self._app = app
 
         async def _run():
@@ -400,6 +458,36 @@ class AltronBot:
             )
         except Exception:
             log.exception("altron_bot_send_failed")
+
+    async def send_with_buttons(
+        self, text: str, options: list[str], silent: bool = False,
+    ) -> None:
+        """Отправить сообщение с inline-кнопками. Callback data = сам текст
+        варианта (юзер тапает — эта же строка уходит агенту как ответ)."""
+        if not self._app or not self._app.bot or not options:
+            return
+        try:
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            # 3 в ряд для коротких, 1 в ряд для длинных
+            rows: list[list] = []
+            for opt in options[:6]:
+                # callback_data ограничен 64 байтами — режем
+                cd = opt[:60]
+                btn = InlineKeyboardButton(text=opt[:32], callback_data=cd)
+                if len(opt) > 15:
+                    rows.append([btn])
+                else:
+                    if rows and len(rows[-1]) < 3 and all(len(str(b.text)) <= 15 for b in rows[-1]):
+                        rows[-1].append(btn)
+                    else:
+                        rows.append([btn])
+            markup = InlineKeyboardMarkup(rows)
+            await self._app.bot.send_message(
+                chat_id=self._chat_id, text=text, parse_mode="HTML",
+                reply_markup=markup, disable_notification=silent,
+            )
+        except Exception:
+            log.exception("altron_send_buttons_failed")
 
     async def _send_voice(self, spoken_text: str, caption: str = "") -> None:
         """Голосовое сообщение мужским голосом через Microsoft Edge TTS.

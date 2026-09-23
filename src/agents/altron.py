@@ -53,10 +53,15 @@ _SYSTEM_PROMPT = """Ты Альтрон — семейный ИИ штаба Е�
    - create_calendar_event на завтра до 10:00 → set_reminder за 30 мин.
    - remember_fact(marina, «аллергия», X) → сразу add_shopping_item НЕ
      нужен, но упомяни «учту при покупках».
-3. Мягкие предложения (тут спрашивай, не делай без подтверждения):
-   - «Матвей уснул в 21:15. Приглушить свет в детской?»
-   - «Свет вырубили. Батарея 89%. Активировать блэкаут-режим?»
-   - «В списке 8 пунктов. Заказать доставку через Glovo?»
+3. Мягкие предложения — вместо просьбы напечатать, ЗОВИ ask_with_buttons
+   с 2-3 вариантами. Пользователь тапнет — быстрее чем печатать.
+   Примеры:
+   - ask_with_buttons("Матвей уснул в 21:15. Приглушить свет?",
+     ["Да, детская", "Не надо", "Вырубить везде"])
+   - ask_with_buttons("Свет вырубили. Батарея 89%. Активировать блэкаут?",
+     ["Да, блэкаут", "Не надо"])
+   - ask_with_buttons("В списке 8 пунктов. Заказать доставку?",
+     ["Glovo", "Bolt Food", "Не сейчас"])
 4. Замечай паттерны и предупреждай:
    - Если Матвей не ел > 4 часов — упомяни это.
    - Тревога длится > 30 мин и много прилётов — предложи проверить окна.
@@ -119,6 +124,7 @@ _WRITE_TOOLS = frozenset({
     "set_reminder",
     "wiki_set", "wiki_delete",
     "speak_reply",
+    "ask_with_buttons",
 })
 
 # Только эти инструменты уходят по fast-path (мгновенный ответ без второго
@@ -852,6 +858,28 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "ask_with_buttons",
+                "description": (
+                    "Отправить сообщение с inline-кнопками вместо просьбы напечатать ответ. "
+                    "Пользователь тапнет — Альтрон получит текст кнопки как следующее сообщение. "
+                    "Используй когда предлагаешь варианты: «Приглушить свет?» + [Да]/[Нет], "
+                    "«Какую сцену?» + [Спальня ярко]/[Кухня ночь]/[Отмена]. "
+                    "НЕ используй если пользователю проще ответить свободным текстом."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "Вопрос/сообщение"},
+                        "options": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Варианты кнопок (2-6). Короткие — до 32 симв.",
+                        },
+                    },
+                    "required": ["text", "options"],
+                },
+            },
+            {
                 "name": "speak_reply",
                 "description": (
                     "Отправить ответ ГОЛОСОМ (мужской голос) — только когда пользователь "
@@ -1419,6 +1447,11 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "ask_with_buttons":
+                return await self._tool_ask_with_buttons(
+                    text_=args.get("text") or "",
+                    options=args.get("options") or [],
+                )
             if name == "speak_reply":
                 return await self._tool_speak_reply(args.get("text") or "")
             if name == "web_search":
@@ -2634,6 +2667,21 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_ask_with_buttons(self, text_: str, options: list) -> dict:
+        """Отправить сообщение с inline-кнопками через bridge к боту."""
+        if not text_.strip() or not options:
+            return {"error": "text и options обязательны"}
+        bridge = getattr(self, "_voice_bot", None)
+        if bridge is None:
+            return {"error": "bot bridge не подключён"}
+        try:
+            opts = [str(o) for o in options if o][:6]
+            await bridge.send_with_buttons(text_, opts)
+            return {"success": True, "sent": True, "options": opts}
+        except Exception as e:
+            log.exception("altron_ask_buttons_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_speak_reply(self, text_: str) -> dict:
