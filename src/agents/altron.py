@@ -884,6 +884,23 @@ class AltronAgent:
                 },
             },
             {
+                "name": "get_weekly_insights",
+                "description": (
+                    "Инсайты за неделю: паттерны сна Матвея, кормлений, "
+                    "родительского сна, топливо, здоровье. Возвращает "
+                    "структурированные числа + отклонения от нормы. "
+                    "Триггеры: «недельная сводка», «как прошла неделя?», "
+                    "«есть паттерны?», «инсайты за неделю»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "days": {"type": "integer", "description": "За сколько дней (по умолчанию 7)"},
+                    },
+                    "required": [],
+                },
+            },
+            {
                 "name": "prepare_doctor_visit",
                 "description": (
                     "Собрать справку перед визитом к врачу: симптомы, лекарства, прививки, "
@@ -1393,6 +1410,8 @@ class AltronAgent:
                     hours_back=int(args.get("hours_back") or 24),
                     alerts_only=bool(args.get("alerts_only")),
                 )
+            if name == "get_weekly_insights":
+                return await self._tool_get_weekly_insights(days=int(args.get("days") or 7))
             if name == "prepare_doctor_visit":
                 return await self._tool_prepare_doctor_visit(
                     member=args.get("member") or "matvey",
@@ -2662,6 +2681,98 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_tg_search_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_get_weekly_insights(self, days: int = 7) -> dict:
+        """Собрать структурированные метрики за N дней. LLM формулирует
+        человеческие инсайты уже над этим объектом."""
+        try:
+            from datetime import timedelta
+            from sqlalchemy import select
+            from src.db.models import (
+                HealthRecord, ParentSleep, FuelLog,
+            )
+            since_dt = now_kyiv() - timedelta(days=days)
+            since_iso = since_dt.isoformat()
+            since_date = since_dt.date().isoformat()
+
+            insights: dict = {"days": days, "since": since_iso}
+
+            # Родительский сон — среднее и разбивка качества
+            for m in ("eugene", "marina"):
+                try:
+                    stats = await self._tool_parent_sleep_stats(member=m, days=days)
+                    insights[f"{m}_sleep"] = {
+                        "avg_hours": stats.get("avg_hours"),
+                        "nights_recorded": stats.get("records_count"),
+                        "quality": stats.get("quality_breakdown"),
+                    }
+                except Exception:
+                    insights[f"{m}_sleep"] = {"error": "не удалось посчитать"}
+
+            # Здоровье семьи — свежие записи по каждому
+            health: dict = {}
+            for m in ("matvey", "eugene", "marina"):
+                try:
+                    async with self._memory._engine.connect() as conn:
+                        rows = list(await conn.execute(
+                            select(HealthRecord)
+                            .where(HealthRecord.member_id == m)
+                            .where(HealthRecord.date >= since_iso)
+                            .order_by(HealthRecord.date.desc())
+                            .limit(50)
+                        ))
+                    by_kind: dict[str, int] = {}
+                    for r in rows:
+                        by_kind[r.kind] = by_kind.get(r.kind, 0) + 1
+                    health[m] = {"total": len(rows), "by_kind": by_kind}
+                except Exception:
+                    health[m] = {"error": "не удалось"}
+            insights["health"] = health
+
+            # Топливо
+            try:
+                fuel = await self._tool_get_vehicle_stats(days=days)
+                insights["fuel"] = {
+                    "refuels": fuel.get("refuels_count"),
+                    "total_liters": fuel.get("total_liters"),
+                    "total_uah": fuel.get("total_uah"),
+                    "km_run": fuel.get("km_run"),
+                    "avg_l_per_100km": fuel.get("avg_l_per_100km"),
+                }
+            except Exception:
+                insights["fuel"] = {"error": "не удалось"}
+
+            # Дневник Матвея — агрегируем по типам
+            try:
+                diary = await self._tool_get_baby_diary(days=days, kind="all")
+                events = diary.get("events") or []
+                by_kind: dict[str, int] = {}
+                sleep_starts = []
+                sleep_ends = []
+                for ev in events:
+                    k = str(ev.get("kind", "note")).lower()
+                    by_kind[k] = by_kind.get(k, 0) + 1
+                    # Простейший паттерн: время пробуждений
+                    e_l = str(ev.get("event", "")).lower()
+                    ts = ev.get("time", "")
+                    if "проснул" in e_l:
+                        sleep_ends.append(ts)
+                    elif "уснул" in e_l or "лёг" in e_l:
+                        sleep_starts.append(ts)
+                insights["matvey"] = {
+                    "total_events": len(events),
+                    "by_kind": by_kind,
+                    "wake_ups": len(sleep_ends),
+                    "sleep_starts": len(sleep_starts),
+                    "wake_up_times": sleep_ends[:10],
+                }
+            except Exception:
+                insights["matvey"] = {"error": "не удалось"}
+
+            return insights
+        except Exception as e:
+            log.exception("altron_weekly_insights_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_prepare_doctor_visit(self, member: str, days_back: int = 30) -> dict:

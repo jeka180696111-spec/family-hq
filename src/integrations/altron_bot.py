@@ -1032,8 +1032,15 @@ class AltronBot:
                 candidates.append((morning, "morning"))
             if evening > now:
                 candidates.append((evening, "evening"))
+            # Воскресенье 20:00 — недельный дайджест (0=Пн, 6=Вс)
+            weekly = now.replace(hour=20, minute=0, second=0, microsecond=0)
+            if now.weekday() == 6 and weekly > now:
+                candidates.append((weekly, "weekly"))
+            elif now.weekday() != 6:
+                # Ближайшее воскресенье
+                days_to_sun = (6 - now.weekday()) % 7 or 7
+                candidates.append((weekly + timedelta(days=days_to_sun), "weekly"))
             if not candidates:
-                # После 22:00 — следующий утренний
                 candidates.append((morning + timedelta(days=1), "morning"))
             candidates.sort(key=lambda x: x[0])
             return candidates[0]
@@ -1046,6 +1053,8 @@ class AltronBot:
                 await asyncio.sleep(wait_sec)
                 if kind == "morning":
                     text = await self._build_morning_brief()
+                elif kind == "weekly":
+                    text = await self._build_weekly_brief()
                 else:
                     text = await self._build_evening_brief()
                 if text:
@@ -1185,6 +1194,61 @@ class AltronBot:
         lines.append("")
         lines.append("<i>Спокойной ночи. Я слежу.</i>")
         return "\n".join(lines)
+
+    async def _build_weekly_brief(self) -> str:
+        """Воскресный дайджест: инсайты за неделю через LLM над структурой."""
+        try:
+            insights = await self._agent._tool_get_weekly_insights(days=7)
+        except Exception:
+            insights = {}
+        gemini = getattr(self._agent, "_gemini", None)
+        if gemini is None or not isinstance(insights, dict) or insights.get("error"):
+            # Фолбэк: рендерим числа без LLM
+            m = insights.get("matvey", {}) if isinstance(insights, dict) else {}
+            eug = insights.get("eugene_sleep", {}) if isinstance(insights, dict) else {}
+            mar = insights.get("marina_sleep", {}) if isinstance(insights, dict) else {}
+            fuel = insights.get("fuel", {}) if isinstance(insights, dict) else {}
+            lines = ["📊 <b>НЕДЕЛЯ · ИТОГИ</b>", "━" * 18]
+            if m:
+                lines.append(f"👶 Матвей: {m.get('total_events', 0)} записей, "
+                             f"пробуждений {m.get('wake_ups', 0)}")
+            if eug:
+                lines.append(f"🌙 Евгений: спит в среднем {eug.get('avg_hours') or '—'}ч, "
+                             f"ночей записано {eug.get('nights_recorded') or 0}")
+            if mar:
+                lines.append(f"🌙 Марина: спит в среднем {mar.get('avg_hours') or '—'}ч, "
+                             f"ночей записано {mar.get('nights_recorded') or 0}")
+            if fuel and fuel.get("refuels"):
+                lines.append(f"⛽ Топливо: {fuel.get('refuels')} заправок, "
+                             f"{fuel.get('total_liters')}л на {fuel.get('total_uah')}грн")
+            return "\n".join(lines)
+
+        import json as _json
+        system = (
+            "Ты Альтрон. Собери короткий недельный отчёт для семьи по числам ниже. "
+            "Русский, HTML <b>. Формат:\n\n"
+            "📊 <b>НЕДЕЛЯ · ИТОГИ</b>\n"
+            + ("━" * 18) + "\n\n"
+            "<b>Матвей:</b> <главное про сон/кормления/подгузники — 2-3 строки>\n"
+            "<b>Мы:</b> <про сон Марины и Евгения, отклонения — 1-2 строки>\n"
+            "<b>Здоровье:</b> <прививки/лекарства/симптомы за неделю — 1 строка>\n"
+            "<b>Авто:</b> <заправки, расход — 1 строка>\n\n"
+            "🔍 <b>Что заметил:</b> <1-2 наблюдения-паттерна, только если реально видны в цифрах. "
+            "Примеры хороших: «Матвей 3 раза просыпался в 03:00 — стоит показать педиатру», "
+            "«Расход авто вырос с 9.5 до 11.2 — вспомни про заправку А92».>\n\n"
+            "Правила: не выдумывай, если данных нет — секцию пропускай. "
+            "Максимум ~15 строк. Не пиши преамбулу."
+        )
+        try:
+            text = await gemini.complete(
+                system=system,
+                messages=[{"role": "user", "content": _json.dumps(insights, ensure_ascii=False)}],
+                max_tokens=700,
+            )
+            return (text or "").strip() or "📊 Неделя без явных паттернов."
+        except Exception:
+            log.exception("altron_weekly_llm_failed")
+            return "📊 Не смог собрать недельный отчёт."
 
     @staticmethod
     def _format_start_card(region: str, started_at: str) -> str:
