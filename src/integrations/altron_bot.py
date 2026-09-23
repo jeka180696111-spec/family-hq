@@ -9,6 +9,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from datetime import datetime
 from typing import Any
 
 import structlog
@@ -19,12 +21,16 @@ log = structlog.get_logger()
 class AltronBot:
     """Стартует Application в фоне, ловит сообщения только из altron_chat_id."""
 
-    def __init__(self, token: str, chat_id: int, agent: Any) -> None:
+    def __init__(self, token: str, chat_id: int, agent: Any, memory: Any = None) -> None:
         self._token = token
         self._chat_id = int(chat_id)
         self._agent = agent
+        self._memory = memory
         self._app = None
         self._task: asyncio.Task | None = None
+        self._alert_watch_task: asyncio.Task | None = None
+        # region -> {"started_at": str, "digest_hash": str, "message_id": int|None, "last_sent_at": float}
+        self._alert_state: dict[str, dict] = {}
 
     async def start(self) -> None:
         if not self._token or not self._chat_id:
@@ -279,10 +285,116 @@ class AltronBot:
         self._task = asyncio.create_task(_run())
         log.info("altron_bot_task_created")
 
+        # Фоновый watcher тревог — только если memory передана
+        if self._memory is not None:
+            self._alert_watch_task = asyncio.create_task(self._watch_alerts())
+            log.info("altron_alert_watcher_started")
+
     async def stop(self) -> None:
-        if self._task and not self._task.done():
-            self._task.cancel()
+        for t in (self._alert_watch_task, self._task):
+            if t and not t.done():
+                t.cancel()
+                try:
+                    await t
+                except Exception:
+                    pass
+
+    # ─── Alert broadcasting ────────────────────────────────────────
+
+    async def _watch_alerts(self) -> None:
+        """Опрос ActiveAlert раз в 15с. Публикует в чат:
+        - при появлении новой активной тревоги — скелет-карточку;
+        - при обновлении digest_json — редактирует ту же карточку;
+        - при исчезновении тревоги (отбой) — короткое сообщение и чистит state.
+        """
+        from sqlalchemy import select
+        from src.db.models import ActiveAlert
+        from src.integrations.alert_digest import format_digest, format_final_digest
+
+        await asyncio.sleep(10)  # дать приложению встать
+        while True:
             try:
-                await self._task
+                if self._app is None or self._app.bot is None:
+                    await asyncio.sleep(15)
+                    continue
+                async with self._memory._engine.connect() as conn:
+                    rows = list(await conn.execute(select(ActiveAlert)))
+
+                current = {r.region: r for r in rows}
+                # 1. Обновления/новые тревоги
+                for region, aa in current.items():
+                    digest_raw = aa.digest_json or ""
+                    prev = self._alert_state.get(region)
+                    if not prev:
+                        # НОВАЯ тревога — скелет + сохранить message_id
+                        text = self._format_start_card(region, aa.started_at)
+                        try:
+                            msg = await self._app.bot.send_message(
+                                chat_id=self._chat_id, text=text, parse_mode="HTML",
+                            )
+                            self._alert_state[region] = {
+                                "started_at": aa.started_at,
+                                "digest_hash": "",
+                                "message_id": msg.message_id,
+                            }
+                            log.info("altron_alert_start_sent", region=region)
+                        except Exception:
+                            log.exception("altron_alert_start_failed", region=region)
+                    else:
+                        # Существующая — обновилась ли digest?
+                        h = str(hash(digest_raw))
+                        if h != prev.get("digest_hash") and digest_raw:
+                            try:
+                                digest = json.loads(digest_raw)
+                                text = format_digest(digest, region, aa.started_at, sources_count=0, top_chans=None)
+                                await self._app.bot.edit_message_text(
+                                    chat_id=self._chat_id,
+                                    message_id=prev["message_id"],
+                                    text=text, parse_mode="HTML",
+                                )
+                                prev["digest_hash"] = h
+                                log.info("altron_alert_updated", region=region)
+                            except Exception:
+                                log.exception("altron_alert_update_failed", region=region)
+
+                # 2. Отбой — регионы что были, но пропали
+                for region in list(self._alert_state.keys()):
+                    if region in current:
+                        continue
+                    st = self._alert_state[region]
+                    try:
+                        try:
+                            started_dt = datetime.fromisoformat(st["started_at"])
+                            duration_min = max(1, int((datetime.now(started_dt.tzinfo) - started_dt).total_seconds() / 60))
+                        except Exception:
+                            duration_min = 0
+                        text = f"✅ <b>ОТБОЙ · {region}</b> · длилось {duration_min} мин"
+                        await self._app.bot.send_message(
+                            chat_id=self._chat_id, text=text, parse_mode="HTML",
+                        )
+                        log.info("altron_alert_end_sent", region=region, duration_min=duration_min)
+                    except Exception:
+                        log.exception("altron_alert_end_failed", region=region)
+                    del self._alert_state[region]
+            except asyncio.CancelledError:
+                raise
             except Exception:
-                pass
+                log.exception("altron_alert_watch_loop_err")
+
+            try:
+                await asyncio.sleep(15)
+            except asyncio.CancelledError:
+                raise
+
+    @staticmethod
+    def _format_start_card(region: str, started_at: str) -> str:
+        try:
+            dt = datetime.fromisoformat(started_at)
+            hm = dt.strftime("%H:%M")
+        except Exception:
+            hm = "?"
+        return (
+            f"🚨 <b>ТРЕВОГА · {region}</b> · с {hm}\n"
+            + "─" * 20
+            + "\n⏳ Собираю данные — что летит и куда…"
+        )
