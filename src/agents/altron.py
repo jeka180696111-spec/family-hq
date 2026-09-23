@@ -139,6 +139,83 @@ _FAST_PATH_TOOLS = frozenset({
 })
 
 
+class _ResilientLLM:
+    """Обёртка над Gemini с fallback на Claude. Никаких схемных изменений
+    для агента — просто пересылает calls с ретраем на альтернативный API.
+
+    Ключ решения: определяем «quota-подобные» ошибки по сообщению
+    RuntimeError'а. Если поймали — делаем ту же операцию через Claude,
+    возвращаем результат в Anthropic-совместимом виде (у обеих моделей
+    он одинаковый — duck-typed message с .content блоками)."""
+
+    QUOTA_MARKERS = ("429", "quota", "all keys", "rate limit", "all keys×models failed")
+
+    def __init__(self, primary: Any, fallback: Any, settings: Any) -> None:
+        self._primary = primary
+        self._fallback = fallback
+        self._settings = settings
+
+    def _is_quota_err(self, exc: Exception) -> bool:
+        msg = str(exc).lower()
+        return any(m in msg for m in self.QUOTA_MARKERS)
+
+    async def complete(self, **kwargs) -> str:
+        try:
+            return await self._primary.complete(**kwargs)
+        except Exception as e:
+            if not self._is_quota_err(e):
+                raise
+            log.warning("altron_llm_fallback_claude_complete", err=str(e)[:150])
+            model = getattr(self._settings, "model_cheap", "") or "claude-haiku-4-5-20251001"
+            return await self._fallback.complete(
+                model=model, system=kwargs.get("system", ""),
+                messages=kwargs.get("messages") or [],
+                max_tokens=kwargs.get("max_tokens", 1024),
+            )
+
+    async def complete_with_tools(self, **kwargs) -> Any:
+        try:
+            return await self._primary.complete_with_tools(**kwargs)
+        except Exception as e:
+            if not self._is_quota_err(e):
+                raise
+            log.warning("altron_llm_fallback_claude_tools", err=str(e)[:150])
+            model = getattr(self._settings, "model_cheap", "") or "claude-haiku-4-5-20251001"
+            return await self._fallback.complete_with_tools(
+                model=model, system=kwargs.get("system", ""),
+                messages=kwargs.get("messages") or [],
+                tools=kwargs.get("tools") or [],
+                max_tokens=kwargs.get("max_tokens", 2048),
+            )
+
+    async def complete_stream(self, **kwargs):
+        """Проксирует streaming. Если Gemini квоту исчерпал —
+        Claude тоже поддерживает stream, но интерфейс другой; для
+        простоты fallback просто отдаёт весь текст одним чанком."""
+        try:
+            async for chunk in self._primary.complete_stream(**kwargs):
+                yield chunk
+            return
+        except Exception as e:
+            if not self._is_quota_err(e):
+                raise
+        # Fallback — один чанк через Claude non-stream
+        try:
+            model = getattr(self._settings, "model_cheap", "") or "claude-haiku-4-5-20251001"
+            text = await self._fallback.complete(
+                model=model, system=kwargs.get("system", ""),
+                messages=kwargs.get("messages") or [],
+                max_tokens=kwargs.get("max_tokens", 1024),
+            )
+            yield text or ""
+        except Exception:
+            log.exception("altron_llm_fallback_stream_failed")
+
+    # Пробросим оставшиеся методы (vision, transcribe, etc) прямо в primary
+    def __getattr__(self, item):
+        return getattr(self._primary, item)
+
+
 class AltronAgent:
     """Единый ассистент. Отвечает на сообщения из ALTRON_CHAT_ID.
 
@@ -152,9 +229,16 @@ class AltronAgent:
         memory: Any,
         gemini_client: Any,
         settings: Any,
+        claude_client: Any = None,
     ) -> None:
         self._memory = memory
-        self._gemini = gemini_client
+        # Обёртка: primary=Gemini (дешевле), fallback=Claude Haiku.
+        # Если Gemini даёт квоту-ошибку (429 / all keys failed), автоматически
+        # ретраит запрос через Claude. Пользователь не видит разницы.
+        self._gemini = _ResilientLLM(
+            primary=gemini_client, fallback=claude_client,
+            settings=settings,
+        ) if claude_client is not None else gemini_client
         self._settings = settings
         # История разговора по chat_id. In-memory; при перезапуске обнуляется —
         # для Этапа 2 нормально. Позже переедет в БД.

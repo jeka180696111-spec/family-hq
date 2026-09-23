@@ -1659,6 +1659,7 @@ async def run(dry_run: bool = False) -> None:
                 memory=memory,
                 gemini_client=_news_gemini,
                 settings=settings,
+                claude_client=claude,  # Fallback при исчерпанной квоте Gemini
             )
             altron_bot = AltronBot(
                 token=settings.altron_bot_token,
