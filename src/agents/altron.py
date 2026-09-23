@@ -125,6 +125,7 @@ _WRITE_TOOLS = frozenset({
     "wiki_set", "wiki_delete",
     "speak_reply",
     "ask_with_buttons",
+    "set_quiet_hours",
 })
 
 # Только эти инструменты уходят по fast-path (мгновенный ответ без второго
@@ -858,6 +859,24 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "set_quiet_hours",
+                "description": (
+                    "Настроить тихие часы Альтрона — окно когда все уведомления, "
+                    "кроме реальной критики (тревога, свет), идут без звука. "
+                    "Триггеры: «тихие часы с 22 до 7», «поставь режим тишины», "
+                    "«отключи тихие часы»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "from_time": {"type": "string", "description": "HH:MM начало (напр. 22:00)"},
+                        "to_time": {"type": "string", "description": "HH:MM конец (напр. 07:00)"},
+                        "enabled": {"type": "boolean", "description": "true=включить, false=отключить полностью"},
+                    },
+                    "required": [],
+                },
+            },
+            {
                 "name": "ask_with_buttons",
                 "description": (
                     "Отправить сообщение с inline-кнопками вместо просьбы напечатать ответ. "
@@ -1447,6 +1466,12 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "set_quiet_hours":
+                return await self._tool_set_quiet_hours(
+                    from_time=args.get("from_time") or "",
+                    to_time=args.get("to_time") or "",
+                    enabled=args.get("enabled"),
+                )
             if name == "ask_with_buttons":
                 return await self._tool_ask_with_buttons(
                     text_=args.get("text") or "",
@@ -2667,6 +2692,47 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_set_quiet_hours(
+        self, from_time: str = "", to_time: str = "", enabled: Any = None,
+    ) -> dict:
+        """Записать окно тишины в FamilyFact(member='altron', key='quiet_hours')."""
+        try:
+            from sqlalchemy import insert, select, update as sql_update
+            from src.db.models import FamilyFact
+            from src.utils.time import iso_now
+            now_ = iso_now()
+            if enabled is False:
+                value = "off"
+            elif from_time and to_time:
+                value = f"{from_time.strip()}-{to_time.strip()}"
+            else:
+                return {"error": "нужно from_time+to_time или enabled=false"}
+            async with self._memory._engine.begin() as conn:
+                row = (await conn.execute(
+                    select(FamilyFact)
+                    .where(FamilyFact.member == "altron")
+                    .where(FamilyFact.key == "quiet_hours")
+                )).first()
+                if row:
+                    await conn.execute(
+                        sql_update(FamilyFact)
+                        .where(FamilyFact.id == row.id)
+                        .values(value=value, updated_at=now_)
+                    )
+                else:
+                    await conn.execute(insert(FamilyFact).values(
+                        member="altron", key="quiet_hours", value=value,
+                        source="altron", created_at=now_, updated_at=now_,
+                    ))
+            # Инвалидируем кэш в боте если есть
+            bridge = getattr(self, "_voice_bot", None)
+            if bridge is not None and hasattr(bridge, "_quiet_window_cache"):
+                bridge._quiet_window_cache = None
+            return {"success": True, "value": value}
+        except Exception as e:
+            log.exception("altron_set_quiet_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_ask_with_buttons(self, text_: str, options: list) -> dict:
