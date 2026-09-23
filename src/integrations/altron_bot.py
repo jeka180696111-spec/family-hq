@@ -89,8 +89,13 @@ class AltronBot:
         self._alert_watch_task: asyncio.Task | None = None
         self._baby_watch_task: asyncio.Task | None = None
         self._grid_watch_task: asyncio.Task | None = None
+        self._direct_ingest_task: asyncio.Task | None = None
         # region -> {"started_at": str, "digest_hash": str, "message_id": int|None, "last_sent_at": float}
         self._alert_state: dict[str, dict] = {}
+        # Отдельный state для собственного (direct-ingest) режима.
+        # region -> {"message_id": int, "opened_at": float, "last_llm_at": float,
+        #           "sources": list[str], "posts": list[str]}
+        self._direct_alert_state: dict[str, dict] = {}
         self._baby_last: dict = {}
         self._grid_last_on: bool | None = None
 
@@ -349,13 +354,19 @@ class AltronBot:
 
         # Фоновые watchers — только если memory передана
         if self._memory is not None:
-            self._alert_watch_task = asyncio.create_task(self._watch_alerts())
+            # Свой прямой сбор постов из Telegram (независимо от штабного
+            # Дозорного). Первичный источник тревог.
+            self._direct_ingest_task = asyncio.create_task(self._run_direct_ingest())
             self._baby_watch_task = asyncio.create_task(self._watch_baby())
             self._grid_watch_task = asyncio.create_task(self._watch_grid())
             log.info("altron_watchers_started")
 
     async def stop(self) -> None:
-        for t in (self._grid_watch_task, self._baby_watch_task, self._alert_watch_task, self._task):
+        for t in (
+            self._grid_watch_task, self._baby_watch_task,
+            self._alert_watch_task, self._direct_ingest_task,
+            self._task,
+        ):
             if t and not t.done():
                 t.cancel()
                 try:
@@ -373,7 +384,143 @@ class AltronBot:
         except Exception:
             log.exception("altron_bot_send_failed")
 
-    # ─── Alert broadcasting ────────────────────────────────────────
+    # ─── Direct ingest (свой сбор постов) ─────────────────────────
+
+    async def _run_direct_ingest(self) -> None:
+        """Запуск AltronDirectIngestor с колбэками на текущий бот."""
+        from src.integrations.altron_ingest import AltronDirectIngestor
+
+        ing = AltronDirectIngestor(
+            memory=self._memory,
+            on_alert_start=self._direct_on_start,
+            on_alert_update=self._direct_on_update,
+            on_alert_clear=self._direct_on_clear,
+        )
+        try:
+            await ing.run()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("altron_direct_ingest_crashed")
+
+    async def _direct_on_start(self, region: str, post: dict, sources: list[str]) -> None:
+        """Callback: пришёл первый alert-пост. Отправляем карточку."""
+        import time
+        try:
+            started_at = post["ts"].astimezone().isoformat()
+        except Exception:
+            started_at = datetime.now().astimezone().isoformat()
+        text = self._format_start_card(region, started_at)
+        try:
+            msg = await self._app.bot.send_message(
+                chat_id=self._chat_id, text=text, parse_mode="HTML",
+            )
+        except Exception:
+            log.exception("altron_direct_start_send_failed")
+            return
+        self._direct_alert_state[region] = {
+            "message_id": msg.message_id,
+            "started_at": started_at,
+            "opened_at": time.time(),
+            "last_llm_at": 0.0,
+            "sources": list(sources),
+            "posts": [post["text"]],
+        }
+        log.info("altron_direct_alert_start", region=region, sources=sources)
+
+    async def _direct_on_update(self, region: str, new_posts: list, sources: list[str]) -> None:
+        """Callback: обновление во время активной тревоги. Пересобираем digest
+        не чаще раз в 20 сек."""
+        import time
+        st = self._direct_alert_state.get(region)
+        if not st:
+            return
+        st["sources"] = list(sources)
+        for p in new_posts:
+            st["posts"].append(p["text"])
+        st["posts"] = st["posts"][-30:]
+
+        if time.time() - st.get("last_llm_at", 0) < 20:
+            return
+
+        card = await self._direct_build_card(region, st)
+        if not card:
+            return
+        try:
+            await self._app.bot.edit_message_text(
+                chat_id=self._chat_id, message_id=st["message_id"],
+                text=card, parse_mode="HTML",
+            )
+            st["last_llm_at"] = time.time()
+        except Exception:
+            log.exception("altron_direct_update_edit_failed", region=region)
+
+    async def _direct_on_clear(self, region: str, sources: list[str]) -> None:
+        """Callback: пришёл отбой."""
+        st = self._direct_alert_state.get(region)
+        try:
+            try:
+                started_dt = datetime.fromisoformat(st["started_at"]) if st else datetime.now()
+                duration_min = max(1, int((datetime.now(started_dt.tzinfo) - started_dt).total_seconds() / 60))
+            except Exception:
+                duration_min = 0
+            text = self._format_altron_endcard(
+                region, st.get("started_at", "") if st else "",
+                duration_min,
+                digest={},  # LLM-собранные факты можно добавить позже
+                sources=sources,
+            )
+            await self._app.bot.send_message(
+                chat_id=self._chat_id, text=text, parse_mode="HTML",
+            )
+            log.info("altron_direct_alert_end", region=region, duration_min=duration_min)
+        except Exception:
+            log.exception("altron_direct_clear_send_failed")
+        self._direct_alert_state.pop(region, None)
+
+    async def _direct_build_card(self, region: str, st: dict) -> str:
+        """LLM-суммаризация накопленных постов в формат карточки Альтрона."""
+        gemini = getattr(self._agent, "_gemini", None)
+        if gemini is None:
+            return ""
+        try:
+            dt = datetime.fromisoformat(st["started_at"])
+            hm = dt.strftime("%H:%M")
+        except Exception:
+            hm = "?"
+        raw = "\n---\n".join(st.get("posts") or [])
+        sources = st.get("sources") or []
+        src_line = ", ".join(sources[:6]) if sources else "—"
+        system = (
+            "Ты Альтрон. Собираешь сводку по активной воздушной тревоге в Одессе "
+            "напрямую из Telegram-каналов (без штабного дозорного). "
+            "Русский, HTML-теги <b>. Строго этот формат:\n\n"
+            f"🚨 <b>АЛЬТРОН · ТРЕВОГА</b>\n"
+            f"📍 {region} · с {hm}\n"
+            + ("━" * 18) + "\n\n"
+            "🟠 <b>ОЦЕНКА:</b> <короткая оценка угрозы Одессе — если есть курс "
+            "или прилёты у нас, ставь 🔴 «В укрытие»; если летит мимо, 🟢 «Мимо, "
+            "следим»; данных мало — ⚪>\n\n"
+            "✈ <b>ЧТО ЛЕТИТ:</b> <шахед × N / крылатая ракета / КАБ / БПЛА — "
+            "только если реально упомянуто>\n"
+            "🎯 <b>КУРС:</b> <куда идёт — только если упомянуто>\n"
+            "💥 <b>ПРИЛЁТЫ:</b> <место — что; помечай (не подтв.) если неясно>\n\n"
+            + ("━" * 18) + "\n"
+            f"📡 <b>Источники:</b> {src_line}\n\n"
+            "Правила: не выдумывай, пропускай пустые секции. Максимум ~15 строк."
+        )
+        try:
+            text = await gemini.complete(
+                system=system,
+                messages=[{"role": "user", "content": raw}],
+                max_tokens=500,
+            )
+            return (text or "").strip()
+        except Exception:
+            log.exception("altron_direct_llm_card_failed")
+            return ""
+
+    # ─── Alert broadcasting (fallback via HQ Дозорный — deprecated) ─
 
     async def _watch_alerts(self) -> None:
         """Быстрый (3с) опрос ActiveAlert + фолбэк-дайджест если Штаб отстаёт.
