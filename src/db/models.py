@@ -690,3 +690,20 @@ class OAuthToken(Base):
     expires_at: Mapped[int] = mapped_column(Integer, nullable=False)  # UNIX timestamp
     scope: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class AltronMessage(Base):
+    """Persistent conversation history for Altron (survives restarts).
+
+    Content is JSON-encoded — dict/list content блоков сохраняем как есть.
+    Индексом по (chat_id, id desc) достаём последние N быстро.
+    """
+    __tablename__ = "altron_messages"
+    __table_args__ = (
+        Index("idx_altron_msgs_chat_id", "chat_id", "id"),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    role: Mapped[str] = mapped_column(String, nullable=False)  # user/assistant
+    content_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
