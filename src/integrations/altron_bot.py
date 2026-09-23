@@ -166,10 +166,37 @@ class AltronBot:
                     pass
 
             typing_task = asyncio.create_task(_keep_typing())
+            # Плейсхолдер для стрим-обновлений. Создаём лениво — только
+            # если стрим реально стартовал (в handle решается на force_final).
+            placeholder = {"msg": None, "last_text": ""}
+
+            async def _on_partial(acc: str) -> None:
+                if not acc or acc == placeholder["last_text"]:
+                    return
+                shown = acc if len(acc) <= 3800 else acc[-3800:]
+                try:
+                    if placeholder["msg"] is None:
+                        placeholder["msg"] = await msg.reply_text(shown + " ▍")
+                    else:
+                        await placeholder["msg"].edit_text(shown + " ▍")
+                    placeholder["last_text"] = acc
+                except Exception:
+                    pass
+
             try:
-                reply = await agent.handle(text, user_name=user, chat_id=msg.chat_id)
+                reply = await agent.handle(
+                    text, user_name=user, chat_id=msg.chat_id,
+                    on_partial=_on_partial,
+                )
+                # Финальный текст — либо в плейсхолдер (edit), либо новое сообщение
                 if reply:
-                    await msg.reply_text(reply)
+                    if placeholder["msg"] is not None:
+                        try:
+                            await placeholder["msg"].edit_text(reply)
+                        except Exception:
+                            await msg.reply_text(reply)
+                    else:
+                        await msg.reply_text(reply)
             except Exception as e:
                 log.exception("altron_reply_failed")
                 try:
