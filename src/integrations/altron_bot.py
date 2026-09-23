@@ -483,12 +483,28 @@ class AltronBot:
 
     async def _watch_baby(self) -> None:
         """Опрос BabyState раз в 60с. Реагирует на переходы:
-        - Уснул (sleeping_since выставилось) → предложить приглушить свет.
+        - Уснул → предложить приглушить свет.
         - Проснулся ДО 7:00 → сам включить сцену «Спальня ночь» + известить.
         - Проснулся в обычное время (7-22) → просто известить.
+
+        Если переход был только что записан САМИМ Альтроном по команде
+        пользователя (self._agent._recent_baby_transition), уведомление
+        пропускаем — юзер уже в курсе.
         """
+        import time
         from sqlalchemy import select
         from src.db.models import BabyState
+        from datetime import datetime as _dt
+
+        SUPPRESS_WINDOW_SEC = 180
+
+        def _time_of(iso_ts: str | None) -> str:
+            if not iso_ts:
+                return _dt.now().strftime("%H:%M")
+            try:
+                return _dt.fromisoformat(iso_ts).strftime("%H:%M")
+            except Exception:
+                return _dt.now().strftime("%H:%M")
 
         await asyncio.sleep(20)
         while True:
@@ -501,36 +517,43 @@ class AltronBot:
                         "awake_since": st.awake_since,
                     }
                     prev = self._baby_last
+                    recent = getattr(self._agent, "_recent_baby_transition", {}) or {}
+                    now_ts = time.time()
+
                     if prev:
                         # Заснул
                         if curr["sleeping_since"] and curr["sleeping_since"] != prev.get("sleeping_since"):
-                            await self._send(
-                                "😴 <b>Матвей уснул.</b>\nСвет в детской теперь не нужен. "
-                                "Скажи «выключи свет в детской» — сделаю."
-                            )
+                            if now_ts - recent.get("asleep", 0) > SUPPRESS_WINDOW_SEC:
+                                await self._send(
+                                    f"😴 <b>Матвей уснул в {_time_of(curr['sleeping_since'])}.</b>\n"
+                                    "Свет в детской теперь не нужен. Скажи «выключи свет в детской» — сделаю."
+                                )
                         # Проснулся
                         if curr["awake_since"] and curr["awake_since"] != prev.get("awake_since"):
                             from src.utils.time import now_kyiv
+                            wake_hm = _time_of(curr["awake_since"])
                             hour = now_kyiv().hour
+                            # Ночное пробуждение — включаем ночник даже если запись сделал юзер
                             if hour < 7:
-                                # Ночное пробуждение — включаем ночник автоматически
                                 ok = await self._try_run_scene(
                                     ["Спальня ночь", "Детская ночь", "Ночник"]
                                 )
-                                if ok:
-                                    await self._send(
-                                        f"🌙 <b>Матвей проснулся в {now_kyiv().strftime('%H:%M')}</b>\n"
-                                        f"Включил ночник ({ok})."
-                                    )
-                                else:
-                                    await self._send(
-                                        f"🌙 <b>Матвей проснулся в {now_kyiv().strftime('%H:%M')}</b>\n"
-                                        "Хотел включить ночник, но сцены «Спальня ночь» не нашёл."
-                                    )
+                                if now_ts - recent.get("awake", 0) > SUPPRESS_WINDOW_SEC:
+                                    if ok:
+                                        await self._send(
+                                            f"🌙 <b>Матвей проснулся в {wake_hm}</b>\nВключил ночник ({ok})."
+                                        )
+                                    else:
+                                        await self._send(
+                                            f"🌙 <b>Матвей проснулся в {wake_hm}</b>\n"
+                                            "Хотел включить ночник, но сцены «Спальня ночь» не нашёл."
+                                        )
+                                elif ok:
+                                    # Юзер уже знает про пробуждение, но сцену всё равно включили — коротко
+                                    await self._send(f"🌙 Заодно включил ночник ({ok}).")
                             else:
-                                await self._send(
-                                    f"👶 <b>Матвей проснулся в {now_kyiv().strftime('%H:%M')}</b>"
-                                )
+                                if now_ts - recent.get("awake", 0) > SUPPRESS_WINDOW_SEC:
+                                    await self._send(f"👶 <b>Матвей проснулся в {wake_hm}</b>")
                     self._baby_last = curr
             except asyncio.CancelledError:
                 raise
