@@ -714,6 +714,39 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "web_search",
+                "description": (
+                    "Общий поиск в интернете (DuckDuckGo). Возвращает 5 ссылок. "
+                    "Триггеры: «найди в интернете X», «что там про Y?», «поищи новости про Z», "
+                    "«гугли X». Отличается от search_recipe — здесь запросы любые."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Свободный запрос"},
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "name": "search_telegram_posts",
+                "description": (
+                    "Поиск по постам мониторинга Дозорного (NewsPost) — свежие "
+                    "новости из отслеживаемых Telegram-каналов. "
+                    "Триггеры: «что писали про Одессу?», «есть посты про удары?», "
+                    "«что там за прилёт?», «поищи в мониторинге про X»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Ключевые слова"},
+                        "hours_back": {"type": "integer", "description": "За сколько часов (по умолчанию 24)"},
+                        "alerts_only": {"type": "boolean", "description": "Только помеченные как alert-related"},
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
                 "name": "prepare_doctor_visit",
                 "description": (
                     "Собрать справку перед визитом к врачу: симптомы, лекарства, прививки, "
@@ -1214,6 +1247,14 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "web_search":
+                return await self._tool_web_search(args.get("query") or "")
+            if name == "search_telegram_posts":
+                return await self._tool_search_telegram_posts(
+                    query=args.get("query") or "",
+                    hours_back=int(args.get("hours_back") or 24),
+                    alerts_only=bool(args.get("alerts_only")),
+                )
             if name == "prepare_doctor_visit":
                 return await self._tool_prepare_doctor_visit(
                     member=args.get("member") or "matvey",
@@ -2306,6 +2347,72 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_web_search(self, query: str) -> dict:
+        """Общий поиск (DuckDuckGo) — 5 результатов."""
+        if not query.strip():
+            return {"error": "query is empty"}
+        try:
+            from src.integrations.web_search import WebSearchClient
+            client = WebSearchClient()
+            results = await client.search(query, max_results=5)
+            return {
+                "query": query,
+                "count": len(results),
+                "results": [
+                    {"title": r.title, "url": r.url, "snippet": r.snippet[:250]}
+                    for r in results
+                ],
+            }
+        except Exception as e:
+            log.exception("altron_web_search_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_search_telegram_posts(
+        self, query: str, hours_back: int = 24, alerts_only: bool = False,
+    ) -> dict:
+        """Поиск по NewsPost — свежие посты из мониторинга Дозорного."""
+        if not query.strip():
+            return {"error": "query is empty"}
+        try:
+            from sqlalchemy import select
+            from src.db.models import NewsPost, NewsChannel
+            from datetime import timedelta
+            since = (now_kyiv() - timedelta(hours=hours_back)).isoformat()
+            q = query.lower()
+            async with self._memory._engine.connect() as conn:
+                stmt = (
+                    select(NewsPost, NewsChannel.title)
+                    .join(NewsChannel, NewsPost.channel_id == NewsChannel.channel_id, isouter=True)
+                    .where(NewsPost.date >= since)
+                    .order_by(NewsPost.date.desc())
+                    .limit(400)
+                )
+                if alerts_only:
+                    stmt = stmt.where(NewsPost.is_alert == 1)
+                rows = list(await conn.execute(stmt))
+            hits = []
+            for post, channel_title in rows:
+                if q in (post.text or "").lower():
+                    hits.append({
+                        "channel": channel_title or f"chan_{post.channel_id}",
+                        "date": post.date,
+                        "text": (post.text or "")[:400],
+                        "is_alert": bool(post.is_alert),
+                        "alert_region": post.alert_region,
+                    })
+                    if len(hits) >= 15:
+                        break
+            return {
+                "query": query,
+                "hours_back": hours_back,
+                "alerts_only": alerts_only,
+                "count": len(hits),
+                "hits": hits,
+            }
+        except Exception as e:
+            log.exception("altron_tg_search_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_prepare_doctor_visit(self, member: str, days_back: int = 30) -> dict:

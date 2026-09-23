@@ -302,31 +302,37 @@ class AltronBot:
     # ─── Alert broadcasting ────────────────────────────────────────
 
     async def _watch_alerts(self) -> None:
-        """Опрос ActiveAlert раз в 15с. Публикует в чат:
-        - при появлении новой активной тревоги — скелет-карточку;
-        - при обновлении digest_json — редактирует ту же карточку;
-        - при исчезновении тревоги (отбой) — короткое сообщение и чистит state.
-        """
-        from sqlalchemy import select
-        from src.db.models import ActiveAlert
-        from src.integrations.alert_digest import format_digest, format_final_digest
+        """Быстрый (3с) опрос ActiveAlert + фолбэк-дайджест если Штаб отстаёт.
 
-        await asyncio.sleep(10)  # дать приложению встать
+        - Новая тревога → скелет («ТРЕВОГА · регион · с HH:MM») мгновенно.
+        - Штабной digest_json готов → редактируем ту же карточку полной раскладкой.
+        - Штабной digest ещё не готов, а тревога длится >20с → собираем СВОЙ
+          quick-digest из последних AlertPost через Gemini и обновляем карточку.
+        - Свежие AlertPost во время тревоги → тоже триггерят пересбор digest.
+        - Отбой → «✅ ОТБОЙ · регион · длилось N мин».
+        """
+        import time
+        from sqlalchemy import select
+        from src.db.models import ActiveAlert, AlertPost
+        from src.integrations.alert_digest import format_digest
+
+        await asyncio.sleep(5)
+        POLL_SEC = 3
         while True:
             try:
                 if self._app is None or self._app.bot is None:
-                    await asyncio.sleep(15)
+                    await asyncio.sleep(POLL_SEC)
                     continue
                 async with self._memory._engine.connect() as conn:
                     rows = list(await conn.execute(select(ActiveAlert)))
 
                 current = {r.region: r for r in rows}
-                # 1. Обновления/новые тревоги
+                now_ts = time.time()
+
                 for region, aa in current.items():
                     digest_raw = aa.digest_json or ""
                     prev = self._alert_state.get(region)
                     if not prev:
-                        # НОВАЯ тревога — скелет + сохранить message_id
                         text = self._format_start_card(region, aa.started_at)
                         try:
                             msg = await self._app.bot.send_message(
@@ -336,14 +342,20 @@ class AltronBot:
                                 "started_at": aa.started_at,
                                 "digest_hash": "",
                                 "message_id": msg.message_id,
+                                "opened_at": now_ts,
+                                "own_digest_at": 0.0,
+                                "last_alert_post_id": 0,
                             }
                             log.info("altron_alert_start_sent", region=region)
                         except Exception:
                             log.exception("altron_alert_start_failed", region=region)
-                    else:
-                        # Существующая — обновилась ли digest?
+                        continue
+
+                    prev = self._alert_state[region]
+                    # 1) Штабной digest — источник истины, если он есть
+                    if digest_raw:
                         h = str(hash(digest_raw))
-                        if h != prev.get("digest_hash") and digest_raw:
+                        if h != prev.get("digest_hash"):
                             try:
                                 digest = json.loads(digest_raw)
                                 text = format_digest(digest, region, aa.started_at, sources_count=0, top_chans=None)
@@ -353,11 +365,40 @@ class AltronBot:
                                     text=text, parse_mode="HTML",
                                 )
                                 prev["digest_hash"] = h
-                                log.info("altron_alert_updated", region=region)
                             except Exception:
                                 log.exception("altron_alert_update_failed", region=region)
+                        continue
 
-                # 2. Отбой — регионы что были, но пропали
+                    # 2) Штаб не успел — сами читаем свежие AlertPost и делаем
+                    #    свой quick-digest не чаще раз в 15 сек.
+                    if now_ts - prev.get("own_digest_at", 0) < 15:
+                        continue
+                    async with self._memory._engine.connect() as conn:
+                        posts = list(await conn.execute(
+                            select(AlertPost)
+                            .where(AlertPost.region == region)
+                            .order_by(AlertPost.id.desc())
+                            .limit(15)
+                        ))
+                    max_pid = max((p.id for p in posts), default=0)
+                    if not posts or max_pid <= prev.get("last_alert_post_id", 0):
+                        # Ничего нового — попробуем через 15 сек снова
+                        prev["own_digest_at"] = now_ts
+                        continue
+                    own_text = await self._own_quick_digest(region, aa.started_at, posts)
+                    if own_text:
+                        try:
+                            await self._app.bot.edit_message_text(
+                                chat_id=self._chat_id,
+                                message_id=prev["message_id"],
+                                text=own_text, parse_mode="HTML",
+                            )
+                            prev["own_digest_at"] = now_ts
+                            prev["last_alert_post_id"] = max_pid
+                        except Exception:
+                            log.exception("altron_own_digest_edit_failed", region=region)
+
+                # Отбой
                 for region in list(self._alert_state.keys()):
                     if region in current:
                         continue
@@ -368,9 +409,10 @@ class AltronBot:
                             duration_min = max(1, int((datetime.now(started_dt.tzinfo) - started_dt).total_seconds() / 60))
                         except Exception:
                             duration_min = 0
-                        text = f"✅ <b>ОТБОЙ · {region}</b> · длилось {duration_min} мин"
                         await self._app.bot.send_message(
-                            chat_id=self._chat_id, text=text, parse_mode="HTML",
+                            chat_id=self._chat_id,
+                            text=f"✅ <b>ОТБОЙ · {region}</b> · длилось {duration_min} мин",
+                            parse_mode="HTML",
                         )
                         log.info("altron_alert_end_sent", region=region, duration_min=duration_min)
                     except Exception:
@@ -382,9 +424,44 @@ class AltronBot:
                 log.exception("altron_alert_watch_loop_err")
 
             try:
-                await asyncio.sleep(15)
+                await asyncio.sleep(POLL_SEC)
             except asyncio.CancelledError:
                 raise
+
+    async def _own_quick_digest(self, region: str, started_at: str, posts) -> str:
+        """LLM-суммаризация свежих AlertPost, когда штабной digest ещё не готов."""
+        gemini = getattr(self._agent, "_gemini", None)
+        if gemini is None:
+            return ""
+        try:
+            dt = datetime.fromisoformat(started_at)
+            hm = dt.strftime("%H:%M")
+        except Exception:
+            hm = "?"
+        raw = "\n---\n".join(
+            f"[{p.channel_title or p.channel_id}]: {(p.text or '')[:600]}"
+            for p in reversed(posts)
+        )
+        system = (
+            "Ты Альтрон. Собери короткую сводку по активной тревоге. "
+            "Русский, HTML-теги <b> для ключевого. 5-8 строк максимум. "
+            "Формат:\n"
+            f"🚨 <b>ТРЕВОГА · {region}</b> · с {hm}\n"
+            "✈ ЛЕТИТ: <шахед/ракета/КАБ> × N (если есть)\n"
+            "🎯 КУРС: <куда/откуда> (если есть)\n"
+            "💥 ПРИЛЁТЫ: <место — что> (если подтверждено)\n"
+            "Если данных нет — так и напиши «пока без деталей». Не выдумывай."
+        )
+        try:
+            text = await gemini.complete(
+                system=system,
+                messages=[{"role": "user", "content": raw}],
+                max_tokens=400,
+            )
+            return (text or "").strip()
+        except Exception:
+            log.exception("altron_own_digest_llm_failed")
+            return ""
 
     @staticmethod
     def _format_start_card(region: str, started_at: str) -> str:
