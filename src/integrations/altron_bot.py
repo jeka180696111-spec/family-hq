@@ -29,8 +29,12 @@ class AltronBot:
         self._app = None
         self._task: asyncio.Task | None = None
         self._alert_watch_task: asyncio.Task | None = None
+        self._baby_watch_task: asyncio.Task | None = None
+        self._grid_watch_task: asyncio.Task | None = None
         # region -> {"started_at": str, "digest_hash": str, "message_id": int|None, "last_sent_at": float}
         self._alert_state: dict[str, dict] = {}
+        self._baby_last: dict = {}
+        self._grid_last_on: bool | None = None
 
     async def start(self) -> None:
         if not self._token or not self._chat_id:
@@ -285,19 +289,31 @@ class AltronBot:
         self._task = asyncio.create_task(_run())
         log.info("altron_bot_task_created")
 
-        # Фоновый watcher тревог — только если memory передана
+        # Фоновые watchers — только если memory передана
         if self._memory is not None:
             self._alert_watch_task = asyncio.create_task(self._watch_alerts())
-            log.info("altron_alert_watcher_started")
+            self._baby_watch_task = asyncio.create_task(self._watch_baby())
+            self._grid_watch_task = asyncio.create_task(self._watch_grid())
+            log.info("altron_watchers_started")
 
     async def stop(self) -> None:
-        for t in (self._alert_watch_task, self._task):
+        for t in (self._grid_watch_task, self._baby_watch_task, self._alert_watch_task, self._task):
             if t and not t.done():
                 t.cancel()
                 try:
                     await t
                 except Exception:
                     pass
+
+    async def _send(self, text: str, parse_mode: str = "HTML") -> None:
+        if not self._app or not self._app.bot:
+            return
+        try:
+            await self._app.bot.send_message(
+                chat_id=self._chat_id, text=text, parse_mode=parse_mode,
+            )
+        except Exception:
+            log.exception("altron_bot_send_failed")
 
     # ─── Alert broadcasting ────────────────────────────────────────
 
@@ -462,6 +478,132 @@ class AltronBot:
         except Exception:
             log.exception("altron_own_digest_llm_failed")
             return ""
+
+    # ─── Baby sleep watcher ────────────────────────────────────────
+
+    async def _watch_baby(self) -> None:
+        """Опрос BabyState раз в 60с. Реагирует на переходы:
+        - Уснул (sleeping_since выставилось) → предложить приглушить свет.
+        - Проснулся ДО 7:00 → сам включить сцену «Спальня ночь» + известить.
+        - Проснулся в обычное время (7-22) → просто известить.
+        """
+        from sqlalchemy import select
+        from src.db.models import BabyState
+
+        await asyncio.sleep(20)
+        while True:
+            try:
+                async with self._memory._engine.connect() as conn:
+                    st = (await conn.execute(select(BabyState))).first()
+                if st is not None:
+                    curr = {
+                        "sleeping_since": st.sleeping_since,
+                        "awake_since": st.awake_since,
+                    }
+                    prev = self._baby_last
+                    if prev:
+                        # Заснул
+                        if curr["sleeping_since"] and curr["sleeping_since"] != prev.get("sleeping_since"):
+                            await self._send(
+                                "😴 <b>Матвей уснул.</b>\nСвет в детской теперь не нужен. "
+                                "Скажи «выключи свет в детской» — сделаю."
+                            )
+                        # Проснулся
+                        if curr["awake_since"] and curr["awake_since"] != prev.get("awake_since"):
+                            from src.utils.time import now_kyiv
+                            hour = now_kyiv().hour
+                            if hour < 7:
+                                # Ночное пробуждение — включаем ночник автоматически
+                                ok = await self._try_run_scene(
+                                    ["Спальня ночь", "Детская ночь", "Ночник"]
+                                )
+                                if ok:
+                                    await self._send(
+                                        f"🌙 <b>Матвей проснулся в {now_kyiv().strftime('%H:%M')}</b>\n"
+                                        f"Включил ночник ({ok})."
+                                    )
+                                else:
+                                    await self._send(
+                                        f"🌙 <b>Матвей проснулся в {now_kyiv().strftime('%H:%M')}</b>\n"
+                                        "Хотел включить ночник, но сцены «Спальня ночь» не нашёл."
+                                    )
+                            else:
+                                await self._send(
+                                    f"👶 <b>Матвей проснулся в {now_kyiv().strftime('%H:%M')}</b>"
+                                )
+                    self._baby_last = curr
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("altron_baby_watch_err")
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                raise
+
+    async def _try_run_scene(self, candidates: list[str]) -> str | None:
+        """Дёрнуть Tuya-сцену. Возвращает имя запущенной сцены или None."""
+        try:
+            from src.config import get_settings
+            from src.integrations.tuya import TuyaClient
+            tuya = TuyaClient.from_settings(get_settings())
+            if not tuya:
+                return None
+            for q in candidates:
+                sc = await tuya.find_scene(q)
+                if sc and not sc.get("ambiguous"):
+                    await tuya.run_scene(sc.get("id"))
+                    return sc.get("name")
+        except Exception:
+            log.exception("altron_try_scene_failed")
+        return None
+
+    # ─── Grid (electricity) watcher ────────────────────────────────
+
+    async def _watch_grid(self) -> None:
+        """Опрос инвертора раз в 60с. При пропадании света (был на сети → сеть 0)
+        и наоборот шлём уведомление и краткий совет по экономии."""
+        from src.config import get_settings
+        from src.integrations.luxcloud import LuxCloudClient
+
+        await asyncio.sleep(30)
+        while True:
+            try:
+                settings = get_settings()
+                lux = LuxCloudClient.from_settings(settings)
+                if lux is None:
+                    await asyncio.sleep(300)
+                    continue
+                state = await lux.runtime()
+                grid_import = state.get("grid_import_w", 0) or 0
+                battery_pct = state.get("battery_pct", 0)
+                on_grid = grid_import > 5  # порог для шумов
+                prev = self._grid_last_on
+                if prev is None:
+                    self._grid_last_on = on_grid
+                elif prev and not on_grid:
+                    # СВЕТ ВЫРУБИЛИ
+                    await self._send(
+                        "⚡ <b>СВЕТ ВЫРУБИЛИ.</b> Питание с батареи.\n"
+                        f"🔋 Заряд: <b>{battery_pct}%</b> · нагрузка: {state.get('home_consumption_w', 0)} Вт\n\n"
+                        "Совет: выключи бойлер, ТВ, зарядки. Скажи «активируй блэкаут» — "
+                        "сам выключу лишнее."
+                    )
+                    self._grid_last_on = False
+                elif (not prev) and on_grid:
+                    # Свет вернули
+                    await self._send(
+                        f"✅ <b>СВЕТ ДАЛИ.</b> Идёт зарядка батареи ({battery_pct}%)."
+                    )
+                    self._grid_last_on = True
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("altron_grid_watch_err")
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                raise
 
     @staticmethod
     def _format_start_card(region: str, started_at: str) -> str:
