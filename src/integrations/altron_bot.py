@@ -392,6 +392,43 @@ class AltronBot:
         except Exception:
             log.exception("altron_bot_send_failed")
 
+    async def _send_voice(self, spoken_text: str, caption: str = "") -> None:
+        """Голосовое сопровождение для критичных событий. Использует gTTS
+        (Google Translate TTS, mp3). Тихо падает если gTTS не установлен
+        или Telegram отверг файл — текст к этому моменту уже отправлен."""
+        if not self._app or not self._app.bot:
+            return
+        if not spoken_text or not spoken_text.strip():
+            return
+        try:
+            from gtts import gTTS
+        except ImportError:
+            log.debug("altron_tts_gtts_not_installed")
+            return
+        try:
+            import tempfile, os as _os
+            fd, path = tempfile.mkstemp(suffix=".mp3")
+            _os.close(fd)
+
+            def _synthesize():
+                tts = gTTS(text=spoken_text[:500], lang="ru", slow=False)
+                tts.save(path)
+
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, _synthesize)
+            try:
+                with open(path, "rb") as f:
+                    await self._app.bot.send_voice(
+                        chat_id=self._chat_id, voice=f, caption=caption[:200] or None,
+                    )
+            finally:
+                try:
+                    _os.unlink(path)
+                except Exception:
+                    pass
+        except Exception:
+            log.exception("altron_tts_send_failed")
+
     # ─── Direct ingest (свой сбор постов) ─────────────────────────
 
     async def _run_direct_ingest(self) -> None:
@@ -412,7 +449,7 @@ class AltronBot:
             log.exception("altron_direct_ingest_crashed")
 
     async def _direct_on_start(self, region: str, post: dict, sources: list[str]) -> None:
-        """Callback: пришёл первый alert-пост. Отправляем карточку."""
+        """Callback: пришёл первый alert-пост. Отправляем карточку + голос."""
         import time
         try:
             started_at = post["ts"].astimezone().isoformat()
@@ -426,6 +463,10 @@ class AltronBot:
         except Exception:
             log.exception("altron_direct_start_send_failed")
             return
+        # Голосовое дублирование для тревоги — критичное событие
+        asyncio.create_task(self._send_voice(
+            f"Внимание. Воздушная тревога в {region}.",
+        ))
         self._direct_alert_state[region] = {
             "message_id": msg.message_id,
             "started_at": started_at,
@@ -892,6 +933,9 @@ class AltronBot:
                                 "Совет: выключи бойлер, ТВ, зарядки. Скажи "
                                 "«активируй блэкаут» — сам выключу лишнее."
                             )
+                            asyncio.create_task(self._send_voice(
+                                f"Внимание. Свет отключен. Батарея {battery_pct} процентов.",
+                            ))
                         else:
                             await self._send(
                                 f"✅ <b>СВЕТ ДАЛИ.</b> Идёт зарядка батареи ({battery_pct}%)."
