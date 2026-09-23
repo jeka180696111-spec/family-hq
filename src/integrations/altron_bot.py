@@ -584,10 +584,28 @@ class AltronBot:
     # ─── Grid (electricity) watcher ────────────────────────────────
 
     async def _watch_grid(self) -> None:
-        """Опрос инвертора раз в 60с. При пропадании света (был на сети → сеть 0)
-        и наоборот шлём уведомление и краткий совет по экономии."""
+        """Опрос инвертора раз в 60с с гистерезисом — чтобы скачки напряжения
+        и брошенный на секунду импорт из сети не выглядели как «СВЕТ ВЫРУБИЛИ».
+
+        Гистерезис:
+        - Импорт из сети считается ЕСТЬ если grid_import_w > 40 Вт
+          (5 Вт брали ложные срабатывания на потери в трансформаторе).
+        - Транзиция включается только когда состояние стабильно 3 замера
+          подряд (~3 мин). Один-два «дёрг» отфильтровываются.
+        - После только что объявленной транзиции ставим кулдаун 10 мин —
+          в это окно противоположный сигнал НЕ фиксируем (антифлаппинг).
+        """
         from src.config import get_settings
         from src.integrations.luxcloud import LuxCloudClient
+        import time
+
+        # локальный стейт-машина
+        pending_state: bool | None = None   # какое состояние набирает голоса
+        pending_count = 0                    # сколько подряд одинаковых замеров
+        last_transition_ts: float = 0.0      # антифлаппинг-кулдаун
+        NEED_STABLE = 3        # три подряд одинаковых замера (~3 мин)
+        COOLDOWN_SEC = 600     # 10 минут игнорируем обратный сигнал
+        GRID_ON_THRESHOLD_W = 40  # выше = реально импорт из сети
 
         await asyncio.sleep(30)
         while True:
@@ -600,25 +618,43 @@ class AltronBot:
                 state = await lux.runtime()
                 grid_import = state.get("grid_import_w", 0) or 0
                 battery_pct = state.get("battery_pct", 0)
-                on_grid = grid_import > 5  # порог для шумов
-                prev = self._grid_last_on
-                if prev is None:
+                on_grid = grid_import > GRID_ON_THRESHOLD_W
+
+                # Первый замер — просто запоминаем без объявлений
+                if self._grid_last_on is None:
                     self._grid_last_on = on_grid
-                elif prev and not on_grid:
-                    # СВЕТ ВЫРУБИЛИ
-                    await self._send(
-                        "⚡ <b>СВЕТ ВЫРУБИЛИ.</b> Питание с батареи.\n"
-                        f"🔋 Заряд: <b>{battery_pct}%</b> · нагрузка: {state.get('home_consumption_w', 0)} Вт\n\n"
-                        "Совет: выключи бойлер, ТВ, зарядки. Скажи «активируй блэкаут» — "
-                        "сам выключу лишнее."
-                    )
-                    self._grid_last_on = False
-                elif (not prev) and on_grid:
-                    # Свет вернули
-                    await self._send(
-                        f"✅ <b>СВЕТ ДАЛИ.</b> Идёт зарядка батареи ({battery_pct}%)."
-                    )
-                    self._grid_last_on = True
+                    pending_state = on_grid
+                    pending_count = 1
+                else:
+                    # Копим стабильность нового состояния
+                    if pending_state == on_grid:
+                        pending_count += 1
+                    else:
+                        pending_state = on_grid
+                        pending_count = 1
+
+                    now_ts = time.time()
+                    in_cooldown = (now_ts - last_transition_ts) < COOLDOWN_SEC
+
+                    if (
+                        on_grid != self._grid_last_on
+                        and pending_count >= NEED_STABLE
+                        and not in_cooldown
+                    ):
+                        if not on_grid:
+                            await self._send(
+                                "⚡ <b>СВЕТ ВЫРУБИЛИ.</b> Питание с батареи.\n"
+                                f"🔋 Заряд: <b>{battery_pct}%</b> · нагрузка: "
+                                f"{state.get('home_consumption_w', 0)} Вт\n\n"
+                                "Совет: выключи бойлер, ТВ, зарядки. Скажи "
+                                "«активируй блэкаут» — сам выключу лишнее."
+                            )
+                        else:
+                            await self._send(
+                                f"✅ <b>СВЕТ ДАЛИ.</b> Идёт зарядка батареи ({battery_pct}%)."
+                            )
+                        self._grid_last_on = on_grid
+                        last_transition_ts = now_ts
             except asyncio.CancelledError:
                 raise
             except Exception:
