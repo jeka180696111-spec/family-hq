@@ -18,6 +18,64 @@ import structlog
 log = structlog.get_logger()
 
 
+def _dedup_channels(names: list[str | None]) -> list[str]:
+    """Убрать дубли из списка каналов, сохранив порядок появления."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for n in names or []:
+        if not n:
+            continue
+        key = str(n).strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(key)
+    return out
+
+
+def _assess_threat(
+    our_region: str, targets: list, hits: list, weapons: list,
+) -> tuple[str, str]:
+    """Грубая оценка угрозы ИМЕННО НАМ (Одесса) на основе digest.
+
+    Возвращает (эмодзи-индикатор, короткий вердикт).
+    """
+    reg_l = (our_region or "").lower()
+    # Наш регион в курсе или прилётах — красный
+    def _mentions_us(text: str) -> bool:
+        t = (text or "").lower()
+        # Одесса + область
+        for kw in ("одес", "южн", "затока"):
+            if kw in t:
+                return True
+        return False
+
+    def _flatten(x):
+        if isinstance(x, str):
+            yield x
+        elif isinstance(x, dict):
+            yield from (v for v in x.values() if isinstance(v, str))
+
+    target_hits_us = any(_mentions_us(s) for t in (targets or []) for s in _flatten(t))
+    hit_us = any(_mentions_us(str(h.get("location", ""))) or _mentions_us(str(h.get("detail", ""))) for h in (hits or []))
+    strong_weapons = any(
+        (w.get("type", "") or "").lower() in ("ракета", "балістична", "балистическая", "крылатая ракета", "х-101", "кинжал", "искандер")
+        for w in (weapons or [])
+    )
+
+    if hit_us:
+        return ("🔴", "ПРИЛЁТ у нас — в укрытие немедленно")
+    if target_hits_us:
+        if strong_weapons:
+            return ("🔴", "Курс на Одессу, тяжёлое оружие — в укрытие")
+        return ("🟠", "Курс на Одессу — в укрытие")
+    if strong_weapons and (targets or hits):
+        return ("🟡", "Опасно рядом, но не по нам напрямую")
+    if targets or weapons or hits:
+        return ("🟢", "Активность мимо, следим")
+    return ("⚪", "Пока без деталей — данных мало")
+
+
 class AltronBot:
     """Стартует Application в фоне, ловит сообщения только из altron_chat_id."""
 
@@ -330,7 +388,6 @@ class AltronBot:
         import time
         from sqlalchemy import select
         from src.db.models import ActiveAlert, AlertPost
-        from src.integrations.alert_digest import format_digest
 
         await asyncio.sleep(5)
         POLL_SEC = 3
@@ -368,19 +425,33 @@ class AltronBot:
                         continue
 
                     prev = self._alert_state[region]
-                    # 1) Штабной digest — источник истины, если он есть
+                    # 1) Штабной digest — источник истины, если он есть.
+                    #    Показываем в СВОЁМ формате Альтрона (не в штабном).
                     if digest_raw:
                         h = str(hash(digest_raw))
                         if h != prev.get("digest_hash"):
                             try:
                                 digest = json.loads(digest_raw)
-                                text = format_digest(digest, region, aa.started_at, sources_count=0, top_chans=None)
+                                # Собираем список источников из AlertPost
+                                async with self._memory._engine.connect() as c2:
+                                    src_rows = list(await c2.execute(
+                                        select(AlertPost.channel_title)
+                                        .where(AlertPost.region == region)
+                                        .order_by(AlertPost.id.desc())
+                                        .limit(30)
+                                    ))
+                                sources = _dedup_channels([r[0] for r in src_rows])
+                                text = self._format_altron_card(
+                                    digest, region, aa.started_at, sources,
+                                )
                                 await self._app.bot.edit_message_text(
                                     chat_id=self._chat_id,
                                     message_id=prev["message_id"],
                                     text=text, parse_mode="HTML",
                                 )
                                 prev["digest_hash"] = h
+                                prev["last_digest"] = digest
+                                prev["last_sources"] = sources
                             except Exception:
                                 log.exception("altron_alert_update_failed", region=region)
                         continue
@@ -425,10 +496,14 @@ class AltronBot:
                             duration_min = max(1, int((datetime.now(started_dt.tzinfo) - started_dt).total_seconds() / 60))
                         except Exception:
                             duration_min = 0
+                        text = self._format_altron_endcard(
+                            region, st.get("started_at", ""),
+                            duration_min,
+                            digest=st.get("last_digest") or {},
+                            sources=st.get("last_sources") or [],
+                        )
                         await self._app.bot.send_message(
-                            chat_id=self._chat_id,
-                            text=f"✅ <b>ОТБОЙ · {region}</b> · длилось {duration_min} мин",
-                            parse_mode="HTML",
+                            chat_id=self._chat_id, text=text, parse_mode="HTML",
                         )
                         log.info("altron_alert_end_sent", region=region, duration_min=duration_min)
                     except Exception:
@@ -458,15 +533,28 @@ class AltronBot:
             f"[{p.channel_title or p.channel_id}]: {(p.text or '')[:600]}"
             for p in reversed(posts)
         )
+        sources = _dedup_channels([p.channel_title for p in posts])[:6]
+        src_line = ", ".join(sources) if sources else "—"
         system = (
-            "Ты Альтрон. Собери короткую сводку по активной тревоге. "
-            "Русский, HTML-теги <b> для ключевого. 5-8 строк максимум. "
-            "Формат:\n"
-            f"🚨 <b>ТРЕВОГА · {region}</b> · с {hm}\n"
-            "✈ ЛЕТИТ: <шахед/ракета/КАБ> × N (если есть)\n"
-            "🎯 КУРС: <куда/откуда> (если есть)\n"
-            "💥 ПРИЛЁТЫ: <место — что> (если подтверждено)\n"
-            "Если данных нет — так и напиши «пока без деталей». Не выдумывай."
+            "Ты Альтрон. Собери короткую сводку по активной тревоге для семьи "
+            "в Одессе. Русский, HTML-теги <b>. Ровно этот формат, ничего лишнего:\n\n"
+            f"🚨 <b>АЛЬТРОН · ТРЕВОГА</b>\n"
+            f"📍 {region} · с {hm}\n"
+            + ("━" * 18) + "\n\n"
+            "🟠 <b>ОЦЕНКА:</b> <строка о том, есть ли реальная угроза Одессе — если "
+            "курс на нас или прилёты у нас, ставь 🔴 «В укрытие»; если летит мимо, "
+            "🟢 «Активность мимо, следим»; если ничего непонятно — ⚪ «Данных мало»>\n\n"
+            "✈ <b>ЧТО ЛЕТИТ:</b> <шахед × N / крылатая ракета / КАБ / БПЛА — только "
+            "если реально упомянуто в постах>\n"
+            "🎯 <b>КУРС:</b> <куда идёт — только если упомянуто>\n"
+            "💥 <b>ПРИЛЁТЫ:</b> <место — что; помечай (не подтв.) если не confirmed>\n\n"
+            + ("━" * 18) + "\n"
+            f"📡 <b>Источники:</b> {src_line}\n\n"
+            "Правила:\n"
+            "- Если по какой-то секции данных нет — не выдумывай, пропускай её.\n"
+            "- Если постов вообще мало и непонятно — оценка ⚪ и одна строка «пока "
+            "без деталей».\n"
+            "- Максимум ~15 строк. Не пиши ничего кроме карточки."
         )
         try:
             text = await gemini.complete(
@@ -672,7 +760,160 @@ class AltronBot:
         except Exception:
             hm = "?"
         return (
-            f"🚨 <b>ТРЕВОГА · {region}</b> · с {hm}\n"
-            + "─" * 20
-            + "\n⏳ Собираю данные — что летит и куда…"
+            f"🚨 <b>АЛЬТРОН · ТРЕВОГА</b>\n"
+            f"📍 {region} · объявлена в {hm}\n"
+            + "━" * 18
+            + "\n\n⏳ Собираю данные из мониторинга…\n"
+            "<i>Обновлю карточку как только пойдёт инфа что и куда летит.</i>"
         )
+
+    def _format_altron_card(
+        self, digest: dict, region: str, started_at: str, sources: list[str],
+    ) -> str:
+        """Информативная карточка Альтрона (отличается от штабной).
+
+        Показывает: оценку угрозы для нас, что летит, курс, ETA, прилёты,
+        соседние регионы и — главное — источники из которых собрана инфа.
+        """
+        try:
+            dt = datetime.fromisoformat(started_at)
+            hm = dt.strftime("%H:%M")
+            duration_min = max(0, int((datetime.now(dt.tzinfo) - dt).total_seconds() / 60))
+        except Exception:
+            hm = "?"
+            duration_min = 0
+
+        weapons = digest.get("weapons") or []
+        targets = digest.get("targets") or []
+        eta = digest.get("eta") or []
+        hits = digest.get("hits") or []
+        others = digest.get("other_regions") or []
+
+        # Оценка угрозы для НАС (Одесса)
+        threat_level, threat_label = _assess_threat(region, targets, hits, weapons)
+
+        lines: list[str] = []
+        lines.append(f"🚨 <b>АЛЬТРОН · ТРЕВОГА</b>")
+        lines.append(f"📍 {region} · с {hm} ({duration_min} мин)")
+        lines.append("━" * 18)
+        lines.append("")
+        lines.append(f"{threat_level} <b>ОЦЕНКА:</b> {threat_label}")
+
+        if weapons:
+            lines.append("")
+            lines.append("✈ <b>ЧТО ЛЕТИТ:</b>")
+            for w in weapons:
+                t = w.get("type", "?")
+                c = w.get("count")
+                o = w.get("origin", "")
+                row = f"• {t}"
+                if c is not None:
+                    row += f" × {c}"
+                if o:
+                    row += f" ({o})"
+                lines.append(row)
+
+        if targets:
+            lines.append("")
+            lines.append("🎯 <b>КУРС:</b>")
+            for t in targets:
+                lines.append(f"• {t}")
+
+        if eta:
+            lines.append("")
+            lines.append("⏱ <b>ПОДЛЁТ:</b>")
+            for e in eta:
+                lines.append(f"• {e.get('weapon','?')} — {e.get('arrival_time','?')}")
+
+        if hits:
+            lines.append("")
+            lines.append("💥 <b>ПРИЛЁТЫ:</b>")
+            for h in hits:
+                loc = h.get("location", "?")
+                det = h.get("detail", "")
+                confirmed = h.get("confirmed", False)
+                mark = "" if confirmed else "  <i>(не подтверждено)</i>"
+                row = f"• {loc}"
+                if det:
+                    row += f" — {det}"
+                lines.append(row + mark)
+
+        if others:
+            lines.append("")
+            lines.append("⚠ <b>СОСЕДИ:</b>")
+            for o in others:
+                reg = o.get("region", "?")
+                tgt = o.get("target", "")
+                ws = o.get("weapons") or []
+                ws_txt = ", ".join(
+                    f"{w.get('type','?')}×{w.get('count','?')}" for w in ws
+                )
+                row = f"• {reg}"
+                if ws_txt:
+                    row += f" — {ws_txt}"
+                if tgt:
+                    row += f" → {tgt}"
+                lines.append(row)
+
+        if not (weapons or targets or eta or hits or others):
+            lines.append("")
+            lines.append("<i>Пока без деталей — каналы ещё молчат.</i>")
+
+        lines.append("")
+        lines.append("━" * 18)
+        if sources:
+            lines.append(f"📡 <b>Источники:</b> {', '.join(sources[:6])}")
+        else:
+            lines.append("📡 <b>Источники:</b> —")
+        lines.append(f"🔄 <i>Обн. {datetime.now(dt.tzinfo if isinstance(dt, datetime) else None).strftime('%H:%M:%S') if isinstance(dt, datetime) else '?'}</i>")
+        return "\n".join(lines)
+
+    def _format_altron_endcard(
+        self, region: str, started_at: str, duration_min: int,
+        digest: dict, sources: list[str],
+    ) -> str:
+        """Карточка ОТБОЯ. Показывает: длилась столько-то, итог по прилётам."""
+        try:
+            dt_start = datetime.fromisoformat(started_at)
+            start_hm = dt_start.strftime("%H:%M")
+            end_hm = datetime.now(dt_start.tzinfo).strftime("%H:%M")
+        except Exception:
+            start_hm = "?"
+            end_hm = "?"
+
+        hits = (digest or {}).get("hits") or []
+        weapons = (digest or {}).get("weapons") or []
+
+        lines: list[str] = []
+        lines.append("✅ <b>АЛЬТРОН · ОТБОЙ</b>")
+        lines.append(f"📍 {region} · {start_hm} → {end_hm} · длилось {duration_min} мин")
+        lines.append("━" * 18)
+        lines.append("")
+        if hits:
+            lines.append("💥 <b>ЗА ТРЕВОГУ БЫЛО:</b>")
+            for h in hits:
+                loc = h.get("location", "?")
+                det = h.get("detail", "")
+                confirmed = h.get("confirmed", False)
+                mark = "" if confirmed else " <i>(не подтв.)</i>"
+                row = f"• {loc}"
+                if det:
+                    row += f" — {det}"
+                lines.append(row + mark)
+        else:
+            if weapons:
+                lines.append("<b>Прилётов не зафиксировано.</b>")
+                w_txt = ", ".join(
+                    f"{w.get('type','?')}×{w.get('count','?')}" for w in weapons
+                )
+                lines.append(f"Пролетало: {w_txt}")
+            else:
+                lines.append("<b>Прилётов не зафиксировано.</b> Спокойно.")
+
+        lines.append("")
+        lines.append("━" * 18)
+        if sources:
+            lines.append(f"📡 <b>Источники:</b> {', '.join(sources[:6])}")
+        else:
+            lines.append("📡 <b>Источники:</b> —")
+        return "\n".join(lines)
