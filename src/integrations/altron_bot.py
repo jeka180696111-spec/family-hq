@@ -93,6 +93,7 @@ class AltronBot:
         self._brief_task: asyncio.Task | None = None
         self._selfcheck_task: asyncio.Task | None = None
         self._reminders_task: asyncio.Task | None = None
+        self._stock_task: asyncio.Task | None = None
         # {check_name: bool prev_state_ok}  — чтобы уведомлять только на
         # переходах здоровья: broken→ok, ok→broken.
         self._selfcheck_state: dict[str, bool] = {}
@@ -453,6 +454,7 @@ class AltronBot:
             self._brief_task = asyncio.create_task(self._run_daily_briefs())
             self._selfcheck_task = asyncio.create_task(self._run_self_check())
             self._reminders_task = asyncio.create_task(self._run_recurring_reminders())
+            self._stock_task = asyncio.create_task(self._run_stock_watcher())
             log.info("altron_watchers_started")
 
     async def stop(self) -> None:
@@ -460,6 +462,7 @@ class AltronBot:
             self._grid_watch_task, self._baby_watch_task,
             self._alert_watch_task, self._direct_ingest_task,
             self._brief_task, self._selfcheck_task, self._reminders_task,
+            self._stock_task,
             self._task,
         ):
             if t and not t.done():
@@ -1313,6 +1316,75 @@ class AltronBot:
         except Exception:
             pass
         return False
+
+    # ─── Stock watcher ─────────────────────────────────────────────
+
+    async def _run_stock_watcher(self) -> None:
+        """Раз в 6 часов проверяет отслеживаемые товары. Если срок близок
+        (осталось ≤3 дня) или истёк — предлагает купить кнопкой. Не спамит:
+        last_reminded_at ставим и не напоминаем повторно раньше 24ч."""
+        from datetime import datetime, timedelta
+        from sqlalchemy import select, update as sql_update
+        from src.db.models import AltronStockItem
+        from src.utils.time import iso_now, now_kyiv
+
+        CHECK_SEC = 6 * 3600
+        await asyncio.sleep(600)  # первые 10 мин молчим после старта
+        while True:
+            try:
+                now = now_kyiv()
+                async with self._memory._engine.connect() as conn:
+                    rows = list(await conn.execute(select(AltronStockItem)))
+                for r in rows:
+                    if not r.last_purchased_at:
+                        continue
+                    try:
+                        purchased = datetime.fromisoformat(r.last_purchased_at)
+                    except Exception:
+                        continue
+                    days_since = (now - purchased).days
+                    days_left = r.typical_frequency_days - days_since
+                    if days_left > 3:
+                        continue
+                    # Не спамим — 24ч между напоминаниями
+                    if r.last_reminded_at:
+                        try:
+                            last = datetime.fromisoformat(r.last_reminded_at)
+                            if (now - last).total_seconds() < 86400:
+                                continue
+                        except Exception:
+                            pass
+                    if days_left <= 0:
+                        msg = (f"⏰ <b>{r.name}</b> — пора купить.\n"
+                               f"В последний раз брали {days_since} дн. назад "
+                               f"(обычно каждые {r.typical_frequency_days}).")
+                    else:
+                        msg = (f"📦 <b>{r.name}</b> — скоро кончится ({days_left} дн. осталось).\n"
+                               f"Обычно берём каждые {r.typical_frequency_days} дн.")
+                    try:
+                        await self.send_with_buttons(
+                            msg,
+                            ["Добавить в шопинг", "Купил только что", "Не сейчас"],
+                        )
+                    except Exception:
+                        await self._send(msg)
+                    try:
+                        async with self._memory._engine.begin() as conn:
+                            await conn.execute(
+                                sql_update(AltronStockItem)
+                                .where(AltronStockItem.id == r.id)
+                                .values(last_reminded_at=iso_now())
+                            )
+                    except Exception:
+                        log.exception("altron_stock_mark_reminded_failed", name=r.name)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("altron_stock_watcher_err")
+            try:
+                await asyncio.sleep(CHECK_SEC)
+            except asyncio.CancelledError:
+                raise
 
     # ─── Self-check (Sheets / Tuya / Gemini) ─────────────────────
 
