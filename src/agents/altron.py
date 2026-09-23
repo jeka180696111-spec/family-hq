@@ -89,6 +89,10 @@ class AltronAgent:
         # для Этапа 2 нормально. Позже переедет в БД.
         self._history: dict[int, list[dict]] = {}
         self._HISTORY_LIMIT = 20  # сообщений (user + assistant), суммарно
+        # Маркер что Альтрон сам недавно записал переход сна ребёнка —
+        # чтобы фоновый baby-watcher в AltronBot не дублировал уведомление.
+        # Ключи: "asleep", "awake". Значение — unix timestamp момента записи.
+        self._recent_baby_transition: dict[str, float] = {}
 
     @staticmethod
     def _synth_from_results(results: list[dict]) -> str:
@@ -293,6 +297,14 @@ class AltronAgent:
                         "details": {
                             "type": "string",
                             "description": "Опционально: дополнительная заметка",
+                        },
+                        "at": {
+                            "type": "string",
+                            "description": (
+                                "Опционально: когда событие произошло. Формат HH:MM (сегодня в это время) "
+                                "или полный ISO с датой и TZ. Если пользователь говорит «в 7:30 проснулся» — "
+                                "передай at=\"07:30\". Без параметра берём текущее время."
+                            ),
                         },
                     },
                     "required": ["kind", "event"],
@@ -1154,6 +1166,7 @@ class AltronAgent:
                     amount=args.get("amount"),
                     unit=args.get("unit"),
                     details=args.get("details") or "",
+                    at=args.get("at") or "",
                 )
             if name == "record_milestone":
                 return await self._tool_record_milestone(
@@ -1539,18 +1552,42 @@ class AltronAgent:
 
     async def _tool_record_baby_event(
         self, kind: str, event: str, amount: Any = None,
-        unit: Any = None, details: str = "",
+        unit: Any = None, details: str = "", at: str = "",
     ) -> dict:
-        """Записать событие Матвея: в дневник Sheets + в BabyState для UI."""
+        """Записать событие Матвея: в дневник Sheets + в BabyState для UI.
+
+        Если пользователь указал время (at="07:30" или ISO) — используем его
+        вместо now. Так «Матвей проснулся в 7:30» пишет 7:30, а не 7:45.
+        """
         if not event.strip():
             return {"error": "event is empty"}
         try:
             from datetime import datetime
             from sqlalchemy import select, update
             from src.db.models import BabyState
-            from src.utils.time import iso_now, now_kyiv
+            from src.utils.time import iso_now, now_kyiv, KYIV_TZ
 
             now = now_kyiv()
+            if at.strip():
+                try:
+                    at_s = at.strip()
+                    # HH:MM или HH.MM — сегодняшняя дата с этим временем
+                    if len(at_s) <= 5 and (":" in at_s or "." in at_s):
+                        sep = ":" if ":" in at_s else "."
+                        hh, mm = at_s.split(sep)
+                        parsed = now.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
+                        # Если получилось будущее — считаем что это вчера
+                        if parsed > now:
+                            from datetime import timedelta
+                            parsed = parsed - timedelta(days=1)
+                        now = parsed
+                    else:
+                        parsed = datetime.fromisoformat(at_s)
+                        if parsed.tzinfo is None:
+                            parsed = parsed.replace(tzinfo=KYIV_TZ)
+                        now = parsed
+                except Exception:
+                    log.warning("altron_at_parse_failed", at=at)
             ts_iso = now.isoformat()
 
             # 1) Запись в Google Sheets (если есть Sheets-клиент)
@@ -1594,6 +1631,12 @@ class AltronAgent:
                         # Создаём если ещё нет
                         from sqlalchemy import insert
                         await conn.execute(insert(BabyState).values(id=1, **values))
+                # Пометка для baby-watcher чтобы не дублировать «Матвей проснулся»
+                import time as _time
+                if "sleeping_since" in values:
+                    self._recent_baby_transition["asleep"] = _time.time()
+                if "awake_since" in values:
+                    self._recent_baby_transition["awake"] = _time.time()
 
             return {
                 "success": True,
