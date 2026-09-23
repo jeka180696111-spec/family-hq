@@ -469,22 +469,92 @@ class AltronBot:
 
     async def _send(
         self, text: str, parse_mode: str = "HTML", silent: bool = False,
+        override_quiet: bool = False,
     ) -> None:
         """Отправить сообщение в чат Альтрона.
 
-        silent=True — доставка без звука (для сводок, брифов, отбоя,
-        восстановления сервисов).
-        silent=False (default) — со звуком (важные уведомления).
+        silent=True — доставка без звука.
+        silent=False (default) — со звуком.
+        В тихие часы (по умолчанию 22:00-07:00 Kyiv) silent форсится в
+        True. Исключение — override_quiet=True для реальной 🔴 критики
+        (тревога с прилётами, свет вырубили).
         """
         if not self._app or not self._app.bot:
             return
+        effective_silent = silent or (self._is_quiet_hours() and not override_quiet)
         try:
             await self._app.bot.send_message(
                 chat_id=self._chat_id, text=text, parse_mode=parse_mode,
-                disable_notification=silent,
+                disable_notification=effective_silent,
             )
         except Exception:
             log.exception("altron_bot_send_failed")
+
+    def _is_quiet_hours(self) -> bool:
+        """Проверка попадания в настроенное окно тишины. Читаем из
+        FamilyFact(member='altron', key='quiet_hours') значение вида
+        '22:00-07:00'. Если факта нет — используем дефолт 22:00-07:00."""
+        try:
+            from src.utils.time import now_kyiv
+            hm_now = now_kyiv().strftime("%H:%M")
+            window = getattr(self, "_quiet_window_cache", None)
+            # Кэш валиден 5 мин, чтобы не дёргать БД на каждое сообщение
+            import time
+            now_ts = time.time()
+            if window is None or (now_ts - window.get("ts", 0)) > 300:
+                window = self._reload_quiet_window()
+                window["ts"] = now_ts
+                self._quiet_window_cache = window
+            start = window.get("start", "22:00")
+            end = window.get("end", "07:00")
+            if not window.get("enabled", True):
+                return False
+            # Ночной интервал (start > end) — считаем «в тишине если
+            # now >= start ИЛИ now < end».
+            if start > end:
+                return hm_now >= start or hm_now < end
+            return start <= hm_now < end
+        except Exception:
+            return False
+
+    def _reload_quiet_window(self) -> dict:
+        """Синхронно достаём тихое окно. Fallback — дефолт."""
+        # Не блокируем реальный БД-запрос здесь; кэш пусть подтянет
+        # в фоне.
+        default = {"start": "22:00", "end": "07:00", "enabled": True}
+        try:
+            import asyncio
+            asyncio.create_task(self._async_refresh_quiet_window())
+        except Exception:
+            pass
+        return getattr(self, "_last_quiet_window", None) or default
+
+    async def _async_refresh_quiet_window(self) -> None:
+        try:
+            from sqlalchemy import select
+            from src.db.models import FamilyFact
+            async with self._memory._engine.connect() as conn:
+                row = (await conn.execute(
+                    select(FamilyFact)
+                    .where(FamilyFact.member == "altron")
+                    .where(FamilyFact.key == "quiet_hours")
+                )).first()
+            if not row:
+                self._last_quiet_window = {
+                    "start": "22:00", "end": "07:00", "enabled": True,
+                }
+                return
+            v = str(row.value or "").strip().lower()
+            if v in ("off", "выкл", "отключено", "disabled", ""):
+                self._last_quiet_window = {"enabled": False, "start": "", "end": ""}
+                return
+            if "-" in v and len(v) >= 11:
+                start, end = v.split("-", 1)
+                self._last_quiet_window = {
+                    "start": start.strip(), "end": end.strip(), "enabled": True,
+                }
+        except Exception:
+            log.exception("altron_quiet_hours_load_failed")
 
     async def send_with_buttons(
         self, text: str, options: list[str], silent: bool = False,
@@ -1070,7 +1140,8 @@ class AltronBot:
                             f"🔋 Заряд: <b>{battery_pct}%</b> · нагрузка: "
                             f"{data.get('home_consumption_w', 0)} Вт\n\n"
                             "Совет: выключи бойлер, ТВ, зарядки. Скажи "
-                            "«активируй блэкаут» — сам выключу лишнее."
+                            "«активируй блэкаут» — сам выключу лишнее.",
+                            override_quiet=True,  # свет — критично, звенит и ночью
                         )
                     self._grid_last_on = False
                     last_transition_ts = now_ts
@@ -1093,7 +1164,8 @@ class AltronBot:
                                     f"🔋 Заряд: <b>{battery_pct}%</b> · нагрузка: "
                                     f"{data.get('home_consumption_w', 0)} Вт\n\n"
                                     "Совет: выключи бойлер, ТВ, зарядки. Скажи "
-                                    "«активируй блэкаут» — сам выключу лишнее."
+                                    "«активируй блэкаут» — сам выключу лишнее.",
+                                    override_quiet=True,
                                 )
                                 self._grid_last_on = False
                                 last_transition_ts = now_ts
