@@ -725,3 +725,17 @@ class AltronReminder(Base):
     enabled: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     last_fired_at: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class AltronStockItem(Base):
+    """Трекинг регулярных покупок семьи (памперсы, смесь, кофе и т.п.).
+    typical_frequency_days — как часто обычно покупают (юзер настраивает).
+    """
+    __tablename__ = "altron_stock_items"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    typical_frequency_days: Mapped[int] = mapped_column(Integer, nullable=False, default=14)
+    typical_qty: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_purchased_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_reminded_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)

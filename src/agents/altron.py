@@ -127,6 +127,7 @@ _WRITE_TOOLS = frozenset({
     "ask_with_buttons",
     "set_quiet_hours",
     "set_recurring_reminder", "delete_recurring_reminder",
+    "track_stock", "record_stock_purchase", "untrack_stock",
 })
 
 # Только эти инструменты уходят по fast-path (мгновенный ответ без второго
@@ -944,6 +945,56 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "track_stock",
+                "description": (
+                    "Начать отслеживать регулярную покупку (памперсы, смесь, кофе). "
+                    "Триггеры: «отслеживай памперсы, покупаем раз в 2 недели», "
+                    "«следи за смесью каждые 5 дней»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Название товара"},
+                        "frequency_days": {"type": "integer", "description": "Как часто покупаем (дни)"},
+                        "typical_qty": {"type": "string", "description": "Опц.: обычная упаковка (напр. «пачка 100 шт»)"},
+                    },
+                    "required": ["name", "frequency_days"],
+                },
+            },
+            {
+                "name": "record_stock_purchase",
+                "description": (
+                    "Зафиксировать покупку отслеживаемого товара. Триггеры: "
+                    "«купил памперсы», «взял смесь». Обновит last_purchased_at."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                    },
+                    "required": ["name"],
+                },
+            },
+            {
+                "name": "check_stock",
+                "description": (
+                    "Статус отслеживаемых товаров: сколько дней прошло, до истечения. "
+                    "Триггеры: «что скоро кончится?», «что купить?»."
+                ),
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "untrack_stock",
+                "description": "Убрать товар из отслеживания.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                    },
+                    "required": ["name"],
+                },
+            },
+            {
                 "name": "set_recurring_reminder",
                 "description": (
                     "Поставить повторяющееся напоминание. Триггеры: «каждый день в 9 "
@@ -1585,6 +1636,18 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "track_stock":
+                return await self._tool_track_stock(
+                    name_=args.get("name") or "",
+                    frequency_days=int(args.get("frequency_days") or 14),
+                    typical_qty=args.get("typical_qty") or "",
+                )
+            if name == "record_stock_purchase":
+                return await self._tool_record_stock_purchase(name_=args.get("name") or "")
+            if name == "check_stock":
+                return await self._tool_check_stock()
+            if name == "untrack_stock":
+                return await self._tool_untrack_stock(name_=args.get("name") or "")
             if name == "set_recurring_reminder":
                 return await self._tool_set_recurring_reminder(
                     name_=args.get("name") or "",
@@ -2821,6 +2884,118 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_track_stock(
+        self, name_: str, frequency_days: int, typical_qty: str = "",
+    ) -> dict:
+        if not name_:
+            return {"error": "name обязателен"}
+        try:
+            from sqlalchemy import insert, select, update as sql_update
+            from src.db.models import AltronStockItem
+            from src.utils.time import iso_now
+            now_ = iso_now()
+            async with self._memory._engine.begin() as conn:
+                existing = (await conn.execute(
+                    select(AltronStockItem).where(AltronStockItem.name == name_)
+                )).first()
+                if existing:
+                    await conn.execute(
+                        sql_update(AltronStockItem)
+                        .where(AltronStockItem.id == existing.id)
+                        .values(typical_frequency_days=frequency_days,
+                                typical_qty=typical_qty or None)
+                    )
+                    return {"success": True, "updated": True, "name": name_}
+                await conn.execute(insert(AltronStockItem).values(
+                    name=name_, typical_frequency_days=frequency_days,
+                    typical_qty=typical_qty or None, created_at=now_,
+                ))
+            return {"success": True, "name": name_}
+        except Exception as e:
+            log.exception("altron_track_stock_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_record_stock_purchase(self, name_: str) -> dict:
+        if not name_:
+            return {"error": "name обязателен"}
+        try:
+            from sqlalchemy import select, update as sql_update
+            from src.db.models import AltronStockItem
+            from src.utils.time import iso_now
+            async with self._memory._engine.begin() as conn:
+                row = (await conn.execute(
+                    select(AltronStockItem).where(AltronStockItem.name == name_)
+                )).first()
+                if not row:
+                    return {"error": f"Не отслеживаю «{name_}». Сначала track_stock."}
+                await conn.execute(
+                    sql_update(AltronStockItem)
+                    .where(AltronStockItem.id == row.id)
+                    .values(last_purchased_at=iso_now(), last_reminded_at=None)
+                )
+            return {"success": True, "name": name_}
+        except Exception as e:
+            log.exception("altron_record_purchase_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_check_stock(self) -> dict:
+        try:
+            from datetime import datetime, timedelta
+            from sqlalchemy import select
+            from src.db.models import AltronStockItem
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(AltronStockItem).order_by(AltronStockItem.name)
+                ))
+            now = now_kyiv()
+            items = []
+            urgent = []
+            for r in rows:
+                days_since = None
+                days_left = None
+                status = "no_data"
+                if r.last_purchased_at:
+                    try:
+                        dt = datetime.fromisoformat(r.last_purchased_at)
+                        days_since = (now - dt).days
+                        days_left = r.typical_frequency_days - days_since
+                        if days_left <= 0:
+                            status = "overdue"
+                        elif days_left <= 3:
+                            status = "urgent"
+                        else:
+                            status = "ok"
+                    except Exception:
+                        pass
+                info = {
+                    "name": r.name, "frequency_days": r.typical_frequency_days,
+                    "typical_qty": r.typical_qty, "last_purchased_at": r.last_purchased_at,
+                    "days_since": days_since, "days_left": days_left, "status": status,
+                }
+                items.append(info)
+                if status in ("overdue", "urgent"):
+                    urgent.append(info)
+            return {"count": len(items), "urgent_count": len(urgent),
+                    "items": items, "urgent": urgent}
+        except Exception as e:
+            log.exception("altron_check_stock_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_untrack_stock(self, name_: str) -> dict:
+        if not name_:
+            return {"error": "name обязателен"}
+        try:
+            from sqlalchemy import delete
+            from src.db.models import AltronStockItem
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(
+                    delete(AltronStockItem).where(AltronStockItem.name == name_)
+                )
+            return {"success": True, "name": name_, "deleted": True}
+        except Exception as e:
+            log.exception("altron_untrack_stock_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_set_recurring_reminder(
