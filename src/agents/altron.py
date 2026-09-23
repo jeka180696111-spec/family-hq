@@ -126,6 +126,7 @@ _WRITE_TOOLS = frozenset({
     "speak_reply",
     "ask_with_buttons",
     "set_quiet_hours",
+    "set_recurring_reminder", "delete_recurring_reminder",
 })
 
 # Только эти инструменты уходят по fast-path (мгновенный ответ без второго
@@ -943,6 +944,40 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "set_recurring_reminder",
+                "description": (
+                    "Поставить повторяющееся напоминание. Триггеры: «каждый день в 9 "
+                    "витамин D», «по понедельникам мусор», «25 числа плата за интернет». "
+                    "Формат schedule: 'daily HH:MM' / 'weekly Mon HH:MM' / 'monthly DD HH:MM'. "
+                    "Дни недели: Mon/Tue/Wed/Thu/Fri/Sat/Sun."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Уникальное имя (напр. «Витамин D»)"},
+                        "schedule": {"type": "string", "description": "'daily 09:00' / 'weekly Mon 08:00' / 'monthly 25 09:00'"},
+                        "text": {"type": "string", "description": "Что напомнить"},
+                    },
+                    "required": ["name", "schedule", "text"],
+                },
+            },
+            {
+                "name": "list_recurring_reminders",
+                "description": "Список повторяющихся напоминаний.",
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "delete_recurring_reminder",
+                "description": "Удалить повторяющееся напоминание по имени.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                    },
+                    "required": ["name"],
+                },
+            },
+            {
                 "name": "set_quiet_hours",
                 "description": (
                     "Настроить тихие часы Альтрона — окно когда все уведомления, "
@@ -1550,6 +1585,16 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "set_recurring_reminder":
+                return await self._tool_set_recurring_reminder(
+                    name_=args.get("name") or "",
+                    schedule=args.get("schedule") or "",
+                    text_=args.get("text") or "",
+                )
+            if name == "list_recurring_reminders":
+                return await self._tool_list_recurring_reminders()
+            if name == "delete_recurring_reminder":
+                return await self._tool_delete_recurring_reminder(name_=args.get("name") or "")
             if name == "set_quiet_hours":
                 return await self._tool_set_quiet_hours(
                     from_time=args.get("from_time") or "",
@@ -2776,6 +2821,76 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_set_recurring_reminder(
+        self, name_: str, schedule: str, text_: str,
+    ) -> dict:
+        if not name_ or not schedule or not text_:
+            return {"error": "name, schedule и text обязательны"}
+        try:
+            from sqlalchemy import insert, select, update as sql_update
+            from src.db.models import AltronReminder
+            from src.utils.time import iso_now
+            now_ = iso_now()
+            async with self._memory._engine.begin() as conn:
+                existing = (await conn.execute(
+                    select(AltronReminder).where(AltronReminder.name == name_)
+                )).first()
+                if existing:
+                    await conn.execute(
+                        sql_update(AltronReminder)
+                        .where(AltronReminder.id == existing.id)
+                        .values(schedule=schedule, text=text_, enabled=1)
+                    )
+                    return {"success": True, "updated": True, "name": name_}
+                await conn.execute(insert(AltronReminder).values(
+                    name=name_, schedule=schedule, text=text_,
+                    enabled=1, created_at=now_,
+                ))
+            return {"success": True, "name": name_, "schedule": schedule}
+        except Exception as e:
+            log.exception("altron_set_recurring_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_list_recurring_reminders(self) -> dict:
+        try:
+            from sqlalchemy import select
+            from src.db.models import AltronReminder
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(AltronReminder).order_by(AltronReminder.name)
+                ))
+            return {
+                "count": len(rows),
+                "reminders": [
+                    {"name": r.name, "schedule": r.schedule, "text": r.text,
+                     "enabled": bool(r.enabled), "last_fired_at": r.last_fired_at}
+                    for r in rows
+                ],
+            }
+        except Exception as e:
+            log.exception("altron_list_recurring_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_delete_recurring_reminder(self, name_: str) -> dict:
+        if not name_:
+            return {"error": "name обязателен"}
+        try:
+            from sqlalchemy import delete, select
+            from src.db.models import AltronReminder
+            async with self._memory._engine.begin() as conn:
+                existing = (await conn.execute(
+                    select(AltronReminder).where(AltronReminder.name == name_)
+                )).first()
+                if not existing:
+                    return {"error": f"Не нашёл «{name_}»"}
+                await conn.execute(
+                    delete(AltronReminder).where(AltronReminder.name == name_)
+                )
+            return {"success": True, "name": name_, "deleted": True}
+        except Exception as e:
+            log.exception("altron_delete_recurring_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_set_quiet_hours(

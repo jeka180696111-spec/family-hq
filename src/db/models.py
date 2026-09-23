@@ -707,3 +707,21 @@ class AltronMessage(Base):
     role: Mapped[str] = mapped_column(String, nullable=False)  # user/assistant
     content_json: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class AltronReminder(Base):
+    """Повторяющиеся напоминания Альтрона.
+
+    schedule формат (простой):
+      - «daily 09:00»
+      - «weekly Mon 08:00»  (Mon/Tue/Wed/Thu/Fri/Sat/Sun)
+      - «monthly 25 09:00»
+    """
+    __tablename__ = "altron_reminders"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    schedule: Mapped[str] = mapped_column(String, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    last_fired_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
