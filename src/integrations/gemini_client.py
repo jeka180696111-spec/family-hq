@@ -268,6 +268,31 @@ class GeminiClient:
                         continue
         raise RuntimeError(f"Gemini stream: all keys×models failed. Last: {last_err[:200]}")
 
+    async def embed(self, text: str, model: str = "text-embedding-004") -> list[float]:
+        """Gemini embeddings — 768-dim вектор для семантического поиска."""
+        if not text:
+            return []
+        body = {
+            "content": {"parts": [{"text": text[:8000]}]},
+        }
+        async with aiohttp.ClientSession() as session:
+            for key in self.api_keys:
+                url = (
+                    f"https://generativelanguage.googleapis.com/v1beta/"
+                    f"models/{model}:embedContent?key={key}"
+                )
+                try:
+                    async with session.post(url, json=body) as resp:
+                        if resp.status >= 400:
+                            continue
+                        data = await resp.json()
+                    values = data.get("embedding", {}).get("values") or []
+                    if values:
+                        return list(values)
+                except Exception:
+                    continue
+        return []
+
     # ─── Vision (multimodal) ─────────────────────────────────────────
 
     async def vision_complete(

@@ -128,6 +128,7 @@ _WRITE_TOOLS = frozenset({
     "set_quiet_hours",
     "set_recurring_reminder", "delete_recurring_reminder",
     "track_stock", "record_stock_purchase", "untrack_stock",
+    "remember",
 })
 
 # Только эти инструменты уходят по fast-path (мгновенный ответ без второго
@@ -945,6 +946,45 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "remember",
+                "description": (
+                    "Запомнить факт/решение/предпочтение НАВСЕГДА в долговременную память "
+                    "с семантическим поиском. Используй когда пользователь говорит «запомни:», "
+                    "«не забудь что...», «на будущее». Также САМ вызывай когда в разговоре "
+                    "звучит важное решение («договорились не давать красную рыбу до года») "
+                    "или устойчивое предпочтение («Марина не любит мяту»)."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "kind": {
+                            "type": "string",
+                            "enum": ["decision", "preference", "fact", "event"],
+                            "description": "decision=решение, preference=вкус/привычка, fact=факт, event=прошлое событие",
+                        },
+                        "content": {"type": "string", "description": "Что запомнить, одним предложением"},
+                    },
+                    "required": ["kind", "content"],
+                },
+            },
+            {
+                "name": "recall",
+                "description": (
+                    "Семантический поиск по долговременной памяти. Возвращает топ-5 "
+                    "релевантных заметок. Триггеры: «мы решали про X?», «что мы говорили "
+                    "про Y?», «помнишь как...». Также вызывай ПЕРЕД ответом когда вопрос "
+                    "явно ссылается на прошлое."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "limit": {"type": "integer", "description": "Топ N (default 5)"},
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
                 "name": "track_stock",
                 "description": (
                     "Начать отслеживать регулярную покупку (памперсы, смесь, кофе). "
@@ -1636,6 +1676,16 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "remember":
+                return await self._tool_remember(
+                    kind=args.get("kind") or "fact",
+                    content=args.get("content") or "",
+                )
+            if name == "recall":
+                return await self._tool_recall(
+                    query=args.get("query") or "",
+                    limit=int(args.get("limit") or 5),
+                )
             if name == "track_stock":
                 return await self._tool_track_stock(
                     name_=args.get("name") or "",
@@ -2884,6 +2934,94 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_remember(self, kind: str, content: str) -> dict:
+        """Embed content через Gemini + insert в AltronLongMemory."""
+        if not content.strip():
+            return {"error": "content обязателен"}
+        try:
+            from sqlalchemy import insert
+            from src.db.models import AltronLongMemory
+            from src.utils.time import iso_now
+            import json as _json
+            emb: list[float] = []
+            gem = getattr(self._gemini, "embed", None) or getattr(
+                getattr(self._gemini, "_primary", None), "embed", None
+            )
+            if gem:
+                try:
+                    emb = await gem(content)
+                except Exception:
+                    emb = []
+            emb_json = _json.dumps(emb) if emb else None
+            chat_id = int(getattr(self._settings, "altron_chat_id", 0) or 0)
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(insert(AltronLongMemory).values(
+                    chat_id=chat_id, kind=kind, content=content,
+                    embedding_json=emb_json, created_at=iso_now(),
+                ))
+            return {"success": True, "kind": kind,
+                    "content": content[:80], "embedded": bool(emb)}
+        except Exception as e:
+            log.exception("altron_remember_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_recall(self, query: str, limit: int = 5) -> dict:
+        """Топ-N по cosine similarity. Fallback — LIKE-поиск если embeddings нет."""
+        if not query.strip():
+            return {"error": "query обязателен"}
+        try:
+            from sqlalchemy import select
+            from src.db.models import AltronLongMemory
+            import json as _json
+            import math
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(select(AltronLongMemory)))
+            if not rows:
+                return {"count": 0, "results": []}
+            gem = getattr(self._gemini, "embed", None) or getattr(
+                getattr(self._gemini, "_primary", None), "embed", None
+            )
+            q_emb: list[float] = []
+            if gem:
+                try:
+                    q_emb = await gem(query)
+                except Exception:
+                    q_emb = []
+            scored: list[tuple[float, Any]] = []
+            if q_emb:
+                q_norm = math.sqrt(sum(x * x for x in q_emb)) or 1.0
+                for r in rows:
+                    if not r.embedding_json:
+                        continue
+                    try:
+                        emb = _json.loads(r.embedding_json)
+                    except Exception:
+                        continue
+                    if len(emb) != len(q_emb):
+                        continue
+                    dot = sum(a * b for a, b in zip(emb, q_emb))
+                    r_norm = math.sqrt(sum(x * x for x in emb)) or 1.0
+                    scored.append((dot / (q_norm * r_norm), r))
+            if not scored:
+                # Фолбэк — простой substring
+                q_l = query.lower()
+                for r in rows:
+                    if q_l in (r.content or "").lower():
+                        scored.append((1.0, r))
+            scored.sort(key=lambda x: -x[0])
+            top = scored[:limit]
+            return {
+                "count": len(top),
+                "results": [
+                    {"kind": r.kind, "content": r.content,
+                     "created_at": r.created_at, "score": round(s, 3)}
+                    for s, r in top
+                ],
+            }
+        except Exception as e:
+            log.exception("altron_recall_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_track_stock(
