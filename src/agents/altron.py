@@ -1384,27 +1384,95 @@ class AltronAgent:
         return out
 
     async def _tool_baby_state(self) -> dict:
+        """Текущее состояние Матвея + предвычисленные длительности.
+
+        Возвращает не сырые ISO, а готовые «awake_for_min=78» / human-текст,
+        чтобы LLM не запуталась при вопросах «сколько уже не спит?»,
+        «когда ел последний раз?» и т.п.
+        """
+        from datetime import datetime
         from sqlalchemy import select
         from src.db.models import BabyState
+
         async with self._memory._engine.connect() as conn:
             row = (await conn.execute(select(BabyState))).first()
-        out: dict = {}
-        if row:
-            bs = row[0] if hasattr(row, "_mapping") else row
-            out = {
-                "sleeping_since": getattr(bs, "sleeping_since", None),
-                "awake_since": getattr(bs, "awake_since", None),
-                "last_feed_at": getattr(bs, "last_feed_at", None),
-                "last_diaper_at": getattr(bs, "last_diaper_at", None),
-            }
-        # Температура в детской — из state.devices
-        try:
-            from src.web.tablet import _build_tablet_state
-            # Проще: читаем из BabyState хватит на первый этап
-            pass
-        except Exception:
-            pass
-        return out
+
+        if not row:
+            return {"state": "unknown", "hint": "BabyState пуст — вызови get_baby_diary."}
+
+        bs = row[0] if hasattr(row, "_mapping") else row
+        sleeping_since = getattr(bs, "sleeping_since", None)
+        awake_since = getattr(bs, "awake_since", None)
+        last_feed_at = getattr(bs, "last_feed_at", None)
+        last_diaper_at = getattr(bs, "last_diaper_at", None)
+
+        now = now_kyiv()
+
+        def _minutes_since(iso: str | None) -> int | None:
+            if not iso:
+                return None
+            try:
+                dt = datetime.fromisoformat(iso)
+                if dt.tzinfo is None:
+                    from src.utils.time import KYIV_TZ
+                    dt = dt.replace(tzinfo=KYIV_TZ)
+                return max(0, int((now - dt).total_seconds() / 60))
+            except Exception:
+                return None
+
+        def _hm(iso: str | None) -> str | None:
+            if not iso:
+                return None
+            try:
+                return datetime.fromisoformat(iso).strftime("%H:%M")
+            except Exception:
+                return None
+
+        def _human_dur(mins: int | None) -> str:
+            if mins is None:
+                return "?"
+            h, m = divmod(mins, 60)
+            if h and m:
+                return f"{h}ч {m}м"
+            if h:
+                return f"{h}ч"
+            return f"{m}м"
+
+        # Текущее состояние
+        if sleeping_since and not awake_since:
+            state = "sleeping"
+            slept_for = _minutes_since(sleeping_since)
+            headline = f"💤 Спит уже {_human_dur(slept_for)} (уснул в {_hm(sleeping_since)})"
+        elif awake_since and not sleeping_since:
+            state = "awake"
+            awake_for = _minutes_since(awake_since)
+            headline = f"👶 Бодрствует {_human_dur(awake_for)} (проснулся в {_hm(awake_since)})"
+        elif awake_since:
+            state = "awake"
+            awake_for = _minutes_since(awake_since)
+            headline = f"👶 Бодрствует {_human_dur(awake_for)} (проснулся в {_hm(awake_since)})"
+        else:
+            state = "unknown"
+            headline = "Состояние неизвестно"
+
+        feed_ago = _minutes_since(last_feed_at)
+        diaper_ago = _minutes_since(last_diaper_at)
+
+        return {
+            "state": state,
+            "headline": headline,
+            "sleeping_since_iso": sleeping_since,
+            "awake_since_iso": awake_since,
+            "sleeping_for_min": _minutes_since(sleeping_since) if state == "sleeping" else None,
+            "awake_for_min": _minutes_since(awake_since) if state == "awake" else None,
+            "last_feed_at_iso": last_feed_at,
+            "last_feed_ago_min": feed_ago,
+            "last_feed_ago_human": _human_dur(feed_ago),
+            "last_diaper_at_iso": last_diaper_at,
+            "last_diaper_ago_min": diaper_ago,
+            "last_diaper_ago_human": _human_dur(diaper_ago),
+            "now": now.isoformat(),
+        }
 
     async def _tool_calendar(self) -> dict:
         try:
