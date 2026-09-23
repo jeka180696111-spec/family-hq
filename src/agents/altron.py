@@ -219,16 +219,78 @@ class AltronAgent:
     def _append_history(self, chat_id: int, role: str, content: Any) -> None:
         h = self._history.setdefault(chat_id, [])
         h.append({"role": role, "content": content})
-        # Обрезаем — но не в середине tool-цепочки. Простая эвристика:
-        # держим ровно ×2 лимита элементов, потом отрезаем от начала.
         if len(h) > self._HISTORY_LIMIT * 2:
             del h[: len(h) - self._HISTORY_LIMIT]
+        # Персистим в БД чтобы переживать рестарты. Не блокирует ответ:
+        # ошибки логируем и продолжаем.
+        try:
+            asyncio.create_task(self._persist_message(chat_id, role, content))
+        except Exception:
+            log.exception("altron_persist_task_failed")
+
+    async def _persist_message(self, chat_id: int, role: str, content: Any) -> None:
+        try:
+            from sqlalchemy import insert
+            from src.db.models import AltronMessage
+            from src.utils.time import iso_now
+            content_json = json.dumps(content, ensure_ascii=False, default=str)
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(insert(AltronMessage).values(
+                    chat_id=chat_id, role=role,
+                    content_json=content_json, created_at=iso_now(),
+                ))
+        except Exception:
+            log.exception("altron_persist_message_failed")
 
     def _get_history(self, chat_id: int) -> list[dict]:
         return list(self._history.get(chat_id, []))
 
+    async def load_history_from_db(self, chat_id: int) -> None:
+        """Подтянуть последние N сообщений из БД в память. Вызывается лениво
+        когда для chat_id ещё нет истории (например после рестарта)."""
+        if chat_id in self._history:
+            return
+        try:
+            from sqlalchemy import select
+            from src.db.models import AltronMessage
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(AltronMessage)
+                    .where(AltronMessage.chat_id == chat_id)
+                    .order_by(AltronMessage.id.desc())
+                    .limit(self._HISTORY_LIMIT)
+                ))
+            rows.reverse()
+            hist: list[dict] = []
+            for r in rows:
+                try:
+                    content = json.loads(r.content_json)
+                except Exception:
+                    content = r.content_json
+                hist.append({"role": r.role, "content": content})
+            self._history[chat_id] = hist
+            log.info("altron_history_loaded", chat_id=chat_id, count=len(hist))
+        except Exception:
+            log.exception("altron_history_load_failed", chat_id=chat_id)
+            self._history[chat_id] = []
+
     def reset_history(self, chat_id: int) -> None:
         self._history[chat_id] = []
+        # Асинхронно очищаем и в БД
+        async def _clear():
+            try:
+                from sqlalchemy import delete
+                from src.db.models import AltronMessage
+                async with self._memory._engine.begin() as conn:
+                    await conn.execute(
+                        delete(AltronMessage).where(AltronMessage.chat_id == chat_id)
+                    )
+            except Exception:
+                log.exception("altron_history_clear_failed", chat_id=chat_id)
+        try:
+            asyncio.create_task(_clear())
+        except Exception:
+            pass
 
     # ─── Tools ─────────────────────────────────────────────────────
 
@@ -3409,6 +3471,9 @@ class AltronAgent:
         """
         if not text or not text.strip():
             return "Слушаю?"
+
+        # Ленивая подгрузка истории из БД после рестарта
+        await self.load_history_from_db(chat_id)
 
         # Спецкоманда «сброс» — обнулить историю
         if text.strip().lower() in ("/reset", "/clear", "сброс", "забудь"):
