@@ -92,6 +92,7 @@ class AltronBot:
         self._direct_ingest_task: asyncio.Task | None = None
         self._brief_task: asyncio.Task | None = None
         self._selfcheck_task: asyncio.Task | None = None
+        self._reminders_task: asyncio.Task | None = None
         # {check_name: bool prev_state_ok}  — чтобы уведомлять только на
         # переходах здоровья: broken→ok, ok→broken.
         self._selfcheck_state: dict[str, bool] = {}
@@ -451,13 +452,14 @@ class AltronBot:
             self._grid_watch_task = asyncio.create_task(self._watch_grid())
             self._brief_task = asyncio.create_task(self._run_daily_briefs())
             self._selfcheck_task = asyncio.create_task(self._run_self_check())
+            self._reminders_task = asyncio.create_task(self._run_recurring_reminders())
             log.info("altron_watchers_started")
 
     async def stop(self) -> None:
         for t in (
             self._grid_watch_task, self._baby_watch_task,
             self._alert_watch_task, self._direct_ingest_task,
-            self._brief_task, self._selfcheck_task,
+            self._brief_task, self._selfcheck_task, self._reminders_task,
             self._task,
         ):
             if t and not t.done():
@@ -1240,6 +1242,77 @@ class AltronBot:
                     return None, ev_time
                 return True, ev_time
         return None, last_event_time
+
+    # ─── Recurring reminders ──────────────────────────────────────
+
+    async def _run_recurring_reminders(self) -> None:
+        """Раз в минуту смотрим на AltronReminder. Если время текущего
+        HH:MM попадает в расписание И today не совпадает с last_fired_at
+        (обрезанной до даты) — шлём напоминание, обновляем last_fired_at."""
+        from sqlalchemy import select, update as sql_update
+        from src.utils.time import now_kyiv
+        from src.db.models import AltronReminder
+
+        WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+        await asyncio.sleep(30)
+        while True:
+            try:
+                now = now_kyiv()
+                hm = now.strftime("%H:%M")
+                today_date = now.date().isoformat()
+                cur_wd = WEEKDAYS[now.weekday()]
+                cur_day = str(now.day)
+
+                async with self._memory._engine.connect() as conn:
+                    rows = list(await conn.execute(
+                        select(AltronReminder).where(AltronReminder.enabled == 1)
+                    ))
+                for r in rows:
+                    if (r.last_fired_at or "")[:10] == today_date:
+                        continue
+                    if not self._reminder_due(r.schedule, hm, cur_wd, cur_day):
+                        continue
+                    try:
+                        await self._send(f"🔔 <b>{r.name}</b>\n{r.text}")
+                    except Exception:
+                        log.exception("altron_reminder_send_failed", name=r.name)
+                        continue
+                    try:
+                        async with self._memory._engine.begin() as conn:
+                            await conn.execute(
+                                sql_update(AltronReminder)
+                                .where(AltronReminder.id == r.id)
+                                .values(last_fired_at=now.isoformat())
+                            )
+                    except Exception:
+                        log.exception("altron_reminder_mark_failed", name=r.name)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("altron_reminders_loop_err")
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                raise
+
+    @staticmethod
+    def _reminder_due(schedule: str, cur_hm: str, cur_wd: str, cur_day: str) -> bool:
+        """Простой парсер: 'daily HH:MM' / 'weekly Mon HH:MM' / 'monthly 25 HH:MM'."""
+        try:
+            parts = (schedule or "").split()
+            if not parts:
+                return False
+            kind = parts[0].lower()
+            if kind == "daily" and len(parts) >= 2:
+                return parts[1] == cur_hm
+            if kind == "weekly" and len(parts) >= 3:
+                return parts[1][:3].capitalize() == cur_wd and parts[2] == cur_hm
+            if kind == "monthly" and len(parts) >= 3:
+                return parts[1] == cur_day and parts[2] == cur_hm
+        except Exception:
+            pass
+        return False
 
     # ─── Self-check (Sheets / Tuya / Gemini) ─────────────────────
 
