@@ -90,6 +90,7 @@ class AltronBot:
         self._baby_watch_task: asyncio.Task | None = None
         self._grid_watch_task: asyncio.Task | None = None
         self._direct_ingest_task: asyncio.Task | None = None
+        self._brief_task: asyncio.Task | None = None
         # region -> {"started_at": str, "digest_hash": str, "message_id": int|None, "last_sent_at": float}
         self._alert_state: dict[str, dict] = {}
         # Отдельный state для собственного (direct-ingest) режима.
@@ -359,12 +360,14 @@ class AltronBot:
             self._direct_ingest_task = asyncio.create_task(self._run_direct_ingest())
             self._baby_watch_task = asyncio.create_task(self._watch_baby())
             self._grid_watch_task = asyncio.create_task(self._watch_grid())
+            self._brief_task = asyncio.create_task(self._run_daily_briefs())
             log.info("altron_watchers_started")
 
     async def stop(self) -> None:
         for t in (
             self._grid_watch_task, self._baby_watch_task,
             self._alert_watch_task, self._direct_ingest_task,
+            self._brief_task,
             self._task,
         ):
             if t and not t.done():
@@ -898,6 +901,178 @@ class AltronBot:
                 await asyncio.sleep(60)
             except asyncio.CancelledError:
                 raise
+
+    # ─── Daily briefs (утро / вечер) ─────────────────────────────
+
+    async def _run_daily_briefs(self) -> None:
+        """Ждём до ближайшего 8:00 или 22:00 Kyiv, шлём брифинг, спим до
+        следующего слота. Пропущенные из-за рестарта не догоняем — только
+        будущие."""
+        from datetime import timedelta
+        from src.utils.time import now_kyiv
+
+        def _next_slot() -> tuple[datetime, str]:
+            now = now_kyiv()
+            morning = now.replace(hour=8, minute=0, second=0, microsecond=0)
+            evening = now.replace(hour=22, minute=0, second=0, microsecond=0)
+            candidates = []
+            if morning > now:
+                candidates.append((morning, "morning"))
+            if evening > now:
+                candidates.append((evening, "evening"))
+            if not candidates:
+                # После 22:00 — следующий утренний
+                candidates.append((morning + timedelta(days=1), "morning"))
+            candidates.sort(key=lambda x: x[0])
+            return candidates[0]
+
+        while True:
+            try:
+                target, kind = _next_slot()
+                wait_sec = max(1, (target - now_kyiv()).total_seconds())
+                log.info("altron_next_brief", kind=kind, wait_sec=int(wait_sec))
+                await asyncio.sleep(wait_sec)
+                if kind == "morning":
+                    text = await self._build_morning_brief()
+                else:
+                    text = await self._build_evening_brief()
+                if text:
+                    await self._send(text)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("altron_brief_loop_err")
+                await asyncio.sleep(300)
+
+    async def _build_morning_brief(self) -> str:
+        """Утренний брифинг: погода, календарь, ночная тревога, состояние
+        Матвея, инвертор, задачи."""
+        try:
+            weather = await self._agent._tool_time_weather()
+        except Exception:
+            weather = {}
+        try:
+            baby = await self._agent._tool_baby_state()
+        except Exception:
+            baby = {}
+        try:
+            cal = await self._agent._tool_calendar()
+        except Exception:
+            cal = {}
+        try:
+            inv = await self._agent._tool_inverter()
+        except Exception:
+            inv = {}
+        try:
+            shopping = await self._agent._tool_get_shopping_list()
+        except Exception:
+            shopping = {}
+
+        from src.utils.time import now_kyiv
+        now = now_kyiv()
+        lines = [f"🌅 <b>ДОБРОЕ УТРО · {now.strftime('%A, %d.%m').capitalize()}</b>"]
+        lines.append("━" * 18)
+
+        w_temp = weather.get("temp_c") if isinstance(weather, dict) else None
+        w_desc = weather.get("description", "") if isinstance(weather, dict) else ""
+        w_feel = weather.get("feels_like_c") if isinstance(weather, dict) else None
+        if w_temp is not None:
+            row = f"🌤 <b>Погода:</b> {w_temp}°"
+            if w_feel is not None and abs((w_feel or 0) - (w_temp or 0)) > 1:
+                row += f" (ощущ. {w_feel}°)"
+            if w_desc:
+                row += f" · {w_desc}"
+            lines.append(row)
+
+        headline = baby.get("headline") if isinstance(baby, dict) else None
+        if headline:
+            lines.append(f"👶 <b>Матвей:</b> {headline}")
+
+        events = (cal or {}).get("events") or []
+        if events:
+            lines.append("")
+            lines.append("📅 <b>На сегодня:</b>")
+            for e in events[:4]:
+                start = e.get("start", "?")
+                title = e.get("title", "?")
+                lines.append(f"• {start} — {title}")
+        else:
+            lines.append("📅 <b>Календарь пуст.</b>")
+
+        soc = inv.get("soc_pct") if isinstance(inv, dict) else None
+        on_grid = inv.get("on_grid") if isinstance(inv, dict) else None
+        if soc is not None:
+            grid = "сеть есть" if on_grid else "на батарее"
+            lines.append(f"🔋 <b>Инвертор:</b> {soc}% · {grid}")
+
+        sh_items = (shopping or {}).get("items") or []
+        if sh_items:
+            names = [s.get("item", "?") for s in sh_items[:5]]
+            more = f" +{len(sh_items) - 5}" if len(sh_items) > 5 else ""
+            lines.append(f"🛒 <b>В списке:</b> {', '.join(names)}{more}")
+
+        lines.append("")
+        lines.append("<i>Задавай вопросы — я рядом.</i>")
+        return "\n".join(lines)
+
+    async def _build_evening_brief(self) -> str:
+        """Вечерний итог: события Матвея за день, календарь завтра, тревоги."""
+        try:
+            diary = await self._agent._tool_get_baby_diary(days=1, kind="all")
+        except Exception:
+            diary = {}
+        try:
+            cal = await self._agent._tool_calendar()
+        except Exception:
+            cal = {}
+        try:
+            inv = await self._agent._tool_inverter()
+        except Exception:
+            inv = {}
+
+        from src.utils.time import now_kyiv
+        from datetime import timedelta
+        now = now_kyiv()
+        tomorrow = now + timedelta(days=1)
+        lines = [f"🌙 <b>ИТОГ ДНЯ · {now.strftime('%d.%m')}</b>"]
+        lines.append("━" * 18)
+
+        events_today = (diary or {}).get("events") or []
+        if events_today:
+            by_kind: dict[str, int] = {}
+            for ev in events_today:
+                k = str(ev.get("kind", "note")).lower()
+                by_kind[k] = by_kind.get(k, 0) + 1
+            summary_bits = []
+            if by_kind.get("food"):
+                summary_bits.append(f"кормлений {by_kind['food']}")
+            if by_kind.get("sleep"):
+                summary_bits.append(f"снов {by_kind['sleep']}")
+            if by_kind.get("diaper"):
+                summary_bits.append(f"подгузников {by_kind['diaper']}")
+            if by_kind.get("symptom"):
+                summary_bits.append(f"симптомов {by_kind['symptom']}")
+            lines.append("👶 <b>Матвей:</b> " + ", ".join(summary_bits) if summary_bits else "👶 <b>Матвей:</b> —")
+        else:
+            lines.append("👶 <b>Матвей:</b> в дневнике сегодня пусто")
+
+        # События завтра
+        events = (cal or {}).get("events") or []
+        tomorrow_str = tomorrow.strftime("%Y-%m-%d")
+        tomorrow_events = [e for e in events if str(e.get("start", "")).startswith(tomorrow_str)]
+        if tomorrow_events:
+            lines.append("")
+            lines.append("📅 <b>Завтра:</b>")
+            for e in tomorrow_events[:4]:
+                lines.append(f"• {e.get('start','?')[11:16]} — {e.get('title','?')}")
+
+        soc = inv.get("soc_pct") if isinstance(inv, dict) else None
+        if soc is not None:
+            lines.append(f"🔋 <b>Батарея на ночь:</b> {soc}%")
+
+        lines.append("")
+        lines.append("<i>Спокойной ночи. Я слежу.</i>")
+        return "\n".join(lines)
 
     @staticmethod
     def _format_start_card(region: str, started_at: str) -> str:
