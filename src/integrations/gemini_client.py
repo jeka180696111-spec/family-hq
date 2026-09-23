@@ -188,6 +188,86 @@ class GeminiClient:
                         continue
         raise RuntimeError(f"Gemini: all keys×models failed. Last: {last_err[:200]}")
 
+    async def complete_stream(
+        self,
+        model: str | None = None,
+        system: str = "",
+        messages: list[dict] | None = None,
+        max_tokens: int = 1024,
+        **_: Any,
+    ):
+        """Streaming версия complete. Async generator: yields text chunks
+        по мере поступления. Использует streamGenerateContent + alt=sse."""
+        contents: list[dict] = []
+        for m in messages or []:
+            role = "user" if m.get("role") == "user" else "model"
+            text = m.get("content", "")
+            if isinstance(text, list):
+                text = " ".join(
+                    b.get("text", "") for b in text
+                    if isinstance(b, dict) and b.get("type") == "text"
+                )
+            contents.append({"role": role, "parts": [{"text": str(text)}]})
+        body: dict[str, Any] = {
+            "contents": contents,
+            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.5},
+        }
+        if system:
+            body["systemInstruction"] = {"parts": [{"text": system}]}
+
+        seen: list[str] = []
+        for m in (model, self._working_model, self.model, *_MODEL_CANDIDATES):
+            if m and m not in seen:
+                seen.append(m)
+
+        last_err = "no models attempted"
+        async with aiohttp.ClientSession() as session:
+            for key_idx, key in enumerate(self.api_keys):
+                for m in seen:
+                    url = (
+                        f"https://generativelanguage.googleapis.com/v1beta/"
+                        f"models/{m}:streamGenerateContent?alt=sse&key={key}"
+                    )
+                    try:
+                        async with session.post(url, json=body) as resp:
+                            if resp.status == 404:
+                                last_err = f"key#{key_idx} {m}: not found"
+                                continue
+                            if resp.status >= 400:
+                                err = await resp.text()
+                                last_err = f"key#{key_idx} {m}: HTTP {resp.status}: {err[:120]}"
+                                continue
+                            self._working_model = m
+                            self._working_key_idx = key_idx
+                            buffer = ""
+                            async for raw in resp.content:
+                                try:
+                                    line = raw.decode("utf-8").strip()
+                                except Exception:
+                                    continue
+                                if not line or not line.startswith("data:"):
+                                    continue
+                                payload = line[5:].strip()
+                                if payload == "[DONE]":
+                                    return
+                                try:
+                                    chunk = json.loads(payload)
+                                except Exception:
+                                    continue
+                                try:
+                                    parts = chunk["candidates"][0]["content"]["parts"]
+                                    for p in parts:
+                                        t = p.get("text", "")
+                                        if t:
+                                            yield t
+                                except (KeyError, IndexError):
+                                    continue
+                            return
+                    except Exception as e:
+                        last_err = f"key#{key_idx} {m}: {e}"
+                        continue
+        raise RuntimeError(f"Gemini stream: all keys×models failed. Last: {last_err[:200]}")
+
     # ─── Vision (multimodal) ─────────────────────────────────────────
 
     async def vision_complete(

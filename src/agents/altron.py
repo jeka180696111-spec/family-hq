@@ -3680,10 +3680,17 @@ class AltronAgent:
 
     # ─── Main entry: handle user message ────────────────────────────
 
-    async def handle(self, text: str, user_name: str = "Пользователь", chat_id: int = 0) -> str:
+    async def handle(
+        self, text: str, user_name: str = "Пользователь", chat_id: int = 0,
+        on_partial=None,
+    ) -> str:
         """Обработать входящее сообщение и вернуть ответ.
 
         Использует историю сообщений (по chat_id), защита от цикла tool-loop.
+
+        on_partial(text) — необязательный async callback. Если передан, финальный
+        текстовый ответ идёт стримом через Gemini, callback вызывается по мере
+        накопления. Возвращаемое значение всё равно — финальная строка.
         """
         if not text or not text.strip():
             return "Слушаю?"
@@ -3708,6 +3715,31 @@ class AltronAgent:
         for iteration in range(MAX_ITER):
             # На последней итерации выключаем tools и заставляем ответить текстом
             force_final = iteration == MAX_ITER - 1
+            # Стриминг только на форсированной финальной итерации (сложные
+            # compound-ответы). Простые «привет» на iter=0 отвечают как раньше.
+            if force_final and on_partial is not None and hasattr(self._gemini, "complete_stream"):
+                acc = ""
+                try:
+                    import time as _time
+                    last_edit_ts = _time.time()
+                    async for chunk in self._gemini.complete_stream(
+                        system=_SYSTEM_PROMPT,
+                        messages=messages,
+                        max_tokens=500,
+                    ):
+                        acc += chunk
+                        if _time.time() - last_edit_ts > 0.9:
+                            try:
+                                await on_partial(acc)
+                            except Exception:
+                                pass
+                            last_edit_ts = _time.time()
+                    text_out = acc.strip() or self._synth_from_tool_results(messages) or "Готово."
+                    self._append_history(chat_id, user_msg["role"], user_msg["content"])
+                    self._append_history(chat_id, "assistant", text_out)
+                    return text_out
+                except Exception:
+                    log.exception("altron_stream_failed_fallback_nostream")
             try:
                 resp = await self._gemini.complete_with_tools(
                     system=_SYSTEM_PROMPT,
