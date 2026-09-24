@@ -5259,26 +5259,62 @@ class AltronAgent:
     async def _tool_search_telegram_posts(
         self, query: str, hours_back: int = 24, alerts_only: bool = False,
     ) -> dict:
-        """Поиск по NewsPost — свежие посты из мониторинга Дозорного."""
+        """Поиск по NewsPost — свежие посты из мониторинга Дозорного.
+
+        Умный матч: разбиваем query на ключевые слова, стеммируем самым
+        грубым способом (первые 5 симв), считаем скор по числу попаданий.
+        Возвращаем hits по убыванию скора. Слова 1-2 симв игнорируем.
+        Плюс автоматически подсыпаем синонимы для темы удара/тревоги —
+        частая проблема была что «прилёт» модели искал точно, а посты
+        писали «удар», «атака», «взрыв».
+        """
         if not query.strip():
             return {"error": "query is empty"}
         try:
+            import re
             from sqlalchemy import select
             from src.db.models import NewsPost, NewsChannel
             from datetime import timedelta
             since = (now_kyiv() - timedelta(hours=hours_back)).isoformat()
-            q = query.lower()
+
+            # Токены запроса (без стоп-слов)
+            STOP = {
+                "что", "где", "когда", "какой", "какая", "какие", "куда", "как",
+                "по", "во", "на", "в", "для", "и", "или", "а", "но",
+                "сегодня", "вчера", "ночью", "днём", "утром", "вечером",
+                "ли", "же", "уже", "ещё", "также", "если", "то", "это",
+            }
+            raw_toks = [t.strip() for t in re.split(r"[^\w]+", query.lower()) if t.strip()]
+            toks = [t for t in raw_toks if len(t) >= 3 and t not in STOP]
+
+            # Синонимический бустер: если пахнет ударом — добавим релевантных
+            attack_hint = any(
+                t in query.lower()
+                for t in ("прилёт", "прилет", "удар", "взрыв", "куда прилетело",
+                          "что летит", "что летело", "атака", "обстрел")
+            )
+            if attack_hint:
+                for extra in ("удар", "прилёт", "прилет", "взрыв", "шахед",
+                              "ракета", "обстрел", "атака", "работа"):
+                    if extra not in toks:
+                        toks.append(extra)
+
+            if not toks:
+                toks = raw_toks[:5]  # фолбэк — что-то хоть
+
+            # «Стеммируем» до 5-символьного префикса чтобы ловить формы
+            stems = list({t[:5] for t in toks if len(t) >= 3})
+
             async with self._memory._engine.connect() as conn:
                 stmt = (
                     select(NewsPost)
                     .where(NewsPost.date >= since)
                     .order_by(NewsPost.date.desc())
-                    .limit(400)
+                    .limit(600)
                 )
                 if alerts_only:
                     stmt = stmt.where(NewsPost.is_alert == 1)
                 post_rows = list(await conn.execute(stmt))
-                # Отдельно достанем каналы для тех channel_id что встретятся
                 chan_ids = {r.channel_id for r in post_rows if r.channel_id}
                 chan_titles: dict[int, str] = {}
                 if chan_ids:
@@ -5288,18 +5324,29 @@ class AltronAgent:
                     )
                     for r in await conn.execute(chstmt):
                         chan_titles[r.channel_id] = r.title
-            hits = []
+
+            scored: list[tuple[int, Any]] = []
             for post in post_rows:
-                if q in (post.text or "").lower():
-                    hits.append({
-                        "channel": chan_titles.get(post.channel_id) or f"chan_{post.channel_id}",
-                        "date": post.date,
-                        "text": (post.text or "")[:400],
-                        "is_alert": bool(post.is_alert),
-                        "alert_region": post.alert_region,
-                    })
-                    if len(hits) >= 15:
-                        break
+                text_l = (post.text or "").lower()
+                score = sum(1 for s in stems if s in text_l)
+                if score:
+                    # Бонус alert-постам и одесским
+                    if post.is_alert:
+                        score += 1
+                    if "одес" in text_l or "южн" in text_l or "затока" in text_l:
+                        score += 1
+                    scored.append((score, post))
+            scored.sort(key=lambda x: -x[0])
+            hits = []
+            for score, post in scored[:15]:
+                hits.append({
+                    "channel": chan_titles.get(post.channel_id) or f"chan_{post.channel_id}",
+                    "date": post.date,
+                    "text": (post.text or "")[:400],
+                    "is_alert": bool(post.is_alert),
+                    "alert_region": post.alert_region,
+                    "score": score,
+                })
             return {
                 "query": query,
                 "hours_back": hours_back,
