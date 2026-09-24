@@ -820,3 +820,15 @@ class AltronChecklist(Base):
     name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     items_json: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class AltronTimeCapsule(Base):
+    """Сообщения самим себе / Матвею в будущее."""
+    __tablename__ = "altron_time_capsules"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    to_whom: Mapped[str] = mapped_column(String, nullable=False)  # matvey/family/self
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    delivery_date: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    author: Mapped[str | None] = mapped_column(String, nullable=True)
+    delivered: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)

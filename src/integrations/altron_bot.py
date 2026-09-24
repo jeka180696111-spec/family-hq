@@ -99,6 +99,7 @@ class AltronBot:
         self._rx_task: asyncio.Task | None = None
         self._mom_task: asyncio.Task | None = None
         self._mom_mode_cache: bool | None = None
+        self._capsule_task: asyncio.Task | None = None
         self._panic_until_ts: float = 0.0
         self._driving_until_ts: float = 0.0
         self._driver_name: str = ""
@@ -696,6 +697,7 @@ class AltronBot:
             self._routine_task = asyncio.create_task(self._run_baby_routine_watcher())
             self._rx_task = asyncio.create_task(self._run_prescription_watcher())
             self._mom_task = asyncio.create_task(self._run_mom_mode_watcher())
+            self._capsule_task = asyncio.create_task(self._run_time_capsule_delivery())
             log.info("altron_watchers_started")
 
     async def stop(self) -> None:
@@ -704,7 +706,7 @@ class AltronBot:
             self._alert_watch_task, self._direct_ingest_task,
             self._brief_task, self._selfcheck_task, self._reminders_task,
             self._stock_task, self._routine_task, self._rx_task,
-            self._mom_task,
+            self._mom_task, self._capsule_task,
             self._task,
         ):
             if t and not t.done():
@@ -1585,6 +1587,56 @@ class AltronBot:
         except Exception:
             pass
         return False
+
+    # ─── Time capsule delivery ────────────────────────────────────
+
+    async def _run_time_capsule_delivery(self) -> None:
+        """Раз в 6 часов проверяем: delivered=0 И delivery_date <= today → доставить."""
+        from sqlalchemy import select, update as sql_update
+        from src.db.models import AltronTimeCapsule
+        from src.utils.time import now_kyiv
+
+        await asyncio.sleep(600)  # 10 мин после старта
+        while True:
+            try:
+                today = now_kyiv().date().isoformat()
+                async with self._memory._engine.connect() as conn:
+                    rows = list(await conn.execute(
+                        select(AltronTimeCapsule)
+                        .where(AltronTimeCapsule.delivered == 0)
+                        .where(AltronTimeCapsule.delivery_date <= today)
+                    ))
+                for r in rows:
+                    to = {"matvey": "Матвею", "family": "Семье",
+                          "self": "Себе"}.get(r.to_whom, r.to_whom)
+                    text = (
+                        f"🕰 <b>КАПСУЛА ВРЕМЕНИ · {to}</b>\n"
+                        f"Отправлено {r.created_at[:10] if r.created_at else '?'}.\n"
+                        + ("━" * 18) + "\n\n"
+                        + r.message
+                    )
+                    try:
+                        await self._send(text)
+                    except Exception:
+                        log.exception("altron_capsule_send_failed", id=r.id)
+                        continue
+                    try:
+                        async with self._memory._engine.begin() as conn:
+                            await conn.execute(
+                                sql_update(AltronTimeCapsule)
+                                .where(AltronTimeCapsule.id == r.id)
+                                .values(delivered=1)
+                            )
+                    except Exception:
+                        log.exception("altron_capsule_mark_failed", id=r.id)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("altron_capsule_loop_err")
+            try:
+                await asyncio.sleep(6 * 3600)
+            except asyncio.CancelledError:
+                raise
 
     # ─── Мама-режим: 2-часовой check-in ────────────────────────────
 
