@@ -980,6 +980,22 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "forecast_alerts",
+                "description": (
+                    "Прогноз воздушных тревог по паттернам последних N дней. "
+                    "Смотрит NewsPost.is_alert=1, кластеризует по часам, возвращает "
+                    "вероятные окна активности. Триггеры: «когда обычно тревоги?», "
+                    "«прогноз тревог», «стоит ли ложиться сейчас?»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "days": {"type": "integer", "description": "По умолчанию 14"},
+                    },
+                    "required": [],
+                },
+            },
+            {
                 "name": "create_checklist",
                 "description": (
                     "Создать чек-лист. Триггеры: «сделай чек-лист в роддом», «список на дачу», "
@@ -2060,6 +2076,8 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "forecast_alerts":
+                return await self._tool_forecast_alerts(days=int(args.get("days") or 14))
             if name == "create_checklist":
                 return await self._tool_create_checklist(
                     name_=args.get("name") or "",
@@ -3415,6 +3433,65 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_forecast_alerts(self, days: int = 14) -> dict:
+        """Часовая гистограмма тревог за N дней + топ окон."""
+        try:
+            from datetime import datetime, timedelta
+            from sqlalchemy import select
+            from src.db.models import NewsPost
+            since = (now_kyiv() - timedelta(days=days)).isoformat()
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(NewsPost)
+                    .where(NewsPost.is_alert == 1)
+                    .where(NewsPost.date >= since)
+                    .limit(2000)
+                ))
+            if not rows:
+                return {"note": "Данных мало — паттерн не строится", "count": 0}
+            # По часам считаем УНИКАЛЬНЫЕ (день, час) — чтобы длинная тревога
+            # не забивала статистику одним часом.
+            unique_hits: set = set()
+            for r in rows:
+                try:
+                    dt = datetime.fromisoformat(r.date)
+                    unique_hits.add((dt.date().isoformat(), dt.hour))
+                except Exception:
+                    continue
+            hist = [0] * 24
+            for _d, h in unique_hits:
+                hist[h] += 1
+            # Топ-часы
+            ranked = sorted(enumerate(hist), key=lambda x: -x[1])
+            top = [(h, c) for h, c in ranked if c > 0][:6]
+            # Кластеры (последовательные часы)
+            active_hours = sorted([h for h, c in ranked if c >= max(1, days // 5)])
+            clusters: list[list[int]] = []
+            for h in active_hours:
+                if clusters and h - clusters[-1][-1] <= 2:
+                    clusters[-1].append(h)
+                else:
+                    clusters.append([h])
+            windows = [
+                f"{c[0]:02d}:00–{(c[-1] + 1) % 24:02d}:00" for c in clusters if c
+            ]
+            current_h = now_kyiv().hour
+            in_active = any(c[0] <= current_h <= c[-1] for c in clusters)
+            return {
+                "days": days,
+                "unique_hourly_hits": len(unique_hits),
+                "top_hours": [{"hour": h, "hits": c} for h, c in top],
+                "likely_windows": windows,
+                "in_active_window_now": in_active,
+                "note": (
+                    "Окна где тревоги случались в ≥1/5 дней. "
+                    "Не гарантия, только паттерн."
+                ),
+            }
+        except Exception as e:
+            log.exception("altron_forecast_alerts_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_create_checklist(self, name_: str, items: list) -> dict:

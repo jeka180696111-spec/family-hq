@@ -2072,6 +2072,18 @@ class AltronBot:
             more = f" +{len(sh_items) - 5}" if len(sh_items) > 5 else ""
             lines.append(f"🛒 <b>В списке:</b> {', '.join(names)}{more}")
 
+        # Прогноз тревог по паттерну — показываем если данных достаточно
+        try:
+            forecast = await self._agent._tool_forecast_alerts(days=14)
+            windows = forecast.get("likely_windows") or []
+            if windows:
+                lines.append("")
+                lines.append(
+                    f"🚨 <b>Вероятные окна тревог:</b> {', '.join(windows[:3])}"
+                )
+        except Exception:
+            pass
+
         # Дни рождения / годовщины в ближайшие 7 дней
         try:
             anniv = await self._agent._tool_list_anniversaries()
