@@ -76,6 +76,13 @@ _SYSTEM_PROMPT = """Ты Альтрон — семейный ИИ штаба Е�
 - ФАКТЫ («уснул», «проснулся», «поел», «покакал» + опц. время) →
   record_baby_event с параметром at="HH:MM" если время указано.
 
+ФИДБЕК → УЧИСЬ
+Юзер: «плохо ответил», «слишком длинно», «мимо», «не то», «отлично» →
+вызывай record_feedback(polarity, note) чтобы сохранить в память.
+Перед сложным ответом стоит вызвать recall(query="стиль ответов") или
+recall(query="что раздражает"), чтобы поймать препереднее negative-фидбеки
+и не повторять ошибки.
+
 ГОЛОСОВОЕ СООБЩЕНИЕ ПРО МАТВЕЯ = НЕСКОЛЬКО СОБЫТИЙ В ОДНОМ
 Марина/Женя часто наговаривают всё что было за час одной voice-message:
 «Матвей поел смеси 150 мл в 9:30, покакал в 10, поспал полтора часа
@@ -164,6 +171,7 @@ _WRITE_TOOLS = frozenset({
     "record_expense",
     "create_checklist", "toggle_checklist_item", "delete_checklist",
     "create_time_capsule",
+    "record_feedback",
 })
 
 # Только эти инструменты уходят по fast-path (мгновенный ответ без второго
@@ -979,6 +987,24 @@ class AltronAgent:
                     "Триггеры: «на сколько хватит батареи?», «сколько ещё продержимся?»."
                 ),
                 "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "record_feedback",
+                "description": (
+                    "Записать фидбек пользователя о качестве твоих ответов в память. "
+                    "Триггеры: «плохо ответил», «не то», «слишком длинно», «мимо», "
+                    "«отлично», «нравится когда так». Каждый негатив/позитив помогает "
+                    "тебе улучшаться. САМ вызывай когда получаешь явную оценку."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "polarity": {"type": "string", "enum": ["negative", "positive"]},
+                        "note": {"type": "string", "description": "Что именно не так / что понравилось"},
+                        "context": {"type": "string", "description": "О каком твоём предыдущем ответе (кратко)"},
+                    },
+                    "required": ["polarity", "note"],
+                },
             },
             {
                 "name": "create_time_capsule",
@@ -2135,6 +2161,12 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "record_feedback":
+                return await self._tool_record_feedback(
+                    polarity=args.get("polarity") or "negative",
+                    note=args.get("note") or "",
+                    context=args.get("context") or "",
+                )
             if name == "create_time_capsule":
                 return await self._tool_create_time_capsule(
                     to_whom=args.get("to_whom") or "matvey",
@@ -3506,6 +3538,46 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_record_feedback(
+        self, polarity: str, note: str, context: str = "",
+    ) -> dict:
+        """Сохраняем в AltronLongMemory kind=preference с меткой feedback.
+        Модель может подтянуть через recall при похожем контексте."""
+        if not note.strip():
+            return {"error": "note обязателен"}
+        try:
+            content = (
+                f"[feedback:{polarity}] "
+                + (f"({context}) " if context else "")
+                + note
+            )
+            from sqlalchemy import insert
+            from src.db.models import AltronLongMemory
+            from src.utils.time import iso_now
+            import json as _json
+            emb: list[float] = []
+            gem = getattr(self._gemini, "embed", None) or getattr(
+                getattr(self._gemini, "_primary", None), "embed", None
+            )
+            if gem:
+                try:
+                    emb = await gem(content)
+                except Exception:
+                    emb = []
+            chat_id = int(getattr(self._settings, "altron_chat_id", 0) or 0)
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(insert(AltronLongMemory).values(
+                    chat_id=chat_id, kind="preference",
+                    content=content,
+                    embedding_json=_json.dumps(emb) if emb else None,
+                    created_at=iso_now(),
+                ))
+            return {"success": True, "polarity": polarity,
+                    "note": note[:80], "saved": True}
+        except Exception as e:
+            log.exception("altron_record_feedback_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_create_time_capsule(
