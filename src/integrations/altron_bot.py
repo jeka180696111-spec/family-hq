@@ -94,6 +94,8 @@ class AltronBot:
         self._selfcheck_task: asyncio.Task | None = None
         self._reminders_task: asyncio.Task | None = None
         self._stock_task: asyncio.Task | None = None
+        self._routine_task: asyncio.Task | None = None
+        self._routine_last_fired: dict[str, str] = {}  # key -> date iso
         # {check_name: bool prev_state_ok}  — чтобы уведомлять только на
         # переходах здоровья: broken→ok, ok→broken.
         self._selfcheck_state: dict[str, bool] = {}
@@ -455,6 +457,7 @@ class AltronBot:
             self._selfcheck_task = asyncio.create_task(self._run_self_check())
             self._reminders_task = asyncio.create_task(self._run_recurring_reminders())
             self._stock_task = asyncio.create_task(self._run_stock_watcher())
+            self._routine_task = asyncio.create_task(self._run_baby_routine_watcher())
             log.info("altron_watchers_started")
 
     async def stop(self) -> None:
@@ -462,7 +465,7 @@ class AltronBot:
             self._grid_watch_task, self._baby_watch_task,
             self._alert_watch_task, self._direct_ingest_task,
             self._brief_task, self._selfcheck_task, self._reminders_task,
-            self._stock_task,
+            self._stock_task, self._routine_task,
             self._task,
         ):
             if t and not t.done():
@@ -1316,6 +1319,83 @@ class AltronBot:
         except Exception:
             pass
         return False
+
+    # ─── Baby routine watcher (proactive suggestions) ──────────────
+
+    async def _run_baby_routine_watcher(self) -> None:
+        """Каждые 5 мин. Если bedtime задан и текущее время в окне
+        [bedtime-25мин, bedtime-15мин] И Матвей БОДРСТВУЕТ — предлагаем
+        кнопкой «Приглушить свет? / Пора спать / Не сегодня». Одно
+        напоминание в день, антидубль через _routine_last_fired."""
+        from datetime import datetime as _dt, timedelta
+        from sqlalchemy import select
+        from src.db.models import BabyState, FamilyFact
+        from src.utils.time import now_kyiv
+
+        await asyncio.sleep(120)
+        while True:
+            try:
+                now = now_kyiv()
+                today = now.date().isoformat()
+                hm_now = now.strftime("%H:%M")
+                # 1) Читаем настроенное расписание
+                async with self._memory._engine.connect() as conn:
+                    rows = list(await conn.execute(
+                        select(FamilyFact).where(FamilyFact.member == "matvey_routine")
+                    ))
+                    baby = (await conn.execute(select(BabyState))).first()
+                routine = {r.key: r.value for r in rows}
+                bedtime = routine.get("bedtime")
+                # 2) Проверяем bedtime
+                if bedtime and self._routine_last_fired.get("bedtime") != today:
+                    try:
+                        bt = _dt.strptime(bedtime, "%H:%M")
+                        window_start = (bt - timedelta(minutes=25)).strftime("%H:%M")
+                        window_end = (bt - timedelta(minutes=15)).strftime("%H:%M")
+                        in_window = window_start <= hm_now <= window_end
+                    except Exception:
+                        in_window = False
+                    is_awake = baby is not None and baby.awake_since and not baby.sleeping_since
+                    if in_window and is_awake:
+                        try:
+                            await self.send_with_buttons(
+                                f"🌙 Матвей обычно ложится в <b>{bedtime}</b>. "
+                                f"Скоро время сна.",
+                                ["Приглушить свет в детской", "Уже уснул", "Не сегодня"],
+                                silent=True,
+                            )
+                            self._routine_last_fired["bedtime"] = today
+                        except Exception:
+                            log.exception("altron_routine_bedtime_send_failed")
+                # 3) Проверяем wake_time — если ещё спит после обычного пробуждения
+                wake_time = routine.get("wake_time")
+                if wake_time and self._routine_last_fired.get("wake_late") != today:
+                    try:
+                        wt = _dt.strptime(wake_time, "%H:%M")
+                        late_at = (wt + timedelta(minutes=30)).strftime("%H:%M")
+                    except Exception:
+                        late_at = "99:99"
+                    still_sleeping = (
+                        baby is not None and baby.sleeping_since and not baby.awake_since
+                    )
+                    if still_sleeping and hm_now >= late_at:
+                        try:
+                            await self._send(
+                                f"👶 Матвей спит уже дольше обычного — вставать должен был "
+                                f"в {wake_time}. Может стоит проверить?",
+                                silent=True,
+                            )
+                            self._routine_last_fired["wake_late"] = today
+                        except Exception:
+                            log.exception("altron_routine_wake_send_failed")
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("altron_baby_routine_loop_err")
+            try:
+                await asyncio.sleep(300)  # 5 мин
+            except asyncio.CancelledError:
+                raise
 
     # ─── Stock watcher ─────────────────────────────────────────────
 

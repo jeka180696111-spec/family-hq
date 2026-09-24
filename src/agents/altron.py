@@ -128,7 +128,7 @@ _WRITE_TOOLS = frozenset({
     "set_quiet_hours",
     "set_recurring_reminder", "delete_recurring_reminder",
     "track_stock", "record_stock_purchase", "untrack_stock",
-    "remember",
+    "remember", "set_baby_routine",
 })
 
 # Только эти инструменты уходят по fast-path (мгновенный ответ без второго
@@ -946,6 +946,23 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "set_baby_routine",
+                "description": (
+                    "Настроить типичное расписание Матвея (когда обычно ложится, встаёт). "
+                    "Альтрон будет предлагать заранее: за 20 мин до bedtime — «приглушить свет?». "
+                    "Триггеры: «Матвей обычно ложится в 21:00», «просыпается в 7:30», "
+                    "«режим сна 21-07»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "bedtime": {"type": "string", "description": "HH:MM когда обычно ложится (напр. 21:00)"},
+                        "wake_time": {"type": "string", "description": "HH:MM когда обычно встаёт (напр. 07:30)"},
+                    },
+                    "required": [],
+                },
+            },
+            {
                 "name": "remember",
                 "description": (
                     "Запомнить факт/решение/предпочтение НАВСЕГДА в долговременную память "
@@ -1676,6 +1693,11 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "set_baby_routine":
+                return await self._tool_set_baby_routine(
+                    bedtime=args.get("bedtime") or "",
+                    wake_time=args.get("wake_time") or "",
+                )
             if name == "remember":
                 return await self._tool_remember(
                     kind=args.get("kind") or "fact",
@@ -2934,6 +2956,43 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_set_baby_routine(self, bedtime: str = "", wake_time: str = "") -> dict:
+        """Сохранить типичное расписание в FamilyFact(member='matvey_routine')."""
+        if not bedtime and not wake_time:
+            return {"error": "нужно bedtime или wake_time"}
+        try:
+            from sqlalchemy import insert, select, update as sql_update
+            from src.db.models import FamilyFact
+            from src.utils.time import iso_now
+            now_ = iso_now()
+            updates: dict[str, str] = {}
+            if bedtime:
+                updates["bedtime"] = bedtime.strip()
+            if wake_time:
+                updates["wake_time"] = wake_time.strip()
+            async with self._memory._engine.begin() as conn:
+                for k, v in updates.items():
+                    row = (await conn.execute(
+                        select(FamilyFact)
+                        .where(FamilyFact.member == "matvey_routine")
+                        .where(FamilyFact.key == k)
+                    )).first()
+                    if row:
+                        await conn.execute(
+                            sql_update(FamilyFact)
+                            .where(FamilyFact.id == row.id)
+                            .values(value=v, updated_at=now_)
+                        )
+                    else:
+                        await conn.execute(insert(FamilyFact).values(
+                            member="matvey_routine", key=k, value=v,
+                            source="altron", created_at=now_, updated_at=now_,
+                        ))
+            return {"success": True, **updates}
+        except Exception as e:
+            log.exception("altron_set_routine_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_remember(self, kind: str, content: str) -> dict:
