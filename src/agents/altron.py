@@ -159,6 +159,7 @@ _WRITE_TOOLS = frozenset({
     "set_home_location",
     "start_prescription", "mark_dose_taken", "stop_prescription",
     "add_anniversary", "remove_anniversary",
+    "set_mom_mode",
 })
 
 # Только эти инструменты уходят по fast-path (мгновенный ответ без второго
@@ -974,6 +975,23 @@ class AltronAgent:
                     "Триггеры: «на сколько хватит батареи?», «сколько ещё продержимся?»."
                 ),
                 "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "set_mom_mode",
+                "description": (
+                    "Включить/выключить «Мама-режим» — когда Марина одна с малышом. "
+                    "В этом режиме: quiet hours отключены (все сообщения звенят), "
+                    "каждые 2 часа тихий check-in «как ты?», follow-ups чаще, "
+                    "поддерживающий тон в ответах. Триггеры: «включи мама-режим», "
+                    "«я ухожу — включи режим для Марины», «выключи мама-режим»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "enabled": {"type": "boolean"},
+                    },
+                    "required": ["enabled"],
+                },
             },
             {
                 "name": "add_anniversary",
@@ -1849,6 +1867,8 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "set_mom_mode":
+                return await self._tool_set_mom_mode(enabled=bool(args.get("enabled")))
             if name == "add_anniversary":
                 return await self._tool_add_anniversary(
                     name_=args.get("name") or "",
@@ -3152,6 +3172,40 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_set_mom_mode(self, enabled: bool) -> dict:
+        """FamilyFact(altron, mom_mode) = 'on'/'off'."""
+        try:
+            from sqlalchemy import insert, select, update as sql_update
+            from src.db.models import FamilyFact
+            from src.utils.time import iso_now
+            now_ = iso_now()
+            value = "on" if enabled else "off"
+            async with self._memory._engine.begin() as conn:
+                row = (await conn.execute(
+                    select(FamilyFact)
+                    .where(FamilyFact.member == "altron")
+                    .where(FamilyFact.key == "mom_mode")
+                )).first()
+                if row:
+                    await conn.execute(
+                        sql_update(FamilyFact)
+                        .where(FamilyFact.id == row.id)
+                        .values(value=value, updated_at=now_)
+                    )
+                else:
+                    await conn.execute(insert(FamilyFact).values(
+                        member="altron", key="mom_mode", value=value,
+                        source="altron", created_at=now_, updated_at=now_,
+                    ))
+            bridge = getattr(self, "_voice_bot", None)
+            if bridge is not None:
+                bridge._mom_mode_cache = (value == "on")
+                bridge._quiet_window_cache = None
+            return {"success": True, "mom_mode": value}
+        except Exception as e:
+            log.exception("altron_set_mom_mode_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_add_anniversary(
