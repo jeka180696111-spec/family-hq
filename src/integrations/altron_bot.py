@@ -99,6 +99,7 @@ class AltronBot:
         self._rx_task: asyncio.Task | None = None
         self._mom_task: asyncio.Task | None = None
         self._mom_mode_cache: bool | None = None
+        self._panic_until_ts: float = 0.0
         self._was_home: bool | None = None
         self._arrival_last_ts: float = 0.0
         # {check_name: bool prev_state_ok}  — чтобы уведомлять только на
@@ -141,6 +142,53 @@ class AltronBot:
             if not update.effective_chat or update.effective_chat.id != allowed_chat:
                 return
             await update.message.reply_text("понг")
+
+        async def _panic_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            if not update.effective_chat or update.effective_chat.id != allowed_chat:
+                return
+            import time as _t
+            self._panic_until_ts = _t.time() + 30 * 60  # 30 мин
+            # Достать экстренные контакты из wiki
+            try:
+                from sqlalchemy import select
+                from src.db.models import FamilyFact
+                async with self._memory._engine.connect() as conn:
+                    rows = list(await conn.execute(
+                        select(FamilyFact).where(FamilyFact.member == "wiki")
+                    ))
+                contacts = [
+                    (r.key, r.value) for r in rows
+                    if any(k in (r.key or "").lower()
+                           for k in ("педиатр", "скорая", "врач", "экстренн",
+                                     "полиция", "сити", "мама", "папа"))
+                ][:8]
+            except Exception:
+                contacts = []
+            text_lines = [
+                "🆘 <b>PANIC · режим активирован</b>",
+                "━" * 18,
+                "",
+                "Все уведомления теперь звенят (30 мин).",
+                "",
+            ]
+            if contacts:
+                text_lines.append("<b>Экстренные контакты:</b>")
+                for name, val in contacts:
+                    text_lines.append(f"• <b>{name}</b>: {val}")
+            else:
+                text_lines.append(
+                    "<i>Контакты не заданы. Добавь в wiki с ключом «педиатр телефон» и т.п.</i>"
+                )
+            text_lines.append("")
+            text_lines.append("<b>Скорая — 103, полиция — 102, МЧС — 101.</b>")
+            try:
+                await self.send_with_buttons(
+                    "\n".join(text_lines),
+                    ["Отбой", "Записать событие", "Вызвать помощь"],
+                    silent=False,
+                )
+            except Exception:
+                await update.message.reply_text("\n".join(text_lines), parse_mode="HTML")
 
         async def _text_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Жёстко фильтруем чат — не отвечаем в HQ-чате или личке
@@ -363,6 +411,7 @@ class AltronBot:
         app = Application.builder().token(self._token).build()
         app.add_handler(CommandHandler("start", _start_cmd))
         app.add_handler(CommandHandler("ping", _ping_cmd))
+        app.add_handler(CommandHandler(["panic", "паника"], _panic_cmd))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _text_msg))
         app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, _voice_msg))
         app.add_handler(MessageHandler(filters.PHOTO, _photo_msg))
@@ -537,12 +586,16 @@ class AltronBot:
         """
         if not self._app or not self._app.bot:
             return
-        # В мама-режиме quiet hours игнорируются полностью — Марине важно
-        # слышать каждый сигнал даже ночью.
+        import time as _t
         mm = self._mom_mode_cache is True
+        panic = _t.time() < self._panic_until_ts
+        # В мама/panic-режиме quiet hours игнорируются полностью.
         effective_silent = silent or (
-            self._is_quiet_hours() and not override_quiet and not mm
+            self._is_quiet_hours() and not override_quiet and not mm and not panic
         )
+        # Panic — принудительно звенит
+        if panic:
+            effective_silent = False
         try:
             await self._app.bot.send_message(
                 chat_id=self._chat_id, text=text, parse_mode=parse_mode,
