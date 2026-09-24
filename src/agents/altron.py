@@ -964,6 +964,24 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "get_health_dashboard",
+                "description": (
+                    "Полный медицинский пакет для члена семьи за N дней: "
+                    "симптомы, лекарства, прививки, приёмы врача, активные "
+                    "курсы, для Матвея — прикорм и сон. Готово к пересказу "
+                    "педиатру или к сохранению в wiki. Триггеры: «медицинская "
+                    "сводка», «покажи здоровье Матвея», «что готовим врачу»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "member": {"type": "string", "enum": ["matvey", "eugene", "marina"]},
+                        "days": {"type": "integer", "description": "За сколько дней (по умолчанию 60)"},
+                    },
+                    "required": ["member"],
+                },
+            },
+            {
                 "name": "start_prescription",
                 "description": (
                     "Начать курс лекарства. Триггеры: «Матвею аугментин 5 дней по 2 раза», "
@@ -1782,6 +1800,11 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "get_health_dashboard":
+                return await self._tool_get_health_dashboard(
+                    member=args.get("member") or "matvey",
+                    days=int(args.get("days") or 60),
+                )
             if name == "start_prescription":
                 return await self._tool_start_prescription(
                     member=args.get("member") or "matvey",
@@ -3067,6 +3090,113 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_get_health_dashboard(self, member: str, days: int = 60) -> dict:
+        """Мед-пакет: HealthRecord + Prescriptions + для матвея прикорм/сон + факты."""
+        try:
+            from datetime import timedelta
+            from sqlalchemy import select
+            from src.db.models import (
+                HealthRecord, AltronPrescription, FamilyFact, ParentSleep,
+            )
+            since = (now_kyiv() - timedelta(days=days)).isoformat()
+            pack: dict = {"member": member, "days": days}
+
+            async with self._memory._engine.connect() as conn:
+                hr_rows = list(await conn.execute(
+                    select(HealthRecord)
+                    .where(HealthRecord.member_id == member)
+                    .where(HealthRecord.date >= since)
+                    .order_by(HealthRecord.date.desc())
+                    .limit(200)
+                ))
+                rx_rows = list(await conn.execute(
+                    select(AltronPrescription).where(AltronPrescription.member == member)
+                ))
+                facts = list(await conn.execute(
+                    select(FamilyFact).where(FamilyFact.member == member)
+                ))
+
+            grouped: dict[str, list] = {
+                "symptom": [], "medication": [], "visit": [], "vaccine": []
+            }
+            for r in hr_rows:
+                grouped.setdefault(r.kind, []).append({
+                    "date": (r.date or "")[:10],
+                    "description": r.description,
+                    "value": r.value,
+                })
+            pack["symptoms"] = grouped.get("symptom", [])
+            pack["medications"] = grouped.get("medication", [])
+            pack["visits"] = grouped.get("visit", [])
+            pack["vaccines"] = grouped.get("vaccine", [])
+
+            pack["prescriptions"] = [
+                {"name": r.name, "dose": r.dose_text, "schedule": r.times_of_day,
+                 "start": r.start_date, "end": r.end_date,
+                 "active": bool(r.active),
+                 "doses_taken": len((r.doses_taken or "").split(",")) if r.doses_taken else 0}
+                for r in rx_rows
+            ]
+
+            pack["facts"] = [
+                {"key": f.key, "value": f.value} for f in facts
+                if f.key in ("аллергия", "непереносимость", "хронический",
+                             "рост", "вес", "группа крови")
+            ]
+
+            # Матвей: прикорм + короткая сводка сна
+            if member == "matvey":
+                try:
+                    feeding = await self._tool_get_feeding_summary()
+                    pack["feeding"] = feeding
+                except Exception:
+                    pack["feeding"] = {}
+                try:
+                    state = await self._tool_baby_state()
+                    pack["baby_state"] = state
+                except Exception:
+                    pack["baby_state"] = {}
+            else:
+                # Родительский сон
+                try:
+                    async with self._memory._engine.connect() as conn:
+                        ps = list(await conn.execute(
+                            select(ParentSleep)
+                            .where(ParentSleep.member == member)
+                            .order_by(ParentSleep.date.desc())
+                            .limit(14)
+                        ))
+                    total = 0.0; counted = 0
+                    for r in ps:
+                        if r.bedtime and r.wake_time:
+                            try:
+                                bh, bm = [int(x) for x in r.bedtime.split(":")[:2]]
+                                wh, wm = [int(x) for x in r.wake_time.split(":")[:2]]
+                                b = bh * 60 + bm; w = wh * 60 + wm
+                                diff = (w - b) if w > b else (w + 24 * 60 - b)
+                                total += diff / 60
+                                counted += 1
+                            except Exception:
+                                pass
+                    pack["sleep_last_2w"] = {
+                        "avg_hours": round(total / counted, 1) if counted else None,
+                        "nights_recorded": counted,
+                    }
+                except Exception:
+                    pack["sleep_last_2w"] = {}
+
+            pack["totals"] = {
+                "symptoms": len(pack["symptoms"]),
+                "medications": len(pack["medications"]),
+                "visits": len(pack["visits"]),
+                "vaccines": len(pack["vaccines"]),
+                "prescriptions_active": sum(1 for r in rx_rows if r.active),
+            }
+            return pack
+        except Exception as e:
+            log.exception("altron_health_dashboard_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_start_prescription(
