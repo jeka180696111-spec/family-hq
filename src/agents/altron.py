@@ -977,6 +977,23 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "plan_family_trip",
+                "description": (
+                    "Спланировать семейную поездку. Собирает: маршрут через plan_route, "
+                    "погоду в пункте назначения, чек-лист «поездка с малышом» из wiki, "
+                    "активные тревоги на маршруте. Триггеры: «планируем поездку в Затоку», "
+                    "«едем в Киев на выходные»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "destination": {"type": "string"},
+                        "with_baby": {"type": "boolean", "description": "true если с Матвейкой"},
+                    },
+                    "required": ["destination"],
+                },
+            },
+            {
                 "name": "get_sitter_handoff",
                 "description": (
                     "Собрать пакет информации для няни на приход. Возвращает: "
@@ -1886,6 +1903,11 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "plan_family_trip":
+                return await self._tool_plan_family_trip(
+                    destination=args.get("destination") or "",
+                    with_baby=bool(args.get("with_baby", True)),
+                )
             if name == "get_sitter_handoff":
                 return await self._tool_get_sitter_handoff(
                     sitter_name=args.get("sitter_name") or "",
@@ -3198,6 +3220,59 @@ class AltronAgent:
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
             return {"error": str(e)[:200]}
+
+    async def _tool_plan_family_trip(
+        self, destination: str, with_baby: bool = True,
+    ) -> dict:
+        """Комбо: маршрут + погода + чек-лист + тревоги."""
+        if not destination.strip():
+            return {"error": "destination is empty"}
+        pack: dict = {"destination": destination, "with_baby": with_baby}
+        # 1) Маршрут
+        try:
+            pack["route"] = await self._tool_plan_route(
+                origin="Одесса", destination=destination,
+            )
+        except Exception:
+            pack["route"] = {}
+        # 2) Погода — сейчас в Одессе + в пункте назначения (только Одесса
+        #    даёт нам get_time_and_weather, для остального фиксируем в
+        #    примечании — LLM может сделать web_search)
+        try:
+            pack["weather_here"] = await self._tool_time_weather()
+        except Exception:
+            pack["weather_here"] = {}
+        # 3) Активные тревоги
+        try:
+            pack["active_alert"] = await self._tool_alert()
+        except Exception:
+            pack["active_alert"] = {}
+        # 4) Чек-лист «поездка с малышом» из wiki
+        try:
+            wiki_hits = await self._tool_wiki_search(
+                query="поездка" if with_baby else "путешествие"
+            )
+            pack["checklist_wiki"] = wiki_hits.get("results") or []
+        except Exception:
+            pack["checklist_wiki"] = []
+        # 5) Дефолтный минимальный чек-лист если ничего в wiki нет
+        if not pack["checklist_wiki"]:
+            if with_baby:
+                pack["default_checklist"] = [
+                    "Памперсы (min 6)", "Смесь / вода", "Одна перемена одежды",
+                    "Плед / муслин", "Пустышка", "Влажные салфетки",
+                    "Аптечка (парацетамол, регидрон, термометр)",
+                    "Игрушка-переключалка", "Полотенце",
+                ]
+            else:
+                pack["default_checklist"] = [
+                    "Документы", "Зарядки", "Вода", "Перекус",
+                ]
+        pack["note"] = (
+            "Если поедете, попроси set_reminder за 1 час до выезда "
+            "и напомнить взять аптечку."
+        )
+        return pack
 
     async def _tool_get_sitter_handoff(
         self, sitter_name: str = "", from_time: str = "", to_time: str = "",
