@@ -2160,6 +2160,35 @@ class AltronBot:
         lines = [f"🌅 <b>ДОБРОЕ УТРО · {now.strftime('%A, %d.%m').capitalize()}</b>"]
         lines.append("━" * 18)
 
+        # Mood-line: одна фраза-настроение из собранных данных
+        try:
+            mood_input = {
+                "weather": {"temp": weather.get("temp_c") if isinstance(weather, dict) else None,
+                             "desc": weather.get("description", "") if isinstance(weather, dict) else ""},
+                "baby": baby.get("headline") if isinstance(baby, dict) else None,
+                "inverter_soc": inv.get("soc_pct") if isinstance(inv, dict) else None,
+                "on_grid": inv.get("on_grid") if isinstance(inv, dict) else None,
+                "events_today": [e.get("title") for e in ((cal or {}).get("events") or [])[:3]],
+            }
+            gemini = getattr(self._agent, "_gemini", None)
+            if gemini is not None:
+                import json as _json
+                mood = await gemini.complete(
+                    system=(
+                        "Ты Альтрон. По собранным данным напиши ОДНУ короткую строку "
+                        "«настроение утра» — не пересказ, а вибр день. С лёгкой иронией. "
+                        "Максимум 12 слов. Без эмодзи, без канцелярита."
+                    ),
+                    messages=[{"role": "user", "content": _json.dumps(mood_input, ensure_ascii=False)}],
+                    max_tokens=80,
+                )
+                mood = (mood or "").strip().strip('"')
+                if mood:
+                    lines.append(f"<i>{mood}</i>")
+                    lines.append("")
+        except Exception:
+            pass
+
         w_temp = weather.get("temp_c") if isinstance(weather, dict) else None
         w_desc = weather.get("description", "") if isinstance(weather, dict) else ""
         w_feel = weather.get("feels_like_c") if isinstance(weather, dict) else None
