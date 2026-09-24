@@ -96,6 +96,8 @@ class AltronBot:
         self._stock_task: asyncio.Task | None = None
         self._routine_task: asyncio.Task | None = None
         self._routine_last_fired: dict[str, str] = {}  # key -> date iso
+        self._was_home: bool | None = None
+        self._arrival_last_ts: float = 0.0
         # {check_name: bool prev_state_ok}  — чтобы уведомлять только на
         # переходах здоровья: broken→ok, ok→broken.
         self._selfcheck_state: dict[str, bool] = {}
@@ -361,6 +363,46 @@ class AltronBot:
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _text_msg))
         app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, _voice_msg))
         app.add_handler(MessageHandler(filters.PHOTO, _photo_msg))
+
+        async def _location_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            if not update.effective_chat or update.effective_chat.id != allowed_chat:
+                return
+            msg = update.message
+            loc = msg.location if msg else None
+            if not loc:
+                return
+            lat, lon = loc.latitude, loc.longitude
+            user = msg.from_user.first_name if msg.from_user else "?"
+            log.info("altron_location", lat=lat, lon=lon, user=user)
+            try:
+                from sqlalchemy import insert, select, update as sql_update
+                from src.db.models import FamilyFact
+                from src.utils.time import iso_now
+                now_ = iso_now()
+                value = f"{lat:.6f},{lon:.6f},{now_}"
+                async with self._memory._engine.begin() as conn:
+                    row = (await conn.execute(
+                        select(FamilyFact)
+                        .where(FamilyFact.member == "family")
+                        .where(FamilyFact.key == "last_location")
+                    )).first()
+                    if row:
+                        await conn.execute(
+                            sql_update(FamilyFact)
+                            .where(FamilyFact.id == row.id)
+                            .values(value=value, updated_at=now_)
+                        )
+                    else:
+                        await conn.execute(insert(FamilyFact).values(
+                            member="family", key="last_location", value=value,
+                            source="altron", created_at=now_, updated_at=now_,
+                        ))
+                # Проверить приход домой
+                await self._check_home_arrival(lat, lon)
+            except Exception:
+                log.exception("altron_location_save_failed")
+
+        app.add_handler(MessageHandler(filters.LOCATION, _location_msg))
 
         async def _callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
             """Обработать нажатие inline-кнопки. Данные кнопки — либо просто
@@ -1319,6 +1361,52 @@ class AltronBot:
         except Exception:
             pass
         return False
+
+    # ─── Home arrival detection ────────────────────────────────────
+
+    async def _check_home_arrival(self, lat: float, lon: float) -> None:
+        """Смотрим на транзицию «в отъезде → дома». При приходе шлём кнопки."""
+        import math, time
+        from sqlalchemy import select
+        from src.db.models import FamilyFact
+        try:
+            async with self._memory._engine.connect() as conn:
+                row = (await conn.execute(
+                    select(FamilyFact)
+                    .where(FamilyFact.member == "family")
+                    .where(FamilyFact.key == "home_location")
+                )).first()
+            if not row:
+                return
+            try:
+                hlat, hlon = [float(x) for x in (row.value or "").split(",")]
+            except Exception:
+                return
+            R = 6371.0
+            a = math.radians(lat - hlat) / 2
+            b = math.radians(lon - hlon) / 2
+            h = (math.sin(a) ** 2 + math.cos(math.radians(hlat)) *
+                 math.cos(math.radians(lat)) * math.sin(b) ** 2)
+            dist_km = 2 * R * math.asin(math.sqrt(h))
+            is_home = dist_km < 0.2
+            was_home = self._was_home
+            self._was_home = is_home
+            if was_home is False and is_home:
+                # Не спамим при флаппинге — раз в час максимум
+                now_ts = time.time()
+                if now_ts - self._arrival_last_ts < 3600:
+                    return
+                self._arrival_last_ts = now_ts
+                try:
+                    await self.send_with_buttons(
+                        "🏠 <b>Ты дома.</b> Что запустить?",
+                        ["Свет всё выкл", "Свет всё вкл", "Кондиционер 24", "Ничего"],
+                        silent=True,
+                    )
+                except Exception:
+                    log.exception("altron_arrival_send_failed")
+        except Exception:
+            log.exception("altron_home_arrival_check_failed")
 
     # ─── Baby routine watcher (proactive suggestions) ──────────────
 
