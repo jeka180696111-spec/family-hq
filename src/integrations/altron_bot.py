@@ -209,6 +209,12 @@ class AltronBot:
             user = msg.from_user.first_name if msg.from_user else "?"
             log.info("altron_incoming", text=text[:60], user=user)
 
+            # Super-fast-path: короткие смарт-хом команды идут в Tuya
+            # НАПРЯМУЮ, без Gemini. Экономит 3-5 сек на самой частой
+            # операции. Если ничего не нашли — fallthrough к обычному пути.
+            if await self._maybe_fast_home_command(text, msg):
+                return
+
             # Держим индикатор «печатает…» пока агент думает.
             # Telegram гасит его через ~5 сек, поэтому шлём в цикле.
             stop_typing = asyncio.Event()
@@ -800,6 +806,50 @@ class AltronBot:
         except Exception:
             log.exception("altron_bot_send_failed")
 
+    async def _maybe_fast_home_command(self, text: str, msg) -> bool:
+        """Быстрый прямой Tuya-путь для команд вида «включи/выключи X».
+        Возвращает True если обработали — тогда основной pipeline не
+        запускается. False → пусть агент обрабатывает как обычно."""
+        import re
+        t = (text or "").strip().lower()
+        # Только короткие команды 2-6 слов
+        if not t or len(t) > 80 or len(t.split()) > 6:
+            return False
+        # Явные глаголы управления в начале
+        HOME_VERBS = (
+            "включи", "включай", "врубай", "врубить",
+            "выключи", "выруби", "выключай", "погаси",
+            "запусти", "запусти сцену", "стартани",
+            "дай света", "дай свет", "сделай светлее", "сделай темнее",
+        )
+        starts_with_verb = any(t.startswith(v) for v in HOME_VERBS) or any(
+            t.startswith(f"{v} ") for v in ("включ", "выключ", "выруб", "запуст")
+        )
+        if not starts_with_verb:
+            return False
+        # Дёргаем Tuya find_scene с оригинальным текстом
+        try:
+            from src.config import get_settings
+            from src.integrations.tuya import TuyaClient
+            tuya = TuyaClient.from_settings(get_settings())
+            if tuya is None:
+                return False
+            scene = await tuya.find_scene(t)
+            if not scene or scene.get("ambiguous"):
+                # Не нашли/неоднозначно → пусть LLM разбирается
+                return False
+            await tuya.run_scene(scene.get("id"))
+            reply = f"Готово: {scene.get('name')}."
+            try:
+                await msg.reply_text(reply)
+            except Exception:
+                pass
+            log.info("altron_fast_home", cmd=t[:40], scene=scene.get("name"))
+            return True
+        except Exception:
+            log.exception("altron_fast_home_failed")
+            return False
+
     async def _is_mom_mode(self) -> bool:
         """Кэш+проверка флага мама-режима."""
         if self._mom_mode_cache is not None:
@@ -1003,7 +1053,8 @@ class AltronBot:
             st["posts"].append(p["text"])
         st["posts"] = st["posts"][-30:]
 
-        if time.time() - st.get("last_llm_at", 0) < 20:
+        # Первая карточка — сразу; далее не чаще чем раз в 15 сек
+        if time.time() - st.get("last_llm_at", 0) < 15:
             return
 
         card = await self._direct_build_card(region, st)
