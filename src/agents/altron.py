@@ -146,6 +146,7 @@ _WRITE_TOOLS = frozenset({
     "track_stock", "record_stock_purchase", "untrack_stock",
     "remember", "set_baby_routine",
     "set_home_location",
+    "start_prescription", "mark_dose_taken", "stop_prescription",
 })
 
 # Только эти инструменты уходят по fast-path (мгновенный ответ без второго
@@ -963,6 +964,53 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "start_prescription",
+                "description": (
+                    "Начать курс лекарства. Триггеры: «Матвею аугментин 5 дней по 2 раза», "
+                    "«Марине нурофен 3 дня утром и вечером». Альтрон САМ напомнит о каждой "
+                    "дозе. Кнопка [Принял] лог'ает."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "member": {"type": "string", "enum": ["matvey", "eugene", "marina"]},
+                        "name": {"type": "string", "description": "Название препарата"},
+                        "dose_text": {"type": "string", "description": "Доза (напр. «2.5 мл», «1 таб»)"},
+                        "times_of_day": {"type": "string", "description": "Времена через запятую HH:MM (напр. «09:00,21:00»)"},
+                        "days": {"type": "integer", "description": "Сколько дней курс"},
+                        "notes": {"type": "string", "description": "Опц.: до/после еды и т.п."},
+                    },
+                    "required": ["member", "name", "dose_text", "times_of_day", "days"],
+                },
+            },
+            {
+                "name": "mark_dose_taken",
+                "description": "Отметить что доза принята. Триггеры: «принял», «дал Матвею», «выпил».",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Название препарата или его начало"},
+                    },
+                    "required": ["name"],
+                },
+            },
+            {
+                "name": "list_prescriptions",
+                "description": "Активные курсы лекарств семьи. Триггеры: «что пьём?», «какие курсы».",
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "stop_prescription",
+                "description": "Досрочно остановить курс. Триггеры: «отменяем нурофен», «стоп аугментин».",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                    },
+                    "required": ["name"],
+                },
+            },
+            {
                 "name": "set_home_location",
                 "description": (
                     "Сохранить домашние координаты (широта, долгота). Альтрон будет "
@@ -1734,6 +1782,21 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "start_prescription":
+                return await self._tool_start_prescription(
+                    member=args.get("member") or "matvey",
+                    name_=args.get("name") or "",
+                    dose_text=args.get("dose_text") or "",
+                    times_of_day=args.get("times_of_day") or "",
+                    days=int(args.get("days") or 5),
+                    notes=args.get("notes") or "",
+                )
+            if name == "mark_dose_taken":
+                return await self._tool_mark_dose_taken(name_=args.get("name") or "")
+            if name == "list_prescriptions":
+                return await self._tool_list_prescriptions()
+            if name == "stop_prescription":
+                return await self._tool_stop_prescription(name_=args.get("name") or "")
             if name == "set_home_location":
                 return await self._tool_set_home_location(
                     lat=float(args.get("lat") or 0),
@@ -3004,6 +3067,115 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_start_prescription(
+        self, member: str, name_: str, dose_text: str,
+        times_of_day: str, days: int, notes: str = "",
+    ) -> dict:
+        if not (member and name_ and dose_text and times_of_day and days > 0):
+            return {"error": "все параметры обязательны"}
+        try:
+            from datetime import timedelta
+            from sqlalchemy import insert
+            from src.db.models import AltronPrescription
+            from src.utils.time import iso_now
+            now = now_kyiv()
+            end = now + timedelta(days=days - 1)
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(insert(AltronPrescription).values(
+                    member=member, name=name_, dose_text=dose_text,
+                    times_of_day=times_of_day,
+                    start_date=now.date().isoformat(),
+                    end_date=end.date().isoformat(),
+                    notes=notes or None, active=1,
+                    created_at=iso_now(),
+                ))
+            return {"success": True, "member": member, "name": name_,
+                    "dose": dose_text, "schedule": times_of_day,
+                    "until": end.date().isoformat()}
+        except Exception as e:
+            log.exception("altron_start_rx_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_mark_dose_taken(self, name_: str) -> dict:
+        if not name_:
+            return {"error": "name обязателен"}
+        try:
+            from sqlalchemy import select, update as sql_update
+            from src.db.models import AltronPrescription
+            from src.utils.time import iso_now
+            q = name_.lower()
+            async with self._memory._engine.begin() as conn:
+                rows = list(await conn.execute(
+                    select(AltronPrescription).where(AltronPrescription.active == 1)
+                ))
+                target = None
+                for r in rows:
+                    if q in (r.name or "").lower():
+                        target = r
+                        break
+                if not target:
+                    return {"error": f"Активного курса «{name_}» нет"}
+                taken = (target.doses_taken or "").strip()
+                new_taken = f"{taken},{iso_now()}" if taken else iso_now()
+                await conn.execute(
+                    sql_update(AltronPrescription)
+                    .where(AltronPrescription.id == target.id)
+                    .values(doses_taken=new_taken, last_reminded_at=None)
+                )
+            return {"success": True, "name": target.name, "at": iso_now()}
+        except Exception as e:
+            log.exception("altron_mark_dose_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_list_prescriptions(self) -> dict:
+        try:
+            from sqlalchemy import select
+            from src.db.models import AltronPrescription
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(AltronPrescription)
+                    .where(AltronPrescription.active == 1)
+                    .order_by(AltronPrescription.start_date.desc())
+                ))
+            return {
+                "count": len(rows),
+                "prescriptions": [
+                    {"member": r.member, "name": r.name, "dose": r.dose_text,
+                     "times_of_day": r.times_of_day, "start": r.start_date,
+                     "end": r.end_date,
+                     "doses_taken": len((r.doses_taken or "").split(",")) if r.doses_taken else 0,
+                     "notes": r.notes}
+                    for r in rows
+                ],
+            }
+        except Exception as e:
+            log.exception("altron_list_rx_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_stop_prescription(self, name_: str) -> dict:
+        if not name_:
+            return {"error": "name обязателен"}
+        try:
+            from sqlalchemy import select, update as sql_update
+            from src.db.models import AltronPrescription
+            q = name_.lower()
+            async with self._memory._engine.begin() as conn:
+                rows = list(await conn.execute(
+                    select(AltronPrescription).where(AltronPrescription.active == 1)
+                ))
+                for r in rows:
+                    if q in (r.name or "").lower():
+                        await conn.execute(
+                            sql_update(AltronPrescription)
+                            .where(AltronPrescription.id == r.id)
+                            .values(active=0)
+                        )
+                        return {"success": True, "name": r.name, "stopped": True}
+                return {"error": f"Активного курса «{name_}» нет"}
+        except Exception as e:
+            log.exception("altron_stop_rx_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_set_home_location(self, lat: float, lon: float) -> dict:

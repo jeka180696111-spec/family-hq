@@ -96,6 +96,7 @@ class AltronBot:
         self._stock_task: asyncio.Task | None = None
         self._routine_task: asyncio.Task | None = None
         self._routine_last_fired: dict[str, str] = {}  # key -> date iso
+        self._rx_task: asyncio.Task | None = None
         self._was_home: bool | None = None
         self._arrival_last_ts: float = 0.0
         # {check_name: bool prev_state_ok}  — чтобы уведомлять только на
@@ -500,6 +501,7 @@ class AltronBot:
             self._reminders_task = asyncio.create_task(self._run_recurring_reminders())
             self._stock_task = asyncio.create_task(self._run_stock_watcher())
             self._routine_task = asyncio.create_task(self._run_baby_routine_watcher())
+            self._rx_task = asyncio.create_task(self._run_prescription_watcher())
             log.info("altron_watchers_started")
 
     async def stop(self) -> None:
@@ -507,7 +509,7 @@ class AltronBot:
             self._grid_watch_task, self._baby_watch_task,
             self._alert_watch_task, self._direct_ingest_task,
             self._brief_task, self._selfcheck_task, self._reminders_task,
-            self._stock_task, self._routine_task,
+            self._stock_task, self._routine_task, self._rx_task,
             self._task,
         ):
             if t and not t.done():
@@ -1361,6 +1363,106 @@ class AltronBot:
         except Exception:
             pass
         return False
+
+    # ─── Prescription (dose) watcher ──────────────────────────────
+
+    async def _run_prescription_watcher(self) -> None:
+        """Раз в минуту. Для каждого активного курса проверяем: попадает ли
+        текущий HH:MM в один из times_of_day (±2 мин окно), И ещё не
+        отмечали приём за это окно, И last_reminded_at не совпадает с
+        точной минутой окна (антидубль). Если да — шлём кнопки [Дал/Принял]
+        [Пропустил] [Через час]."""
+        from datetime import datetime as _dt, timedelta
+        from sqlalchemy import select, update as sql_update
+        from src.db.models import AltronPrescription
+        from src.utils.time import now_kyiv, iso_now
+
+        await asyncio.sleep(90)
+        while True:
+            try:
+                now = now_kyiv()
+                today = now.date().isoformat()
+                hm = now.strftime("%H:%M")
+                async with self._memory._engine.connect() as conn:
+                    rows = list(await conn.execute(
+                        select(AltronPrescription)
+                        .where(AltronPrescription.active == 1)
+                        .where(AltronPrescription.start_date <= today)
+                        .where(AltronPrescription.end_date >= today)
+                    ))
+                for r in rows:
+                    slots = [s.strip() for s in (r.times_of_day or "").split(",") if s.strip()]
+                    matched = None
+                    for s in slots:
+                        try:
+                            slot_dt = _dt.strptime(s, "%H:%M")
+                            slot_hm = slot_dt.strftime("%H:%M")
+                            # Точное совпадение по минуте
+                            if slot_hm == hm:
+                                matched = slot_hm
+                                break
+                        except Exception:
+                            continue
+                    if not matched:
+                        continue
+                    # Уже принята сегодня в это окно? Проверим doses_taken
+                    already = False
+                    taken_str = r.doses_taken or ""
+                    for ts in taken_str.split(","):
+                        ts = ts.strip()
+                        if not ts:
+                            continue
+                        try:
+                            dt = _dt.fromisoformat(ts)
+                            if dt.date().isoformat() != today:
+                                continue
+                            # если разница меньше 45 мин от слота — считаем принятой
+                            slot_full = now.replace(
+                                hour=int(matched[:2]), minute=int(matched[3:]),
+                                second=0, microsecond=0,
+                            )
+                            if abs((dt - slot_full).total_seconds()) < 45 * 60:
+                                already = True
+                                break
+                        except Exception:
+                            continue
+                    if already:
+                        continue
+                    # Антидубль напоминаний
+                    marker = f"{today}T{matched}"
+                    if r.last_reminded_at == marker:
+                        continue
+                    # Шлём кнопки
+                    label = {"matvey": "Матвею", "eugene": "Тебе", "marina": "Марине"}.get(r.member, r.member)
+                    text = (
+                        f"💊 <b>{label} — {r.name}</b>\n"
+                        f"Доза: <b>{r.dose_text}</b> · время {matched}"
+                    )
+                    if r.notes:
+                        text += f"\n<i>{r.notes}</i>"
+                    try:
+                        await self.send_with_buttons(
+                            text, [f"Дал {r.name}", "Пропустили", "Через час"],
+                        )
+                    except Exception:
+                        await self._send(text)
+                    try:
+                        async with self._memory._engine.begin() as conn:
+                            await conn.execute(
+                                sql_update(AltronPrescription)
+                                .where(AltronPrescription.id == r.id)
+                                .values(last_reminded_at=marker)
+                            )
+                    except Exception:
+                        log.exception("altron_rx_mark_reminded_failed")
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("altron_rx_watcher_err")
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                raise
 
     # ─── Home arrival detection ────────────────────────────────────
 

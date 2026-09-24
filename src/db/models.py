@@ -752,3 +752,25 @@ class AltronLongMemory(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     embedding_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class AltronPrescription(Base):
+    """Курс лекарств для члена семьи с расписанием доз.
+
+    times_of_day — CSV из HH:MM ('09:00,21:00' = 2 раза в день).
+    doses_taken — CSV из ISO-timestamp'ов принятых доз (для истории и
+    отчётности педиатру).
+    """
+    __tablename__ = "altron_prescriptions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    member: Mapped[str] = mapped_column(String, nullable=False)  # matvey/eugene/marina
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    dose_text: Mapped[str] = mapped_column(String, nullable=False)  # '2.5 мл', '1 таб'
+    times_of_day: Mapped[str] = mapped_column(String, nullable=False)  # '09:00,21:00'
+    start_date: Mapped[str] = mapped_column(String, nullable=False)
+    end_date: Mapped[str] = mapped_column(String, nullable=False)
+    doses_taken: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_reminded_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    active: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
