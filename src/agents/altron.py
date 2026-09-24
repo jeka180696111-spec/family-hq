@@ -5270,20 +5270,29 @@ class AltronAgent:
             q = query.lower()
             async with self._memory._engine.connect() as conn:
                 stmt = (
-                    select(NewsPost, NewsChannel.title)
-                    .join(NewsChannel, NewsPost.channel_id == NewsChannel.channel_id, isouter=True)
+                    select(NewsPost)
                     .where(NewsPost.date >= since)
                     .order_by(NewsPost.date.desc())
                     .limit(400)
                 )
                 if alerts_only:
                     stmt = stmt.where(NewsPost.is_alert == 1)
-                rows = list(await conn.execute(stmt))
+                post_rows = list(await conn.execute(stmt))
+                # Отдельно достанем каналы для тех channel_id что встретятся
+                chan_ids = {r.channel_id for r in post_rows if r.channel_id}
+                chan_titles: dict[int, str] = {}
+                if chan_ids:
+                    chstmt = (
+                        select(NewsChannel.channel_id, NewsChannel.title)
+                        .where(NewsChannel.channel_id.in_(list(chan_ids)))
+                    )
+                    for r in await conn.execute(chstmt):
+                        chan_titles[r.channel_id] = r.title
             hits = []
-            for post, channel_title in rows:
+            for post in post_rows:
                 if q in (post.text or "").lower():
                     hits.append({
-                        "channel": channel_title or f"chan_{post.channel_id}",
+                        "channel": chan_titles.get(post.channel_id) or f"chan_{post.channel_id}",
                         "date": post.date,
                         "text": (post.text or "")[:400],
                         "is_alert": bool(post.is_alert),
