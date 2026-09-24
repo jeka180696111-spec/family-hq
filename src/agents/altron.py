@@ -980,6 +980,23 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "plan_weekly_menu",
+                "description": (
+                    "Собрать данные для планирования меню на неделю: аллергии/вкусы "
+                    "семьи, что Матвей уже пробовал, сохранённые рецепты. LLM "
+                    "формирует 7-дневный план завтрак/обед/ужин с учётом. "
+                    "Триггеры: «что готовить на неделю?», «меню на неделю», "
+                    "«планируем питание»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "with_matvey": {"type": "boolean", "description": "Включить Матвея (прикорм)"},
+                    },
+                    "required": [],
+                },
+            },
+            {
                 "name": "analyze_matvey_sleep",
                 "description": (
                     "Анализ сна Матвея за N дней с сравнением с педиатрическими нормами "
@@ -2092,6 +2109,10 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "plan_weekly_menu":
+                return await self._tool_plan_weekly_menu(
+                    with_matvey=bool(args.get("with_matvey", True))
+                )
             if name == "analyze_matvey_sleep":
                 return await self._tool_analyze_matvey_sleep(days=int(args.get("days") or 14))
             if name == "forecast_alerts":
@@ -3451,6 +3472,71 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_plan_weekly_menu(self, with_matvey: bool = True) -> dict:
+        """Собрать: аллергии+вкусы, что Матвей уже ест, сохранённые рецепты."""
+        try:
+            from sqlalchemy import select
+            from src.db.models import FamilyFact
+            pack: dict = {"with_matvey": with_matvey}
+
+            # Аллергии и вкусы всей семьи
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(FamilyFact).where(FamilyFact.member.in_(
+                        ["eugene", "marina", "matvey", "family"]
+                    ))
+                ))
+            constraints = []
+            preferences = []
+            for r in rows:
+                k = (r.key or "").lower()
+                who = r.member
+                if k in ("аллергия", "непереносимость", "не любит"):
+                    constraints.append({"who": who, "what": r.value, "why": k})
+                elif k in ("любит", "предпочтение", "привычка"):
+                    preferences.append({"who": who, "what": r.value})
+
+            pack["constraints"] = constraints
+            pack["preferences"] = preferences
+
+            # Матвей: прикорм
+            if with_matvey:
+                try:
+                    pack["matvey_feeding"] = await self._tool_get_feeding_summary()
+                except Exception:
+                    pack["matvey_feeding"] = {}
+
+            # Сохранённые рецепты в wiki
+            try:
+                recipes = await self._tool_wiki_search(query="рецепт")
+                pack["saved_recipes"] = [
+                    {"title": r.get("title"), "text": (r.get("text") or "")[:200]}
+                    for r in (recipes.get("results") or [])
+                ]
+            except Exception:
+                pack["saved_recipes"] = []
+
+            # Активные покупки (что уже в списке)
+            try:
+                sh = await self._tool_get_shopping_list()
+                pack["in_shopping_list"] = [
+                    s.get("item") for s in (sh.get("items") or [])
+                ]
+            except Exception:
+                pack["in_shopping_list"] = []
+
+            pack["hint"] = (
+                "Собери 7-дневное меню на завтрак/обед/ужин. "
+                "Учти constraints (аллергии/непереносимости — НЕ включай) "
+                "и preferences. Для Матвея — прикорм с учётом уже пробованного. "
+                "После плана — предложи одним сообщением: «Добавить недостающее "
+                "в шопинг?»."
+            )
+            return pack
+        except Exception as e:
+            log.exception("altron_plan_menu_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_analyze_matvey_sleep(self, days: int = 14) -> dict:
