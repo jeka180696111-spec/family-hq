@@ -97,6 +97,8 @@ class AltronBot:
         self._routine_task: asyncio.Task | None = None
         self._routine_last_fired: dict[str, str] = {}  # key -> date iso
         self._rx_task: asyncio.Task | None = None
+        self._mom_task: asyncio.Task | None = None
+        self._mom_mode_cache: bool | None = None
         self._was_home: bool | None = None
         self._arrival_last_ts: float = 0.0
         # {check_name: bool prev_state_ok}  — чтобы уведомлять только на
@@ -502,6 +504,7 @@ class AltronBot:
             self._stock_task = asyncio.create_task(self._run_stock_watcher())
             self._routine_task = asyncio.create_task(self._run_baby_routine_watcher())
             self._rx_task = asyncio.create_task(self._run_prescription_watcher())
+            self._mom_task = asyncio.create_task(self._run_mom_mode_watcher())
             log.info("altron_watchers_started")
 
     async def stop(self) -> None:
@@ -510,6 +513,7 @@ class AltronBot:
             self._alert_watch_task, self._direct_ingest_task,
             self._brief_task, self._selfcheck_task, self._reminders_task,
             self._stock_task, self._routine_task, self._rx_task,
+            self._mom_task,
             self._task,
         ):
             if t and not t.done():
@@ -533,7 +537,12 @@ class AltronBot:
         """
         if not self._app or not self._app.bot:
             return
-        effective_silent = silent or (self._is_quiet_hours() and not override_quiet)
+        # В мама-режиме quiet hours игнорируются полностью — Марине важно
+        # слышать каждый сигнал даже ночью.
+        mm = self._mom_mode_cache is True
+        effective_silent = silent or (
+            self._is_quiet_hours() and not override_quiet and not mm
+        )
         try:
             await self._app.bot.send_message(
                 chat_id=self._chat_id, text=text, parse_mode=parse_mode,
@@ -541,6 +550,24 @@ class AltronBot:
             )
         except Exception:
             log.exception("altron_bot_send_failed")
+
+    async def _is_mom_mode(self) -> bool:
+        """Кэш+проверка флага мама-режима."""
+        if self._mom_mode_cache is not None:
+            return self._mom_mode_cache
+        try:
+            from sqlalchemy import select
+            from src.db.models import FamilyFact
+            async with self._memory._engine.connect() as conn:
+                row = (await conn.execute(
+                    select(FamilyFact)
+                    .where(FamilyFact.member == "altron")
+                    .where(FamilyFact.key == "mom_mode")
+                )).first()
+            self._mom_mode_cache = bool(row and str(row.value or "").lower() == "on")
+            return self._mom_mode_cache
+        except Exception:
+            return False
 
     def _is_quiet_hours(self) -> bool:
         """Проверка попадания в настроенное окно тишины. Читаем из
@@ -1363,6 +1390,48 @@ class AltronBot:
         except Exception:
             pass
         return False
+
+    # ─── Мама-режим: 2-часовой check-in ────────────────────────────
+
+    async def _run_mom_mode_watcher(self) -> None:
+        """Если мама-режим включён — каждые 2 часа (в бодрые часы 09-21)
+        отправляет тихий check-in с кнопками поддержки."""
+        from src.utils.time import now_kyiv
+
+        # Первичная загрузка кэша
+        try:
+            await self._is_mom_mode()
+        except Exception:
+            self._mom_mode_cache = False
+
+        last_ping_hour = -1
+        await asyncio.sleep(300)  # 5 мин после старта
+        while True:
+            try:
+                enabled = await self._is_mom_mode()
+                if enabled:
+                    now = now_kyiv()
+                    h = now.hour
+                    # Каждые чётные часы 10:00,12:00,14:00,16:00,18:00,20:00
+                    # (в тихие 22-08 не пингуем)
+                    if 10 <= h <= 20 and h % 2 == 0 and h != last_ping_hour and now.minute < 5:
+                        try:
+                            await self.send_with_buttons(
+                                "💗 <b>Как ты, Марина?</b> Я рядом.",
+                                ["Всё ок", "Устала", "Нужна помощь"],
+                                silent=True,
+                            )
+                            last_ping_hour = h
+                        except Exception:
+                            log.exception("altron_mom_checkin_failed")
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("altron_mom_mode_loop_err")
+            try:
+                await asyncio.sleep(300)  # 5 мин
+            except asyncio.CancelledError:
+                raise
 
     # ─── Prescription (dose) watcher ──────────────────────────────
 
