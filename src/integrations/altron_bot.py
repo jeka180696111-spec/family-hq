@@ -384,11 +384,29 @@ class AltronBot:
                     if gemini is None or not hasattr(gemini, "vision_complete"):
                         await msg.reply_text("⚠️ Vision не настроен.")
                         return
-                    prompt = caption or (
-                        "Опиши что на фото на русском, коротко. "
-                        "Если это чек/анализ/рецепт — извлеки все цифры и названия. "
-                        "Если медицинский документ — перечисли показатели."
+                    # Определяем: это чек/квитанция? (по caption)
+                    cap_l = (caption or "").lower()
+                    is_receipt = any(
+                        k in cap_l for k in ("чек", "квитанц", "receipt", "покупк")
                     )
+                    if is_receipt:
+                        prompt = (
+                            "Это чек / квитанция. Извлеки: "
+                            "1) итоговую сумму в грн, "
+                            "2) название магазина/АЗС если видно, "
+                            "3) короткое перечисление позиций (2-4 самых крупных). "
+                            "Верни СТРОГО в формате:\n"
+                            "amount: <число>\n"
+                            "place: <строка>\n"
+                            "items: <строка>\n"
+                            "Ничего больше. Если суммы нет — amount: 0."
+                        )
+                    else:
+                        prompt = caption or (
+                            "Опиши что на фото на русском, коротко. "
+                            "Если это чек/анализ/рецепт — извлеки все цифры и названия. "
+                            "Если медицинский документ — перечисли показатели."
+                        )
                     system = (
                         "Ты Альтрон — семейный ассистент. Отвечай коротко, по-русски, без канцелярита. "
                         "Извлекай факты, не выдумывай."
@@ -398,6 +416,20 @@ class AltronBot:
                     )
                     reply = (reply or "").strip() or "Не смог разобрать фото."
                     await msg.reply_text(reply)
+                    # Если это чек — сразу передаём в agent как «запиши трату»
+                    if is_receipt:
+                        followup = (
+                            f"Это чек. Разобранное:\n{reply}\n\n"
+                            "Запиши трату через record_expense. Категорию угадай по названию "
+                            "магазина/позициям (АЗС→fuel, аптека→pharmacy, супермаркет→products, "
+                            "кафе→eating_out и т.п.). who=family если не указано."
+                        )
+                        try:
+                            second = await agent.handle(followup, user_name=user, chat_id=msg.chat_id)
+                            if second:
+                                await msg.reply_text(second)
+                        except Exception:
+                            log.exception("altron_photo_receipt_agent_failed")
                 finally:
                     try:
                         _os.unlink(path)
