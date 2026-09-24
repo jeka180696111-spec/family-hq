@@ -228,9 +228,14 @@ class AltronBot:
                     pass
 
             typing_task = asyncio.create_task(_keep_typing())
-            # Плейсхолдер для стрим-обновлений. Создаём лениво — только
-            # если стрим реально стартовал (в handle решается на force_final).
+            # Мгновенный ACK: сразу отвечаем «⏳ думаю…» чтобы юзер видел
+            # что сообщение получено. Дальше edit-им это же сообщение на
+            # реальный ответ. Гарантия: пользователь ВСЕГДА видит что-то.
             placeholder = {"msg": None, "last_text": ""}
+            try:
+                placeholder["msg"] = await msg.reply_text("⏳ думаю…")
+            except Exception:
+                log.exception("altron_ack_send_failed")
 
             async def _on_partial(acc: str) -> None:
                 if not acc or acc == placeholder["last_text"]:
@@ -285,10 +290,27 @@ class AltronBot:
                         asyncio.create_task(self._send_voice(reply))
             except Exception as e:
                 log.exception("altron_reply_failed")
+                err_text = f"⚠️ Упал: {str(e)[:200]}"
                 try:
-                    await msg.reply_text(f"⚠️ Упал: {str(e)[:150]}")
+                    # Пытаемся заменить плейсхолдер «⏳ думаю…» на текст ошибки
+                    if placeholder["msg"] is not None:
+                        try:
+                            await placeholder["msg"].edit_text(err_text)
+                        except Exception:
+                            await msg.reply_text(err_text)
+                    else:
+                        await msg.reply_text(err_text)
                 except Exception:
                     pass
+            else:
+                # Всегда что-то оставляем на месте плейсхолдера. Если reply
+                # оказался пустым — заменим «⏳ думаю…» на честное сообщение,
+                # чтобы юзер не смотрел на висящий «думаю» вечно.
+                if placeholder["msg"] is not None and not reply:
+                    try:
+                        await placeholder["msg"].edit_text("🤷 Не смог ответить. Спроси иначе?")
+                    except Exception:
+                        pass
             finally:
                 stop_typing.set()
                 try:
