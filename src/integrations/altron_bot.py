@@ -101,6 +101,7 @@ class AltronBot:
         self._mom_mode_cache: bool | None = None
         self._panic_until_ts: float = 0.0
         self._driving_until_ts: float = 0.0
+        self._driver_name: str = ""
         self._was_home: bool | None = None
         self._arrival_last_ts: float = 0.0
         # {check_name: bool prev_state_ok}  — чтобы уведомлять только на
@@ -248,16 +249,25 @@ class AltronBot:
                 )
                 # Финальный текст — либо в плейсхолдер (edit), либо новое сообщение
                 if reply:
+                    import time as _t
+                    driving = _t.time() < self._driving_until_ts
+                    # Автоответ другому участнику: «водитель в дороге»
+                    if driving and self._driver_name and user != self._driver_name:
+                        until_mins = int((self._driving_until_ts - _t.time()) / 60)
+                        prefix = (
+                            f"🚗 <i>{self._driver_name} за рулём, вернётся через "
+                            f"~{until_mins} мин. Срочное — говори мне.</i>\n\n"
+                        )
+                        reply = prefix + reply
                     if placeholder["msg"] is not None:
                         try:
-                            await placeholder["msg"].edit_text(reply)
+                            await placeholder["msg"].edit_text(reply, parse_mode="HTML")
                         except Exception:
-                            await msg.reply_text(reply)
+                            await msg.reply_text(reply, parse_mode="HTML")
                     else:
-                        await msg.reply_text(reply)
-                    # Driving mode — дублируем голосом
-                    import time as _t
-                    if _t.time() < self._driving_until_ts:
+                        await msg.reply_text(reply, parse_mode="HTML")
+                    # Driving mode — дублируем голосом (для самого водителя)
+                    if driving and user == self._driver_name:
                         asyncio.create_task(self._send_voice(reply))
             except Exception as e:
                 log.exception("altron_reply_failed")
@@ -473,9 +483,14 @@ class AltronBot:
                 except Exception:
                     pass
             self._driving_until_ts = _t.time() + minutes * 60
+            # Запомнили водителя — по нему Альтрон сигналит другим в чате.
+            self._driver_name = (
+                update.effective_user.first_name if update.effective_user else ""
+            )
             await update.message.reply_text(
                 f"🚗 <b>Driving mode вкл</b> на {minutes} мин.\n"
-                "Все ответы буду присылать и голосом. Отключить — /drive off",
+                "Все ответы буду присылать и голосом. Другим в чате помечу что "
+                "ты за рулём. Отключить — /drive off",
                 parse_mode="HTML",
             )
 
