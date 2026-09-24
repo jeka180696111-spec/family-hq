@@ -977,6 +977,25 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "get_sitter_handoff",
+                "description": (
+                    "Собрать пакет информации для няни на приход. Возвращает: "
+                    "состояние Матвея, типичный распорядок, активные лекарства с "
+                    "временами, аллергии/непереносимости, экстренные контакты. "
+                    "LLM переформатирует в дружелюбное сообщение. Триггеры: "
+                    "«няня приходит», «пакет для няни», «чек-лист няне»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "sitter_name": {"type": "string", "description": "Опц.: имя няни"},
+                        "from_time": {"type": "string", "description": "Опц.: с HH:MM"},
+                        "to_time": {"type": "string", "description": "Опц.: до HH:MM"},
+                    },
+                    "required": [],
+                },
+            },
+            {
                 "name": "set_mom_mode",
                 "description": (
                     "Включить/выключить «Мама-режим» — когда Марина одна с малышом. "
@@ -1867,6 +1886,12 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "get_sitter_handoff":
+                return await self._tool_get_sitter_handoff(
+                    sitter_name=args.get("sitter_name") or "",
+                    from_time=args.get("from_time") or "",
+                    to_time=args.get("to_time") or "",
+                )
             if name == "set_mom_mode":
                 return await self._tool_set_mom_mode(enabled=bool(args.get("enabled")))
             if name == "add_anniversary":
@@ -3172,6 +3197,97 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_get_sitter_handoff(
+        self, sitter_name: str = "", from_time: str = "", to_time: str = "",
+    ) -> dict:
+        """Собрать всё что няне нужно знать."""
+        try:
+            from sqlalchemy import select
+            from src.db.models import (
+                AltronPrescription, FamilyFact, BabyState,
+            )
+            pack: dict = {}
+            if sitter_name:
+                pack["sitter_name"] = sitter_name
+            if from_time and to_time:
+                pack["window"] = f"{from_time}–{to_time}"
+
+            # Состояние Матвея сейчас
+            try:
+                pack["baby_state"] = await self._tool_baby_state()
+            except Exception:
+                pack["baby_state"] = {}
+
+            # Распорядок
+            try:
+                async with self._memory._engine.connect() as conn:
+                    rows = list(await conn.execute(
+                        select(FamilyFact).where(FamilyFact.member == "matvey_routine")
+                    ))
+                pack["routine"] = {r.key: r.value for r in rows}
+            except Exception:
+                pack["routine"] = {}
+
+            # Активные лекарства (только Матвею)
+            try:
+                async with self._memory._engine.connect() as conn:
+                    rx = list(await conn.execute(
+                        select(AltronPrescription)
+                        .where(AltronPrescription.member == "matvey")
+                        .where(AltronPrescription.active == 1)
+                    ))
+                pack["prescriptions"] = [
+                    {"name": r.name, "dose": r.dose_text,
+                     "times": r.times_of_day, "notes": r.notes}
+                    for r in rx
+                ]
+            except Exception:
+                pack["prescriptions"] = []
+
+            # Аллергии/факты про Матвея
+            try:
+                async with self._memory._engine.connect() as conn:
+                    facts = list(await conn.execute(
+                        select(FamilyFact).where(FamilyFact.member == "matvey")
+                    ))
+                pack["baby_facts"] = [
+                    {"key": f.key, "value": f.value} for f in facts
+                    if f.key in ("аллергия", "непереносимость", "любит",
+                                 "не любит", "особенность")
+                ]
+            except Exception:
+                pack["baby_facts"] = []
+
+            # Экстренные контакты (wiki с ключом emergency_*)
+            try:
+                async with self._memory._engine.connect() as conn:
+                    wiki = list(await conn.execute(
+                        select(FamilyFact).where(FamilyFact.member == "wiki")
+                    ))
+                pack["emergency_contacts"] = [
+                    {"title": w.key, "info": w.value} for w in wiki
+                    if any(k in (w.key or "").lower()
+                           for k in ("педиатр", "врач", "скорая", "полиция",
+                                     "родители", "контакт", "телефон"))
+                ][:10]
+            except Exception:
+                pack["emergency_contacts"] = []
+
+            # Кормёжка
+            try:
+                pack["feeding"] = await self._tool_get_feeding_summary()
+            except Exception:
+                pack["feeding"] = {}
+
+            pack["chat_hint"] = (
+                "Няне: пиши в этот чат событие («поел 120 мл в 15:20», "
+                "«покакал», «спит»), Альтрон передаст родителям."
+            )
+            return pack
+        except Exception as e:
+            log.exception("altron_sitter_handoff_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_set_mom_mode(self, enabled: bool) -> dict:
