@@ -100,6 +100,7 @@ class AltronBot:
         self._mom_task: asyncio.Task | None = None
         self._mom_mode_cache: bool | None = None
         self._panic_until_ts: float = 0.0
+        self._driving_until_ts: float = 0.0
         self._was_home: bool | None = None
         self._arrival_last_ts: float = 0.0
         # {check_name: bool prev_state_ok}  — чтобы уведомлять только на
@@ -254,6 +255,10 @@ class AltronBot:
                             await msg.reply_text(reply)
                     else:
                         await msg.reply_text(reply)
+                    # Driving mode — дублируем голосом
+                    import time as _t
+                    if _t.time() < self._driving_until_ts:
+                        asyncio.create_task(self._send_voice(reply))
             except Exception as e:
                 log.exception("altron_reply_failed")
                 try:
@@ -318,6 +323,9 @@ class AltronBot:
                     reply = await agent.handle(transcript, user_name=user, chat_id=msg.chat_id)
                     if reply:
                         await msg.reply_text(reply)
+                        # Voice-input сам по себе — озвучиваем ответ голосом.
+                        # А также если driving mode активен.
+                        asyncio.create_task(self._send_voice(reply))
                 finally:
                     try:
                         _os.unlink(path)
@@ -412,6 +420,34 @@ class AltronBot:
         app.add_handler(CommandHandler("start", _start_cmd))
         app.add_handler(CommandHandler("ping", _ping_cmd))
         app.add_handler(CommandHandler(["panic", "паника"], _panic_cmd))
+
+        async def _drive_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            if not update.effective_chat or update.effective_chat.id != allowed_chat:
+                return
+            import time as _t
+            args_txt = " ".join(context.args or []).lower().strip()
+            if args_txt in ("off", "выкл", "стоп", "0"):
+                self._driving_until_ts = 0.0
+                await update.message.reply_text("🚗 Driving mode выкл.")
+                return
+            # Включаем на 1 час (или сколько указано аргументом в минутах)
+            minutes = 60
+            for a in context.args or []:
+                try:
+                    m = int(a)
+                    if 5 <= m <= 300:
+                        minutes = m
+                        break
+                except Exception:
+                    pass
+            self._driving_until_ts = _t.time() + minutes * 60
+            await update.message.reply_text(
+                f"🚗 <b>Driving mode вкл</b> на {minutes} мин.\n"
+                "Все ответы буду присылать и голосом. Отключить — /drive off",
+                parse_mode="HTML",
+            )
+
+        app.add_handler(CommandHandler(["drive", "руль"], _drive_cmd))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _text_msg))
         app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, _voice_msg))
         app.add_handler(MessageHandler(filters.PHOTO, _photo_msg))
