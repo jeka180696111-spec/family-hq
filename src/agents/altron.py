@@ -160,6 +160,7 @@ _WRITE_TOOLS = frozenset({
     "start_prescription", "mark_dose_taken", "stop_prescription",
     "add_anniversary", "remove_anniversary",
     "set_mom_mode",
+    "track_habit", "complete_habit", "untrack_habit",
 })
 
 # Только эти инструменты уходят по fast-path (мгновенный ответ без второго
@@ -975,6 +976,47 @@ class AltronAgent:
                     "Триггеры: «на сколько хватит батареи?», «сколько ещё продержимся?»."
                 ),
                 "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "track_habit",
+                "description": (
+                    "Начать отслеживать привычку. Триггеры: «трекай что я читаю 30 мин "
+                    "каждый день», «10 к шагов», «Матвею витамин D каждый день»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "every_n_days": {"type": "integer", "description": "По умолчанию 1 (ежедневно)"},
+                    },
+                    "required": ["name"],
+                },
+            },
+            {
+                "name": "complete_habit",
+                "description": (
+                    "Отметить привычку сделанной сегодня. Увеличивает streak. "
+                    "Триггеры: «прочитал сегодня», «сделал 10к шагов», «дал витамин D»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                    "required": ["name"],
+                },
+            },
+            {
+                "name": "list_habits",
+                "description": "Список привычек с текущими streak-ами.",
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "untrack_habit",
+                "description": "Убрать привычку из отслеживания.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                    "required": ["name"],
+                },
             },
             {
                 "name": "plan_family_trip",
@@ -1903,6 +1945,17 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "track_habit":
+                return await self._tool_track_habit(
+                    name_=args.get("name") or "",
+                    every_n_days=int(args.get("every_n_days") or 1),
+                )
+            if name == "complete_habit":
+                return await self._tool_complete_habit(name_=args.get("name") or "")
+            if name == "list_habits":
+                return await self._tool_list_habits()
+            if name == "untrack_habit":
+                return await self._tool_untrack_habit(name_=args.get("name") or "")
             if name == "plan_family_trip":
                 return await self._tool_plan_family_trip(
                     destination=args.get("destination") or "",
@@ -3219,6 +3272,131 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_track_habit(self, name_: str, every_n_days: int = 1) -> dict:
+        if not name_:
+            return {"error": "name обязателен"}
+        try:
+            from sqlalchemy import insert, select, update as sql_update
+            from src.db.models import AltronHabit
+            from src.utils.time import iso_now
+            async with self._memory._engine.begin() as conn:
+                row = (await conn.execute(
+                    select(AltronHabit).where(AltronHabit.name == name_)
+                )).first()
+                if row:
+                    await conn.execute(
+                        sql_update(AltronHabit)
+                        .where(AltronHabit.id == row.id)
+                        .values(every_n_days=every_n_days)
+                    )
+                    return {"success": True, "updated": True, "name": name_}
+                await conn.execute(insert(AltronHabit).values(
+                    name=name_, every_n_days=every_n_days,
+                    streak_current=0, streak_best=0,
+                    created_at=iso_now(),
+                ))
+            return {"success": True, "name": name_, "every_n_days": every_n_days}
+        except Exception as e:
+            log.exception("altron_track_habit_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_complete_habit(self, name_: str) -> dict:
+        if not name_:
+            return {"error": "name обязателен"}
+        try:
+            from datetime import datetime, timedelta
+            from sqlalchemy import select, update as sql_update
+            from src.db.models import AltronHabit
+            from src.utils.time import iso_now
+            q = name_.lower()
+            async with self._memory._engine.begin() as conn:
+                rows = list(await conn.execute(select(AltronHabit)))
+                target = None
+                for r in rows:
+                    if q in (r.name or "").lower():
+                        target = r
+                        break
+                if not target:
+                    return {"error": f"Не отслеживаю «{name_}»"}
+                today = now_kyiv().date()
+                new_streak = target.streak_current
+                if target.last_completed_at:
+                    try:
+                        last = datetime.fromisoformat(target.last_completed_at).date()
+                        gap = (today - last).days
+                        if gap == 0:
+                            return {"note": "Уже отмечено сегодня",
+                                    "streak": target.streak_current}
+                        # Даём слака: gap == every_n_days = продолжение серии,
+                        # gap > every_n_days = сброс
+                        if gap <= target.every_n_days:
+                            new_streak = target.streak_current + 1
+                        else:
+                            new_streak = 1
+                    except Exception:
+                        new_streak = 1
+                else:
+                    new_streak = 1
+                new_best = max(new_streak, target.streak_best)
+                await conn.execute(
+                    sql_update(AltronHabit)
+                    .where(AltronHabit.id == target.id)
+                    .values(streak_current=new_streak, streak_best=new_best,
+                            last_completed_at=iso_now())
+                )
+            return {"success": True, "name": target.name,
+                    "streak_current": new_streak, "streak_best": new_best}
+        except Exception as e:
+            log.exception("altron_complete_habit_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_list_habits(self) -> dict:
+        try:
+            from datetime import datetime
+            from sqlalchemy import select
+            from src.db.models import AltronHabit
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(select(AltronHabit).order_by(AltronHabit.name)))
+            today = now_kyiv().date()
+            items = []
+            for r in rows:
+                done_today = False
+                if r.last_completed_at:
+                    try:
+                        done_today = datetime.fromisoformat(r.last_completed_at).date() == today
+                    except Exception:
+                        done_today = False
+                items.append({
+                    "name": r.name, "every_n_days": r.every_n_days,
+                    "streak_current": r.streak_current, "streak_best": r.streak_best,
+                    "done_today": done_today,
+                    "last_completed_at": r.last_completed_at,
+                })
+            return {"count": len(items), "items": items}
+        except Exception as e:
+            log.exception("altron_list_habits_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_untrack_habit(self, name_: str) -> dict:
+        if not name_:
+            return {"error": "name обязателен"}
+        try:
+            from sqlalchemy import delete, select
+            from src.db.models import AltronHabit
+            q = name_.lower()
+            async with self._memory._engine.begin() as conn:
+                rows = list(await conn.execute(select(AltronHabit)))
+                for r in rows:
+                    if q in (r.name or "").lower():
+                        await conn.execute(
+                            delete(AltronHabit).where(AltronHabit.id == r.id)
+                        )
+                        return {"success": True, "name": r.name, "deleted": True}
+            return {"error": f"Не отслеживаю «{name_}»"}
+        except Exception as e:
+            log.exception("altron_untrack_habit_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_plan_family_trip(

@@ -2028,6 +2028,20 @@ class AltronBot:
         if soc is not None:
             lines.append(f"🔋 <b>Батарея на ночь:</b> {soc}%")
 
+        # Привычки — что сегодня НЕ отмечено
+        try:
+            habits = await self._agent._tool_list_habits()
+            undone = [h for h in (habits.get("items") or []) if not h.get("done_today")]
+            if undone:
+                lines.append("")
+                lines.append("🎯 <b>Не отметил сегодня:</b>")
+                for h in undone[:5]:
+                    s = h.get("streak_current", 0)
+                    streak_note = f" · 🔥 {s}" if s else ""
+                    lines.append(f"• {h['name']}{streak_note}")
+        except Exception:
+            pass
+
         lines.append("")
         lines.append("<i>Спокойной ночи. Я слежу.</i>")
         return "\n".join(lines)
