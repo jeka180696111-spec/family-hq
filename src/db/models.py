@@ -774,3 +774,17 @@ class AltronPrescription(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     active: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class AltronAnniversary(Base):
+    """Дни рождения и годовщины. Хранятся день+месяц (год необязателен —
+    иногда неважен для др знакомых)."""
+    __tablename__ = "altron_anniversaries"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False)  # birthday/anniversary/other
+    month: Mapped[int] = mapped_column(Integer, nullable=False)
+    day: Mapped[int] = mapped_column(Integer, nullable=False)
+    year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)

@@ -1882,6 +1882,24 @@ class AltronBot:
             more = f" +{len(sh_items) - 5}" if len(sh_items) > 5 else ""
             lines.append(f"🛒 <b>В списке:</b> {', '.join(names)}{more}")
 
+        # Дни рождения / годовщины в ближайшие 7 дней
+        try:
+            anniv = await self._agent._tool_list_anniversaries()
+            upcoming = [
+                a for a in (anniv.get("items") or [])
+                if a.get("days_left", 999) <= 7
+            ][:3]
+            if upcoming:
+                lines.append("")
+                lines.append("🎂 <b>Скоро:</b>")
+                for a in upcoming:
+                    dl = a["days_left"]
+                    when = "сегодня" if dl == 0 else f"через {dl} дн."
+                    age = f" ({a['age_will_be']} лет)" if a.get("age_will_be") else ""
+                    lines.append(f"• {a['name']}{age} — {when}")
+        except Exception:
+            pass
+
         lines.append("")
         lines.append("<i>Задавай вопросы — я рядом.</i>")
         return "\n".join(lines)
