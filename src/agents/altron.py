@@ -6310,7 +6310,7 @@ class AltronAgent:
 
         # Учёт какие tool+args уже вызывались — чтобы не крутить один и тот же
         called_signatures: set[str] = set()
-        MAX_ITER = 4  # 3 → 4: чтобы сложные вопросы могли собрать 2-3 тула + ответ
+        MAX_ITER = 3  # 4 → 3: скорость важнее универсальности; сложные редки
 
         for iteration in range(MAX_ITER):
             # На последней итерации выключаем tools и заставляем ответить текстом
@@ -6325,7 +6325,7 @@ class AltronAgent:
                     async for chunk in self._gemini.complete_stream(
                         system=_SYSTEM_PROMPT,
                         messages=messages,
-                        max_tokens=500,
+                        max_tokens=350,
                     ):
                         acc += chunk
                         if _time.time() - last_edit_ts > 0.9:
@@ -6345,7 +6345,7 @@ class AltronAgent:
                     system=_SYSTEM_PROMPT,
                     messages=messages,
                     tools=[] if force_final else tools,
-                    max_tokens=500,
+                    max_tokens=350,
                 )
             except Exception as e:
                 log.exception("altron_llm_failed", iteration=iteration)
@@ -6392,7 +6392,7 @@ class AltronAgent:
                         system=_SYSTEM_PROMPT + "\n\nОТВЕТЬ пользователю на основе уже собранной информации из tool_results выше. НЕ вызывай tools.",
                         messages=messages,
                         tools=[],
-                        max_tokens=500,
+                        max_tokens=350,
                     )
                     fblocks = list(getattr(final, "content", []) or [])
                     ftext = " ".join(getattr(b, "text", "") for b in fblocks if getattr(b, "type", "") == "text").strip()

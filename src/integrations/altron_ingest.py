@@ -117,7 +117,7 @@ class AltronDirectIngestor:
       - on_alert_clear(region: str, sources: list[str])
     """
 
-    POLL_SEC = 30
+    POLL_SEC = 10   # 30 → 10: тревога должна лететь мгновенно
     OUR_REGION = "Одеська область"
 
     def __init__(
@@ -196,9 +196,25 @@ class AltronDirectIngestor:
                             text = p["text"]
                             # Только сообщения про юг/Одессу или без явной привязки
                             # (общие всеукраинские) считаем «нашими».
-                            if ALERT_START_RE.search(text) and SOUTH_RE.search(text):
+                            # Тревога: SOUTH_RE — жёсткое условие про юг. Ослабляем:
+                            # 1) если явно наш регион → alert.
+                            # 2) если общая тревога (без региона) + канал не указывает
+                            #    другой регион → тоже alert (better safe than sorry).
+                            has_start = bool(ALERT_START_RE.search(text))
+                            has_clear = bool(ALERT_CLEAR_RE.search(text))
+                            is_south = bool(SOUTH_RE.search(text))
+                            # Не наш регион явно упомянут (Харьков/Днепр/Сумы etc)
+                            other_region = any(
+                                r in text.lower() for r in (
+                                    "харків", "харков", "дніпр", "днепр",
+                                    "сум", "полтав", "зап", "донец", "луган",
+                                    "київ", "киев", "черн", "хмельн", "тернопіль",
+                                    "івано", "ужгород", "львів", "львов",
+                                )
+                            )
+                            if has_start and (is_south or not other_region):
                                 fresh_posts_alerting.append((u, p))
-                            elif ALERT_CLEAR_RE.search(text) and SOUTH_RE.search(text):
+                            elif has_clear and (is_south or not other_region):
                                 fresh_posts_clearing.append((u, p))
                             else:
                                 fresh_posts_general.append((u, p))
