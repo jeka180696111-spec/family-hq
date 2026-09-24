@@ -162,6 +162,7 @@ _WRITE_TOOLS = frozenset({
     "set_mom_mode",
     "track_habit", "complete_habit", "untrack_habit",
     "record_expense",
+    "create_checklist", "toggle_checklist_item", "delete_checklist",
 })
 
 # Только эти инструменты уходят по fast-path (мгновенный ответ без второго
@@ -977,6 +978,67 @@ class AltronAgent:
                     "Триггеры: «на сколько хватит батареи?», «сколько ещё продержимся?»."
                 ),
                 "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "create_checklist",
+                "description": (
+                    "Создать чек-лист. Триггеры: «сделай чек-лист в роддом», «список на дачу», "
+                    "«чек-лист что взять в бомбоубежище». Список пунктов из фразы."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Короткое имя (напр. «В роддом»)"},
+                        "items": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Список пунктов",
+                        },
+                    },
+                    "required": ["name", "items"],
+                },
+            },
+            {
+                "name": "show_checklist",
+                "description": (
+                    "Показать чек-лист с ✅/⬜ и прогрессом. Триггеры: «покажи чек-лист X», "
+                    "«где список X?»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                    "required": ["name"],
+                },
+            },
+            {
+                "name": "toggle_checklist_item",
+                "description": (
+                    "Отметить/снять галочку у пункта. Триггеры: «готово: памперсы в чек-листе», "
+                    "«вычеркни соски из списка в роддом»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Имя чек-листа"},
+                        "item": {"type": "string", "description": "Fuzzy-текст пункта"},
+                        "done": {"type": "boolean", "description": "true=готово, false=снять галку"},
+                    },
+                    "required": ["name", "item"],
+                },
+            },
+            {
+                "name": "list_checklists",
+                "description": "Список всех чек-листов с прогрессом.",
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "delete_checklist",
+                "description": "Удалить чек-лист.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                    "required": ["name"],
+                },
             },
             {
                 "name": "record_expense",
@@ -1998,6 +2060,23 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "create_checklist":
+                return await self._tool_create_checklist(
+                    name_=args.get("name") or "",
+                    items=args.get("items") or [],
+                )
+            if name == "show_checklist":
+                return await self._tool_show_checklist(name_=args.get("name") or "")
+            if name == "toggle_checklist_item":
+                return await self._tool_toggle_checklist_item(
+                    name_=args.get("name") or "",
+                    item=args.get("item") or "",
+                    done=args.get("done", True),
+                )
+            if name == "list_checklists":
+                return await self._tool_list_checklists()
+            if name == "delete_checklist":
+                return await self._tool_delete_checklist(name_=args.get("name") or "")
             if name == "record_expense":
                 return await self._tool_record_expense(
                     amount_uah=float(args.get("amount_uah") or 0),
@@ -3336,6 +3415,147 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_create_checklist(self, name_: str, items: list) -> dict:
+        if not name_ or not items:
+            return {"error": "name и items обязательны"}
+        import json as _json
+        try:
+            from sqlalchemy import insert, select, update as sql_update
+            from src.db.models import AltronChecklist
+            from src.utils.time import iso_now
+            payload = _json.dumps(
+                [{"text": str(it), "done": False} for it in items if str(it).strip()],
+                ensure_ascii=False,
+            )
+            async with self._memory._engine.begin() as conn:
+                row = (await conn.execute(
+                    select(AltronChecklist).where(AltronChecklist.name == name_)
+                )).first()
+                if row:
+                    await conn.execute(
+                        sql_update(AltronChecklist)
+                        .where(AltronChecklist.id == row.id)
+                        .values(items_json=payload)
+                    )
+                    return {"success": True, "updated": True, "name": name_,
+                            "count": len(items)}
+                await conn.execute(insert(AltronChecklist).values(
+                    name=name_, items_json=payload, created_at=iso_now(),
+                ))
+            return {"success": True, "name": name_, "count": len(items)}
+        except Exception as e:
+            log.exception("altron_create_checklist_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_show_checklist(self, name_: str) -> dict:
+        if not name_:
+            return {"error": "name обязателен"}
+        import json as _json
+        try:
+            from sqlalchemy import select
+            from src.db.models import AltronChecklist
+            async with self._memory._engine.connect() as conn:
+                row = (await conn.execute(
+                    select(AltronChecklist).where(AltronChecklist.name == name_)
+                )).first()
+            if not row:
+                return {"error": f"Не нашёл «{name_}»"}
+            try:
+                items = _json.loads(row.items_json)
+            except Exception:
+                items = []
+            done = sum(1 for i in items if i.get("done"))
+            return {
+                "name": row.name, "total": len(items), "done": done,
+                "items": items,
+            }
+        except Exception as e:
+            log.exception("altron_show_checklist_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_toggle_checklist_item(
+        self, name_: str, item: str, done: bool = True,
+    ) -> dict:
+        if not name_ or not item:
+            return {"error": "name и item обязательны"}
+        import json as _json
+        try:
+            from sqlalchemy import select, update as sql_update
+            from src.db.models import AltronChecklist
+            async with self._memory._engine.begin() as conn:
+                row = (await conn.execute(
+                    select(AltronChecklist).where(AltronChecklist.name == name_)
+                )).first()
+                if not row:
+                    return {"error": f"Не нашёл «{name_}»"}
+                try:
+                    items = _json.loads(row.items_json)
+                except Exception:
+                    items = []
+                q = item.lower()
+                hit = None
+                for i in items:
+                    if q in str(i.get("text", "")).lower():
+                        i["done"] = bool(done)
+                        hit = i
+                        break
+                if not hit:
+                    return {"error": f"Не нашёл пункт «{item}»"}
+                await conn.execute(
+                    sql_update(AltronChecklist)
+                    .where(AltronChecklist.id == row.id)
+                    .values(items_json=_json.dumps(items, ensure_ascii=False))
+                )
+            done_count = sum(1 for i in items if i.get("done"))
+            return {"success": True, "toggled": hit["text"],
+                    "done": bool(done),
+                    "progress": f"{done_count}/{len(items)}"}
+        except Exception as e:
+            log.exception("altron_toggle_checklist_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_list_checklists(self) -> dict:
+        import json as _json
+        try:
+            from sqlalchemy import select
+            from src.db.models import AltronChecklist
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(AltronChecklist).order_by(AltronChecklist.name)
+                ))
+            out = []
+            for r in rows:
+                try:
+                    items = _json.loads(r.items_json)
+                except Exception:
+                    items = []
+                done = sum(1 for i in items if i.get("done"))
+                out.append({"name": r.name, "total": len(items), "done": done})
+            return {"count": len(out), "checklists": out}
+        except Exception as e:
+            log.exception("altron_list_checklists_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_delete_checklist(self, name_: str) -> dict:
+        if not name_:
+            return {"error": "name обязателен"}
+        try:
+            from sqlalchemy import delete, select
+            from src.db.models import AltronChecklist
+            async with self._memory._engine.begin() as conn:
+                row = (await conn.execute(
+                    select(AltronChecklist).where(AltronChecklist.name == name_)
+                )).first()
+                if not row:
+                    return {"error": f"Не нашёл «{name_}»"}
+                await conn.execute(
+                    delete(AltronChecklist).where(AltronChecklist.name == name_)
+                )
+            return {"success": True, "name": name_, "deleted": True}
+        except Exception as e:
+            log.exception("altron_delete_checklist_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_record_expense(

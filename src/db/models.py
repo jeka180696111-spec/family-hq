@@ -811,3 +811,12 @@ class AltronExpense(Base):
     description: Mapped[str | None] = mapped_column(String, nullable=True)
     who: Mapped[str | None] = mapped_column(String, nullable=True)  # eugene/marina/family
     date: Mapped[str] = mapped_column(String, nullable=False, index=True)
+
+
+class AltronChecklist(Base):
+    """Простой чек-лист. items_json — JSON-массив [{"text": "...", "done": false}]."""
+    __tablename__ = "altron_checklists"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    items_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
