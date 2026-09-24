@@ -129,6 +129,7 @@ _WRITE_TOOLS = frozenset({
     "set_recurring_reminder", "delete_recurring_reminder",
     "track_stock", "record_stock_purchase", "untrack_stock",
     "remember", "set_baby_routine",
+    "set_home_location",
 })
 
 # Только эти инструменты уходят по fast-path (мгновенный ответ без второго
@@ -946,6 +947,30 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "set_home_location",
+                "description": (
+                    "Сохранить домашние координаты (широта, долгота). Альтрон будет "
+                    "определять когда пользователь дома, а когда в отъезде. "
+                    "Триггеры: «дом здесь», «сохрани домашние координаты»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "lat": {"type": "number"},
+                        "lon": {"type": "number"},
+                    },
+                    "required": ["lat", "lon"],
+                },
+            },
+            {
+                "name": "get_location_status",
+                "description": (
+                    "Где я сейчас относительно дома: дома / рядом / далеко, дистанция в км. "
+                    "Триггеры: «где я?», «далеко ли от дома?»."
+                ),
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
                 "name": "set_baby_routine",
                 "description": (
                     "Настроить типичное расписание Матвея (когда обычно ложится, встаёт). "
@@ -1693,6 +1718,13 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "set_home_location":
+                return await self._tool_set_home_location(
+                    lat=float(args.get("lat") or 0),
+                    lon=float(args.get("lon") or 0),
+                )
+            if name == "get_location_status":
+                return await self._tool_get_location_status()
             if name == "set_baby_routine":
                 return await self._tool_set_baby_routine(
                     bedtime=args.get("bedtime") or "",
@@ -2956,6 +2988,78 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_set_home_location(self, lat: float, lon: float) -> dict:
+        """Сохранить домашние координаты в FamilyFact(family, home_location)."""
+        if not lat or not lon:
+            return {"error": "lat и lon обязательны"}
+        try:
+            from sqlalchemy import insert, select, update as sql_update
+            from src.db.models import FamilyFact
+            from src.utils.time import iso_now
+            now_ = iso_now()
+            value = f"{lat:.6f},{lon:.6f}"
+            async with self._memory._engine.begin() as conn:
+                row = (await conn.execute(
+                    select(FamilyFact)
+                    .where(FamilyFact.member == "family")
+                    .where(FamilyFact.key == "home_location")
+                )).first()
+                if row:
+                    await conn.execute(
+                        sql_update(FamilyFact)
+                        .where(FamilyFact.id == row.id)
+                        .values(value=value, updated_at=now_)
+                    )
+                else:
+                    await conn.execute(insert(FamilyFact).values(
+                        member="family", key="home_location", value=value,
+                        source="altron", created_at=now_, updated_at=now_,
+                    ))
+            return {"success": True, "lat": lat, "lon": lon}
+        except Exception as e:
+            log.exception("altron_set_home_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_get_location_status(self) -> dict:
+        """Где я относительно дома по последнему поинту."""
+        try:
+            from sqlalchemy import select
+            from src.db.models import FamilyFact
+            import math
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(FamilyFact).where(FamilyFact.member == "family")
+                ))
+            data = {r.key: r.value for r in rows}
+            home = data.get("home_location")
+            last = data.get("last_location")
+            if not home:
+                return {"error": "домашние координаты не заданы. Скажи «дом здесь»"}
+            if not last:
+                return {"note": "Последнее местоположение неизвестно. Пришли Location в Telegram."}
+            try:
+                hlat, hlon = [float(x) for x in home.split(",")]
+                llat, llon = [float(x) for x in last.split(",")[:2]]
+            except Exception:
+                return {"error": "не смог разобрать координаты"}
+            # Haversine
+            R = 6371.0
+            a = math.radians(llat - hlat) / 2
+            b = math.radians(llon - hlon) / 2
+            h = (math.sin(a) ** 2 + math.cos(math.radians(hlat)) *
+                 math.cos(math.radians(llat)) * math.sin(b) ** 2)
+            dist_km = 2 * R * math.asin(math.sqrt(h))
+            if dist_km < 0.2:
+                where = "дома"
+            elif dist_km < 2:
+                where = "рядом с домом"
+            else:
+                where = "в отъезде"
+            return {"where": where, "distance_km": round(dist_km, 2)}
+        except Exception as e:
+            log.exception("altron_location_status_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_set_baby_routine(self, bedtime: str = "", wake_time: str = "") -> dict:
