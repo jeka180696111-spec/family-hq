@@ -158,6 +158,7 @@ _WRITE_TOOLS = frozenset({
     "remember", "set_baby_routine",
     "set_home_location",
     "start_prescription", "mark_dose_taken", "stop_prescription",
+    "add_anniversary", "remove_anniversary",
 })
 
 # Только эти инструменты уходят по fast-path (мгновенный ответ без второго
@@ -973,6 +974,43 @@ class AltronAgent:
                     "Триггеры: «на сколько хватит батареи?», «сколько ещё продержимся?»."
                 ),
                 "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "add_anniversary",
+                "description": (
+                    "Добавить день рождения / годовщину. Триггеры: «у мамы др 5 июля», "
+                    "«годовщина с Мариной 12 октября», «у Пети др 3 марта»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Чей день (мама, Марина, Петя, годовщина свадьбы)"},
+                        "month": {"type": "integer", "description": "1-12"},
+                        "day": {"type": "integer", "description": "1-31"},
+                        "kind": {
+                            "type": "string",
+                            "enum": ["birthday", "anniversary", "other"],
+                            "description": "birthday=др, anniversary=годовщина, other=иное",
+                        },
+                        "year": {"type": "integer", "description": "Опц.: год рождения (для расчёта возраста)"},
+                        "notes": {"type": "string", "description": "Опц.: подсказка про подарок"},
+                    },
+                    "required": ["name", "month", "day"],
+                },
+            },
+            {
+                "name": "list_anniversaries",
+                "description": "Список всех сохранённых дней (ближайшие сверху).",
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "remove_anniversary",
+                "description": "Удалить день рождения / годовщину по имени.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                    "required": ["name"],
+                },
             },
             {
                 "name": "get_health_dashboard",
@@ -1811,6 +1849,19 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "add_anniversary":
+                return await self._tool_add_anniversary(
+                    name_=args.get("name") or "",
+                    month=int(args.get("month") or 0),
+                    day=int(args.get("day") or 0),
+                    kind=args.get("kind") or "birthday",
+                    year=args.get("year"),
+                    notes=args.get("notes") or "",
+                )
+            if name == "list_anniversaries":
+                return await self._tool_list_anniversaries()
+            if name == "remove_anniversary":
+                return await self._tool_remove_anniversary(name_=args.get("name") or "")
             if name == "get_health_dashboard":
                 return await self._tool_get_health_dashboard(
                     member=args.get("member") or "matvey",
@@ -3101,6 +3152,79 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_add_anniversary(
+        self, name_: str, month: int, day: int,
+        kind: str = "birthday", year: Any = None, notes: str = "",
+    ) -> dict:
+        if not name_ or not (1 <= month <= 12) or not (1 <= day <= 31):
+            return {"error": "name/month/day обязательны"}
+        try:
+            from sqlalchemy import insert
+            from src.db.models import AltronAnniversary
+            from src.utils.time import iso_now
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(insert(AltronAnniversary).values(
+                    name=name_, kind=kind, month=month, day=day,
+                    year=int(year) if year else None,
+                    notes=notes or None, created_at=iso_now(),
+                ))
+            return {"success": True, "name": name_,
+                    "date": f"{day:02d}.{month:02d}", "kind": kind}
+        except Exception as e:
+            log.exception("altron_add_anniv_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_list_anniversaries(self) -> dict:
+        try:
+            from datetime import date, timedelta
+            from sqlalchemy import select
+            from src.db.models import AltronAnniversary
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(select(AltronAnniversary)))
+            today = now_kyiv().date()
+            items = []
+            for r in rows:
+                try:
+                    this_year = date(today.year, r.month, r.day)
+                    next_ = this_year if this_year >= today else date(today.year + 1, r.month, r.day)
+                    days_left = (next_ - today).days
+                    age = None
+                    if r.year:
+                        age = next_.year - r.year
+                    items.append({
+                        "name": r.name, "kind": r.kind,
+                        "date": f"{r.day:02d}.{r.month:02d}",
+                        "days_left": days_left, "age_will_be": age,
+                        "notes": r.notes,
+                    })
+                except Exception:
+                    continue
+            items.sort(key=lambda x: x["days_left"])
+            return {"count": len(items), "items": items}
+        except Exception as e:
+            log.exception("altron_list_anniv_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_remove_anniversary(self, name_: str) -> dict:
+        if not name_:
+            return {"error": "name обязателен"}
+        try:
+            from sqlalchemy import delete, select
+            from src.db.models import AltronAnniversary
+            async with self._memory._engine.begin() as conn:
+                row = (await conn.execute(
+                    select(AltronAnniversary).where(AltronAnniversary.name == name_)
+                )).first()
+                if not row:
+                    return {"error": f"Не нашёл «{name_}»"}
+                await conn.execute(
+                    delete(AltronAnniversary).where(AltronAnniversary.name == name_)
+                )
+            return {"success": True, "name": name_, "deleted": True}
+        except Exception as e:
+            log.exception("altron_remove_anniv_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_get_health_dashboard(self, member: str, days: int = 60) -> dict:
