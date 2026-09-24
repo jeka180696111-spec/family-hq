@@ -102,6 +102,8 @@ class AltronBot:
         self._panic_until_ts: float = 0.0
         self._driving_until_ts: float = 0.0
         self._driver_name: str = ""
+        self._rec_until_ts: float = 0.0
+        self._rec_topic: str = ""
         self._was_home: bool | None = None
         self._arrival_last_ts: float = 0.0
         # {check_name: bool prev_state_ok}  — чтобы уведомлять только на
@@ -329,13 +331,54 @@ class AltronBot:
                         return
                     log.info("altron_voice_transcribed", text=transcript[:80])
                     # Показываем что услышали и обрабатываем как обычный текст
-                    await msg.reply_text(f"🎤 «{transcript}»")
-                    reply = await agent.handle(transcript, user_name=user, chat_id=msg.chat_id)
-                    if reply:
-                        await msg.reply_text(reply)
-                        # Voice-input сам по себе — озвучиваем ответ голосом.
-                        # А также если driving mode активен.
-                        asyncio.create_task(self._send_voice(reply))
+                    import time as _t
+                    # REC-режим: расшифровка + резюме, БЕЗ обычного agent.handle
+                    if _t.time() < self._rec_until_ts:
+                        topic = self._rec_topic or "встреча"
+                        self._rec_until_ts = 0.0  # одноразово
+                        gemini = getattr(agent, "_gemini", None)
+                        summary = ""
+                        if gemini is not None:
+                            try:
+                                summary = await gemini.complete(
+                                    system=(
+                                        "Ты Альтрон. Из транскрипта встречи вытащи: "
+                                        "1) 3-5 ключевых пунктов, 2) action items (что "
+                                        "сделать), 3) названные даты/цифры/дозы. "
+                                        "Русский, HTML <b>. Кратко."
+                                    ),
+                                    messages=[{"role": "user",
+                                               "content": f"Тема: {topic}\n\nТранскрипт:\n{transcript}"}],
+                                    max_tokens=800,
+                                )
+                            except Exception:
+                                summary = ""
+                        header = (
+                            f"🎙 <b>Расшифровка · {topic}</b>\n"
+                            + ("━" * 18) + "\n"
+                        )
+                        if summary:
+                            await msg.reply_text(header + summary, parse_mode="HTML")
+                        # Сохраняем в wiki
+                        from src.utils.time import now_kyiv
+                        title = f"{topic} {now_kyiv().strftime('%Y-%m-%d')}"
+                        text_ = (
+                            (summary + "\n\n---\n" if summary else "")
+                            + f"Полный транскрипт:\n{transcript}"
+                        )[:8000]
+                        try:
+                            await agent._tool_wiki_set(title=title, text_=text_)
+                            await msg.reply_text(
+                                f"✅ Сохранил в wiki: «{title}»", parse_mode="HTML",
+                            )
+                        except Exception:
+                            log.exception("altron_rec_wiki_save_failed")
+                    else:
+                        await msg.reply_text(f"🎤 «{transcript}»")
+                        reply = await agent.handle(transcript, user_name=user, chat_id=msg.chat_id)
+                        if reply:
+                            await msg.reply_text(reply)
+                            asyncio.create_task(self._send_voice(reply))
                 finally:
                     try:
                         _os.unlink(path)
@@ -495,6 +538,22 @@ class AltronBot:
             )
 
         app.add_handler(CommandHandler(["drive", "руль"], _drive_cmd))
+
+        async def _rec_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            if not update.effective_chat or update.effective_chat.id != allowed_chat:
+                return
+            import time as _t
+            topic = " ".join(context.args or []).strip() or "встреча"
+            self._rec_until_ts = _t.time() + 15 * 60  # ждём voice до 15 мин
+            self._rec_topic = topic[:60]
+            await update.message.reply_text(
+                f"🎙 <b>REC</b> · тема: <b>{self._rec_topic}</b>\n"
+                "Пришли следующее voice-сообщение — расшифрую и сделаю резюме "
+                "с ключевыми пунктами. Действует 15 мин.",
+                parse_mode="HTML",
+            )
+
+        app.add_handler(CommandHandler(["rec", "запись"], _rec_cmd))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _text_msg))
         app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, _voice_msg))
         app.add_handler(MessageHandler(filters.PHOTO, _photo_msg))
