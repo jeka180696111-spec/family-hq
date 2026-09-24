@@ -163,6 +163,7 @@ _WRITE_TOOLS = frozenset({
     "track_habit", "complete_habit", "untrack_habit",
     "record_expense",
     "create_checklist", "toggle_checklist_item", "delete_checklist",
+    "create_time_capsule",
 })
 
 # Только эти инструменты уходят по fast-path (мгновенный ответ без второго
@@ -977,6 +978,31 @@ class AltronAgent:
                     "до резервного уровня (обычно 20%). Учитывает солнце и заряд/разряд. "
                     "Триггеры: «на сколько хватит батареи?», «сколько ещё продержимся?»."
                 ),
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "create_time_capsule",
+                "description": (
+                    "Сохранить сообщение в будущее (себе, Матвею на его день рождения, семье). "
+                    "Триггеры: «оставь сообщение Матвею на 18 лет», «капсула времени», "
+                    "«напомни мне через год что...»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "to_whom": {
+                            "type": "string",
+                            "enum": ["matvey", "family", "self"],
+                        },
+                        "message": {"type": "string"},
+                        "delivery_date": {"type": "string", "description": "ISO YYYY-MM-DD когда доставить"},
+                    },
+                    "required": ["to_whom", "message", "delivery_date"],
+                },
+            },
+            {
+                "name": "list_time_capsules",
+                "description": "Список неоткрытых капсул времени.",
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
@@ -2109,6 +2135,14 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "create_time_capsule":
+                return await self._tool_create_time_capsule(
+                    to_whom=args.get("to_whom") or "matvey",
+                    message=args.get("message") or "",
+                    delivery_date=args.get("delivery_date") or "",
+                )
+            if name == "list_time_capsules":
+                return await self._tool_list_time_capsules()
             if name == "plan_weekly_menu":
                 return await self._tool_plan_weekly_menu(
                     with_matvey=bool(args.get("with_matvey", True))
@@ -3472,6 +3506,65 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_create_time_capsule(
+        self, to_whom: str, message: str, delivery_date: str,
+    ) -> dict:
+        if not (to_whom and message and delivery_date):
+            return {"error": "все параметры обязательны"}
+        try:
+            from datetime import date, datetime
+            try:
+                d = datetime.strptime(delivery_date, "%Y-%m-%d").date()
+            except Exception:
+                return {"error": "delivery_date должно быть YYYY-MM-DD"}
+            if d <= now_kyiv().date():
+                return {"error": "delivery_date должно быть в будущем"}
+            from sqlalchemy import insert
+            from src.db.models import AltronTimeCapsule
+            from src.utils.time import iso_now
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(insert(AltronTimeCapsule).values(
+                    to_whom=to_whom, message=message,
+                    delivery_date=delivery_date,
+                    author="altron", delivered=0,
+                    created_at=iso_now(),
+                ))
+            return {"success": True, "to_whom": to_whom,
+                    "delivery_date": delivery_date,
+                    "days_until": (d - now_kyiv().date()).days}
+        except Exception as e:
+            log.exception("altron_time_capsule_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_list_time_capsules(self) -> dict:
+        try:
+            from datetime import datetime
+            from sqlalchemy import select
+            from src.db.models import AltronTimeCapsule
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(AltronTimeCapsule)
+                    .where(AltronTimeCapsule.delivered == 0)
+                    .order_by(AltronTimeCapsule.delivery_date)
+                ))
+            today = now_kyiv().date()
+            items = []
+            for r in rows:
+                try:
+                    d = datetime.strptime(r.delivery_date, "%Y-%m-%d").date()
+                    days_left = (d - today).days
+                except Exception:
+                    days_left = None
+                items.append({
+                    "to_whom": r.to_whom, "delivery_date": r.delivery_date,
+                    "days_until": days_left,
+                    "preview": (r.message or "")[:80],
+                })
+            return {"count": len(items), "capsules": items}
+        except Exception as e:
+            log.exception("altron_list_capsules_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_plan_weekly_menu(self, with_matvey: bool = True) -> dict:
