@@ -172,6 +172,7 @@ _WRITE_TOOLS = frozenset({
     "create_checklist", "toggle_checklist_item", "delete_checklist",
     "create_time_capsule",
     "record_feedback",
+    "set_voice_timer",
 })
 
 # Только эти инструменты уходят по fast-path (мгновенный ответ без второго
@@ -987,6 +988,22 @@ class AltronAgent:
                     "Триггеры: «на сколько хватит батареи?», «сколько ещё продержимся?»."
                 ),
                 "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "set_voice_timer",
+                "description": (
+                    "Поставить кухонный таймер с голосом. За 30 сек до срабатывания "
+                    "предупреждение голосом, в момент — «готово». Триггеры: «таймер "
+                    "12 минут на пасту», «поставь на 5 минут» (без описания = «таймер»)."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "minutes": {"type": "number", "description": "Сколько минут (можно дробь)"},
+                        "name": {"type": "string", "description": "Что за таймер (напр. паста)"},
+                    },
+                    "required": ["minutes"],
+                },
             },
             {
                 "name": "record_feedback",
@@ -2161,6 +2178,11 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "set_voice_timer":
+                return await self._tool_set_voice_timer(
+                    minutes=float(args.get("minutes") or 0),
+                    name_=args.get("name") or "таймер",
+                )
             if name == "record_feedback":
                 return await self._tool_record_feedback(
                     polarity=args.get("polarity") or "negative",
@@ -3539,6 +3561,46 @@ class AltronAgent:
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
             return {"error": str(e)[:200]}
+
+    async def _tool_set_voice_timer(self, minutes: float, name_: str = "таймер") -> dict:
+        """Регистрирует async-задачу: за 30 сек до предупреждение voice,
+        в срок — voice «готово». Bridge через _voice_bot."""
+        if minutes <= 0 or minutes > 240:
+            return {"error": "минуты должны быть > 0 и <= 240"}
+        bridge = getattr(self, "_voice_bot", None)
+        if bridge is None:
+            return {"error": "voice bridge не подключён"}
+        total_sec = minutes * 60
+        warn_sec = max(0, total_sec - 30)
+
+        async def _timer_task():
+            try:
+                if warn_sec > 0:
+                    await asyncio.sleep(warn_sec)
+                    try:
+                        await bridge._send_voice(f"Через полминуты {name_} готов.")
+                    except Exception:
+                        pass
+                    remainder = total_sec - warn_sec
+                else:
+                    remainder = total_sec
+                if remainder > 0:
+                    await asyncio.sleep(remainder)
+                try:
+                    await bridge._send_voice(f"Готово. {name_}.")
+                    await bridge._send(f"⏰ <b>{name_}</b> — готово.")
+                except Exception:
+                    pass
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("altron_voice_timer_task_err")
+
+        try:
+            asyncio.create_task(_timer_task())
+        except Exception as e:
+            return {"error": str(e)[:200]}
+        return {"success": True, "name": name_, "minutes": minutes}
 
     async def _tool_record_feedback(
         self, polarity: str, note: str, context: str = "",
