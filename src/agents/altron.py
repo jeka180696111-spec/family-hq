@@ -980,6 +980,22 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "analyze_matvey_sleep",
+                "description": (
+                    "Анализ сна Матвея за N дней с сравнением с педиатрическими нормами "
+                    "по возрасту. Считает: общий сон/сутки, ночные часы, число пробуждений, "
+                    "типичное время засыпания. Триггеры: «как Матвей спит?», «нормально ли "
+                    "спит?», «есть паттерн ночных пробуждений?»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "days": {"type": "integer", "description": "По умолчанию 14"},
+                    },
+                    "required": [],
+                },
+            },
+            {
                 "name": "forecast_alerts",
                 "description": (
                     "Прогноз воздушных тревог по паттернам последних N дней. "
@@ -2076,6 +2092,8 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "analyze_matvey_sleep":
+                return await self._tool_analyze_matvey_sleep(days=int(args.get("days") or 14))
             if name == "forecast_alerts":
                 return await self._tool_forecast_alerts(days=int(args.get("days") or 14))
             if name == "create_checklist":
@@ -3433,6 +3451,94 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_analyze_matvey_sleep(self, days: int = 14) -> dict:
+        """Разбор паттерна сна Матвея. Использует get_baby_diary для событий."""
+        try:
+            from datetime import datetime, timedelta
+            diary = await self._tool_get_baby_diary(days=days, kind="sleep")
+            events = diary.get("events") or []
+            if not events:
+                return {"note": "В дневнике нет записей сна за этот период",
+                        "days": days, "count": 0}
+
+            # Возраст Матвея — родился 03.12.2025
+            birth = datetime(2025, 12, 3)
+            age_days = (now_kyiv().replace(tzinfo=None) - birth).days
+            age_months = age_days // 30
+
+            # Педиатрические нормы (грубо, для 4-11 мес)
+            if age_months < 4:
+                norm = {"total_h": (14, 17), "night_h": (10, 12),
+                        "naps": (3, 5), "typical_bedtime": "20:00-22:00"}
+            elif age_months < 12:
+                norm = {"total_h": (12, 15), "night_h": (10, 12),
+                        "naps": (2, 3), "typical_bedtime": "19:00-21:00"}
+            else:
+                norm = {"total_h": (11, 14), "night_h": (10, 12),
+                        "naps": (1, 2), "typical_bedtime": "19:00-20:30"}
+
+            # Парсим события по дням
+            by_day: dict[str, list] = {}
+            for ev in events:
+                ts = ev.get("time", "")
+                if not ts:
+                    continue
+                day = ts[:10]
+                by_day.setdefault(day, []).append(ev)
+
+            # Считаем ночные пробуждения (событие «Проснулся» между 00-06)
+            night_wakeups = 0
+            wake_times = []
+            sleep_starts = []
+            for evs in by_day.values():
+                for ev in evs:
+                    e_l = str(ev.get("event", "")).lower()
+                    hm = ev.get("time", "")[11:16]
+                    if not hm:
+                        continue
+                    try:
+                        h = int(hm[:2])
+                    except Exception:
+                        continue
+                    if "проснул" in e_l:
+                        wake_times.append(hm)
+                        if 0 <= h < 6:
+                            night_wakeups += 1
+                    elif "уснул" in e_l or "лёг" in e_l or "лег" in e_l:
+                        sleep_starts.append(hm)
+
+            def _avg_hm(vals: list) -> str | None:
+                if not vals:
+                    return None
+                mins = []
+                for v in vals:
+                    try:
+                        h, m = int(v[:2]), int(v[3:5])
+                        mins.append(h * 60 + m)
+                    except Exception:
+                        continue
+                if not mins:
+                    return None
+                a = sum(mins) // len(mins)
+                return f"{a // 60:02d}:{a % 60:02d}"
+
+            return {
+                "days": days,
+                "age_months": age_months,
+                "norm": norm,
+                "days_with_data": len(by_day),
+                "avg_bedtime": _avg_hm(sleep_starts),
+                "avg_wake_time": _avg_hm(wake_times),
+                "total_sleep_events": len(events),
+                "night_wakeups_last_N_days": night_wakeups,
+                "night_wakeups_per_night": (
+                    round(night_wakeups / max(len(by_day), 1), 1)
+                ),
+            }
+        except Exception as e:
+            log.exception("altron_analyze_sleep_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_forecast_alerts(self, days: int = 14) -> dict:
