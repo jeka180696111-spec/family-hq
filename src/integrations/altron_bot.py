@@ -254,21 +254,32 @@ class AltronBot:
                 if reply:
                     import time as _t
                     driving = _t.time() < self._driving_until_ts
-                    # Автоответ другому участнику: «водитель в дороге»
+                    # Автоответ другому участнику: «водитель в дороге».
+                    # HTML в префиксе используем ТОЛЬКО когда он реально нужен,
+                    # чтобы не заставлять весь reply парситься как HTML —
+                    # LLM часто вставляет стрей <>, ломающие HTML-парсинг.
+                    parse_mode = None
                     if driving and self._driver_name and user != self._driver_name:
                         until_mins = int((self._driving_until_ts - _t.time()) / 60)
                         prefix = (
-                            f"🚗 <i>{self._driver_name} за рулём, вернётся через "
-                            f"~{until_mins} мин. Срочное — говори мне.</i>\n\n"
+                            f"🚗 {self._driver_name} за рулём, вернётся через "
+                            f"~{until_mins} мин. Срочное — говори мне.\n\n"
                         )
                         reply = prefix + reply
                     if placeholder["msg"] is not None:
                         try:
-                            await placeholder["msg"].edit_text(reply, parse_mode="HTML")
+                            await placeholder["msg"].edit_text(reply, parse_mode=parse_mode)
                         except Exception:
-                            await msg.reply_text(reply, parse_mode="HTML")
+                            try:
+                                await msg.reply_text(reply, parse_mode=parse_mode)
+                            except Exception:
+                                # Крайняя страховка: обрежем и plain-text
+                                await msg.reply_text(reply[:3900])
                     else:
-                        await msg.reply_text(reply, parse_mode="HTML")
+                        try:
+                            await msg.reply_text(reply, parse_mode=parse_mode)
+                        except Exception:
+                            await msg.reply_text(reply[:3900])
                     # Driving mode — дублируем голосом (для самого водителя)
                     if driving and user == self._driver_name:
                         asyncio.create_task(self._send_voice(reply))
