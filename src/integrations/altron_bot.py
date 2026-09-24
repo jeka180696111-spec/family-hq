@@ -538,7 +538,8 @@ class AltronBot:
         app = Application.builder().token(self._token).build()
         app.add_handler(CommandHandler("start", _start_cmd))
         app.add_handler(CommandHandler("ping", _ping_cmd))
-        app.add_handler(CommandHandler(["panic", "паника"], _panic_cmd))
+        # Только ASCII в CommandHandler — PTB отклоняет кириллицу.
+        app.add_handler(CommandHandler("panic", _panic_cmd))
 
         async def _drive_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not update.effective_chat or update.effective_chat.id != allowed_chat:
@@ -571,7 +572,7 @@ class AltronBot:
                 parse_mode="HTML",
             )
 
-        app.add_handler(CommandHandler(["drive", "руль"], _drive_cmd))
+        app.add_handler(CommandHandler("drive", _drive_cmd))
 
         async def _rec_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not update.effective_chat or update.effective_chat.id != allowed_chat:
@@ -587,7 +588,7 @@ class AltronBot:
                 parse_mode="HTML",
             )
 
-        app.add_handler(CommandHandler(["rec", "запись"], _rec_cmd))
+        app.add_handler(CommandHandler("rec", _rec_cmd))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _text_msg))
         app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, _voice_msg))
         app.add_handler(MessageHandler(filters.PHOTO, _photo_msg))
