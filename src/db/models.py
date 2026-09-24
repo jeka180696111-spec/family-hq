@@ -800,3 +800,14 @@ class AltronHabit(Base):
     streak_best: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_completed_at: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class AltronExpense(Base):
+    """Лёгкий трекинг трат без бухгалтерии. Одна строка = одна покупка."""
+    __tablename__ = "altron_expenses"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    amount_uah: Mapped[float] = mapped_column(Float, nullable=False)
+    category: Mapped[str] = mapped_column(String, nullable=False)  # products/fuel/pharmacy/entertainment/utilities/other
+    description: Mapped[str | None] = mapped_column(String, nullable=True)
+    who: Mapped[str | None] = mapped_column(String, nullable=True)  # eugene/marina/family
+    date: Mapped[str] = mapped_column(String, nullable=False, index=True)

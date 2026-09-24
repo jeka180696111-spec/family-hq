@@ -161,6 +161,7 @@ _WRITE_TOOLS = frozenset({
     "add_anniversary", "remove_anniversary",
     "set_mom_mode",
     "track_habit", "complete_habit", "untrack_habit",
+    "record_expense",
 })
 
 # Только эти инструменты уходят по fast-path (мгновенный ответ без второго
@@ -976,6 +977,42 @@ class AltronAgent:
                     "Триггеры: «на сколько хватит батареи?», «сколько ещё продержимся?»."
                 ),
                 "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "record_expense",
+                "description": (
+                    "Записать трату. Триггеры: «потратил 500 на продукты», «залил бензина "
+                    "на 2000», «Марина: 300 на кофе», «300 грн лекарства»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "amount_uah": {"type": "number", "description": "Сумма в грн"},
+                        "category": {
+                            "type": "string",
+                            "enum": ["products", "fuel", "pharmacy", "entertainment",
+                                     "utilities", "eating_out", "kids", "clothes", "other"],
+                        },
+                        "description": {"type": "string", "description": "Опц. текст"},
+                        "who": {"type": "string", "description": "eugene/marina/family (default family)"},
+                    },
+                    "required": ["amount_uah", "category"],
+                },
+            },
+            {
+                "name": "get_expenses_summary",
+                "description": (
+                    "Сумма трат за N дней с разбивкой по категориям и по людям. "
+                    "Триггеры: «сколько потратил за месяц?», «на что уходят деньги?», "
+                    "«траты недели»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "days": {"type": "integer", "description": "По умолчанию 30"},
+                    },
+                    "required": [],
+                },
             },
             {
                 "name": "on_this_day",
@@ -1961,6 +1998,15 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "record_expense":
+                return await self._tool_record_expense(
+                    amount_uah=float(args.get("amount_uah") or 0),
+                    category=args.get("category") or "other",
+                    description=args.get("description") or "",
+                    who=args.get("who") or "family",
+                )
+            if name == "get_expenses_summary":
+                return await self._tool_get_expenses_summary(days=int(args.get("days") or 30))
             if name == "on_this_day":
                 return await self._tool_on_this_day(date_str=args.get("date") or "")
             if name == "track_habit":
@@ -3290,6 +3336,58 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_record_expense(
+        self, amount_uah: float, category: str,
+        description: str = "", who: str = "family",
+    ) -> dict:
+        if amount_uah <= 0 or not category:
+            return {"error": "amount_uah > 0 и category обязательны"}
+        try:
+            from sqlalchemy import insert
+            from src.db.models import AltronExpense
+            from src.utils.time import iso_now
+            async with self._memory._engine.begin() as conn:
+                await conn.execute(insert(AltronExpense).values(
+                    amount_uah=amount_uah, category=category,
+                    description=description or None,
+                    who=who or "family", date=iso_now(),
+                ))
+            return {"success": True, "amount": amount_uah,
+                    "category": category, "who": who}
+        except Exception as e:
+            log.exception("altron_record_expense_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_get_expenses_summary(self, days: int = 30) -> dict:
+        try:
+            from datetime import timedelta
+            from sqlalchemy import select
+            from src.db.models import AltronExpense
+            since = (now_kyiv() - timedelta(days=days)).isoformat()
+            async with self._memory._engine.connect() as conn:
+                rows = list(await conn.execute(
+                    select(AltronExpense).where(AltronExpense.date >= since)
+                ))
+            total = sum(r.amount_uah or 0 for r in rows)
+            by_cat: dict[str, float] = {}
+            by_who: dict[str, float] = {}
+            for r in rows:
+                by_cat[r.category] = by_cat.get(r.category, 0) + (r.amount_uah or 0)
+                by_who[r.who or "family"] = by_who.get(r.who or "family", 0) + (r.amount_uah or 0)
+            top_cats = sorted(by_cat.items(), key=lambda x: -x[1])
+            return {
+                "days": days,
+                "count": len(rows),
+                "total_uah": round(total),
+                "by_category": [{"category": k, "sum": round(v)} for k, v in top_cats],
+                "by_who": [{"who": k, "sum": round(v)} for k, v in
+                           sorted(by_who.items(), key=lambda x: -x[1])],
+                "avg_per_day": round(total / max(days, 1)),
+            }
+        except Exception as e:
+            log.exception("altron_expenses_summary_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_on_this_day(self, date_str: str = "") -> dict:
