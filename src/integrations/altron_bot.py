@@ -251,9 +251,14 @@ class AltronBot:
                     pass
 
             try:
-                reply = await agent.handle(
-                    text, user_name=user, chat_id=msg.chat_id,
-                    on_partial=_on_partial,
+                # Hard timeout — если Gemini/Claude зависли, не даём висеть
+                # «⏳ думаю…» бесконечно.
+                reply = await asyncio.wait_for(
+                    agent.handle(
+                        text, user_name=user, chat_id=msg.chat_id,
+                        on_partial=_on_partial,
+                    ),
+                    timeout=45.0,
                 )
                 # Финальный текст — либо в плейсхолдер (edit), либо новое сообщение
                 if reply:
@@ -288,6 +293,19 @@ class AltronBot:
                     # Driving mode — дублируем голосом (для самого водителя)
                     if driving and user == self._driver_name:
                         asyncio.create_task(self._send_voice(reply))
+            except asyncio.TimeoutError:
+                log.warning("altron_reply_timeout")
+                err_text = "⏱ Задумался слишком долго (45с). Спроси иначе или короче?"
+                try:
+                    if placeholder["msg"] is not None:
+                        try:
+                            await placeholder["msg"].edit_text(err_text)
+                        except Exception:
+                            await msg.reply_text(err_text)
+                    else:
+                        await msg.reply_text(err_text)
+                except Exception:
+                    pass
             except Exception as e:
                 log.exception("altron_reply_failed")
                 err_text = f"⚠️ Упал: {str(e)[:200]}"
