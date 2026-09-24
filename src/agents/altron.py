@@ -978,6 +978,22 @@ class AltronAgent:
                 "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
+                "name": "on_this_day",
+                "description": (
+                    "Что было в этот же день в прошлые годы (или в указанную дату). "
+                    "Ищет по HealthRecord, дневнику Матвея, долговременной памяти, "
+                    "сообщениям Альтрону, годовщинам. Триггеры: «что было год назад?», "
+                    "«вспомни этот день», «24 сентября раньше»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "date": {"type": "string", "description": "Опц.: MM-DD (по умолчанию сегодня)"},
+                    },
+                    "required": [],
+                },
+            },
+            {
                 "name": "track_habit",
                 "description": (
                     "Начать отслеживать привычку. Триггеры: «трекай что я читаю 30 мин "
@@ -1945,6 +1961,8 @@ class AltronAgent:
                 return await self._tool_get_facts(member=args.get("member") or "")
             if name == "get_inverter_forecast":
                 return await self._tool_get_inverter_forecast()
+            if name == "on_this_day":
+                return await self._tool_on_this_day(date_str=args.get("date") or "")
             if name == "track_habit":
                 return await self._tool_track_habit(
                     name_=args.get("name") or "",
@@ -3272,6 +3290,94 @@ class AltronAgent:
             }
         except Exception as e:
             log.exception("altron_inverter_forecast_failed")
+            return {"error": str(e)[:200]}
+
+    async def _tool_on_this_day(self, date_str: str = "") -> dict:
+        """Ретро: что было в этот же MM-DD в прошлые годы."""
+        try:
+            from sqlalchemy import select
+            from src.db.models import (
+                HealthRecord, AltronMessage, AltronLongMemory, AltronAnniversary,
+            )
+            now = now_kyiv()
+            if date_str.strip() and "-" in date_str:
+                try:
+                    m, d = [int(x) for x in date_str.strip().split("-")[-2:]]
+                except Exception:
+                    m, d = now.month, now.day
+            else:
+                m, d = now.month, now.day
+            mm_dd = f"{m:02d}-{d:02d}"
+            out: dict = {"date": mm_dd, "results": {}}
+
+            async with self._memory._engine.connect() as conn:
+                # HealthRecord — date хранит ISO
+                hr_rows = list(await conn.execute(select(HealthRecord)))
+                hr_match = []
+                for r in hr_rows:
+                    if not r.date:
+                        continue
+                    try:
+                        if r.date[5:10] == mm_dd:
+                            hr_match.append({
+                                "member": r.member_id, "kind": r.kind,
+                                "description": r.description, "value": r.value,
+                                "year": r.date[:4],
+                            })
+                    except Exception:
+                        continue
+                out["results"]["health"] = hr_match[:20]
+
+                # AltronMessage (только role=user, шумит меньше)
+                msg_rows = list(await conn.execute(select(AltronMessage)))
+                msg_match = []
+                for r in msg_rows:
+                    if not r.created_at:
+                        continue
+                    try:
+                        if r.created_at[5:10] == mm_dd and r.role == "user":
+                            # Content_json может быть строкой или структурой — берём первые 120 симв
+                            content_preview = str(r.content_json)[:120]
+                            msg_match.append({
+                                "when": r.created_at[:10], "text": content_preview,
+                            })
+                    except Exception:
+                        continue
+                out["results"]["messages"] = msg_match[-15:]  # свежее сверху не важно, LLM разберётся
+
+                # AltronLongMemory
+                lm_rows = list(await conn.execute(select(AltronLongMemory)))
+                lm_match = []
+                for r in lm_rows:
+                    if not r.created_at:
+                        continue
+                    try:
+                        if r.created_at[5:10] == mm_dd:
+                            lm_match.append({
+                                "when": r.created_at[:10], "kind": r.kind,
+                                "content": r.content,
+                            })
+                    except Exception:
+                        continue
+                out["results"]["memory"] = lm_match
+
+                # Годовщины сегодня
+                anniv_rows = list(await conn.execute(select(AltronAnniversary)))
+                anniv_match = [
+                    {"name": r.name, "kind": r.kind,
+                     "date": f"{r.day:02d}.{r.month:02d}",
+                     "year": r.year}
+                    for r in anniv_rows
+                    if r.month == m and r.day == d
+                ]
+                out["results"]["anniversaries"] = anniv_match
+
+            total = sum(len(v) if isinstance(v, list) else 0
+                        for v in out["results"].values())
+            out["total_found"] = total
+            return out
+        except Exception as e:
+            log.exception("altron_on_this_day_failed")
             return {"error": str(e)[:200]}
 
     async def _tool_track_habit(self, name_: str, every_n_days: int = 1) -> dict:
