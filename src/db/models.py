@@ -739,3 +739,16 @@ class AltronStockItem(Base):
     last_purchased_at: Mapped[str | None] = mapped_column(String, nullable=True)
     last_reminded_at: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class AltronLongMemory(Base):
+    """Долговременные заметки Альтрона с embedding-ами для семантического
+    поиска. content — сам факт, embedding_json — Gemini text-embedding-004
+    вектор (768 float, сериализован как JSON-массив)."""
+    __tablename__ = "altron_long_memory"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False)  # decision/preference/fact/event
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
