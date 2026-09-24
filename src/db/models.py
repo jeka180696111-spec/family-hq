@@ -788,3 +788,15 @@ class AltronAnniversary(Base):
     year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class AltronHabit(Base):
+    """Ежедневные / периодические привычки со streak-счётчиком."""
+    __tablename__ = "altron_habits"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    every_n_days: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    streak_current: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    streak_best: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_completed_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
