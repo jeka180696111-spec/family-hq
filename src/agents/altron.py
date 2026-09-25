@@ -2536,7 +2536,7 @@ class AltronAgent:
                 "hint": "BabyState пуст. Вызови get_baby_diary(days=1) — там свежие события за сегодня.",
             }
 
-        bs = row[0] if hasattr(row, "_mapping") else row
+        bs = row
         sleeping_since = getattr(bs, "sleeping_since", None)
         awake_since = getattr(bs, "awake_since", None)
         last_feed_at = getattr(bs, "last_feed_at", None)
@@ -3116,8 +3116,7 @@ class AltronAgent:
                     .order_by(ShoppingItem.added_at.desc()).limit(50)
                 ))
             items = []
-            for r in rows:
-                obj = r[0] if hasattr(r, "_mapping") else r
+            for obj in rows:
                 items.append({
                     "id": getattr(obj, "id", None),
                     "item": getattr(obj, "item", ""),
@@ -3163,13 +3162,12 @@ class AltronAgent:
                 ))
                 # Fuzzy: подстрочный матч
                 target = None
-                for r in rows:
-                    obj = r[0] if hasattr(r, "_mapping") else r
+                for obj in rows:
                     if item_norm in (obj.item or "").lower() or (obj.item or "").lower() in item_norm:
                         target = obj
                         break
                 if not target:
-                    names = [(r[0].item if hasattr(r, "_mapping") else r.item) for r in rows]
+                    names = [r.item for r in rows]
                     return {
                         "success": False,
                         "reason": f"не нашёл «{item}» в списке",
@@ -3266,8 +3264,7 @@ class AltronAgent:
                         select(Parcel).where(Parcel.delivered_at.is_(None))
                     ))
             updated = 0
-            for r in rows:
-                obj = r[0] if hasattr(r, "_mapping") else r
+            for obj in rows:
                 try:
                     status = await client.track(obj.ttn)
                     values = {
@@ -3304,8 +3301,7 @@ class AltronAgent:
                     select(Parcel).where(Parcel.delivered_at.is_(None))
                 ))
             target = None
-            for r in rows:
-                obj = r[0] if hasattr(r, "_mapping") else r
+            for obj in rows:
                 if clean.isdigit() and clean in (obj.ttn or ""):
                     target = obj
                     break
@@ -3314,10 +3310,7 @@ class AltronAgent:
                     target = obj
                     break
             if not target:
-                names = []
-                for r in rows:
-                    obj = r[0] if hasattr(r, "_mapping") else r
-                    names.append(f"{obj.title or obj.ttn}")
+                names = [f"{obj.title or obj.ttn}" for obj in rows]
                 return {
                     "success": False,
                     "reason": f"не нашёл активную посылку по «{ttn}»",
@@ -3347,12 +3340,10 @@ class AltronAgent:
                 # Загружаем каналы для читаемых имён
                 chans_rows = list(await conn.execute(select(NewsChannel)))
                 chans = {}
-                for cr in chans_rows:
-                    obj = cr[0] if hasattr(cr, "_mapping") else cr
+                for obj in chans_rows:
                     chans[obj.channel_id] = obj.title or (obj.username or f"ch{obj.channel_id}")
             posts = []
-            for r in rows:
-                obj = r[0] if hasattr(r, "_mapping") else r
+            for obj in rows:
                 posts.append({
                     "channel": chans.get(obj.channel_id, f"ch{obj.channel_id}"),
                     "date": obj.date,
@@ -3374,8 +3365,7 @@ class AltronAgent:
                     select(NewsChannel).where(NewsChannel.active == 1)
                 ))
             channels = []
-            for r in rows:
-                obj = r[0] if hasattr(r, "_mapping") else r
+            for obj in rows:
                 channels.append({
                     "channel_id": obj.channel_id,
                     "username": obj.username or "",
@@ -3446,15 +3436,14 @@ class AltronAgent:
                     select(NewsChannel).where(NewsChannel.active == 1)
                 ))
             target = None
-            for r in rows:
-                obj = r[0] if hasattr(r, "_mapping") else r
+            for obj in rows:
                 username_n = (obj.username or "").lower()
                 title_n = (obj.title or "").lower()
                 if q_norm in username_n or q_norm in title_n:
                     target = obj
                     break
             if not target:
-                names = [((r[0].username or r[0].title) if hasattr(r, "_mapping") else (r.username or r.title)) for r in rows]
+                names = [(r.username or r.title) for r in rows]
                 return {
                     "success": False,
                     "reason": f"не нашёл канал по «{query}»",
@@ -3487,7 +3476,7 @@ class AltronAgent:
                 ))
             if not rows:
                 return {"parked": False, "note": "не помню где машина"}
-            obj = rows[0][0] if hasattr(rows[0], "_mapping") else rows[0]
+            obj = rows[0]
             return {
                 "parked": True,
                 "location": obj.value,
@@ -3517,7 +3506,7 @@ class AltronAgent:
                     )
                 ))
                 if existing:
-                    obj = existing[0][0] if hasattr(existing[0], "_mapping") else existing[0]
+                    obj = existing[0]
                     await conn.execute(
                         sql_update(FamilyFact).where(FamilyFact.id == obj.id)
                         .values(value=value, source="altron", updated_at=now)
@@ -3545,8 +3534,7 @@ class AltronAgent:
                 q = q.order_by(FamilyFact.member, FamilyFact.key)
                 rows = list(await conn.execute(q))
             facts = []
-            for r in rows:
-                obj = r[0] if hasattr(r, "_mapping") else r
+            for obj in rows:
                 facts.append({
                     "member": obj.member,
                     "key": obj.key,

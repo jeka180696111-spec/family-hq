@@ -71,7 +71,7 @@ class SmartThingsClient:
             )).first()
         if not row:
             raise RuntimeError("SmartThings: пользователь не залогинился. Открой /api/tablet/smartthings/login")
-        tok = row[0] if hasattr(row, "_mapping") else row
+        tok = row
         # Если не истёк с запасом 60с — используем как есть
         if tok.expires_at and tok.expires_at > int(time.time()) + 60:
             return tok.access_token
