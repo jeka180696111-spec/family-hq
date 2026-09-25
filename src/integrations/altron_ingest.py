@@ -160,15 +160,17 @@ class AltronDirectIngestor:
         """Список username-ов каналов из NewsChannel (только critical +
         important). Без БД — пустой список.
 
-        BUG FIX: раньше использовали conn.execute() и обращались как к
-        ORM-объекту (r.username), но Core Row не имеет атрибутов ORM.
-        Переключаем на .scalars() — получаем настоящие ORM объекты.
+        BUG FIX: conn.execute(select(NewsChannel)).scalars() на Core-коннекте
+        возвращал первую колонку (channel_id: int), а не ORM-объект. Ловили
+        AttributeError: 'int' object has no attribute 'username'. Переключаем
+        на AsyncSession — только там .scalars() даёт ORM-инстансы.
         """
         try:
             from sqlalchemy import select
+            from sqlalchemy.ext.asyncio import AsyncSession
             from src.db.models import NewsChannel
-            async with self._memory._engine.connect() as conn:
-                result = await conn.execute(
+            async with AsyncSession(self._memory._engine, expire_on_commit=False) as session:
+                result = await session.execute(
                     select(NewsChannel).where(NewsChannel.active == 1)
                 )
                 rows = result.scalars().all()
