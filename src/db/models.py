@@ -8,6 +8,7 @@ Tables: users, messages, pending_queue, approval_requests, news_channels,
 from __future__ import annotations
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Float,
     ForeignKey,
@@ -703,7 +704,9 @@ class AltronMessage(Base):
         Index("idx_altron_msgs_chat_id", "chat_id", "id"),
     )
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    chat_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    # BigInteger — Telegram supergroup chat_id -100... (13+ digits) не влезает
+    # в 32-bit INTEGER (Postgres). SQLite игнорирует, но при миграции сломает.
+    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     role: Mapped[str] = mapped_column(String, nullable=False)  # user/assistant
     content_json: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
@@ -718,6 +721,9 @@ class AltronReminder(Base):
       - «monthly 25 09:00»
     """
     __tablename__ = "altron_reminders"
+    __table_args__ = (
+        Index("idx_altron_reminders_enabled", "enabled"),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     schedule: Mapped[str] = mapped_column(String, nullable=False)
@@ -746,8 +752,11 @@ class AltronLongMemory(Base):
     поиска. content — сам факт, embedding_json — Gemini text-embedding-004
     вектор (768 float, сериализован как JSON-массив)."""
     __tablename__ = "altron_long_memory"
+    __table_args__ = (
+        Index("idx_altron_longmem_chat_kind", "chat_id", "kind"),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    chat_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     kind: Mapped[str] = mapped_column(String, nullable=False)  # decision/preference/fact/event
     content: Mapped[str] = mapped_column(Text, nullable=False)
     embedding_json: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -780,6 +789,9 @@ class AltronAnniversary(Base):
     """Дни рождения и годовщины. Хранятся день+месяц (год необязателен —
     иногда неважен для др знакомых)."""
     __tablename__ = "altron_anniversaries"
+    __table_args__ = (
+        Index("idx_altron_anniv_md", "month", "day"),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
     kind: Mapped[str] = mapped_column(String, nullable=False)  # birthday/anniversary/other

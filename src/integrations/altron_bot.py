@@ -785,6 +785,43 @@ class AltronBot:
         import re
         return re.sub(r"<[^>]+>", "", text or "")
 
+    async def _edit_or_resend(
+        self, message_id: int, text: str,
+        parse_mode: str | None = "HTML",
+    ) -> int | None:
+        """edit_message_text с fallback на send_message если Telegram
+        отверг (48h edit-лимит, «message not modified», удалён и т.п.).
+        Возвращает новый message_id если ре-отправили — иначе None."""
+        if not self._app or not self._app.bot:
+            return None
+        try:
+            await self._app.bot.edit_message_text(
+                chat_id=self._chat_id, message_id=message_id,
+                text=text, parse_mode=parse_mode,
+            )
+            return None
+        except Exception as e:
+            err_l = str(e).lower()
+            if "not modified" in err_l:
+                return None
+            # 48h edit limit / message deleted / etc. → отправляем новое.
+            log.info("altron_edit_failed_resend", err=str(e)[:100])
+            try:
+                msg = await self._app.bot.send_message(
+                    chat_id=self._chat_id, text=text, parse_mode=parse_mode,
+                )
+                return msg.message_id
+            except Exception:
+                # Последний рубеж — plain-text
+                try:
+                    msg = await self._app.bot.send_message(
+                        chat_id=self._chat_id, text=self._strip_html(text)[:4000],
+                    )
+                    return msg.message_id
+                except Exception:
+                    log.exception("altron_edit_or_resend_failed_final")
+                    return None
+
     async def _send(
         self, text: str, parse_mode: str | None = "HTML", silent: bool = False,
         override_quiet: bool = False,
@@ -1122,10 +1159,11 @@ class AltronBot:
         if not card:
             return
         try:
-            await self._app.bot.edit_message_text(
-                chat_id=self._chat_id, message_id=st["message_id"],
-                text=card, parse_mode="HTML",
+            new_id = await self._edit_or_resend(
+                st["message_id"], card, parse_mode="HTML",
             )
+            if new_id is not None:
+                st["message_id"] = new_id
             st["last_llm_at"] = time.time()
         except Exception:
             log.exception("altron_direct_update_edit_failed", region=region)
@@ -1267,11 +1305,11 @@ class AltronBot:
                                 text = self._format_altron_card(
                                     digest, region, aa.started_at, sources,
                                 )
-                                await self._app.bot.edit_message_text(
-                                    chat_id=self._chat_id,
-                                    message_id=prev["message_id"],
-                                    text=text, parse_mode="HTML",
+                                new_id = await self._edit_or_resend(
+                                    prev["message_id"], text, parse_mode="HTML",
                                 )
+                                if new_id is not None:
+                                    prev["message_id"] = new_id
                                 prev["digest_hash"] = h
                                 prev["last_digest"] = digest
                                 prev["last_sources"] = sources
@@ -1297,16 +1335,13 @@ class AltronBot:
                         continue
                     own_text = await self._own_quick_digest(region, aa.started_at, posts)
                     if own_text:
-                        try:
-                            await self._app.bot.edit_message_text(
-                                chat_id=self._chat_id,
-                                message_id=prev["message_id"],
-                                text=own_text, parse_mode="HTML",
-                            )
-                            prev["own_digest_at"] = now_ts
-                            prev["last_alert_post_id"] = max_pid
-                        except Exception:
-                            log.exception("altron_own_digest_edit_failed", region=region)
+                        new_id = await self._edit_or_resend(
+                            prev["message_id"], own_text, parse_mode="HTML",
+                        )
+                        if new_id is not None:
+                            prev["message_id"] = new_id
+                        prev["own_digest_at"] = now_ts
+                        prev["last_alert_post_id"] = max_pid
 
                 # Отбой
                 for region in list(self._alert_state.keys()):

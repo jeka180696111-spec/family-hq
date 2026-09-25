@@ -239,29 +239,40 @@ class GeminiClient:
                                 continue
                             self._working_model = m
                             self._working_key_idx = key_idx
-                            buffer = ""
-                            async for raw in resp.content:
-                                try:
-                                    line = raw.decode("utf-8").strip()
-                                except Exception:
-                                    continue
-                                if not line or not line.startswith("data:"):
-                                    continue
-                                payload = line[5:].strip()
-                                if payload == "[DONE]":
-                                    return
-                                try:
-                                    chunk = json.loads(payload)
-                                except Exception:
-                                    continue
-                                try:
-                                    parts = chunk["candidates"][0]["content"]["parts"]
-                                    for p in parts:
-                                        t = p.get("text", "")
-                                        if t:
-                                            yield t
-                                except (KeyError, IndexError):
-                                    continue
+                            # BUG FIX: раньше читали `async for raw in resp.content`
+                            # что использует StreamReader.readline с лимитом 64KB.
+                            # Крупные Gemini SSE payload'ы (длинный текст, tool
+                            # calls) регулярно >64KB → ValueError и обрыв стрима.
+                            # Читаем чанками и парсим SSE-события вручную.
+                            buffer = b""
+                            async for raw in resp.content.iter_chunked(65536):
+                                buffer += raw
+                                while b"\n\n" in buffer:
+                                    event, buffer = buffer.split(b"\n\n", 1)
+                                    try:
+                                        text_ev = event.decode("utf-8", errors="ignore")
+                                    except Exception:
+                                        continue
+                                    # SSE-событие может состоять из нескольких строк
+                                    for line in text_ev.split("\n"):
+                                        line = line.strip()
+                                        if not line or not line.startswith("data:"):
+                                            continue
+                                        payload = line[5:].strip()
+                                        if payload == "[DONE]":
+                                            return
+                                        try:
+                                            chunk = json.loads(payload)
+                                        except Exception:
+                                            continue
+                                        try:
+                                            parts = chunk["candidates"][0]["content"]["parts"]
+                                            for p in parts:
+                                                t = p.get("text", "")
+                                                if t:
+                                                    yield t
+                                        except (KeyError, IndexError):
+                                            continue
                             return
                     except Exception as e:
                         last_err = f"key#{key_idx} {m}: {e}"
@@ -496,7 +507,18 @@ class GeminiClient:
         contents: list[dict] = []
         for m in messages or []:
             role = m.get("role", "user")
-            gem_role = "user" if role == "user" else "model"
+            # BUG FIX: раньше любая роль отличная от "user" мапилась в
+            # "model". "system" сообщения переносились в "model" turn —
+            # Gemini возвращал 400. Теперь system идёт в systemInstruction
+            # выше по стеку, здесь мы его просто пропускаем.
+            if role == "system":
+                continue
+            if role == "user":
+                gem_role = "user"
+            elif role == "assistant" or role == "model":
+                gem_role = "model"
+            else:
+                gem_role = "user"  # неизвестная роль → user (безопаснее)
             content = m.get("content", "")
             if isinstance(content, str):
                 contents.append({"role": gem_role, "parts": [{"text": content}]})
