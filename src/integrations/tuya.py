@@ -67,6 +67,12 @@ class TuyaClient:
         if self._session and not self._session.closed:
             await self._session.close()
 
+    # Process-wide singleton per credential set. Десятки мест
+    # (scheduler, tools, dashboard, tablet, altron) плодили TuyaClient()
+    # каждый вызов, каждый лениво создавал aiohttp.ClientSession, а GC потом
+    # ругался «Unclosed client session». Один инстанс = одна сессия на процесс.
+    _instances: dict[tuple, "TuyaClient"] = {}
+
     @classmethod
     def from_settings(cls, settings: Any) -> "TuyaClient | None":
         aid = getattr(settings, "tuya_access_id", None)
@@ -75,7 +81,12 @@ class TuyaClient:
         region = getattr(settings, "tuya_region", "eu")
         if not (aid and secret and uid):
             return None
-        return cls(aid, secret, region, uid)
+        key = (aid, secret, uid, region)
+        inst = cls._instances.get(key)
+        if inst is None:
+            inst = cls(aid, secret, region, uid)
+            cls._instances[key] = inst
+        return inst
 
     # ─── Auth ────────────────────────────────────────────────────────
 

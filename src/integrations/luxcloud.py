@@ -54,6 +54,10 @@ class LuxCloudClient:
         self._logged_in = False
         self._host_tried: set[str] = set()
 
+    # Process-wide singleton per credential set. То же лечение, что у TuyaClient:
+    # десятки инстансов → десятки aiohttp.ClientSession → GC warning.
+    _instances: dict[tuple, "LuxCloudClient"] = {}
+
     @classmethod
     def from_settings(cls, settings: Any) -> "LuxCloudClient | None":
         email = getattr(settings, "luxcloud_email", "")
@@ -62,7 +66,12 @@ class LuxCloudClient:
         serial = getattr(settings, "lux_inverter_serial", "")
         if not (email and pwd and serial):
             return None
-        return cls(email, pwd, region, serial)
+        key = (email, pwd, region, serial)
+        inst = cls._instances.get(key)
+        if inst is None:
+            inst = cls(email, pwd, region, serial)
+            cls._instances[key] = inst
+        return inst
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
