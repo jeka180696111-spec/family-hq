@@ -1120,7 +1120,7 @@ def register_tablet_routes(
                 )).first()
             if not row:
                 return _svg_placeholder("not found")
-            bp = row[0] if hasattr(row, "_mapping") else row
+            bp = row
             local = getattr(bp, "local_path", "")
             if local and Path(local).exists():
                 return FileResponse(local)
