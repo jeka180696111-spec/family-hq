@@ -8,7 +8,8 @@ gspread
 aiofiles
 aiohttp
 tzdata
-sqlalchemy>=2.0
+sqlalchemy[asyncio]>=2.0
+greenlet>=3.0
 aiosqlite
 httpx
 python-dotenv
