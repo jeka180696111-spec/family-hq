@@ -363,19 +363,32 @@ class AltronAgent:
         когда Gemini на force_final вернул пустой text. Ищем success/error/note
         поля и склеиваем короткий человеческий отчёт.
         """
+        # BUG FIX: раньше проверяли только isinstance(b, dict), но
+        # assistant turn'ы в messages содержат SDK duck-типы (_TextBlock/
+        # _ToolUseBlock/tool_result). Теперь поддерживаем оба варианта.
+        def _bkind(b):
+            if isinstance(b, dict):
+                return b.get("type", "")
+            return getattr(b, "type", "")
+
+        def _bget(b, key, default=None):
+            if isinstance(b, dict):
+                return b.get(key, default)
+            return getattr(b, key, default)
+
         # Найти последний user turn с tool_result-блоками
         last_results: list[dict] = []
         for m in reversed(messages):
             content = m.get("content") if isinstance(m, dict) else None
             if not isinstance(content, list):
                 continue
-            block_types = {b.get("type") for b in content if isinstance(b, dict)}
+            block_types = {_bkind(b) for b in content}
             if "tool_result" in block_types:
                 for b in content:
-                    if isinstance(b, dict) and b.get("type") == "tool_result":
-                        raw = b.get("content", "")
+                    if _bkind(b) == "tool_result":
+                        raw = _bget(b, "content", "")
                         try:
-                            last_results.append(json.loads(raw))
+                            last_results.append(json.loads(raw) if isinstance(raw, str) else raw)
                         except Exception:
                             last_results.append({"note": str(raw)[:200]})
                 break
@@ -3898,10 +3911,15 @@ class AltronAgent:
     async def _tool_forecast_alerts(self, days: int = 14) -> dict:
         """Часовая гистограмма тревог за N дней + топ окон."""
         try:
-            from datetime import datetime, timedelta
+            from datetime import datetime, timedelta, timezone
             from sqlalchemy import select
             from src.db.models import NewsPost
-            since = (now_kyiv() - timedelta(days=days)).isoformat()
+            # BUG FIX: since был tz-aware ISO ('+03:00'), а NewsPost.date может
+            # быть в UTC или naive. Лексикографическое сравнение ISO даёт
+            # 3-часовое окно ошибок. Берём с запасом (лишний час) и потом
+            # фильтруем в Python.
+            cutoff_utc = (now_kyiv() - timedelta(days=days, hours=4)).astimezone(timezone.utc)
+            since = cutoff_utc.isoformat()
             async with self._memory._engine.connect() as conn:
                 rows = list(await conn.execute(
                     select(NewsPost)
@@ -3917,6 +3935,11 @@ class AltronAgent:
             for r in rows:
                 try:
                     dt = datetime.fromisoformat(r.date)
+                    # Приведём к KYIV_TZ чтобы кластеры считались по местному
+                    from src.utils.time import KYIV_TZ
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    dt = dt.astimezone(KYIV_TZ)
                     unique_hits.add((dt.date().isoformat(), dt.hour))
                 except Exception:
                     continue
@@ -5892,8 +5915,26 @@ class AltronAgent:
                 ))
             total_l = sum((r.liters or 0) for r in rows)
             total_uah = sum((r.total_uah or 0) for r in rows)
-            odo_vals = [r.odometer_km for r in rows if r.odometer_km]
-            km_run = (max(odo_vals) - min(odo_vals)) if len(odo_vals) >= 2 else None
+            # BUG FIX: раньше km_run = max-min по всем одо-значениям в окне.
+            # Если юзер сделал опечатку (пробег меньше предыдущего) или
+            # добавил новый автомобиль с 0 — km_run взрывался, а avg_l_100
+            # выдавал бред (например 300 л/100км). Теперь считаем сумму
+            # положительных приростов между последовательными заправками
+            # (по возрастанию даты) — типовые «отскоки» типа опечатки не
+            # попадают в сумму.
+            asc_rows = sorted(
+                [r for r in rows if r.odometer_km],
+                key=lambda r: r.created_at or "",
+            )
+            km_run: float | None = None
+            if len(asc_rows) >= 2:
+                total_km = 0.0
+                for a, b in zip(asc_rows, asc_rows[1:]):
+                    delta = (b.odometer_km or 0) - (a.odometer_km or 0)
+                    # только правдоподобные положительные приросты
+                    if 0 < delta < 10000:
+                        total_km += delta
+                km_run = total_km if total_km > 0 else None
             avg_l_100 = round(total_l / km_run * 100, 1) if km_run else None
             return {
                 "days": days,
@@ -6491,15 +6532,21 @@ class AltronAgent:
             ]
             messages.append({"role": "user", "content": tool_results})
 
-            # FAST PATH: если ВСЕ вызовы были write/action-tools И все успешны
-            # (или все явно неуспешны с понятным reason) — отвечаем сразу
-            # из результатов, не гоняя ещё один turn через Gemini. Пользователь
-            # видит команду выполненной И ответ одновременно.
+            # FAST PATH: если ВСЕ вызовы были fast-path tools И РЕАЛЬНО
+            # что-то сделали (не только «already called» дубликаты) —
+            # отвечаем сразу без второго turn LLM.
+            # BUG FIX: раньше если модель ре-вызывала тот же tool с теми же
+            # args, note «already called…» попадал в reply как ответ юзеру.
             if paired and all(tc.name in _FAST_PATH_TOOLS for tc, _ in paired):
-                synth = self._synth_from_results([res for _, res in paired])
-                if synth:
-                    self._append_history(chat_id, user_msg["role"], user_msg["content"])
-                    self._append_history(chat_id, "assistant", synth)
-                    return synth
+                real_results = [
+                    res for _, res in paired
+                    if not (isinstance(res, dict) and str(res.get("note", "")).startswith("already called"))
+                ]
+                if real_results:
+                    synth = self._synth_from_results(real_results)
+                    if synth:
+                        self._append_history(chat_id, user_msg["role"], user_msg["content"])
+                        self._append_history(chat_id, "assistant", synth)
+                        return synth
 
         return "Слишком долго думаю. Попробуй перефразировать?"
