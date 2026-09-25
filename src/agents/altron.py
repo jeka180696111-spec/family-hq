@@ -243,17 +243,29 @@ class _ResilientLLM:
             )
 
     async def complete_stream(self, **kwargs):
-        """Проксирует streaming. Если Gemini квоту исчерпал —
-        Claude тоже поддерживает stream, но интерфейс другой; для
-        простоты fallback просто отдаёт весь текст одним чанком."""
+        """Проксирует streaming. Если primary упал ДО первого чанка с
+        quota-error — уходим на Claude non-stream fallback. Если primary
+        уже что-то отдал — просто прекращаем, не дублируем Claude'ом.
+
+        BUG FIX: раньше при mid-stream quota-error мы уже отдали часть
+        Gemini-текста и потом дублировали ВЕСЬ Claude-ответ. Юзер видел
+        смешанный/дублированный ответ.
+        BUG FIX: раньше при падении fallback swallow'или молча — юзер
+        получал пустой ответ. Теперь пробрасываем RuntimeError, чтобы
+        handle() вернул понятное «LLM не отвечает».
+        """
+        streamed_any = False
         try:
             async for chunk in self._primary.complete_stream(**kwargs):
+                streamed_any = True
                 yield chunk
             return
         except Exception as e:
-            if not self._is_quota_err(e):
+            if not self._is_quota_err(e) or streamed_any:
+                # Либо не-quota (пробрасываем), либо уже отдали часть
+                # (не дублируем Claude'ом).
                 raise
-        # Fallback — один чанк через Claude non-stream
+        # Не отдали ни одного чанка И это quota-error → fallback на Claude
         try:
             model = getattr(self._settings, "model_cheap", "") or "claude-haiku-4-5-20251001"
             text = await self._fallback.complete(
@@ -262,8 +274,11 @@ class _ResilientLLM:
                 max_tokens=kwargs.get("max_tokens", 1024),
             )
             yield text or ""
-        except Exception:
+        except Exception as fallback_err:
             log.exception("altron_llm_fallback_stream_failed")
+            raise RuntimeError(
+                f"LLM недоступен (primary quota, fallback fail): {fallback_err}"
+            ) from fallback_err
 
     # Пробросим оставшиеся методы (vision, transcribe, etc) прямо в primary
     def __getattr__(self, item):
@@ -298,6 +313,8 @@ class AltronAgent:
         # для Этапа 2 нормально. Позже переедет в БД.
         self._history: dict[int, list[dict]] = {}
         self._HISTORY_LIMIT = 20  # сообщений (user + assistant), суммарно
+        # Живые persist-таски держим здесь чтоб GC не съел до записи в БД
+        self._persist_tasks: set[asyncio.Task] = set()
         # Маркер что Альтрон сам недавно записал переход сна ребёнка —
         # чтобы фоновый baby-watcher в AltronBot не дублировал уведомление.
         # Ключи: "asleep", "awake". Значение — unix timestamp момента записи.
@@ -392,8 +409,15 @@ class AltronAgent:
             del h[: len(h) - self._HISTORY_LIMIT]
         # Персистим в БД чтобы переживать рестарты. Не блокирует ответ:
         # ошибки логируем и продолжаем.
+        # BUG FIX: раньше без keep-reference и без shield — при timeout в
+        # bot layer таск отменялся и запись терялась. Теперь shield-им и
+        # держим ссылку (в набор в class-attr) чтоб GC не съел.
         try:
-            asyncio.create_task(self._persist_message(chat_id, role, content))
+            t = asyncio.create_task(
+                asyncio.shield(self._persist_message(chat_id, role, content))
+            )
+            self._persist_tasks.add(t)
+            t.add_done_callback(self._persist_tasks.discard)
         except Exception:
             log.exception("altron_persist_task_failed")
 
@@ -2537,16 +2561,20 @@ class AltronAgent:
                 return f"{h}ч"
             return f"{m}м"
 
-        # Текущее состояние
-        if sleeping_since and not awake_since:
+        # Текущее состояние — если оба поставлены, выигрывает БОЛЕЕ СВЕЖИЙ
+        # (последняя транзиция). BUG FIX: раньше в этом случае молча
+        # выпадали в «awake» и юзер видел ошибочный статус.
+        def _newer(a: str | None, b: str | None) -> str | None:
+            if a and b:
+                return a if a > b else b
+            return a or b
+
+        latest = _newer(sleeping_since, awake_since)
+        if latest and latest == sleeping_since:
             state = "sleeping"
             slept_for = _minutes_since(sleeping_since)
             headline = f"💤 Спит уже {_human_dur(slept_for)} (уснул в {_hm(sleeping_since)})"
-        elif awake_since and not sleeping_since:
-            state = "awake"
-            awake_for = _minutes_since(awake_since)
-            headline = f"👶 Бодрствует {_human_dur(awake_for)} (проснулся в {_hm(awake_since)})"
-        elif awake_since:
+        elif latest and latest == awake_since:
             state = "awake"
             awake_for = _minutes_since(awake_since)
             headline = f"👶 Бодрствует {_human_dur(awake_for)} (проснулся в {_hm(awake_since)})"
@@ -2743,10 +2771,16 @@ class AltronAgent:
                         sep = ":" if ":" in at_s else "."
                         hh, mm = at_s.split(sep)
                         parsed = now.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
-                        # Если получилось будущее — считаем что это вчера
+                        # BUG FIX: если parsed чуть в будущем (задержка
+                        # печати/отправки) — считаем это тем же днём. Только
+                        # если в будущем БОЛЬШЕ 3 часов (явно про прошлые
+                        # сутки) — снимаем день.
                         if parsed > now:
                             from datetime import timedelta
-                            parsed = parsed - timedelta(days=1)
+                            if (parsed - now).total_seconds() > 3 * 3600:
+                                parsed = parsed - timedelta(days=1)
+                            else:
+                                parsed = now  # берём текущее, не завтра
                         now = parsed
                     else:
                         parsed = datetime.fromisoformat(at_s)
@@ -5658,20 +5692,27 @@ class AltronAgent:
             return {"error": str(e)[:200]}
 
     async def _tool_set_reminder(self, text_: str, when_iso: str) -> dict:
-        """Напоминание = 15-минутное событие с префиксом 🔔 в Google Календаре."""
+        """Напоминание = 15-минутное событие с префиксом 🔔 в Google Календаре.
+        BUG FIX: раньше читал google_service_account_b64 (несуществующий
+        атрибут в этом деплойменте), а все остальные календарные тулы
+        используют google_service_account_json. Плюс start-datetime мог
+        быть tz-naive → Google толковал как UTC → напоминание на 3 часа
+        позже. Теперь: правильный атрибут + принудительный tz=KYIV_TZ.
+        """
         if not text_.strip() or not when_iso.strip():
             return {"error": "text и when_iso обязательны"}
         try:
             from datetime import datetime, timedelta
             from src.integrations.gcalendar import CalendarClient
-            import base64, json as _json
-            sa_b64 = getattr(self._settings, "google_service_account_b64", "")
+            from src.utils.time import KYIV_TZ
+            sa = self._settings.google_service_account_json
             cal_id = getattr(self._settings, "calendar_id", "")
-            if not sa_b64 or not cal_id:
+            if not sa or not cal_id:
                 return {"error": "Google Calendar не настроен"}
-            sa_info = _json.loads(base64.b64decode(sa_b64).decode())
-            cal = CalendarClient(service_account_info=sa_info, calendar_id=cal_id)
+            cal = CalendarClient(sa, cal_id)
             start = datetime.fromisoformat(when_iso)
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=KYIV_TZ)
             end = start + timedelta(minutes=15)
             event = await cal.create_event(
                 title=f"🔔 {text_}",
@@ -6261,18 +6302,36 @@ class AltronAgent:
                     break
 
             # 2. Выключаем большие розетки: бойлер, ТВ
+            devices_off = 0
             for dev_name in ("бойлер", "телевизор"):
                 try:
                     r = await tuya.control(dev_name, "off")
                     results.append({"device": dev_name, "result": r})
+                    devices_off += 1
                 except Exception as e:
                     results.append({"device": dev_name, "error": str(e)[:100]})
 
+            # BUG FIX: раньше возвращали success=True даже если ни одна
+            # сцена не нашлась и все розетки упали. Теперь True только
+            # когда РЕАЛЬНО что-то сделали.
+            did_something = scene_hit is not None or devices_off > 0
+            if not did_something:
+                return {
+                    "success": False,
+                    "actions": results,
+                    "note": "Не нашлась ни одна сцена и ни одна розетка не отключилась. Проверь Tuya-подключение и имена сцен.",
+                }
             return {
                 "success": True,
                 "scene_used": scene_hit,
+                "devices_off": devices_off,
                 "actions": results,
-                "note": "Аварийный режим активирован. Бойлер и ТВ отключены. Проверь холодильник и модем чтоб не разряжали батарею.",
+                "note": (
+                    "Аварийный режим активирован."
+                    + (f" Сцена: {scene_hit}." if scene_hit else "")
+                    + (f" Выключено розеток: {devices_off}." if devices_off else "")
+                    + " Проверь холодильник и модем чтоб не разряжали батарею."
+                ),
             }
         except Exception as e:
             log.exception("altron_blackout_failed")

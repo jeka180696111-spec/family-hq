@@ -56,35 +56,54 @@ SOUTH_RE = re.compile(
 
 # ─── Парсинг t.me/s/<username> ────────────────────────────────────────
 
-_POST_RE = re.compile(
-    r'<div\s+class="tgme_widget_message[^"]*"[^>]*data-post="[^/]+/(\d+)"[^>]*>.*?'
-    r'(?:<div\s+class="tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>)?'
-    r'.*?<time\s+datetime="([^"]+)"',
+# BUG FIX: старый регекс матчил через несколько постов из-за .*? между
+# data-post и <div class="tgme_widget_message_text">. Пост без text-div
+# сожрал текст следующего поста. Теперь: сначала выделяем границу
+# каждого <div class="tgme_widget_message ..."> block, потом внутри
+# ищем text и time.
+_POST_BOUNDARY_RE = re.compile(
+    r'<div\s+class="tgme_widget_message[^"]*"[^>]*data-post="[^/]+/(\d+)"[^>]*>',
     re.DOTALL,
 )
+_TEXT_IN_POST_RE = re.compile(
+    r'<div\s+class="tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>',
+    re.DOTALL,
+)
+_TIME_IN_POST_RE = re.compile(r'<time\s+datetime="([^"]+)"')
 _TAG_RE = re.compile(r"<[^>]+>")
 
 
 def _extract_posts(html: str) -> list[dict]:
-    """Из HTML превью канала достать список постов новее сверху.
+    """Из HTML превью канала достать список постов. Возвращает:
+    [{message_id: int, text: str, ts: datetime}, ...]
 
-    Возвращает: [{message_id: int, text: str, ts: datetime}, ...]
+    Идёт по постам последовательно: находит начало каждого блока, вырезает
+    ровно ЕГО фрагмент (до начала следующего), внутри ищет text+time.
+    Так пост без текста не заглатывает контент соседей.
     """
     posts: list[dict] = []
-    for m in _POST_RE.finditer(html):
+    boundaries = list(_POST_BOUNDARY_RE.finditer(html))
+    for i, m in enumerate(boundaries):
         try:
             mid = int(m.group(1))
         except Exception:
             continue
-        text_raw = m.group(2) or ""
-        # <br> → \n, срезаем остальные теги, распаковываем entities
+        # Фрагмент этого поста: от конца заголовка до начала следующего
+        chunk_start = m.end()
+        chunk_end = boundaries[i + 1].start() if i + 1 < len(boundaries) else len(html)
+        chunk = html[chunk_start:chunk_end]
+        # Текст
+        tm = _TEXT_IN_POST_RE.search(chunk)
+        text_raw = tm.group(1) if tm else ""
         text = text_raw.replace("<br/>", "\n").replace("<br>", "\n")
         text = _TAG_RE.sub("", text)
         text = unescape(text).strip()
         if not text:
             continue
+        # Время
+        tim = _TIME_IN_POST_RE.search(chunk)
         try:
-            ts = datetime.fromisoformat(m.group(3).replace("Z", "+00:00"))
+            ts = datetime.fromisoformat(tim.group(1).replace("Z", "+00:00")) if tim else datetime.now(timezone.utc)
         except Exception:
             ts = datetime.now(timezone.utc)
         posts.append({"message_id": mid, "text": text, "ts": ts})
@@ -139,14 +158,20 @@ class AltronDirectIngestor:
 
     async def _load_channels(self) -> list[str]:
         """Список username-ов каналов из NewsChannel (только critical +
-        important). Без БД — пустой список."""
+        important). Без БД — пустой список.
+
+        BUG FIX: раньше использовали conn.execute() и обращались как к
+        ORM-объекту (r.username), но Core Row не имеет атрибутов ORM.
+        Переключаем на .scalars() — получаем настоящие ORM объекты.
+        """
         try:
             from sqlalchemy import select
             from src.db.models import NewsChannel
             async with self._memory._engine.connect() as conn:
-                rows = list(await conn.execute(
+                result = await conn.execute(
                     select(NewsChannel).where(NewsChannel.active == 1)
-                ))
+                )
+                rows = result.scalars().all()
         except Exception:
             log.exception("altron_ingest_load_channels_failed")
             return []
@@ -182,6 +207,12 @@ class AltronDirectIngestor:
                         *[fetch_channel(session, u) for u in channels],
                         return_exceptions=True,
                     )
+                    # BUG FIX: раньше self._seen[u] обновлялся сразу при
+                    # обнаружении поста. Если далее коллбэк упадёт — пост
+                    # уже «помечен виденным» и на ретрае будет пропущен.
+                    # Теперь копим pending_seen и применяем ТОЛЬКО после
+                    # успешной обработки батча.
+                    pending_seen: dict[str, int] = {}
                     for u, posts in zip(channels, results):
                         if isinstance(posts, Exception) or not posts:
                             continue
@@ -189,7 +220,7 @@ class AltronDirectIngestor:
                         for p in sorted(posts, key=lambda x: x["message_id"]):
                             if p["message_id"] <= last:
                                 continue
-                            self._seen[u] = p["message_id"]
+                            pending_seen[u] = max(pending_seen.get(u, 0), p["message_id"])
                             if first_pass:
                                 # На первом проходе только запоминаем ID
                                 continue
@@ -220,14 +251,27 @@ class AltronDirectIngestor:
                                 fresh_posts_general.append((u, p))
 
                     if first_pass:
+                        # Прайминг — сохраняем все id как виденные, но не
+                        # шлём коллбэки.
+                        for u, mid in pending_seen.items():
+                            self._seen[u] = max(self._seen.get(u, 0), mid)
                         first_pass = False
                         log.info("altron_ingest_primed", channels=len(channels), seen=sum(1 for _ in self._seen))
                     else:
-                        await self._process_batch(
-                            fresh_posts_alerting,
-                            fresh_posts_clearing,
-                            fresh_posts_general,
-                        )
+                        try:
+                            await self._process_batch(
+                                fresh_posts_alerting,
+                                fresh_posts_clearing,
+                                fresh_posts_general,
+                            )
+                        except Exception:
+                            # Не коммитим pending_seen — на следующем поллинге
+                            # эти посты будут повторно обработаны.
+                            log.exception("altron_ingest_process_batch_err")
+                            raise
+                        # Коммитим только после успешной обработки.
+                        for u, mid in pending_seen.items():
+                            self._seen[u] = max(self._seen.get(u, 0), mid)
                 except asyncio.CancelledError:
                     raise
                 except Exception:
@@ -243,9 +287,13 @@ class AltronDirectIngestor:
         clearing: list[tuple[str, dict]],
         general: list[tuple[str, dict]],
     ) -> None:
-        # 1. Если пришло явное начало тревоги, а активной нет — стартуем
+        # Стартовый пост (если открываем тревогу) — исключим из update-пачки
+        starter_id: int | None = None
+
+        # 1. Явное начало тревоги, активной нет — стартуем
         if alerting and self._active is None:
             username, post = alerting[0]
+            starter_id = post.get("message_id")
             self._active = {
                 "started_at": post["ts"].astimezone().isoformat(),
                 "posts": [post],
@@ -256,7 +304,7 @@ class AltronDirectIngestor:
             except Exception:
                 log.exception("altron_ingest_on_start_cb_err")
 
-        # 2. Если явный отбой пришёл при активной — закрываем
+        # 2. Явный отбой при активной — закрываем
         if clearing and self._active is not None:
             sources = sorted(self._active["sources"])
             self._active = None
@@ -266,17 +314,19 @@ class AltronDirectIngestor:
                 log.exception("altron_ingest_on_clear_cb_err")
             return
 
-        # 3. Свежие посты во время активной тревоги — добавляем и апдейтим
+        # 3. Свежие посты во время активной тревоги — накопить и обновить.
+        # BUG FIX: не отправляем стартовый пост как update — он уже ушёл
+        # через on_start и вызвал бы дублирование первой карточки.
         if self._active is not None:
             new_posts: list[dict] = []
             for u, p in general + alerting:
-                if u == "":
+                if not u:
                     continue
-                # Только если пост актуален (после старта тревоги)
+                if starter_id is not None and p.get("message_id") == starter_id:
+                    continue
                 self._active["sources"].add(u)
                 self._active["posts"].append(p)
                 new_posts.append(p)
-            # Ограничиваем буфер — не даём разрастаться
             self._active["posts"] = self._active["posts"][-40:]
             if new_posts:
                 try:
