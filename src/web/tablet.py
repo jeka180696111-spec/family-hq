@@ -279,8 +279,15 @@ async def _build_tablet_state(memory: Any, settings: Any, agents: dict | None = 
                     "movement": movement,
                     "battery": battery,
                 })
-    except Exception:
-        log.exception("tablet_vacuum_failed")
+    except Exception as e:
+        # 401 Unauthorized от SmartThings — токен протух. Не заслуживает
+        # error+traceback каждую секунду поллинга. Логируем как warning
+        # без стека.
+        msg = str(e)
+        if "401" in msg or "unauthor" in msg.lower():
+            log.warning("tablet_vacuum_unauthorized", detail=msg[:200])
+        else:
+            log.exception("tablet_vacuum_failed")
 
     # Инвертор + автономность
     try:
