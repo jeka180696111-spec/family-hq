@@ -64,10 +64,14 @@ class WeatherClient:
 
     async def current(self, city: str | None = None) -> dict:
         target_city = city or self.default_city
-        # Try OpenWeather first if key is present
+        # Try OpenWeather first if key is present.
+        # NB: `q=<city>` на free tier OpenWeather с 2024-го возвращает 404
+        # "city not found" — эндпоинт byName задепрекейтили. Ходим по lat/lon
+        # из наших захардкоженных координат.
         if self.api_key:
             try:
-                data = await self._get("/weather", {"q": target_city})
+                lat, lon = _resolve_coords(target_city)
+                data = await self._get("/weather", {"lat": lat, "lon": lon})
                 main = data.get("main", {})
                 weather = (data.get("weather") or [{}])[0]
                 wind = data.get("wind", {})
@@ -122,7 +126,8 @@ class WeatherClient:
         target_city = city or self.default_city
         if self.api_key:
             try:
-                data = await self._get("/forecast", {"q": target_city})
+                lat, lon = _resolve_coords(target_city)
+                data = await self._get("/forecast", {"lat": lat, "lon": lon})
                 items = data.get("list", []) or []
                 max_items = max(1, min(hours // 3, len(items)))
                 out = []
