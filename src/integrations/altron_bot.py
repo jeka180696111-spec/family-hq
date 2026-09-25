@@ -771,11 +771,22 @@ class AltronBot:
                 t.cancel()
                 try:
                     await t
+                except asyncio.CancelledError:
+                    # Ожидаемо при cancel — не должно ломать shutdown
+                    # оставшихся тасков. Раньше except Exception это не
+                    # ловил (CancelledError — BaseException в py3.8+).
+                    pass
                 except Exception:
                     pass
 
+    @staticmethod
+    def _strip_html(text: str) -> str:
+        """Убрать HTML-теги для fallback-отправки в plain text."""
+        import re
+        return re.sub(r"<[^>]+>", "", text or "")
+
     async def _send(
-        self, text: str, parse_mode: str = "HTML", silent: bool = False,
+        self, text: str, parse_mode: str | None = "HTML", silent: bool = False,
         override_quiet: bool = False,
     ) -> None:
         """Отправить сообщение в чат Альтрона.
@@ -804,7 +815,16 @@ class AltronBot:
                 disable_notification=effective_silent,
             )
         except Exception:
-            log.exception("altron_bot_send_failed")
+            # BUG FIX: HTML parse может свалиться на стрей <>/& из LLM.
+            # Пробуем plain (со снятыми тегами) чтобы юзер точно увидел.
+            log.warning("altron_bot_send_html_failed_retry_plain")
+            try:
+                await self._app.bot.send_message(
+                    chat_id=self._chat_id, text=self._strip_html(text)[:4000],
+                    disable_notification=effective_silent,
+                )
+            except Exception:
+                log.exception("altron_bot_send_failed_final")
 
     async def _maybe_fast_home_command(self, text: str, msg) -> bool:
         """Быстрый прямой Tuya-путь для команд вида «включи/выключи X».
@@ -851,8 +871,17 @@ class AltronBot:
             return False
 
     async def _is_mom_mode(self) -> bool:
-        """Кэш+проверка флага мама-режима."""
-        if self._mom_mode_cache is not None:
+        """Кэш+проверка флага мама-режима.
+        BUG FIX: раньше кэш никогда не инвалидировался — set_mom_mode
+        менял БД, но _send() читал старое значение. Теперь кэш
+        живёт максимум 60с, потом принудительный refetch.
+        """
+        import time as _t
+        now_ts = _t.time()
+        ttl = 60
+        if self._mom_mode_cache is not None and (
+            now_ts - getattr(self, "_mom_mode_cache_ts", 0) < ttl
+        ):
             return self._mom_mode_cache
         try:
             from sqlalchemy import select
@@ -864,6 +893,7 @@ class AltronBot:
                     .where(FamilyFact.key == "mom_mode")
                 )).first()
             self._mom_mode_cache = bool(row and str(row.value or "").lower() == "on")
+            self._mom_mode_cache_ts = now_ts
             return self._mom_mode_cache
         except Exception:
             return False
@@ -871,15 +901,27 @@ class AltronBot:
     def _is_quiet_hours(self) -> bool:
         """Проверка попадания в настроенное окно тишины. Читаем из
         FamilyFact(member='altron', key='quiet_hours') значение вида
-        '22:00-07:00'. Если факта нет — используем дефолт 22:00-07:00."""
+        '22:00-07:00'. Если факта нет — используем дефолт 22:00-07:00.
+
+        BUG FIX: раньше _reload_quiet_window ставил в кэш дефолт и
+        плановал фоновый refresh, но кэш держался 5 мин с ts=now — за это
+        время БД-значение никогда не попадало в _quiet_window_cache. Теперь
+        как только async-refresh положил свежее в _last_quiet_window,
+        инвалидируем cache-ts и следующий чек его подтянет.
+        """
         try:
             from src.utils.time import now_kyiv
             hm_now = now_kyiv().strftime("%H:%M")
             window = getattr(self, "_quiet_window_cache", None)
-            # Кэш валиден 5 мин, чтобы не дёргать БД на каждое сообщение
             import time
             now_ts = time.time()
-            if window is None or (now_ts - window.get("ts", 0)) > 300:
+            # Если фоновый refresh уже положил свежее, подхватываем
+            last_bg = getattr(self, "_last_quiet_window", None)
+            if last_bg is not None and window is not last_bg:
+                window = {**last_bg, "ts": now_ts}
+                self._quiet_window_cache = window
+            elif window is None or (now_ts - window.get("ts", 0)) > 60:
+                # Триггерим async refresh + дефолт на этот тик
                 window = self._reload_quiet_window()
                 window["ts"] = now_ts
                 self._quiet_window_cache = window
@@ -887,8 +929,6 @@ class AltronBot:
             end = window.get("end", "07:00")
             if not window.get("enabled", True):
                 return False
-            # Ночной интервал (start > end) — считаем «в тишине если
-            # now >= start ИЛИ now < end».
             if start > end:
                 return hm_now >= start or hm_now < end
             return start <= hm_now < end
@@ -896,12 +936,10 @@ class AltronBot:
             return False
 
     def _reload_quiet_window(self) -> dict:
-        """Синхронно достаём тихое окно. Fallback — дефолт."""
-        # Не блокируем реальный БД-запрос здесь; кэш пусть подтянет
-        # в фоне.
+        """Синхронно достаём тихое окно. Fallback — дефолт, но фоново
+        обновит _last_quiet_window; следующий _is_quiet_hours его увидит."""
         default = {"start": "22:00", "end": "07:00", "enabled": True}
         try:
-            import asyncio
             asyncio.create_task(self._async_refresh_quiet_window())
         except Exception:
             pass
@@ -947,7 +985,18 @@ class AltronBot:
             rows: list[list] = []
             for opt in options[:6]:
                 # callback_data ограничен 64 байтами — режем
-                cd = opt[:60]
+                # BUG FIX: Telegram callback_data limit — 64 БАЙТА, не chars.
+                # Кириллица UTF-8 = 2 байта/символ, ru опция > 32 симв → 64+ байт.
+                cd_bytes = opt.encode("utf-8")[:60]
+                # Обрежем на границе UTF-8, чтоб не оставить полусимвол
+                for cut in range(60, 55, -1):
+                    try:
+                        cd = cd_bytes[:cut].decode("utf-8")
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                else:
+                    cd = opt[:20]  # fallback
                 btn = InlineKeyboardButton(text=opt[:32], callback_data=cd)
                 if len(opt) > 15:
                     rows.append([btn])
@@ -1000,21 +1049,33 @@ class AltronBot:
     # ─── Direct ingest (свой сбор постов) ─────────────────────────
 
     async def _run_direct_ingest(self) -> None:
-        """Запуск AltronDirectIngestor с колбэками на текущий бот."""
+        """Запуск AltronDirectIngestor с колбэками на текущий бот.
+        BUG FIX: раньше при любой не-CancelledError ошибке ingest падал и
+        больше не поднимался — тревоги молча пропадали до рестарта. Теперь
+        рестартуем с экспоненциальным бэк-оффом (60→300с)."""
         from src.integrations.altron_ingest import AltronDirectIngestor
 
-        ing = AltronDirectIngestor(
-            memory=self._memory,
-            on_alert_start=self._direct_on_start,
-            on_alert_update=self._direct_on_update,
-            on_alert_clear=self._direct_on_clear,
-        )
-        try:
-            await ing.run()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            log.exception("altron_direct_ingest_crashed")
+        backoff = 60
+        while True:
+            ing = AltronDirectIngestor(
+                memory=self._memory,
+                on_alert_start=self._direct_on_start,
+                on_alert_update=self._direct_on_update,
+                on_alert_clear=self._direct_on_clear,
+            )
+            try:
+                await ing.run()
+                return  # штатное завершение — обычно только при cancel
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("altron_direct_ingest_crashed_restart",
+                              backoff=backoff)
+                try:
+                    await asyncio.sleep(backoff)
+                except asyncio.CancelledError:
+                    raise
+                backoff = min(300, backoff * 2)
 
     async def _direct_on_start(self, region: str, post: dict, sources: list[str]) -> None:
         """Callback: пришёл первый alert-пост. Отправляем карточку."""
