@@ -697,12 +697,29 @@ class TuyaClient:
         import json
         body = json.dumps({"commands": commands})
         data = await self._request("POST", f"/v1.0/devices/{target['id']}/commands", body=body)
+        # Диагностика: логируем что за DP-коды у лампы и что мы туда отправили.
+        # Полезно когда success=True, но цвет реально не поменялся —
+        # значит лампа приняла команду но игнорирует конкретный код.
+        dp_codes = [{"code": s.get("code"), "value_type": type(s.get("value")).__name__}
+                    for s in status]
+        log.info(
+            "tuya_set_light",
+            device=target["name"], device_id=target["id"], online=target.get("online"),
+            dp_codes=[s.get("code") for s in status],
+            commands=commands,
+            api_success=data.get("success"),
+            api_code=data.get("code"),
+            api_msg=str(data.get("msg", ""))[:200],
+        )
         return {
             "device": target["name"],
             "action": "set_light",
+            "online": target.get("online"),
+            "dp_codes": dp_codes,
             "commands": commands,
             "success": data.get("success", False),
             "raw": data.get("msg", ""),
+            "code": data.get("code"),
         }
 
     async def set_mode(self, device: str, mode: str, temperature: int = 24) -> dict:
