@@ -1145,22 +1145,57 @@ class TuyaClient:
 
     @classmethod
     def _find_device(cls, devices: list[dict], needle: str) -> dict | None:
+        import re
         n = (needle or "").strip().lower()
         if not n:
             return None
-        for d in devices:
-            if d["id"] == needle:
-                return d
-            if n in d.get("name", "").lower():
-                return d
-        # Try synonyms — expand the needle into every alias and look for
-        # device names containing any of them.
+        # Prep normalized needles: raw, plus «стрипнутый» — снимаем слова-паразиты
+        # вроде «лампа», «свет», «лента», «в», «на», «моя», предлоги/окончания
+        # адъектив-форм («детской» → «детская»). LLM часто шлёт «лампа детской»,
+        # «свет в детской», а устройство в Smart Life названо просто «Детская».
+        stopwords = {
+            "лампа", "лампу", "лампочка", "лампочку",
+            "свет", "света", "света", "освещение",
+            "лента", "ленту", "ленты",
+            "светильник", "торшер", "бра", "плафон", "люстра",
+            "в", "на", "из", "у", "к", "по", "моя", "мой", "это",
+        }
+        def _norm(s: str) -> str:
+            # рудиментарный лемматизатор для «-ой/-ей» → базовой формы «-ая»
+            # (детской→детская, спальней→спальня, кухней→кухня)
+            s = re.sub(r"(?<=[а-яё])(ой|ей)\b", "ая", s)
+            return s
+
+        needles = {n}
+        # без стоп-слов
+        parts = [p for p in re.split(r"\s+", n) if p and p not in stopwords]
+        stripped = " ".join(parts).strip()
+        if stripped and stripped != n:
+            needles.add(stripped)
+        # лемматизованные варианты
+        for cand in list(needles):
+            needles.add(_norm(cand))
+        # каждое отдельное значимое слово тоже пробуем как самостоятельный needle
+        for p in parts:
+            needles.add(p)
+            needles.add(_norm(p))
+
+        # 1) точный id или подстрочный матч по любому нидлу
+        for candidate in sorted(needles, key=len, reverse=True):
+            for d in devices:
+                if d["id"] == needle:
+                    return d
+                name = d.get("name", "").lower()
+                if candidate and candidate in name:
+                    return d
+        # 2) синонимы (сохраняем прежнее поведение)
         expanded: set[str] = set()
-        for group in cls._SYNONYM_GROUPS:
-            if n in group:
-                expanded.update(group)
+        for cand in needles:
+            for group in cls._SYNONYM_GROUPS:
+                if cand in group:
+                    expanded.update(group)
         for syn in expanded:
-            if syn == n:
+            if syn in needles:
                 continue
             for d in devices:
                 if syn in d.get("name", "").lower():
