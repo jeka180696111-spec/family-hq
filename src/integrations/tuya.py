@@ -549,6 +549,162 @@ class TuyaClient:
             "raw": data.get("msg", ""),
         }
 
+    # ─── Lights (RGBW / RGBWW / dimmable / LED strip) ─────────────────
+    #
+    # Стандартные DP-коды Tuya для category='dj' (Light):
+    #   switch_led    on/off (обычно; _smart_control уже это ловит)
+    #   work_mode     enum: white | colour | scene | music
+    #   bright_value  brightness (обычно 10-1000)
+    #   temp_value    color temperature (0=тёплый, 1000=холодный)
+    #   colour_data   HSV: {"h": 0-360, "s": 0-1000, "v": 0-1000}
+    # Часто встречаются варианты с суффиксом _v2 — ловим оба через _find_dp_code.
+
+    _COLOR_NAMES = {
+        "красный": (0, 1000, 1000),   "red": (0, 1000, 1000),
+        "оранжевый": (30, 1000, 1000), "orange": (30, 1000, 1000),
+        "жёлтый": (60, 1000, 1000), "желтый": (60, 1000, 1000), "yellow": (60, 1000, 1000),
+        "зелёный": (120, 1000, 1000), "зеленый": (120, 1000, 1000), "green": (120, 1000, 1000),
+        "бирюзовый": (170, 1000, 1000), "cyan": (180, 1000, 1000),
+        "голубой": (200, 1000, 1000), "sky": (200, 1000, 1000),
+        "синий": (240, 1000, 1000), "blue": (240, 1000, 1000),
+        "фиолетовый": (270, 1000, 1000), "purple": (280, 1000, 1000),
+        "розовый": (320, 1000, 1000), "pink": (330, 1000, 1000),
+        "тёплый": None, "теплый": None, "warm": None,
+        "холодный": None, "cool": None, "cold": None,
+        "белый": None, "white": None,
+    }
+
+    @staticmethod
+    def _find_dp_code(status: list[dict], *candidates: str) -> str | None:
+        codes = [s.get("code", "") for s in status]
+        for c in candidates:
+            if c in codes:
+                return c
+        for c in candidates:
+            v2 = f"{c}_v2"
+            if v2 in codes:
+                return v2
+        return None
+
+    @staticmethod
+    def _hex_to_hsv(hx: str) -> tuple[int, int, int]:
+        """#RRGGBB → (h 0-360, s 0-1000, v 0-1000)."""
+        import colorsys
+        h = hx.lstrip("#").strip()
+        if len(h) == 3:
+            h = "".join(c * 2 for c in h)
+        if len(h) != 6:
+            raise ValueError(f"bad hex color: {hx!r}")
+        r, g, b = int(h[0:2], 16) / 255, int(h[2:4], 16) / 255, int(h[4:6], 16) / 255
+        hh, ss, vv = colorsys.rgb_to_hsv(r, g, b)
+        return int(hh * 360), int(ss * 1000), int(vv * 1000)
+
+    async def set_light(
+        self, device: str,
+        color: str | None = None,
+        brightness_pct: int | None = None,
+        color_temp_pct: int | None = None,
+    ) -> dict:
+        """Управление лампой / RGB-лентой / dimmable-светом. Как минимум один
+        параметр должен быть задан. Если девайс выключен — включит."""
+        if color is None and brightness_pct is None and color_temp_pct is None:
+            return {"error": "нужен хотя бы один параметр: color / brightness_pct / color_temp_pct"}
+
+        devices = await self.list_devices()
+        target = self._find_device(devices, device)
+        if not target:
+            return {
+                "error": f"Не нашёл устройство '{device}'",
+                "available": [d["name"] for d in devices],
+            }
+        status = target.get("status", []) or []
+        commands: list[dict] = []
+
+        switch_code = self._find_dp_code(status, "switch_led", "switch", "led_switch")
+        if switch_code:
+            commands.append({"code": switch_code, "value": True})
+
+        # Colour path
+        if color is not None:
+            c_norm = color.strip().lower()
+            is_hex = c_norm.startswith("#") or (
+                len(c_norm) in (3, 6) and all(ch in "0123456789abcdef" for ch in c_norm.lstrip("#"))
+            )
+            if is_hex:
+                try:
+                    h, s, v = self._hex_to_hsv(c_norm)
+                except Exception as e:
+                    return {"error": f"не смог разобрать hex {color!r}: {e}"}
+                if brightness_pct is not None:
+                    v = max(10, min(1000, int(brightness_pct) * 10))
+                colour_code = self._find_dp_code(status, "colour_data") or "colour_data"
+                mode_code = self._find_dp_code(status, "work_mode") or "work_mode"
+                commands.append({"code": mode_code, "value": "colour"})
+                commands.append({"code": colour_code, "value": {"h": h, "s": s, "v": v}})
+            elif c_norm in self._COLOR_NAMES:
+                spec = self._COLOR_NAMES[c_norm]
+                mode_code = self._find_dp_code(status, "work_mode") or "work_mode"
+                if spec is None:
+                    temp_val = 500
+                    if c_norm in ("тёплый", "теплый", "warm"):
+                        temp_val = 0
+                    elif c_norm in ("холодный", "cool", "cold"):
+                        temp_val = 1000
+                    commands.append({"code": mode_code, "value": "white"})
+                    temp_code = self._find_dp_code(status, "temp_value")
+                    if temp_code:
+                        commands.append({"code": temp_code, "value": temp_val})
+                    if brightness_pct is not None:
+                        bcode = self._find_dp_code(status, "bright_value")
+                        if bcode:
+                            commands.append({"code": bcode, "value": max(10, min(1000, int(brightness_pct) * 10))})
+                else:
+                    h, s, v = spec
+                    if brightness_pct is not None:
+                        v = max(10, min(1000, int(brightness_pct) * 10))
+                    colour_code = self._find_dp_code(status, "colour_data") or "colour_data"
+                    commands.append({"code": mode_code, "value": "colour"})
+                    commands.append({"code": colour_code, "value": {"h": h, "s": s, "v": v}})
+            else:
+                return {
+                    "error": f"цвет {color!r} не распознан",
+                    "valid": sorted(self._COLOR_NAMES.keys()) + ["#RRGGBB"],
+                }
+        elif color_temp_pct is not None:
+            try:
+                pct = max(0, min(100, int(color_temp_pct)))
+            except (TypeError, ValueError):
+                return {"error": f"color_temp_pct должен быть 0-100, получено {color_temp_pct!r}"}
+            mode_code = self._find_dp_code(status, "work_mode") or "work_mode"
+            temp_code = self._find_dp_code(status, "temp_value")
+            commands.append({"code": mode_code, "value": "white"})
+            if temp_code:
+                commands.append({"code": temp_code, "value": pct * 10})
+
+        # Standalone brightness
+        if brightness_pct is not None and color is None:
+            try:
+                b = max(1, min(100, int(brightness_pct)))
+            except (TypeError, ValueError):
+                return {"error": f"brightness_pct должен быть 1-100, получено {brightness_pct!r}"}
+            bcode = self._find_dp_code(status, "bright_value")
+            if bcode:
+                commands.append({"code": bcode, "value": b * 10})
+
+        if not commands:
+            return {"error": "не собрал ни одной команды"}
+
+        import json
+        body = json.dumps({"commands": commands})
+        data = await self._request("POST", f"/v1.0/devices/{target['id']}/commands", body=body)
+        return {
+            "device": target["name"],
+            "action": "set_light",
+            "commands": commands,
+            "success": data.get("success", False),
+            "raw": data.get("msg", ""),
+        }
+
     async def set_mode(self, device: str, mode: str, temperature: int = 24) -> dict:
         """Set AC mode. Accepts ru/en aliases — see _MODE_ALIASES.
         For IR ACs the command bundles mode+temp, so we also accept a temp."""
