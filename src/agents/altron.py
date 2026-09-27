@@ -576,6 +576,96 @@ class AltronAgent:
                 },
             },
             {
+                "name": "set_light",
+                "description": (
+                    "Прямое управление лампой / RGB-лентой / любой умной лампой Tuya — БЕЗ готовых сцен. "
+                    "Меняет цвет, яркость и/или цветовую температуру. Если девайс выключен — включит. "
+                    "Триггеры: «сделай ленту синей», «лампа в детской 20%», «тёплый белый в спальне», "
+                    "«ленту красным на 30%», «холодный свет на кухне», «розовый в детской»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "device": {
+                            "type": "string",
+                            "description": "Имя лампы / ленты как в Smart Life: «лента», «лампа детской», «торшер».",
+                        },
+                        "color": {
+                            "type": "string",
+                            "description": (
+                                "Цвет. Либо hex вида '#FF00AA' / 'FF00AA', либо имя: "
+                                "красный/оранжевый/жёлтый/зелёный/бирюзовый/голубой/синий/фиолетовый/розовый, "
+                                "либо для белого света: тёплый / белый / холодный."
+                            ),
+                        },
+                        "brightness_pct": {
+                            "type": "integer",
+                            "description": "Яркость 1-100. Опционально.",
+                        },
+                        "color_temp_pct": {
+                            "type": "integer",
+                            "description": "Температура белого 0-100 (0=тёплый, 100=холодный). Только если color не задан.",
+                        },
+                    },
+                    "required": ["device"],
+                },
+            },
+            {
+                "name": "set_ac_mode",
+                "description": (
+                    "Переключить режим кондиционера: охлаждение / обогрев / осушение / вентиляция / авто. "
+                    "Триггеры: «включи кондер на охлаждение», «переведи на обогрев», «поставь авто-режим»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "device": {"type": "string", "description": "Имя кондиционера, обычно «кондер»."},
+                        "mode": {
+                            "type": "string",
+                            "description": "Режим: cool/heat/dry/fan/auto (или ru: охлаждение/обогрев/осушение/вентилятор/авто).",
+                        },
+                        "temperature": {
+                            "type": "integer",
+                            "description": "Опционально. Температура 16-30°C. По умолчанию 24.",
+                        },
+                    },
+                    "required": ["device", "mode"],
+                },
+            },
+            {
+                "name": "set_ac_temperature",
+                "description": (
+                    "Установить целевую температуру кондиционера (16-30°C). "
+                    "Триггеры: «поставь кондер на 22», «прохладнее в комнате», «сделай 20 градусов»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "device": {"type": "string", "description": "Имя кондиционера."},
+                        "temperature": {"type": "integer", "description": "Целевая температура 16-30°C."},
+                    },
+                    "required": ["device", "temperature"],
+                },
+            },
+            {
+                "name": "set_ac_fan_speed",
+                "description": (
+                    "Скорость вентилятора кондиционера: авто/тихо/средняя/высокая. "
+                    "Триггеры: «включи потише», «на макс», «в турбо-режиме»."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "device": {"type": "string", "description": "Имя кондиционера."},
+                        "speed": {
+                            "type": "string",
+                            "description": "auto/low/med/high (или ru: авто/тихо/средняя/высокая/макс/турбо).",
+                        },
+                    },
+                    "required": ["device", "speed"],
+                },
+            },
+            {
                 "name": "record_baby_event",
                 "description": (
                     "Записать событие Матвея (в дневник Google Sheets + BabyState для UI). "
@@ -2121,6 +2211,29 @@ class AltronAgent:
                 return await self._tool_control_socket(
                     args.get("device") or "", args.get("action") or "toggle",
                 )
+            if name == "set_light":
+                return await self._tool_set_light(
+                    device=args.get("device") or "",
+                    color=args.get("color"),
+                    brightness_pct=args.get("brightness_pct"),
+                    color_temp_pct=args.get("color_temp_pct"),
+                )
+            if name == "set_ac_mode":
+                return await self._tool_set_ac_mode(
+                    device=args.get("device") or "кондер",
+                    mode=args.get("mode") or "",
+                    temperature=args.get("temperature"),
+                )
+            if name == "set_ac_temperature":
+                return await self._tool_set_ac_temperature(
+                    device=args.get("device") or "кондер",
+                    temperature=args.get("temperature"),
+                )
+            if name == "set_ac_fan_speed":
+                return await self._tool_set_ac_fan_speed(
+                    device=args.get("device") or "кондер",
+                    speed=args.get("speed") or "",
+                )
             if name == "record_baby_event":
                 return await self._tool_record_baby_event(
                     kind=args.get("kind") or "note",
@@ -2756,6 +2869,82 @@ class AltronAgent:
             return result
         except Exception as e:
             log.exception("altron_socket_failed", device=device, action=action)
+            return {"error": str(e)[:200]}
+
+    async def _tool_set_light(
+        self, device: str,
+        color: str | None = None,
+        brightness_pct: Any = None,
+        color_temp_pct: Any = None,
+    ) -> dict:
+        """Прямое управление лампой/лентой — цвет/яркость/температура белого."""
+        if not device.strip():
+            return {"error": "device is empty"}
+        try:
+            from src.integrations.tuya import TuyaClient
+            tuya = TuyaClient.from_settings(self._settings)
+            if not tuya:
+                return {"error": "Tuya не настроен"}
+            def _int_or_none(v):
+                if v is None or v == "":
+                    return None
+                try:
+                    return int(v)
+                except (TypeError, ValueError):
+                    return None
+            return await tuya.set_light(
+                device=device,
+                color=color if color else None,
+                brightness_pct=_int_or_none(brightness_pct),
+                color_temp_pct=_int_or_none(color_temp_pct),
+            )
+        except Exception as e:
+            log.exception("altron_set_light_failed", device=device)
+            return {"error": str(e)[:200]}
+
+    async def _tool_set_ac_mode(self, device: str, mode: str, temperature: Any = None) -> dict:
+        if not mode.strip():
+            return {"error": "mode is empty"}
+        try:
+            from src.integrations.tuya import TuyaClient
+            tuya = TuyaClient.from_settings(self._settings)
+            if not tuya:
+                return {"error": "Tuya не настроен"}
+            try:
+                t = int(temperature) if temperature not in (None, "") else 24
+            except (TypeError, ValueError):
+                t = 24
+            return await tuya.set_mode(device, mode, temperature=t)
+        except Exception as e:
+            log.exception("altron_set_ac_mode_failed", device=device, mode=mode)
+            return {"error": str(e)[:200]}
+
+    async def _tool_set_ac_temperature(self, device: str, temperature: Any) -> dict:
+        try:
+            t = int(temperature)
+        except (TypeError, ValueError):
+            return {"error": f"temperature must be int, got {temperature!r}"}
+        try:
+            from src.integrations.tuya import TuyaClient
+            tuya = TuyaClient.from_settings(self._settings)
+            if not tuya:
+                return {"error": "Tuya не настроен"}
+            return await tuya.set_temperature(device, t)
+        except Exception as e:
+            log.exception("altron_set_ac_temp_failed", device=device, temperature=t)
+            return {"error": str(e)[:200]}
+
+    async def _tool_set_ac_fan_speed(self, device: str, speed: str) -> dict:
+        if not speed.strip():
+            return {"error": "speed is empty"}
+        try:
+            from src.integrations.tuya import TuyaClient
+            tuya = TuyaClient.from_settings(self._settings)
+            if not tuya:
+                return {"error": "Tuya не настроен"}
+            return await tuya.set_fan_speed(device, speed)
+        except Exception as e:
+            log.exception("altron_set_ac_fan_failed", device=device, speed=speed)
             return {"error": str(e)[:200]}
 
     async def _tool_record_baby_event(
