@@ -21,8 +21,9 @@ log = structlog.get_logger()
 
 
 _MODEL_CANDIDATES = (
-    # Lite first — higher free-tier quotas, fewer 429s under family usage
-    "gemini-flash-lite-latest",
+    # Lite first — higher free-tier quotas, fewer 429s under family usage.
+    # NB: 2026-09 «gemini-flash-lite-latest» алиас Google перестал резолвить
+    # (стабильно 404). Убран из списка, поднят 2.5-flash-lite первым.
     "gemini-2.5-flash-lite",
     "gemini-2.0-flash-lite",
     "gemini-2.0-flash-lite-001",
@@ -343,7 +344,6 @@ class GeminiClient:
 
         # Only models with vision support — lite variants and flash.
         vision_models = (
-            "gemini-flash-lite-latest",
             "gemini-2.5-flash-lite",
             "gemini-2.5-flash",
             "gemini-2.0-flash",
@@ -399,7 +399,6 @@ class GeminiClient:
             "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.1},
         }
         audio_models = (
-            "gemini-flash-lite-latest",
             "gemini-2.5-flash-lite",
             "gemini-2.5-flash",
             "gemini-2.0-flash",
