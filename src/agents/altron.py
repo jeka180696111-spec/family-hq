@@ -203,44 +203,75 @@ class _ResilientLLM:
     он одинаковый — duck-typed message с .content блоками)."""
 
     QUOTA_MARKERS = ("429", "quota", "all keys", "rate limit", "all keys×models failed")
+    # Ошибки Claude которые означают «нет денег / нет ключа / отключен» —
+    # ретраить бесполезно, отключаем fallback на процесс.
+    CLAUDE_DEAD_MARKERS = (
+        "credit balance", "invalid_request_error", "authentication",
+        "invalid x-api-key", "unauthorized", "permission_denied",
+        "no api key", "insufficient",
+    )
 
     def __init__(self, primary: Any, fallback: Any, settings: Any) -> None:
         self._primary = primary
         self._fallback = fallback
         self._settings = settings
+        # Sticky-флаг: если Claude вернул invalid_request/no-money — больше
+        # его не дёргаем до перезапуска. Иначе self-check вечно шумит
+        # «Both primary and backup failed», хотя проблема только в деньгах.
+        self._fallback_disabled = False
 
     def _is_quota_err(self, exc: Exception) -> bool:
         msg = str(exc).lower()
         return any(m in msg for m in self.QUOTA_MARKERS)
 
+    def _maybe_disable_fallback(self, exc: Exception) -> None:
+        msg = str(exc).lower()
+        if any(m in msg for m in self.CLAUDE_DEAD_MARKERS):
+            if not self._fallback_disabled:
+                log.warning(
+                    "altron_llm_fallback_disabled_permanently",
+                    reason=str(exc)[:200],
+                )
+            self._fallback_disabled = True
+
     async def complete(self, **kwargs) -> str:
         try:
             return await self._primary.complete(**kwargs)
         except Exception as e:
-            if not self._is_quota_err(e):
+            if not self._is_quota_err(e) or self._fallback_disabled:
                 raise
             log.warning("altron_llm_fallback_claude_complete", err=str(e)[:150])
             model = getattr(self._settings, "model_cheap", "") or "claude-haiku-4-5-20251001"
-            return await self._fallback.complete(
-                model=model, system=kwargs.get("system", ""),
-                messages=kwargs.get("messages") or [],
-                max_tokens=kwargs.get("max_tokens", 1024),
-            )
+            try:
+                return await self._fallback.complete(
+                    model=model, system=kwargs.get("system", ""),
+                    messages=kwargs.get("messages") or [],
+                    max_tokens=kwargs.get("max_tokens", 1024),
+                )
+            except Exception as fb_err:
+                self._maybe_disable_fallback(fb_err)
+                # Пробрасываем исходную ошибку Gemini — она понятнее для
+                # self-check и логов, чем «Claude money».
+                raise e
 
     async def complete_with_tools(self, **kwargs) -> Any:
         try:
             return await self._primary.complete_with_tools(**kwargs)
         except Exception as e:
-            if not self._is_quota_err(e):
+            if not self._is_quota_err(e) or self._fallback_disabled:
                 raise
             log.warning("altron_llm_fallback_claude_tools", err=str(e)[:150])
             model = getattr(self._settings, "model_cheap", "") or "claude-haiku-4-5-20251001"
-            return await self._fallback.complete_with_tools(
-                model=model, system=kwargs.get("system", ""),
-                messages=kwargs.get("messages") or [],
-                tools=kwargs.get("tools") or [],
-                max_tokens=kwargs.get("max_tokens", 2048),
-            )
+            try:
+                return await self._fallback.complete_with_tools(
+                    model=model, system=kwargs.get("system", ""),
+                    messages=kwargs.get("messages") or [],
+                    tools=kwargs.get("tools") or [],
+                    max_tokens=kwargs.get("max_tokens", 2048),
+                )
+            except Exception as fb_err:
+                self._maybe_disable_fallback(fb_err)
+                raise e
 
     async def complete_stream(self, **kwargs):
         """Проксирует streaming. Если primary упал ДО первого чанка с
@@ -255,6 +286,7 @@ class _ResilientLLM:
         handle() вернул понятное «LLM не отвечает».
         """
         streamed_any = False
+        gemini_err: Exception | None = None
         try:
             async for chunk in self._primary.complete_stream(**kwargs):
                 streamed_any = True
@@ -262,9 +294,12 @@ class _ResilientLLM:
             return
         except Exception as e:
             if not self._is_quota_err(e) or streamed_any:
-                # Либо не-quota (пробрасываем), либо уже отдали часть
-                # (не дублируем Claude'ом).
                 raise
+            if self._fallback_disabled:
+                # Claude раньше сдох по деньгам — не пытаемся, отдаём
+                # Gemini-ошибку как есть.
+                raise
+            gemini_err = e
         # Не отдали ни одного чанка И это quota-error → fallback на Claude
         try:
             model = getattr(self._settings, "model_cheap", "") or "claude-haiku-4-5-20251001"
@@ -275,10 +310,10 @@ class _ResilientLLM:
             )
             yield text or ""
         except Exception as fallback_err:
-            log.exception("altron_llm_fallback_stream_failed")
-            raise RuntimeError(
-                f"LLM недоступен (primary quota, fallback fail): {fallback_err}"
-            ) from fallback_err
+            self._maybe_disable_fallback(fallback_err)
+            log.warning("altron_llm_fallback_stream_failed", err=str(fallback_err)[:150])
+            # Пробрасываем исходную Gemini-ошибку — она правдивая.
+            raise gemini_err or fallback_err
 
     # Пробросим оставшиеся методы (vision, transcribe, etc) прямо в primary
     def __getattr__(self, item):
