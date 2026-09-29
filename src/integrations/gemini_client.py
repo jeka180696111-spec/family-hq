@@ -22,24 +22,36 @@ log = structlog.get_logger()
 
 _MODEL_CANDIDATES = (
     # Lite first — higher free-tier quotas, fewer 429s under family usage.
-    # NB: 2026-09 «gemini-flash-lite-latest» алиас Google перестал резолвить
-    # (стабильно 404). Убран из списка, поднят 2.5-flash-lite первым.
+    # NB: 2026-09 Google перестал резолвить «gemini-flash-lite-latest» и
+    # все «gemini-1.5-*» (deprecated → 404). Оставляем только актуальное.
     "gemini-2.5-flash-lite",
     "gemini-2.0-flash-lite",
     "gemini-2.0-flash-lite-001",
-    # Then full flash variants (lower quota, often quota-exhausted on free tier)
+    # Then full flash variants (lower quota, чаще 429 на free)
     "gemini-2.5-flash",
     "gemini-2.0-flash",
     "gemini-2.0-flash-001",
-    "gemini-1.5-flash-latest",
-    "gemini-1.5-flash-002",
-    "gemini-1.5-flash",
-    # Pro variants last — tightest quota, but most capable
+    # Pro в самом хвосте — узкая квота
     "gemini-2.5-pro",
-    "gemini-1.5-pro-latest",
-    "gemini-1.5-pro-002",
-    "gemini-1.5-pro",
 )
+
+# Устаревшие имена которые Google больше не резолвит. Если пользователь
+# в env поставил такой — молча подменяем на живой ближайший аналог,
+# чтобы не тратить один вызов на 404.
+_DEPRECATED_MODEL_MAP = {
+    "gemini-flash-lite-latest": "gemini-2.5-flash-lite",
+    "gemini-1.5-flash": "gemini-2.5-flash-lite",
+    "gemini-1.5-flash-latest": "gemini-2.5-flash-lite",
+    "gemini-1.5-flash-002": "gemini-2.5-flash-lite",
+    "gemini-1.5-pro": "gemini-2.5-pro",
+    "gemini-1.5-pro-latest": "gemini-2.5-pro",
+    "gemini-1.5-pro-002": "gemini-2.5-pro",
+}
+
+
+def _canonical_model(name: str) -> str:
+    n = (name or "").strip().replace("models/", "")
+    return _DEPRECATED_MODEL_MAP.get(n, n)
 
 
 async def discover_models(api_key: str) -> list[str]:
@@ -102,14 +114,20 @@ class GeminiClient:
         # 429/403/permission errors (multi-account quota pooling).
         self.api_keys: list[str] = [api_key] + [k for k in (extra_keys or []) if k]
         self.api_key = api_key  # backward compat for callers reading .api_key
-        self.model = (model or "").strip().replace("models/", "")
+        raw = (model or "").strip().replace("models/", "")
+        self.model = _canonical_model(raw)
+        if raw and raw != self.model:
+            log.warning(
+                "gemini_model_migrated_from_deprecated",
+                from_=raw, to=self.model,
+            )
         self._working_model: str | None = None
         self._working_key_idx: int = 0
 
     @classmethod
     def from_settings(cls, settings: Any) -> "GeminiClient | None":
         key = getattr(settings, "gemini_api_key", "")
-        model = getattr(settings, "gemini_model", "gemini-1.5-flash")
+        model = getattr(settings, "gemini_model", "gemini-2.5-flash-lite")
         extras_raw = getattr(settings, "gemini_api_keys", "") or ""
         extras = [k.strip() for k in extras_raw.split(",") if k.strip()]
         if not key:
