@@ -149,7 +149,7 @@ class Settings(BaseSettings):
     # Comma-separated extra keys to rotate through when the primary one
     # hits 429/quota or a model-access issue. Order matters — earlier wins.
     gemini_api_keys: str = Field(default="")
-    gemini_model: str = Field(default="gemini-1.5-flash")
+    gemini_model: str = Field(default="gemini-2.5-flash-lite")
 
     # Web dashboard auth — random secret a user pastes in URL ?token=
     dashboard_token: str = Field(default="")
