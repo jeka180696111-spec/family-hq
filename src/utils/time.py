@@ -102,6 +102,32 @@ def iso_now() -> str:
     return now_kyiv().isoformat()
 
 
+def hm_kyiv(iso_or_dt) -> str:
+    """Отформатировать ISO-строку (или datetime) как HH:MM в Киеве.
+
+    Терпит разные форматы:
+      - '2026-10-01T19:55:00+00:00' (UTC с TZ) → '22:55' в Kyiv.
+      - '2026-10-01T19:55:00+03:00' (Kyiv с TZ) → '19:55' как есть.
+      - '2026-10-01T19:55:00' (naive) → трактуем как Kyiv (мы так пишем в БД).
+      - datetime объект — конвертируем в Kyiv (если TZ есть) или трактуем как Kyiv.
+      - пустое/битое → '?'.
+    """
+    if not iso_or_dt:
+        return "?"
+    try:
+        if isinstance(iso_or_dt, datetime):
+            dt = iso_or_dt
+        else:
+            dt = datetime.fromisoformat(str(iso_or_dt))
+    except (ValueError, TypeError):
+        return "?"
+    if dt.tzinfo is None:
+        # Naive datetime — наш код пишет в БД через iso_now() с Kyiv TZ,
+        # поэтому если TZ отсутствует — считаем что уже Kyiv.
+        return dt.strftime("%H:%M")
+    return dt.astimezone(KYIV_TZ).strftime("%H:%M")
+
+
 _WEEKDAY_RU = {
     0: "понедельник", 1: "вторник", 2: "среда", 3: "четверг",
     4: "пятница", 5: "суббота", 6: "воскресенье",

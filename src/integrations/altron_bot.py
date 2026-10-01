@@ -1197,11 +1197,8 @@ class AltronBot:
         gemini = getattr(self._agent, "_gemini", None)
         if gemini is None:
             return ""
-        try:
-            dt = datetime.fromisoformat(st["started_at"])
-            hm = dt.strftime("%H:%M")
-        except Exception:
-            hm = "?"
+        from src.utils.time import hm_kyiv
+        hm = hm_kyiv(st.get("started_at"))
         raw = "\n---\n".join(st.get("posts") or [])
         sources = st.get("sources") or []
         src_line = ", ".join(sources[:6]) if sources else "—"
@@ -1382,11 +1379,8 @@ class AltronBot:
         gemini = getattr(self._agent, "_gemini", None)
         if gemini is None:
             return ""
-        try:
-            dt = datetime.fromisoformat(started_at)
-            hm = dt.strftime("%H:%M")
-        except Exception:
-            hm = "?"
+        from src.utils.time import hm_kyiv
+        hm = hm_kyiv(started_at)
         raw = "\n---\n".join(
             f"[{p.channel_title or p.channel_id}]: {(p.text or '')[:600]}"
             for p in reversed(posts)
@@ -2590,11 +2584,8 @@ class AltronBot:
 
     @staticmethod
     def _format_start_card(region: str, started_at: str) -> str:
-        try:
-            dt = datetime.fromisoformat(started_at)
-            hm = dt.strftime("%H:%M")
-        except Exception:
-            hm = "?"
+        from src.utils.time import hm_kyiv
+        hm = hm_kyiv(started_at)
         return (
             f"🚨 <b>АЛЬТРОН · ТРЕВОГА</b>\n"
             f"📍 {region} · объявлена в {hm}\n"
@@ -2611,12 +2602,14 @@ class AltronBot:
         Показывает: оценку угрозы для нас, что летит, курс, ETA, прилёты,
         соседние регионы и — главное — источники из которых собрана инфа.
         """
+        from src.utils.time import hm_kyiv, now_kyiv, KYIV_TZ
+        hm = hm_kyiv(started_at)
         try:
             dt = datetime.fromisoformat(started_at)
-            hm = dt.strftime("%H:%M")
-            duration_min = max(0, int((datetime.now(dt.tzinfo) - dt).total_seconds() / 60))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=KYIV_TZ)
+            duration_min = max(0, int((now_kyiv() - dt.astimezone(KYIV_TZ)).total_seconds() / 60))
         except Exception:
-            hm = "?"
             duration_min = 0
 
         weapons = digest.get("weapons") or []
@@ -2709,13 +2702,9 @@ class AltronBot:
         digest: dict, sources: list[str],
     ) -> str:
         """Карточка ОТБОЯ. Показывает: длилась столько-то, итог по прилётам."""
-        try:
-            dt_start = datetime.fromisoformat(started_at)
-            start_hm = dt_start.strftime("%H:%M")
-            end_hm = datetime.now(dt_start.tzinfo).strftime("%H:%M")
-        except Exception:
-            start_hm = "?"
-            end_hm = "?"
+        from src.utils.time import hm_kyiv, now_kyiv
+        start_hm = hm_kyiv(started_at)
+        end_hm = now_kyiv().strftime("%H:%M")
 
         hits = (digest or {}).get("hits") or []
         weapons = (digest or {}).get("weapons") or []
