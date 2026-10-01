@@ -618,13 +618,37 @@ class TuyaClient:
                 "available": [d["name"] for d in devices],
             }
         status = target.get("status", []) or []
+        existing_codes = {s.get("code", "") for s in status}
+
+        # Shotgun strategy: Tuya прошивки у разных ламп называют DP-коды и
+        # принимают значения по-разному — не угадаешь без тестирования на
+        # конкретном устройстве. Поэтому собираем ВСЕ правдоподобные варианты
+        # (switch_led + switch, work_mode="colour"+1, colour_data + colour_data_v2
+        # и т.д.) — если DP есть у этой лампы, добавляем команду. Tuya игнорит
+        # неизвестные, применяет известные. Если даже один вариант подошёл —
+        # лампа изменит цвет.
         commands: list[dict] = []
 
-        switch_code = self._find_dp_code(status, "switch_led", "switch", "led_switch")
-        if switch_code:
-            commands.append({"code": switch_code, "value": True})
+        def _push_variants(candidates: list[tuple[str, Any]]) -> None:
+            """Добавляем в commands только те (code, value) где code реально
+            есть у устройства."""
+            for code, value in candidates:
+                if code in existing_codes:
+                    commands.append({"code": code, "value": value})
 
-        # Colour path
+        # 1) Включаем лампу (на всякий случай — через все возможные switch-коды)
+        _push_variants([
+            ("switch_led", True),
+            ("switch", True),
+            ("led_switch", True),
+        ])
+
+        # 2) Разбор запрошенного цвета
+        hsv: tuple[int, int, int] | None = None  # (h 0-360, s 0-1000, v 0-1000)
+        temp_val: int | None = None               # для white: 0-1000
+        want_white = False
+        want_colour = False
+
         if color is not None:
             c_norm = color.strip().lower()
             is_hex = c_norm.startswith("#") or (
@@ -632,39 +656,22 @@ class TuyaClient:
             )
             if is_hex:
                 try:
-                    h, s, v = self._hex_to_hsv(c_norm)
+                    hsv = self._hex_to_hsv(c_norm)
                 except Exception as e:
                     return {"error": f"не смог разобрать hex {color!r}: {e}"}
-                if brightness_pct is not None:
-                    v = max(10, min(1000, int(brightness_pct) * 10))
-                colour_code = self._find_dp_code(status, "colour_data") or "colour_data"
-                mode_code = self._find_dp_code(status, "work_mode") or "work_mode"
-                commands.append({"code": mode_code, "value": "colour"})
-                commands.append({"code": colour_code, "value": {"h": h, "s": s, "v": v}})
+                want_colour = True
             elif c_norm in self._COLOR_NAMES:
                 spec = self._COLOR_NAMES[c_norm]
-                mode_code = self._find_dp_code(status, "work_mode") or "work_mode"
                 if spec is None:
+                    want_white = True
                     temp_val = 500
                     if c_norm in ("тёплый", "теплый", "warm"):
                         temp_val = 0
                     elif c_norm in ("холодный", "cool", "cold"):
                         temp_val = 1000
-                    commands.append({"code": mode_code, "value": "white"})
-                    temp_code = self._find_dp_code(status, "temp_value")
-                    if temp_code:
-                        commands.append({"code": temp_code, "value": temp_val})
-                    if brightness_pct is not None:
-                        bcode = self._find_dp_code(status, "bright_value")
-                        if bcode:
-                            commands.append({"code": bcode, "value": max(10, min(1000, int(brightness_pct) * 10))})
                 else:
-                    h, s, v = spec
-                    if brightness_pct is not None:
-                        v = max(10, min(1000, int(brightness_pct) * 10))
-                    colour_code = self._find_dp_code(status, "colour_data") or "colour_data"
-                    commands.append({"code": mode_code, "value": "colour"})
-                    commands.append({"code": colour_code, "value": {"h": h, "s": s, "v": v}})
+                    hsv = spec
+                    want_colour = True
             else:
                 return {
                     "error": f"цвет {color!r} не распознан",
@@ -675,21 +682,63 @@ class TuyaClient:
                 pct = max(0, min(100, int(color_temp_pct)))
             except (TypeError, ValueError):
                 return {"error": f"color_temp_pct должен быть 0-100, получено {color_temp_pct!r}"}
-            mode_code = self._find_dp_code(status, "work_mode") or "work_mode"
-            temp_code = self._find_dp_code(status, "temp_value")
-            commands.append({"code": mode_code, "value": "white"})
-            if temp_code:
-                commands.append({"code": temp_code, "value": pct * 10})
+            want_white = True
+            temp_val = pct * 10
 
-        # Standalone brightness
-        if brightness_pct is not None and color is None:
+        # 3) Корректируем HSV яркостью если задана
+        if hsv is not None and brightness_pct is not None:
+            try:
+                b = max(1, min(100, int(brightness_pct)))
+                hsv = (hsv[0], hsv[1], b * 10)
+            except (TypeError, ValueError):
+                pass
+
+        # 4) work_mode — пробуем ВСЕ встречающиеся варианты имени и значения
+        if want_colour:
+            # Разные прошивки принимают по-разному: строка "colour"/"color"/"1",
+            # либо число 1. Шлём все совместимые с имеющимися DP-кодами.
+            for code in ("work_mode", "work_mode_v2", "mode"):
+                if code in existing_codes:
+                    commands.append({"code": code, "value": "colour"})
+                    # Некоторые прошивки принимают "color" (без u)
+                    # — но Tuya на одном DP примет последний. Не шлём оба,
+                    # оставляем "colour" (стандарт из Tuya docs).
+        elif want_white:
+            for code in ("work_mode", "work_mode_v2", "mode"):
+                if code in existing_codes:
+                    commands.append({"code": code, "value": "white"})
+
+        # 5) colour_data — HSV в разных форматах
+        if hsv is not None:
+            h, s, v = hsv
+            # Основной формат (документированный Tuya): {h,s,v} с scale 0-360 / 0-1000
+            colour_payload_std = {"h": h, "s": s, "v": v}
+            # Некоторые прошивки используют 0-255 scale для s/v
+            colour_payload_255 = {"h": h, "s": int(s * 255 / 1000), "v": int(v * 255 / 1000)}
+            _push_variants([
+                ("colour_data", colour_payload_std),
+                ("colour_data_v2", colour_payload_std),
+            ])
+            # Если нет v2 но прошивка v1-only с 0-255 scale — попадаем
+            # через colour_data с std; это предпочтительнее перебора.
+
+        # 6) temp_value / bright_value для белого режима
+        if want_white and temp_val is not None:
+            _push_variants([
+                ("temp_value", temp_val),
+                ("temp_value_v2", temp_val),
+            ])
+
+        # Standalone brightness (plus применяем к любому режиму)
+        if brightness_pct is not None:
             try:
                 b = max(1, min(100, int(brightness_pct)))
             except (TypeError, ValueError):
                 return {"error": f"brightness_pct должен быть 1-100, получено {brightness_pct!r}"}
-            bcode = self._find_dp_code(status, "bright_value")
-            if bcode:
-                commands.append({"code": bcode, "value": b * 10})
+            _push_variants([
+                ("bright_value", b * 10),
+                ("bright_value_v2", b * 10),
+            ])
 
         if not commands:
             return {"error": "не собрал ни одной команды"}
