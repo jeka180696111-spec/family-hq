@@ -1273,10 +1273,24 @@ async def run(dry_run: bool = False) -> None:
         ovr = {r.key: r.value for r in rows}
         apply_overrides(ovr)
         log.info("family_overrides_loaded", count=len(rows))
-        # Restore AI provider override that survived previous shutdowns
+        # Restore AI provider override that survived previous shutdowns.
+        # Исключение: если юзер задал ALTRON_ANTHROPIC_API_KEY, значит
+        # он явно хочет Claude для Альтрона — зависший старый override
+        # provider=gemini из БД будет блокировать это. Снимаем его.
         try:
-            from src.integrations.claude_client import load_override_from_overrides
-            load_override_from_overrides(ovr)
+            from src.integrations.claude_client import (
+                load_override_from_overrides, set_provider_override,
+            )
+            db_prov = ovr.get("ai.override_provider")
+            if settings.altron_anthropic_api_key and db_prov:
+                log.info(
+                    "ai_override_cleared_due_to_altron_key",
+                    was_provider=db_prov,
+                    was_until=ovr.get("ai.override_until"),
+                )
+                set_provider_override(None)
+            else:
+                load_override_from_overrides(ovr)
         except Exception:
             log.exception("ai_override_restore_failed")
     except Exception:
