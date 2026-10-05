@@ -1659,9 +1659,18 @@ async def run(dry_run: bool = False) -> None:
             # биллинг и квоты независимы от семейного штаба. Если
             # ALTRON_ANTHROPIC_API_KEY не задан, падаем на общий claude.
             altron_claude = claude
-            if settings.altron_anthropic_api_key:
+            # Явный диагностический лог — видно сразу подхватилось env или нет.
+            _altron_key = settings.altron_anthropic_api_key or ""
+            log.info(
+                "altron_key_check",
+                has_altron_key=bool(_altron_key),
+                altron_key_prefix=_altron_key[:12] if _altron_key else "",
+                altron_key_len=len(_altron_key),
+                has_general_key=bool(settings.anthropic_api_key_primary),
+            )
+            if _altron_key:
                 altron_claude = ClaudeClient(
-                    primary_key=settings.altron_anthropic_api_key,
+                    primary_key=_altron_key,
                     backup_key=(settings.altron_anthropic_api_key_backup
                                 or settings.anthropic_api_key_backup),
                 )
