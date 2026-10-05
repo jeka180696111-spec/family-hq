@@ -202,22 +202,32 @@ class _ResilientLLM:
     возвращаем результат в Anthropic-совместимом виде (у обеих моделей
     он одинаковый — duck-typed message с .content блоками)."""
 
-    QUOTA_MARKERS = ("429", "quota", "all keys", "rate limit", "all keys×models failed")
-    # Ошибки Claude которые означают «нет денег / нет ключа / отключен» —
-    # ретраить бесполезно, отключаем fallback на процесс.
+    # Любая ошибка primary (Gemini или Claude) переводит нас на fallback —
+    # ловим типовые маркеры квоты/перегруза обоих провайдеров.
+    QUOTA_MARKERS = (
+        # Gemini
+        "429", "quota", "all keys", "rate limit", "all keys×models failed",
+        # Claude
+        "overloaded", "overload_error", "rate_limit_error", "529", "503",
+    )
+    # Ошибки Claude которые означают «нет денег / нет ключа / аккаунт
+    # отключён» — ретраить бесполезно, отключаем fallback на процесс.
     CLAUDE_DEAD_MARKERS = (
         "credit balance", "invalid_request_error", "authentication",
         "invalid x-api-key", "unauthorized", "permission_denied",
         "no api key", "insufficient",
     )
 
-    def __init__(self, primary: Any, fallback: Any, settings: Any) -> None:
+    def __init__(
+        self, primary: Any, fallback: Any, settings: Any,
+        primary_is_claude: bool = False,
+    ) -> None:
         self._primary = primary
         self._fallback = fallback
         self._settings = settings
-        # Sticky-флаг: если Claude вернул invalid_request/no-money — больше
-        # его не дёргаем до перезапуска. Иначе self-check вечно шумит
-        # «Both primary and backup failed», хотя проблема только в деньгах.
+        # Какой провайдер primary — нужно знать чтобы правильно собирать
+        # вызовы (у Claude сигнатура требует model=, у Gemini — не нужна).
+        self._primary_is_claude = primary_is_claude
         self._fallback_disabled = False
 
     def _is_quota_err(self, exc: Exception) -> bool:
@@ -234,41 +244,53 @@ class _ResilientLLM:
                 )
             self._fallback_disabled = True
 
+    def _claude_kwargs(self, kwargs: dict) -> dict:
+        """Обёртка над Claude: добавляет model если не задан."""
+        out = dict(kwargs)
+        if "model" not in out:
+            out["model"] = (
+                getattr(self._settings, "model_cheap", "")
+                or "claude-haiku-4-5-20251001"
+            )
+        return out
+
+    def _gemini_kwargs(self, kwargs: dict) -> dict:
+        """Обёртка над Gemini: срезаем model (Gemini client сам выбирает)."""
+        out = dict(kwargs)
+        out.pop("model", None)
+        return out
+
+    async def _primary_call(self, method: str, **kwargs):
+        kw = self._claude_kwargs(kwargs) if self._primary_is_claude else self._gemini_kwargs(kwargs)
+        return await getattr(self._primary, method)(**kw)
+
+    async def _fallback_call(self, method: str, **kwargs):
+        # Fallback — противоположный провайдер
+        kw = self._gemini_kwargs(kwargs) if self._primary_is_claude else self._claude_kwargs(kwargs)
+        return await getattr(self._fallback, method)(**kw)
+
     async def complete(self, **kwargs) -> str:
         try:
-            return await self._primary.complete(**kwargs)
+            return await self._primary_call("complete", **kwargs)
         except Exception as e:
             if not self._is_quota_err(e) or self._fallback_disabled:
                 raise
-            log.warning("altron_llm_fallback_claude_complete", err=str(e)[:150])
-            model = getattr(self._settings, "model_cheap", "") or "claude-haiku-4-5-20251001"
+            log.warning("altron_llm_fallback_complete", err=str(e)[:150])
             try:
-                return await self._fallback.complete(
-                    model=model, system=kwargs.get("system", ""),
-                    messages=kwargs.get("messages") or [],
-                    max_tokens=kwargs.get("max_tokens", 1024),
-                )
+                return await self._fallback_call("complete", **kwargs)
             except Exception as fb_err:
                 self._maybe_disable_fallback(fb_err)
-                # Пробрасываем исходную ошибку Gemini — она понятнее для
-                # self-check и логов, чем «Claude money».
                 raise e
 
     async def complete_with_tools(self, **kwargs) -> Any:
         try:
-            return await self._primary.complete_with_tools(**kwargs)
+            return await self._primary_call("complete_with_tools", **kwargs)
         except Exception as e:
             if not self._is_quota_err(e) or self._fallback_disabled:
                 raise
-            log.warning("altron_llm_fallback_claude_tools", err=str(e)[:150])
-            model = getattr(self._settings, "model_cheap", "") or "claude-haiku-4-5-20251001"
+            log.warning("altron_llm_fallback_tools", err=str(e)[:150])
             try:
-                return await self._fallback.complete_with_tools(
-                    model=model, system=kwargs.get("system", ""),
-                    messages=kwargs.get("messages") or [],
-                    tools=kwargs.get("tools") or [],
-                    max_tokens=kwargs.get("max_tokens", 2048),
-                )
+                return await self._fallback_call("complete_with_tools", **kwargs)
             except Exception as fb_err:
                 self._maybe_disable_fallback(fb_err)
                 raise e
@@ -286,9 +308,19 @@ class _ResilientLLM:
         handle() вернул понятное «LLM не отвечает».
         """
         streamed_any = False
-        gemini_err: Exception | None = None
+        primary_err: Exception | None = None
+        # У Claude нет единого complete_stream сейчас — если primary=Claude,
+        # сразу идём через non-stream complete и возвращаем одним чанком.
+        if self._primary_is_claude and not hasattr(self._primary, "complete_stream"):
+            text = await self._primary_call("complete", **kwargs)
+            yield text or ""
+            return
         try:
-            async for chunk in self._primary.complete_stream(**kwargs):
+            primary_kw = (
+                self._claude_kwargs(kwargs) if self._primary_is_claude
+                else self._gemini_kwargs(kwargs)
+            )
+            async for chunk in self._primary.complete_stream(**primary_kw):
                 streamed_any = True
                 yield chunk
             return
@@ -296,24 +328,17 @@ class _ResilientLLM:
             if not self._is_quota_err(e) or streamed_any:
                 raise
             if self._fallback_disabled:
-                # Claude раньше сдох по деньгам — не пытаемся, отдаём
-                # Gemini-ошибку как есть.
                 raise
-            gemini_err = e
-        # Не отдали ни одного чанка И это quota-error → fallback на Claude
+            primary_err = e
+        # Не отдали ни одного чанка И это quota-error → fallback non-stream
         try:
-            model = getattr(self._settings, "model_cheap", "") or "claude-haiku-4-5-20251001"
-            text = await self._fallback.complete(
-                model=model, system=kwargs.get("system", ""),
-                messages=kwargs.get("messages") or [],
-                max_tokens=kwargs.get("max_tokens", 1024),
-            )
+            text = await self._fallback_call("complete", **kwargs)
             yield text or ""
         except Exception as fallback_err:
             self._maybe_disable_fallback(fallback_err)
             log.warning("altron_llm_fallback_stream_failed", err=str(fallback_err)[:150])
             # Пробрасываем исходную Gemini-ошибку — она правдивая.
-            raise gemini_err or fallback_err
+            raise primary_err or fallback_err
 
     # Пробросим оставшиеся методы (vision, transcribe, etc) прямо в primary
     def __getattr__(self, item):
@@ -336,13 +361,31 @@ class AltronAgent:
         claude_client: Any = None,
     ) -> None:
         self._memory = memory
-        # Обёртка: primary=Gemini (дешевле), fallback=Claude Haiku.
-        # Если Gemini даёт квоту-ошибку (429 / all keys failed), автоматически
-        # ретраит запрос через Claude. Пользователь не видит разницы.
-        self._gemini = _ResilientLLM(
-            primary=gemini_client, fallback=claude_client,
-            settings=settings,
-        ) if claude_client is not None else gemini_client
+        # Выбор primary LLM:
+        # - Если задан ALTRON_ANTHROPIC_API_KEY (отдельный ключ) → Claude
+        #   primary, Gemini fallback. Пользователь явно платит за Claude.
+        # - Иначе — старое поведение: Gemini primary (free), Claude fallback.
+        self._primary_is_claude = bool(
+            claude_client is not None
+            and getattr(settings, "altron_anthropic_api_key", "")
+        )
+        if claude_client is not None:
+            if self._primary_is_claude:
+                self._gemini = _ResilientLLM(
+                    primary=claude_client, fallback=gemini_client,
+                    settings=settings, primary_is_claude=True,
+                )
+                log.info("altron_llm_primary", provider="claude",
+                         model=getattr(settings, "model_cheap", ""))
+            else:
+                self._gemini = _ResilientLLM(
+                    primary=gemini_client, fallback=claude_client,
+                    settings=settings, primary_is_claude=False,
+                )
+                log.info("altron_llm_primary", provider="gemini")
+        else:
+            self._gemini = gemini_client
+            log.info("altron_llm_primary", provider="gemini", fallback="none")
         self._settings = settings
         # История разговора по chat_id. In-memory; при перезапуске обнуляется —
         # для Этапа 2 нормально. Позже переедет в БД.
