@@ -48,14 +48,10 @@ class Settings(BaseSettings):
     # Отдельный ключ только для Альтрона — чтобы биллинг семейного штаба
     # и Альтрона считался раздельно, и исчерпание квоты одного не ронял
     # другой. Если пустой → Альтрон использует общие primary/backup.
-    altron_anthropic_api_key: str = Field(
-        default="",
-        validation_alias=AliasChoices("altron_anthropic_api_key"),
-    )
-    altron_anthropic_api_key_backup: str = Field(
-        default="",
-        validation_alias=AliasChoices("altron_anthropic_api_key_backup"),
-    )
+    # NB: без validation_alias — pydantic сам подхватит ALTRON_ANTHROPIC_API_KEY
+    # по имени поля (case_sensitive=False в model_config).
+    altron_anthropic_api_key: str = Field(default="")
+    altron_anthropic_api_key_backup: str = Field(default="")
     model_main: str = Field(default="claude-sonnet-4-5-20250929")
     model_cheap: str = Field(default="claude-haiku-4-5-20251001")
 
