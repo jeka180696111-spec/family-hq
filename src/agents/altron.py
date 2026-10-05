@@ -500,12 +500,14 @@ class AltronAgent:
             del h[: len(h) - self._HISTORY_LIMIT]
         # Персистим в БД чтобы переживать рестарты. Не блокирует ответ:
         # ошибки логируем и продолжаем.
-        # BUG FIX: раньше без keep-reference и без shield — при timeout в
-        # bot layer таск отменялся и запись терялась. Теперь shield-им и
-        # держим ссылку (в набор в class-attr) чтоб GC не съел.
+        # BUG FIX #2: раньше писали asyncio.create_task(asyncio.shield(coro)),
+        # что валилось TypeError'ом — shield() возвращает Future, а
+        # create_task требует coroutine. Shield здесь избыточен: ссылку на
+        # Task всё равно держим в self._persist_tasks, cancel-propagation
+        # нам не нужен (bot layer их не отменяет).
         try:
             t = asyncio.create_task(
-                asyncio.shield(self._persist_message(chat_id, role, content))
+                self._persist_message(chat_id, role, content)
             )
             self._persist_tasks.add(t)
             t.add_done_callback(self._persist_tasks.discard)
