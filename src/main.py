@@ -1655,11 +1655,23 @@ async def run(dry_run: bool = False) -> None:
         try:
             from src.agents.altron import AltronAgent
             from src.integrations.altron_bot import AltronBot
+            # Отдельный Claude-клиент для Альтрона с собственным ключом —
+            # биллинг и квоты независимы от семейного штаба. Если
+            # ALTRON_ANTHROPIC_API_KEY не задан, падаем на общий claude.
+            altron_claude = claude
+            if settings.altron_anthropic_api_key:
+                altron_claude = ClaudeClient(
+                    primary_key=settings.altron_anthropic_api_key,
+                    backup_key=(settings.altron_anthropic_api_key_backup
+                                or settings.anthropic_api_key_backup),
+                )
+                altron_claude.attach_memory(memory)
+                log.info("altron_claude_dedicated_key_in_use")
             altron_agent = AltronAgent(
                 memory=memory,
                 gemini_client=_news_gemini,
                 settings=settings,
-                claude_client=claude,  # Fallback при исчерпанной квоте Gemini
+                claude_client=altron_claude,  # Fallback при исчерпанной квоте Gemini
             )
             altron_bot = AltronBot(
                 token=settings.altron_bot_token,
